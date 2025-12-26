@@ -1,85 +1,205 @@
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
-import { supabase } from '../../lib/supabaseClient';
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import { requireErpAuthOrRedirect, isAdmin } from "../../lib/erpContext";
 
-export default function ProductsPage() {
-  const router = useRouter();
+export default function ErpProductsPage() {
+  const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [items, setItems] = useState([]);
+  const [title, setTitle] = useState("");
+  const [status, setStatus] = useState("draft");
+
+  const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
   useEffect(() => {
-    let active = true;
-
-    const loadSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!active) return;
-      if (!data.session) {
-        router.replace('/login');
-        return;
-      }
+    (async () => {
+      const c = await requireErpAuthOrRedirect();
+      if (!c) return;
+      setCtx(c);
+      await load(c.companyId);
       setLoading(false);
-    };
+    })();
+  }, []);
 
-    loadSession();
+  async function load(companyId) {
+    setErr("");
+    const { data, error } = await supabase
+      .from("erp_products")
+      .select("id, title, status, created_at")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false });
 
-    const {
-      data: authListener,
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active) return;
-      if (!session) {
-        router.replace('/login');
-      }
-    });
-
-    return () => {
-      active = false;
-      authListener.subscription.unsubscribe();
-    };
-  }, [router]);
-
-  if (loading) {
-    return (
-      <div style={loadingContainerStyle}>
-        <p>Loading account...</p>
-      </div>
-    );
+    if (error) setErr(error.message);
+    setItems(data || []);
   }
 
+  async function createProduct(e) {
+    e.preventDefault();
+    if (!ctx) return;
+    if (!title.trim()) return;
+
+    setErr("");
+    const { error } = await supabase.from("erp_products").insert({
+      company_id: ctx.companyId,
+      title: title.trim(),
+      status,
+    });
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setTitle("");
+    setStatus("draft");
+    await load(ctx.companyId);
+  }
+
+  async function updateStatus(id, nextStatus) {
+    if (!ctx) return;
+    setErr("");
+    const { error } = await supabase
+      .from("erp_products")
+      .update({ status: nextStatus })
+      .eq("id", id)
+      .eq("company_id", ctx.companyId);
+
+    if (error) setErr(error.message);
+    await load(ctx.companyId);
+  }
+
+  async function deleteProduct(id) {
+    if (!ctx) return;
+    if (!confirm("Delete this product? Variants may also be deleted (cascade).")) return;
+
+    setErr("");
+    const { error } = await supabase
+      .from("erp_products")
+      .delete()
+      .eq("id", id)
+      .eq("company_id", ctx.companyId);
+
+    if (error) setErr(error.message);
+    await load(ctx.companyId);
+  }
+
+  if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
+
   return (
-    <div style={pageContainerStyle}>
-      <h1 style={titleStyle}>Products</h1>
-      <p style={subtitleStyle}>Coming soon.</p>
+    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Products</h1>
+          <p style={{ marginTop: 6, color: "#555" }}>Create and manage your product catalog (style-level).</p>
+          <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
+            Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <a href="/erp">← ERP Home</a>
+          <a href="/erp/variants">Variants →</a>
+        </div>
+      </div>
+
+      {err ? (
+        <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
+          {err}
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+        <h3 style={{ marginTop: 0 }}>Add Product</h3>
+
+        {!canWrite ? (
+          <div style={{ color: "#777" }}>You are in read-only mode (only owner/admin can create/update).</div>
+        ) : (
+          <form onSubmit={createProduct} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Product title (e.g., MBPS06 - One Piece Swimsuit)"
+              style={{ flex: "1 1 360px", padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+            />
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+            >
+              <option value="draft">draft</option>
+              <option value="active">active</option>
+              <option value="archived">archived</option>
+            </select>
+            <button style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>
+              Create
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+        <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
+          Products ({items.length})
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", background: "#fff" }}>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Title</th>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Status</th>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Created</th>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1" }}>
+                    <div style={{ fontWeight: 600 }}>{p.title}</div>
+                    <div style={{ fontSize: 12, color: "#777" }}>{p.id}</div>
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1" }}>
+                    {canWrite ? (
+                      <select
+                        value={p.status}
+                        onChange={(e) => updateStatus(p.id, e.target.value)}
+                        style={{ padding: 8, borderRadius: 8, border: "1px solid #ddd" }}
+                      >
+                        <option value="draft">draft</option>
+                        <option value="active">active</option>
+                        <option value="archived">archived</option>
+                      </select>
+                    ) : (
+                      <span>{p.status}</span>
+                    )}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1", color: "#555" }}>
+                    {new Date(p.created_at).toLocaleString()}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1", textAlign: "right" }}>
+                    {canWrite ? (
+                      <button
+                        onClick={() => deleteProduct(p.id)}
+                        style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ffd3d3", background: "#fff3f3" }}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 16, color: "#777" }}>
+                    No products yet.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
-
-const pageContainerStyle = {
-  maxWidth: 720,
-  margin: '120px auto',
-  padding: '48px 56px',
-  borderRadius: 10,
-  border: '1px solid #e5e7eb',
-  fontFamily: 'Arial, sans-serif',
-  boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
-  backgroundColor: '#fff',
-  textAlign: 'center',
-};
-
-const loadingContainerStyle = {
-  display: 'grid',
-  placeItems: 'center',
-  height: '100vh',
-  fontFamily: 'Arial, sans-serif',
-  color: '#374151',
-};
-
-const titleStyle = {
-  margin: '0 0 12px',
-  fontSize: 32,
-  color: '#111827',
-};
-
-const subtitleStyle = {
-  margin: 0,
-  fontSize: 16,
-  color: '#4b5563',
-};
