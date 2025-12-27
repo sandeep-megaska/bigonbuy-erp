@@ -209,4 +209,10 @@ const navItems = [
     href: "/erp/hr/employee-logins",
     icon: "🔗",
   },
+  {
+    title: "Onboarding",
+    description: "Generate join links for new employees.",
+    href: "/erp/hr/onboarding",
+    icon: "✨",
+  },
 ];
