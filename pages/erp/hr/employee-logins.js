@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 
+const AUTHORIZED_ROLES = ["owner", "admin", "hr"];
+
 function Card({ children }) {
   return (
     <div
@@ -62,39 +64,43 @@ export default function EmployeeLogins() {
   const [companyId, setCompanyId] = useState("");
 
   const [employees, setEmployees] = useState([]);
-  const [mappings, setMappings] = useState([]); // { employee_id, user_id, is_active }
-  const [emailDrafts, setEmailDrafts] = useState({}); // employeeId -> email text
+  const [mappings, setMappings] = useState([]);
+  const [emailDrafts, setEmailDrafts] = useState({});
 
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [recoveryLink, setRecoveryLink] = useState("");
   const [busyEmployeeId, setBusyEmployeeId] = useState(null);
 
-  const canManage = useMemo(() => {
-    return roleKey === "owner" || roleKey === "admin" || roleKey === "hr";
-  }, [roleKey]);
+  const canManage = useMemo(() => AUTHORIZED_ROLES.includes(roleKey), [roleKey]);
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    router.replace("/");
-  }
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (!active) return;
 
-  async function loadContextAndData() {
+      if (sessionErr || !sessionData?.session) {
+        router.replace("/");
+        return;
+      }
+
+      setSessionEmail(sessionData.session.user.email || "");
+      await loadData(sessionData.session, active);
+    })();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadData(session, isActive = true) {
     setLoading(true);
     setError("");
     setSuccessMsg("");
     setRecoveryLink("");
 
-    const { data: sdata, error: serr } = await supabase.auth.getSession();
-    if (serr || !sdata?.session) {
-      router.replace("/");
-      return;
-    }
-
-    const session = sdata.session;
-    setSessionEmail(session.user.email || "");
-
-    // Company membership (Phase 0)
     const { data: member, error: merr } = await supabase
       .from("erp_company_users")
       .select("company_id, role_key, is_active")
@@ -102,6 +108,8 @@ export default function EmployeeLogins() {
       .eq("is_active", true)
       .limit(1)
       .maybeSingle();
+
+    if (!isActive) return;
 
     if (merr) {
       setError(merr.message);
@@ -118,7 +126,6 @@ export default function EmployeeLogins() {
     setCompanyId(member.company_id);
     setRoleKey(member.role_key || "");
 
-    // Load employees
     const { data: emps, error: eerr } = await supabase
       .from("erp_employees")
       .select("id, employee_no, full_name, work_email, personal_email, phone, status, department, designation")
@@ -131,23 +138,20 @@ export default function EmployeeLogins() {
       return;
     }
 
-    setEmployees(emps || []);
-
-    // Prepare default email drafts
     const drafts = {};
-    (emps || []).forEach((e) => {
-      drafts[e.id] = (e.work_email || e.personal_email || "").trim();
+    (emps || []).forEach((emp) => {
+      drafts[emp.id] = (emp.work_email || emp.personal_email || "").trim();
     });
+
+    setEmployees(emps || []);
     setEmailDrafts(drafts);
 
-    // Load existing mappings
     const { data: maps, error: mapErr } = await supabase
       .from("erp_employee_users")
       .select("employee_id, user_id, is_active")
       .eq("company_id", member.company_id);
 
     if (mapErr) {
-      // mapping table exists but policy might block; show error
       setError(mapErr.message);
       setLoading(false);
       return;
@@ -156,18 +160,6 @@ export default function EmployeeLogins() {
     setMappings(maps || []);
     setLoading(false);
   }
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!active) return;
-      await loadContextAndData();
-    })();
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function mappingForEmployee(employeeId) {
     return mappings.find((m) => m.employee_id === employeeId && m.is_active);
@@ -188,12 +180,14 @@ export default function EmployeeLogins() {
       setError("Please enter an email address for this employee.");
       return;
     }
+
     if (!companyId) {
       setError("companyId missing. Please refresh and try again.");
       return;
     }
 
     setBusyEmployeeId(emp.id);
+
     try {
       const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
       if (sessionErr || !sessionData?.session) {
@@ -209,22 +203,28 @@ export default function EmployeeLogins() {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          companyId: companyId,
+          companyId,
           employeeId: emp.id,
           employeeEmail: email,
         }),
       });
 
-      const data = await res.json();
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        const fallbackText = await res.text().catch(() => "");
+        data = { ok: false, error: fallbackText || parseErr?.message || "Unable to parse response" };
+      }
 
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to link employee login");
+      if (!res.ok || !data?.ok) {
+        const message = data?.error || `Failed to link employee login (status ${res.status})`;
+        throw new Error(message);
       }
 
       setSuccessMsg("Employee login linked successfully.");
       setRecoveryLink(data.recoveryLink || "");
 
-      // refresh mappings so status updates
       const { data: maps, error: mapErr } = await supabase
         .from("erp_employee_users")
         .select("employee_id, user_id, is_active")
@@ -236,6 +236,11 @@ export default function EmployeeLogins() {
     } finally {
       setBusyEmployeeId(null);
     }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.replace("/");
   }
 
   return (
@@ -474,8 +479,7 @@ export default function EmployeeLogins() {
       )}
 
       <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
-        Tip: After linking, send the password setup link to the employee. They can then log in and use{" "}
-        <code>/me</code>.
+        Tip: After linking, send the password setup link to the employee. They can then log in and use <code>/me</code>.
       </div>
     </div>
   );

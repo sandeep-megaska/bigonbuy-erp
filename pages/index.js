@@ -9,6 +9,7 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export default function Home() {
       setSession(nextSession);
       setLoading(false);
       setError("");
+      setNotice("");
     });
 
     return () => {
@@ -37,6 +39,7 @@ export default function Home() {
     e.preventDefault();
     setSubmitting(true);
     setError("");
+    setNotice("");
 
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
@@ -48,8 +51,32 @@ export default function Home() {
     setSubmitting(false);
   };
 
+  const handleForgotPassword = async () => {
+    setError("");
+    setNotice("");
+
+    if (!email) {
+      setError("Enter your email first, then click Forgot / Set password.");
+      return;
+    }
+
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://erp.bigonbuy.com";
+
+    const { error: fpErr } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${baseUrl}/reset-password`,
+    });
+
+    if (fpErr) {
+      setError(fpErr.message);
+      return;
+    }
+
+    setNotice("Password email sent. Check your inbox (and spam).");
+  };
+
   const handleSignOut = async () => {
     setError("");
+    setNotice("");
     await supabase.auth.signOut();
   };
 
@@ -60,26 +87,6 @@ export default function Home() {
       </div>
     );
   }
-const handleForgotPassword = async () => {
-  setError("");
-  if (!email) {
-    setError("Enter your email first, then click Forgot password.");
-    return;
-  }
-
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://erp.bigonbuy.com";
-
-  const { error: fpErr } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${baseUrl}/reset-password`,
-  });
-
-  if (fpErr) {
-    setError(fpErr.message);
-    return;
-  }
-
-  setError("Password reset email sent. Check your inbox (and spam).");
-};
 
   return (
     <div style={containerStyle}>
@@ -112,18 +119,19 @@ const handleForgotPassword = async () => {
             <button type="submit" style={buttonStyle} disabled={submitting}>
               {submitting ? "Signing in..." : "Sign In"}
             </button>
-              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-  <button type="button" onClick={handleForgotPassword} style={secondaryBtn}>
-    Forgot / Set password
-  </button>
-  <Link href="/reset-password" style={{ marginTop: 8 }}>
-    Have a link? Open reset page
-  </Link>
-</div>
 
+            <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <button type="button" onClick={handleForgotPassword} style={secondaryBtn}>
+                Forgot / Set password
+              </button>
+              <Link href="/reset-password" style={{ marginTop: 4 }}>
+                Have a link? Open reset page
+              </Link>
+            </div>
           </form>
 
           {error ? <p style={{ color: "red", marginTop: 12 }}>{error}</p> : null}
+          {notice ? <p style={{ color: "#065f46", marginTop: 12 }}>{notice}</p> : null}
         </>
       ) : (
         <>

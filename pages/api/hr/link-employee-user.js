@@ -1,10 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 
-DEFAULT_REDIRECT = "https://erp.bigonbuy.com/reset-password";
-
 const AUTHORIZED_ROLES = ["owner", "admin", "hr"];
+const DEFAULT_REDIRECT = "https://erp.bigonbuy.com/reset-password";
 
-async function authorizeHrForCompany({ supabaseUrl, anonKey, accessToken, companyId }) {
+function jsonError(res, status, message) {
+  return res.status(status).json({ ok: false, error: message || "Unexpected error" });
+}
+
+function getBearerToken(req) {
+  const authHeader = req.headers.authorization || "";
+  return authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+}
+
+async function assertRoleForCompany({ supabaseUrl, anonKey, accessToken, companyId }) {
   const supa = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false },
@@ -36,7 +44,6 @@ async function findUserByEmail(adminClient, email) {
   const perPage = 100;
   const target = email.toLowerCase();
 
-  // Paginate through users to find by email (getUserByEmail is unavailable in v2)
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
@@ -76,34 +83,27 @@ export default async function handler(req, res) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !anonKey || !serviceKey) {
-    return res
-      .status(500)
-      .json({ ok: false, error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY" });
+    return jsonError(
+      res,
+      500,
+      "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
+    );
   }
 
-  const authHeader = req.headers.authorization || "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const accessToken = getBearerToken(req);
   if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization Bearer token" });
+    return jsonError(res, 401, "Missing Authorization Bearer token");
   }
 
   const { companyId, employeeId, employeeEmail } = req.body || {};
   if (!companyId || !employeeId || !employeeEmail) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "companyId, employeeId, and employeeEmail are required" });
+    return jsonError(res, 400, "companyId, employeeId, and employeeEmail are required");
   }
 
   try {
-    const authz = await authorizeHrForCompany({
-      supabaseUrl,
-      anonKey,
-      accessToken,
-      companyId,
-    });
-
+    const authz = await assertRoleForCompany({ supabaseUrl, anonKey, accessToken, companyId });
     if (authz.status !== 200) {
-      return res.status(authz.status).json({ ok: false, error: authz.error });
+      return jsonError(res, authz.status, authz.error);
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey, {
@@ -124,7 +124,7 @@ export default async function handler(req, res) {
     );
 
     if (upsertErr) {
-      return res.status(500).json({ ok: false, error: upsertErr.message });
+      return jsonError(res, 500, upsertErr.message);
     }
 
     const redirectTo = process.env.ERP_REDIRECT_URL || DEFAULT_REDIRECT;
@@ -135,16 +135,17 @@ export default async function handler(req, res) {
     });
 
     if (linkErr) {
-      return res.status(500).json({ ok: false, error: linkErr.message });
+      return jsonError(res, 500, linkErr.message);
     }
 
-    const recoveryLink = linkData?.properties?.action_link;
+    const recoveryLink = linkData?.properties?.action_link || null;
+
     return res.status(200).json({
       ok: true,
-      userId: user.id,
       recoveryLink,
+      userId: user.id,
     });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
+    return jsonError(res, 500, e?.message || "Unknown error");
   }
 }

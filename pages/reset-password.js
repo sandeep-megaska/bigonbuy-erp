@@ -2,197 +2,190 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
 
-export default function ResetPassword() {
-  const [checking, setChecking] = useState(true);
-  const [hasSession, setHasSession] = useState(false);
-  const [email, setEmail] = useState("");
-  const [pw1, setPw1] = useState("");
-  const [pw2, setPw2] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [okMsg, setOkMsg] = useState("");
-  const [errMsg, setErrMsg] = useState("");
+export default function ResetPasswordPage() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
 
-    async function init() {
-      setChecking(true);
-      setErrMsg("");
-      setOkMsg("");
+    (async () => {
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (!active) return;
 
-      // Supabase client auto-detects recovery link params in URL and establishes session (if valid)
-      const { data, error } = await supabase.auth.getSession();
-
-      if (cancelled) return;
-
-      if (error) {
-        setHasSession(false);
-        setChecking(false);
-        setErrMsg(error.message);
-        return;
+      if (sessionError) {
+        setError(sessionError.message);
       }
 
-      const session = data?.session || null;
-      setHasSession(!!session);
-      setEmail(session?.user?.email || "");
-      setChecking(false);
-    }
+      setSession(data?.session ?? null);
+      setLoading(false);
+    })();
 
-    init();
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!active) return;
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+        setSession(newSession);
+        setError("");
+        setLoading(false);
+      }
+    });
 
     return () => {
-      cancelled = true;
+      active = false;
+      listener?.subscription?.unsubscribe();
     };
   }, []);
 
-  const handleSetPassword = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setErrMsg("");
-    setOkMsg("");
+    setError("");
+    setSuccess("");
 
-    if (!pw1 || pw1.length < 8) {
-      setErrMsg("Password must be at least 8 characters.");
-      return;
-    }
-    if (pw1 !== pw2) {
-      setErrMsg("Passwords do not match.");
+    if (!session) {
+      setError("Reset link is invalid or expired. Request a new one from the login page.");
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const { error } = await supabase.auth.updateUser({ password: pw1 });
-      if (error) throw error;
-
-      setOkMsg("Password set successfully. You can now sign in using email + password.");
-      setPw1("");
-      setPw2("");
-    } catch (e2) {
-      setErrMsg(e2?.message || "Failed to set password.");
-    } finally {
-      setSubmitting(false);
+    if (!password) {
+      setError("Enter a new password.");
+      return;
     }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setUpdating(true);
+    const { error: updateErr } = await supabase.auth.updateUser({ password });
+    setUpdating(false);
+
+    if (updateErr) {
+      setError(updateErr.message);
+      return;
+    }
+
+    setSuccess("Password updated. You can now log in with your email and new password.");
   };
 
   return (
-    <div style={container}>
-      <div style={card}>
-        <h1 style={{ margin: "0 0 6px", fontSize: 34 }}>Set your password</h1>
-        <div style={{ opacity: 0.75, marginBottom: 16 }}>
-          This page is used for first-time password setup and password reset.
+    <div style={containerStyle}>
+      <h1 style={{ marginTop: 0 }}>Reset your password</h1>
+      <p style={{ marginTop: 0, color: "#4b5563" }}>
+        Use the link you received via email to set a new password. Do not close this tab until you finish.
+      </p>
+
+      {loading ? (
+        <p>Checking your reset link…</p>
+      ) : !session ? (
+        <div style={alertStyle}>
+          <p style={{ margin: 0, fontWeight: 700 }}>This reset link is invalid or has expired.</p>
+          <p style={{ margin: "6px 0 0", color: "#6b7280" }}>
+            Request a new password email from the login page.
+          </p>
+          <div style={{ marginTop: 10 }}>
+            <Link href="/" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 700 }}>
+              Go to login
+            </Link>
+          </div>
         </div>
+      ) : (
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
+          <label style={labelStyle}>
+            New password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={inputStyle}
+              placeholder="Enter new password"
+              required
+            />
+          </label>
 
-        {checking ? (
-          <div>Checking link…</div>
-        ) : !hasSession ? (
-          <>
-            <div style={errorBox}>
-              This link is invalid or expired. Please request a new password setup/reset link from HR,
-              or use “Forgot password” on the login page.
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <Link href="/">← Back to login</Link>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{ marginBottom: 12 }}>
-              Signed in as <b>{email || "employee"}</b>
-            </div>
+          <label style={labelStyle}>
+            Confirm password
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              style={inputStyle}
+              placeholder="Confirm password"
+              required
+            />
+          </label>
 
-            {errMsg ? <div style={errorBox}>{errMsg}</div> : null}
-            {okMsg ? <div style={okBox}>{okMsg}</div> : null}
+          <button type="submit" style={buttonStyle} disabled={updating}>
+            {updating ? "Updating…" : "Update password"}
+          </button>
+        </form>
+      )}
 
-            <form onSubmit={handleSetPassword} style={{ marginTop: 12 }}>
-              <label style={label}>New password</label>
-              <input
-                type="password"
-                value={pw1}
-                onChange={(e) => setPw1(e.target.value)}
-                style={input}
-                placeholder="Minimum 8 characters"
-              />
+      {error ? (
+        <div style={{ ...alertStyle, marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b" }}>
+          {error}
+        </div>
+      ) : null}
 
-              <label style={label}>Confirm password</label>
-              <input
-                type="password"
-                value={pw2}
-                onChange={(e) => setPw2(e.target.value)}
-                style={input}
-                placeholder="Re-enter password"
-              />
-
-              <button disabled={submitting} style={button}>
-                {submitting ? "Saving…" : "Set Password"}
-              </button>
-            </form>
-
-            <div style={{ marginTop: 12 }}>
-              <Link href="/">← Back to login</Link>
-            </div>
-          </>
-        )}
-      </div>
+      {success ? (
+        <div style={{ ...alertStyle, marginTop: 12, background: "#ecfdf5", border: "1px solid #bbf7d0", color: "#065f46" }}>
+          {success}
+          <div style={{ marginTop: 8 }}>
+            <Link href="/" style={{ color: "#2563eb", fontWeight: 700 }}>
+              Return to login
+            </Link>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-const container = {
-  minHeight: "100vh",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
+const containerStyle = {
+  maxWidth: 480,
+  margin: "80px auto",
   padding: 24,
-  fontFamily: "system-ui",
-  background: "#f9fafb",
-};
-
-const card = {
-  width: "100%",
-  maxWidth: 560,
-  background: "#fff",
   border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: 22,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+  borderRadius: 10,
+  fontFamily: "Arial, sans-serif",
+  boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  backgroundColor: "#fff",
 };
 
-const label = { display: "block", fontWeight: 700, marginTop: 10, marginBottom: 6 };
+const labelStyle = {
+  fontWeight: 700,
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  color: "#111827",
+};
 
-const input = {
-  width: "100%",
-  padding: 12,
-  borderRadius: 10,
+const inputStyle = {
+  padding: "10px 12px",
+  fontSize: 16,
+  borderRadius: 8,
   border: "1px solid #d1d5db",
-  fontSize: 14,
 };
 
-const button = {
-  width: "100%",
-  marginTop: 14,
-  padding: 12,
-  borderRadius: 10,
-  border: "none",
-  background: "#111",
+const buttonStyle = {
+  padding: "12px 14px",
+  backgroundColor: "#111",
   color: "#fff",
-  fontWeight: 800,
+  border: "none",
+  borderRadius: 8,
   cursor: "pointer",
+  fontSize: 16,
+  marginTop: 4,
 };
 
-const errorBox = {
-  background: "#fef2f2",
-  border: "1px solid #fecaca",
-  color: "#991b1b",
+const alertStyle = {
   padding: 12,
   borderRadius: 10,
-  whiteSpace: "pre-wrap",
-};
-
-const okBox = {
-  background: "#ecfdf5",
-  border: "1px solid #bbf7d0",
-  color: "#065f46",
-  padding: 12,
-  borderRadius: 10,
-  whiteSpace: "pre-wrap",
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
 };

@@ -2,43 +2,105 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
-import { requireAuthRedirectHome } from "../../lib/erpContext";
 
 export default function EmployeeProfilePage() {
   const router = useRouter();
-  const [ctx, setCtx] = useState(null);
+  const [session, setSession] = useState(null);
+  const [mapping, setMapping] = useState(null);
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     let active = true;
+
     (async () => {
-      const session = await requireAuthRedirectHome(router);
-      if (!session || !active) return;
-      await loadEmployeeContext(session, active);
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (!active) return;
+
+      if (sessionErr || !sessionData?.session) {
+        router.replace("/");
+        return;
+      }
+
+      setSession(sessionData.session);
+      await loadMapping(sessionData.session, active);
     })();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (!active) return;
+      if (event === "SIGNED_OUT") {
+        router.replace("/");
+        return;
+      }
+      if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") {
+        setSession(newSession);
+      }
+    });
+
     return () => {
       active = false;
+      listener?.subscription?.unsubscribe();
     };
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadMapping(currentSession, isActive = true) {
+    setErr("");
+    setLoading(true);
+
+    const { data: mapData, error: mapErr } = await supabase
+      .from("erp_employee_users")
+      .select("company_id, employee_id, is_active")
+      .eq("user_id", currentSession.user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (!isActive) return;
+
+    if (mapErr) {
+      setErr(mapErr.message);
+      setLoading(false);
+      return;
+    }
+
+    if (!mapData?.employee_id) {
+      setErr("Your account is not linked to an employee record. Contact HR.");
+      setMapping(null);
+      setEmployee(null);
+      setLoading(false);
+      return;
+    }
+
+    setMapping(mapData);
+    await loadEmployee(mapData.company_id, mapData.employee_id, isActive);
+    if (isActive) setLoading(false);
+  }
 
   async function loadEmployee(companyId, employeeId, isActive = true) {
     const { data, error } = await supabase
       .from("erp_employees")
-      .select("id, employee_no, full_name, work_email, phone, joining_date, status, department, designation")
+      .select(
+        "id, employee_no, full_name, work_email, phone, joining_date, status, department, designation"
+      )
       .eq("company_id", companyId)
       .eq("id", employeeId)
       .maybeSingle();
+
+    if (!isActive) return;
+
     if (error) {
-      if (isActive) setErr(error.message);
+      setErr(error.message);
       return;
     }
-    if (!data && isActive) {
+
+    if (!data) {
       setErr("Employee record not found.");
       return;
     }
-    if (isActive) setEmployee(data);
+
+    setEmployee(data);
   }
 
   const handleSignOut = async () => {
@@ -46,54 +108,15 @@ export default function EmployeeProfilePage() {
     router.replace("/");
   };
 
-  async function loadEmployeeContext(session, isActive = true) {
-    setErr("");
-    const { data: mapping, error: mapErr } = await supabase
-      .from("erp_employee_users")
-      .select("company_id, employee_id, is_active")
-      .eq("user_id", session.user.id)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-    if (mapErr) {
-      if (isActive) {
-        setErr(mapErr.message);
-        setLoading(false);
-      }
-      return;
-    }
-
-    if (!mapping?.employee_id || !mapping?.company_id) {
-      if (isActive) {
-        setErr("Your account is not linked to an employee record. Contact HR.");
-        setLoading(false);
-      }
-      return;
-    }
-
-    const context = {
-      session,
-      email: session.user.email ?? "",
-      userId: session.user.id,
-      companyId: mapping.company_id,
-      employeeId: mapping.employee_id,
-    };
-
-    if (isActive) setCtx(context);
-    await loadEmployee(context.companyId, context.employeeId, isActive);
-    if (isActive) setLoading(false);
-  }
-
   if (loading) {
     return <div style={containerStyle}>Loading profile…</div>;
   }
 
-  if (!ctx?.companyId || !ctx?.employeeId) {
+  if (!mapping) {
     return (
       <div style={containerStyle}>
         <h1 style={{ marginTop: 0 }}>Profile</h1>
-        <p style={{ color: "#b91c1c" }}>{err || "Unable to load employee context."}</p>
+        <p style={{ color: "#b91c1c" }}>{err || "Your account is not linked to an employee record. Contact HR."}</p>
         <button onClick={handleSignOut} style={buttonStyle}>
           Sign Out
         </button>
@@ -109,7 +132,7 @@ export default function EmployeeProfilePage() {
           <h1 style={titleStyle}>Your Profile</h1>
           <p style={subtitleStyle}>View your employee details.</p>
           <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-            Signed in as <strong>{ctx.email}</strong>
+            Signed in as <strong>{session?.user?.email || ""}</strong>
           </p>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -136,7 +159,10 @@ export default function EmployeeProfilePage() {
         <InfoCard label="Status" value={employee?.status || "—"} />
         <InfoCard label="Department" value={employee?.department || "—"} />
         <InfoCard label="Designation" value={employee?.designation || "—"} />
-        <InfoCard label="Joining Date" value={employee?.joining_date ? employee.joining_date.split("T")[0] : "—"} />
+        <InfoCard
+          label="Joining Date"
+          value={employee?.joining_date ? employee.joining_date.split("T")[0] : "—"}
+        />
       </div>
 
       <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
