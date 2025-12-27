@@ -60,6 +60,26 @@ export default function Home() {
       </div>
     );
   }
+const handleForgotPassword = async () => {
+  setError("");
+  if (!email) {
+    setError("Enter your email first, then click Forgot password.");
+    return;
+  }
+
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://erp.bigonbuy.com";
+
+  const { error: fpErr } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${baseUrl}/reset-password`,
+  });
+
+  if (fpErr) {
+    setError(fpErr.message);
+    return;
+  }
+
+  setError("Password reset email sent. Check your inbox (and spam).");
+};
 
   return (
     <div style={containerStyle}>
@@ -92,6 +112,15 @@ export default function Home() {
             <button type="submit" style={buttonStyle} disabled={submitting}>
               {submitting ? "Signing in..." : "Sign In"}
             </button>
+              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+  <button type="button" onClick={handleForgotPassword} style={secondaryBtn}>
+    Forgot / Set password
+  </button>
+  <Link href="/reset-password" style={{ marginTop: 8 }}>
+    Have a link? Open reset page
+  </Link>
+</div>
+
           </form>
 
           {error ? <p style={{ color: "red", marginTop: 12 }}>{error}</p> : null}
@@ -166,4 +195,14 @@ const eyebrowStyle = {
   fontSize: 12,
   color: "#6b7280",
   margin: 0,
+};
+const secondaryBtn = {
+  padding: "10px 12px",
+  backgroundColor: "#fff",
+  color: "#111",
+  border: "1px solid #d1d5db",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 700,
 };
