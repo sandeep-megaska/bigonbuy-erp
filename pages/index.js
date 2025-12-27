@@ -119,6 +119,9 @@ export default function Home() {
               <Link href="/erp">/erp (ERP Home)</Link>
             </li>
             <li>
+              <Link href="/me">/me (Employee Self-Service)</Link>
+            </li>
+            <li>
               <Link href="/erp/products">/erp/products</Link>
             </li>
             <li>
