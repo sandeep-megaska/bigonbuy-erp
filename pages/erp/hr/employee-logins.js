@@ -88,7 +88,7 @@ const [successMsg, setSuccessMsg] = useState("");
         throw new Error("No active session. Please sign in again.");
       }
 
-     const res = await fetch("/api/hr/link-employee-user", {
+     const resp = await fetch("/api/hr/link-employee-user", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
