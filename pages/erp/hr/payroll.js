@@ -16,12 +16,12 @@ export default function HrPayrollPage() {
 
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [month, setMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
-  const [status, setStatus] = useState("draft");
 
   const [itemEmployee, setItemEmployee] = useState("");
   const [gross, setGross] = useState("");
   const [deductions, setDeductions] = useState("");
   const [notes, setNotes] = useState("");
+  const [finalizing, setFinalizing] = useState(false);
 
   const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
 
@@ -52,7 +52,7 @@ export default function HrPayrollPage() {
   async function loadRuns(companyId, isActive = true) {
     const { data, error } = await supabase
       .from("erp_payroll_runs")
-      .select("id, year, month, status")
+      .select("id, year, month, status, finalized_at")
       .eq("company_id", companyId)
       .order("year", { ascending: false })
       .order("month", { ascending: false });
@@ -77,7 +77,7 @@ export default function HrPayrollPage() {
     }
     const { data, error } = await supabase
       .from("erp_payroll_items")
-      .select("id, payroll_run_id, employee_id, gross, deductions, net_pay, notes")
+      .select("id, payroll_run_id, employee_id, gross, deductions, net_pay, notes, payslip_no")
       .eq("company_id", companyId)
       .eq("payroll_run_id", runId)
       .order("created_at", { ascending: false });
@@ -115,7 +115,7 @@ export default function HrPayrollPage() {
       company_id: ctx.companyId,
       year: Number(year),
       month: Number(month),
-      status,
+      status: "draft",
     };
     const { data, error } = await supabase.from("erp_payroll_runs").insert(payload).select().single();
     if (error) {
@@ -165,8 +165,73 @@ export default function HrPayrollPage() {
     router.replace("/");
   }
 
+  const selectedRunObj = runs.find((r) => r.id === selectedRun);
+  const isRunFinalized = selectedRunObj?.status === "finalized";
   const selectedLabel = runs.find((r) => r.id === selectedRun);
   const selectedTitle = selectedLabel ? `${selectedLabel.year}-${String(selectedLabel.month).padStart(2, "0")} (${selectedLabel.status})` : "—";
+
+  async function finalizeRun() {
+    if (!ctx?.companyId || !selectedRun) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/owner can finalize payroll runs.");
+      return;
+    }
+    if (isRunFinalized) {
+      setErr("This payroll run is already finalized.");
+      return;
+    }
+    setFinalizing(true);
+    setErr("");
+    try {
+      const { data: runItems, error: itemsError } = await supabase
+        .from("erp_payroll_items")
+        .select("id, employee_id, payslip_no")
+        .eq("company_id", ctx.companyId)
+        .eq("payroll_run_id", selectedRun);
+      if (itemsError) throw itemsError;
+
+      const paddedMonth = String(selectedRunObj?.month || month).padStart(2, "0");
+      const runYear = selectedRunObj?.year || year;
+      const updates = [];
+      (runItems || []).forEach((item) => {
+        if (!item.payslip_no) {
+          const emp = employees.find((e) => e.id === item.employee_id);
+          const empCode = emp?.employee_no || item.employee_id;
+          updates.push({
+            id: item.id,
+            payslip_no: `BB-${runYear}${paddedMonth}-${empCode}`,
+          });
+        }
+      });
+
+      for (const update of updates) {
+        const { error: updErr } = await supabase
+          .from("erp_payroll_items")
+          .update({ payslip_no: update.payslip_no })
+          .eq("company_id", ctx.companyId)
+          .eq("id", update.id);
+        if (updErr) throw updErr;
+      }
+
+      const { error: finalizeErr } = await supabase
+        .from("erp_payroll_runs")
+        .update({
+          status: "finalized",
+          finalized_at: new Date().toISOString(),
+          finalized_by: ctx.userId,
+        })
+        .eq("company_id", ctx.companyId)
+        .eq("id", selectedRun);
+      if (finalizeErr) throw finalizeErr;
+
+      await loadRuns(ctx.companyId);
+      await loadItems(ctx.companyId, selectedRun);
+    } catch (e) {
+      setErr(e.message || "Failed to finalize payroll run.");
+    } finally {
+      setFinalizing(false);
+    }
+  }
 
   if (loading) return <div style={{ padding: 24 }}>Loading payroll…</div>;
 
@@ -210,11 +275,6 @@ export default function HrPayrollPage() {
           <form onSubmit={createRun} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
             <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="Year" style={inputStyle} />
             <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="Month" style={inputStyle} />
-            <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
-              <option value="draft">draft</option>
-              <option value="processing">processing</option>
-              <option value="completed">completed</option>
-            </select>
             <div style={{ gridColumn: "1 / -1" }}>
               <button style={buttonStyle}>Create Run</button>
             </div>
@@ -250,6 +310,8 @@ export default function HrPayrollPage() {
           <>
             {!canWrite ? (
               <div style={{ color: "#777", marginBottom: 8 }}>You are in read-only mode (only owner/admin/hr can create/update).</div>
+            ) : isRunFinalized ? (
+              <div style={{ color: "#777", marginBottom: 8 }}>This payroll run has been finalized. Items are now read-only.</div>
             ) : (
               <form onSubmit={createItem} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
                 <select value={itemEmployee} onChange={(e) => setItemEmployee(e.target.value)} style={inputStyle}>
@@ -270,7 +332,18 @@ export default function HrPayrollPage() {
 
             <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
-                Items ({items.length})
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <span>Items ({items.length})</span>
+                  {canWrite && selectedRun ? (
+                    <button
+                      style={{ ...smallButtonStyle, opacity: isRunFinalized || finalizing ? 0.7 : 1 }}
+                      onClick={finalizeRun}
+                      disabled={isRunFinalized || finalizing}
+                    >
+                      {isRunFinalized ? "Finalized" : finalizing ? "Finalizing…" : "Finalize Run"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -278,13 +351,13 @@ export default function HrPayrollPage() {
                     <tr style={{ textAlign: "left" }}>
                       <th style={thStyle}>Employee</th>
                       <th style={thStyle}>Amounts</th>
-                      <th style={thStyle}>Notes</th>
+                      <th style={thStyle}>Notes & Payslip</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((it) => {
                       const emp = employees.find((e) => e.id === it.employee_id);
-                      const net = (it.gross ?? 0) - (it.deductions ?? 0);
+                      const net = it.net_pay ?? (it.gross ?? 0) - (it.deductions ?? 0);
                       return (
                         <tr key={it.id}>
                           <td style={tdStyle}>
@@ -297,7 +370,19 @@ export default function HrPayrollPage() {
                             <div>Deductions: {it.deductions ?? "—"}</div>
                             <div style={{ fontWeight: 600, marginTop: 6 }}>Net (client): {net}</div>
                           </td>
-                          <td style={tdStyle}>{it.notes || "—"}</td>
+                          <td style={tdStyle}>
+                            <div>{it.notes || "—"}</div>
+                            {isRunFinalized ? (
+                              <div style={{ marginTop: 6, fontSize: 12, color: "#555" }}>
+                                Payslip: {it.payslip_no || "Generating…"}
+                                <div style={{ marginTop: 6 }}>
+                                  <a href={`/erp/hr/payslips/${selectedRun}/${it.employee_id}`} style={{ fontWeight: 600 }}>
+                                    View Payslip
+                                  </a>
+                                </div>
+                              </div>
+                            ) : null}
+                          </td>
                         </tr>
                       );
                     })}
