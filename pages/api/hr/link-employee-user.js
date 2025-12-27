@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-DEFAULT_REDIRECT = "https://erp.bigonbuy.com/reset-password";
+const DEFAULT_REDIRECT = "https://erp.bigonbuy.com/reset-password";
 
 const AUTHORIZED_ROLES = ["owner", "admin", "hr"];
 
