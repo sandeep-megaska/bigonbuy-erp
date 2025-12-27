@@ -1,14 +1,68 @@
-// pages/api/hr/create-onboarding-link.js
-import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-function getBaseUrl(req) {
-  // Prefer env var, fallback to request host
-  const envBase = process.env.ERP_PUBLIC_BASE_URL;
-  if (envBase) return envBase.replace(/\/+$/, "");
-  const proto = (req.headers["x-forwarded-proto"] || "https").toString();
-  const host = (req.headers["x-forwarded-host"] || req.headers.host || "").toString();
-  return `${proto}://${host}`.replace(/\/+$/, "");
+const DEFAULT_REDIRECT = "https://erp.bigonbuy.com/me";
+const AUTHORIZED_ROLES = ["owner", "admin", "hr"];
+
+async function authorizeHrForCompany({ supabaseUrl, anonKey, accessToken, companyId }) {
+  const supa = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: udata, error: uerr } = await supa.auth.getUser();
+  if (uerr || !udata?.user) {
+    return { status: 401, error: "Invalid session" };
+  }
+
+  const { data: member, error: merr } = await supa
+    .from("erp_company_users")
+    .select("role_key, is_active, company_id")
+    .eq("company_id", companyId)
+    .eq("user_id", udata.user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (merr) return { status: 403, error: merr.message };
+  if (!member) return { status: 403, error: "Not a member of this company" };
+  if (!AUTHORIZED_ROLES.includes(member.role_key)) return { status: 403, error: "Not authorized" };
+
+  return { status: 200, userId: udata.user.id };
+}
+
+async function findUserByEmail(adminClient, email) {
+  let page = 1;
+  const perPage = 100;
+  const target = email.toLowerCase();
+
+  // Paginate through users to find by email (getUserByEmail is unavailable in v2)
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(error.message || "Unable to list users");
+
+    const match = data?.users?.find((u) => (u.email || "").toLowerCase() === target);
+    if (match) return match;
+
+    if (!data?.users || data.users.length < perPage) return null;
+    page += 1;
+  }
+}
+
+async function findOrCreateUser(adminClient, email) {
+  const existing = await findUserByEmail(adminClient, email);
+  if (existing) return existing;
+
+  const { data, error } = await adminClient.auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+
+  if (error || !data?.user) {
+    throw new Error(error?.message || "Unable to create user");
+  }
+
+  return data.user;
 }
 
 export default async function handler(req, res) {
@@ -16,86 +70,80 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !anonKey || !serviceKey) {
+    return res
+      .status(500)
+      .json({ ok: false, error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY" });
+  }
+
+  const authHeader = req.headers.authorization || "";
+  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Missing Authorization Bearer token" });
+  }
+
+  const { companyId, employeeId, employeeEmail } = req.body || {};
+  if (!companyId || !employeeId || !employeeEmail) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "companyId, employeeId, and employeeEmail are required" });
+  }
+
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceKey) {
-      return res.status(500).json({ ok: false, error: "Missing Supabase env vars" });
-    }
-
-    const { companyId, employeeId } = req.body || {};
-    if (!companyId || !employeeId) {
-      return res.status(400).json({ ok: false, error: "companyId and employeeId are required" });
-    }
-
-    // IMPORTANT: AuthZ check — requester must be logged in and HR/admin/owner of this company.
-    // We do this by reading the bearer token and checking erp_company_users using anon client.
-    const authHeader = req.headers.authorization || "";
-    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-    if (!jwt) {
-      return res.status(401).json({ ok: false, error: "Missing Authorization Bearer token" });
-    }
-
-    // Client with anon key for verifying user + RLS-protected membership query
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!anonKey) {
-      return res.status(500).json({ ok: false, error: "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY" });
-    }
-
-    const supa = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    const authz = await authorizeHrForCompany({
+      supabaseUrl,
+      anonKey,
+      accessToken,
+      companyId,
     });
 
-    const { data: udata, error: uerr } = await supa.auth.getUser();
-    if (uerr || !udata?.user) {
-      return res.status(401).json({ ok: false, error: "Invalid session" });
+    if (authz.status !== 200) {
+      return res.status(authz.status).json({ ok: false, error: authz.error });
     }
 
-    // Must be HR/admin/owner for the same company
-    const { data: member, error: merr } = await supa
-      .from("erp_company_users")
-      .select("role_key, is_active, company_id")
-      .eq("company_id", companyId)
-      .eq("user_id", udata.user.id)
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-
-    if (merr) return res.status(403).json({ ok: false, error: merr.message });
-    if (!member) return res.status(403).json({ ok: false, error: "Not a member of this company" });
-
-    const role = member.role_key;
-    if (!["owner", "admin", "hr"].includes(role)) {
-      return res.status(403).json({ ok: false, error: "Not authorized" });
-    }
-
-    // Service role client for inserting token
-    const admin = createClient(supabaseUrl, serviceKey);
-
-    const token = crypto.randomBytes(24).toString("hex");
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { error: insErr } = await admin.from("erp_employee_onboarding_tokens").insert({
-      company_id: companyId,
-      employee_id: employeeId,
-      token,
-      expires_at: expiresAt,
-      used_at: null,
-      created_by: udata.user.id,
+    const adminClient = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    if (insErr) {
-      return res.status(500).json({ ok: false, error: insErr.message });
+    const normalizedEmail = employeeEmail.trim().toLowerCase();
+    const user = await findOrCreateUser(adminClient, normalizedEmail);
+
+    const { error: upsertErr } = await adminClient.from("erp_employee_users").upsert(
+      {
+        company_id: companyId,
+        employee_id: employeeId,
+        user_id: user.id,
+        is_active: true,
+      },
+      { onConflict: "company_id,employee_id" }
+    );
+
+    if (upsertErr) {
+      return res.status(500).json({ ok: false, error: upsertErr.message });
     }
 
-    const baseUrl = getBaseUrl(req);
-    const link = `${baseUrl}/join?token=${token}`;
+    const redirectTo = process.env.ERP_REDIRECT_URL || DEFAULT_REDIRECT;
+    const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
+      type: "recovery",
+      email: normalizedEmail,
+      options: { redirectTo },
+    });
 
-    return res.status(200).json({ ok: true, link, expiresAt });
+    if (linkErr) {
+      return res.status(500).json({ ok: false, error: linkErr.message });
+    }
+
+    const recoveryLink = linkData?.properties?.action_link;
+    return res.status(200).json({
+      ok: true,
+      userId: user.id,
+      recoveryLink,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
   }
 }
-
