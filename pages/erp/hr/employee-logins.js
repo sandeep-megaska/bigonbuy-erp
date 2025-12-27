@@ -92,10 +92,11 @@ const [successMsg, setSuccessMsg] = useState("");
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    companyId,
-    employeeId,
-    employeeEmail,
-  }),
+  companyId: ctx.companyId,
+  employeeId: emp.id,
+  employeeEmail: email,
+}),
+
 });
 
 const data = await res.json();
