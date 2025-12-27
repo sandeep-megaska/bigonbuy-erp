@@ -1,5 +1,31 @@
 import { createClient } from "@supabase/supabase-js";
 
+async function getAuthenticatedUser(admin, req) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) return { user: null, error: "Unauthorized" };
+
+  const { data, error } = await admin.auth.getUser(token);
+  if (error || !data?.user) return { user: null, error: "Unauthorized" };
+
+  return { user: data.user, error: null };
+}
+
+async function requireHrAccess(admin, userId, companyId) {
+  const { data, error } = await admin
+    .from("erp_company_users")
+    .select("company_id, role_key, is_active")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) return false;
+
+  return ["owner", "admin", "hr"].includes(data.role_key);
+}
+
 async function findUserByEmail(admin, email) {
   const target = String(email || "").trim().toLowerCase();
   if (!target) return null;
@@ -34,11 +60,26 @@ export default async function handler(req, res) {
       return res.status(500).json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE URL" });
     }
 
-    const admin = createClient(supabaseUrl, serviceKey);
+    const admin = createClient(supabaseUrl, serviceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
 
     const { companyId, employeeId, employeeEmail } = req.body || {};
     if (!companyId || !employeeId || !employeeEmail) {
       return res.status(400).json({ ok: false, error: "companyId, employeeId, employeeEmail are required" });
+    }
+
+    const { user: requester, error: authError } = await getAuthenticatedUser(admin, req);
+    if (authError || !requester) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const canAccess = await requireHrAccess(admin, requester.id, companyId);
+    if (!canAccess) {
+      return res.status(403).json({ ok: false, error: "Forbidden" });
     }
 
     // 1) Find auth user by email
@@ -64,7 +105,16 @@ export default async function handler(req, res) {
 
     if (upErr) return res.status(500).json({ ok: false, error: upErr.message });
 
-    return res.status(200).json({ ok: true, userId: user.id });
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: "recovery",
+      email: employeeEmail,
+    });
+
+    if (linkErr) return res.status(500).json({ ok: false, error: linkErr.message });
+
+    const recoveryLink = linkData?.properties?.action_link || null;
+
+    return res.status(200).json({ ok: true, userId: user.id, recoveryLink });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
   }
