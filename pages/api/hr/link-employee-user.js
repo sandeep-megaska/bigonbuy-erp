@@ -1,94 +1,101 @@
+// pages/api/hr/create-onboarding-link.js
+import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-async function findUserByEmail(admin, email) {
-  const target = String(email || "").trim().toLowerCase();
-  if (!target) return null;
-
-  let page = 1;
-  const perPage = 200;
-
-  for (let i = 0; i < 20; i++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) throw new Error(error.message);
-
-    const users = data?.users || [];
-    const match = users.find((u) => (u.email || "").toLowerCase() === target);
-    if (match) return match;
-
-    if (users.length < perPage) break;
-    page++;
-  }
-  return null;
+function getBaseUrl(req) {
+  // Prefer env var, fallback to request host
+  const envBase = process.env.ERP_PUBLIC_BASE_URL;
+  if (envBase) return envBase.replace(/\/+$/, "");
+  const proto = (req.headers["x-forwarded-proto"] || "https").toString();
+  const host = (req.headers["x-forwarded-host"] || req.headers.host || "").toString();
+  return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
 
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    // Set this in Vercel env. Fallback is your ERP.
-    const redirectTo = process.env.ERP_REDIRECT_URL || "https://erp.bigonbuy.com/me";
-
     if (!supabaseUrl || !serviceKey) {
-      return res.status(500).json({ ok: false, error: "Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE URL" });
+      return res.status(500).json({ ok: false, error: "Missing Supabase env vars" });
     }
 
-    const admin = createClient(supabaseUrl, serviceKey);
-
-    const { companyId, employeeId, employeeEmail } = req.body || {};
-    if (!companyId || !employeeId || !employeeEmail) {
-      return res.status(400).json({ ok: false, error: "companyId, employeeId, employeeEmail are required" });
+    const { companyId, employeeId } = req.body || {};
+    if (!companyId || !employeeId) {
+      return res.status(400).json({ ok: false, error: "companyId and employeeId are required" });
     }
 
-    // 1) Find auth user by email
-    let user = await findUserByEmail(admin, employeeEmail);
+    // IMPORTANT: AuthZ check — requester must be logged in and HR/admin/owner of this company.
+    // We do this by reading the bearer token and checking erp_company_users using anon client.
+    const authHeader = req.headers.authorization || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-    // 2) If not found, create
-    if (!user) {
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email: employeeEmail,
-        email_confirm: true,
-      });
-      if (createErr) return res.status(500).json({ ok: false, error: createErr.message });
-      user = created.user;
+    if (!jwt) {
+      return res.status(401).json({ ok: false, error: "Missing Authorization Bearer token" });
     }
 
-    // 3) Upsert mapping
-    const { error: upErr } = await admin
-      .from("erp_employee_users")
-      .upsert(
-        { company_id: companyId, employee_id: employeeId, user_id: user.id, is_active: true },
-        { onConflict: "company_id,employee_id" }
-      );
+    // Client with anon key for verifying user + RLS-protected membership query
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!anonKey) {
+      return res.status(500).json({ ok: false, error: "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY" });
+    }
 
-    if (upErr) return res.status(500).json({ ok: false, error: upErr.message });
-
-    // 4) Generate recovery link (password set/reset) with correct redirect
-    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-      type: "recovery",
-      email: employeeEmail,
-      options: { redirectTo },
+    const supa = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
 
-    if (linkErr) return res.status(500).json({ ok: false, error: linkErr.message });
-
-    // supabase-js v2 typically returns action_link here:
-    const recoveryLink =
-      linkData?.properties?.action_link ||
-      linkData?.action_link || // fallback
-      null;
-
-    if (!recoveryLink) {
-      return res.status(500).json({
-        ok: false,
-        error: "Recovery link was not returned by Supabase (missing action_link).",
-      });
+    const { data: udata, error: uerr } = await supa.auth.getUser();
+    if (uerr || !udata?.user) {
+      return res.status(401).json({ ok: false, error: "Invalid session" });
     }
 
-    return res.status(200).json({ ok: true, userId: user.id, recoveryLink });
+    // Must be HR/admin/owner for the same company
+    const { data: member, error: merr } = await supa
+      .from("erp_company_users")
+      .select("role_key, is_active, company_id")
+      .eq("company_id", companyId)
+      .eq("user_id", udata.user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (merr) return res.status(403).json({ ok: false, error: merr.message });
+    if (!member) return res.status(403).json({ ok: false, error: "Not a member of this company" });
+
+    const role = member.role_key;
+    if (!["owner", "admin", "hr"].includes(role)) {
+      return res.status(403).json({ ok: false, error: "Not authorized" });
+    }
+
+    // Service role client for inserting token
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    const token = crypto.randomBytes(24).toString("hex");
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error: insErr } = await admin.from("erp_employee_onboarding_tokens").insert({
+      company_id: companyId,
+      employee_id: employeeId,
+      token,
+      expires_at: expiresAt,
+      used_at: null,
+      created_by: udata.user.id,
+    });
+
+    if (insErr) {
+      return res.status(500).json({ ok: false, error: insErr.message });
+    }
+
+    const baseUrl = getBaseUrl(req);
+    const link = `${baseUrl}/join?token=${token}`;
+
+    return res.status(200).json({ ok: true, link, expiresAt });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
   }
 }
+
