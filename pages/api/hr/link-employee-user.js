@@ -14,24 +14,25 @@ export default async function handler(req, res) {
     const admin = createClient(supabaseUrl, serviceKey);
 
     const { companyId, employeeId, employeeEmail } = req.body || {};
-    if (!companyId || !employeeId || !employeeEmail) {
+    const normalizedEmail = (employeeEmail || "").toString().trim();
+    if (!companyId || !employeeId || !normalizedEmail) {
       return res.status(400).json({ ok: false, error: "companyId, employeeId, employeeEmail are required" });
     }
 
     // 1) Find existing auth user by email
-    const { data: usersData, error: listErr } = await admin.auth.admin.listUsers({ perPage: 2000 });
-    if (listErr) return res.status(500).json({ ok: false, error: listErr.message });
-
-    const found = (usersData?.users || []).find(
-      (u) => (u.email || "").toLowerCase() === String(employeeEmail).toLowerCase()
-    );
-
-    let userId = found?.id;
+    let userId = null;
+    const { data: foundUser, error: lookupError } = await admin.auth.admin.getUserByEmail(normalizedEmail);
+    if (lookupError && lookupError.message !== "User not found") {
+      return res.status(500).json({ ok: false, error: lookupError.message });
+    }
+    if (foundUser?.user?.id) {
+      userId = foundUser.user.id;
+    }
 
     // 2) If user doesn't exist, create one
     if (!userId) {
       const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email: employeeEmail,
+        email: normalizedEmail,
         email_confirm: true,
       });
       if (createErr) return res.status(500).json({ ok: false, error: createErr.message });

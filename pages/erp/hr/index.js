@@ -203,4 +203,10 @@ const navItems = [
     href: "/erp/hr/payroll",
     icon: "📄",
   },
+  {
+    title: "Employee Logins",
+    description: "Link employees to Supabase Auth users.",
+    href: "/erp/hr/employee-logins",
+    icon: "🔗",
+  },
 ];
