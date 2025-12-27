@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
-import { getCompanyContext, requireAuthRedirectHome } from "../../lib/erpContext";
+import { useRouter } from "next/router";
+import { supabase } from "../../../lib/supabaseClient";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
-export default function ErpHomePage() {
+export default function HrHomePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -38,13 +38,13 @@ export default function ErpHomePage() {
   };
 
   if (loading) {
-    return <div style={containerStyle}>Loading account...</div>;
+    return <div style={containerStyle}>Loading HR…</div>;
   }
 
   if (!ctx?.companyId) {
     return (
       <div style={containerStyle}>
-        <h1 style={{ marginTop: 0 }}>ERP Home</h1>
+        <h1 style={{ marginTop: 0 }}>HR</h1>
         <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         <p style={{ color: "#555" }}>You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your account.</p>
         <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
@@ -56,18 +56,14 @@ export default function ErpHomePage() {
     <div style={containerStyle}>
       <header style={headerStyle}>
         <div>
-          <p style={eyebrowStyle}>ERP Home</p>
-          <h1 style={titleStyle}>Welcome to Bigonbuy ERP</h1>
-          <p style={subtitleStyle}>Manage your catalog, variants, and inventory from a single place.</p>
+          <p style={eyebrowStyle}>HR</p>
+          <h1 style={titleStyle}>Human Resources</h1>
+          <p style={subtitleStyle}>Manage employees, salary, leave, and payroll.</p>
+          <p style={{ margin: "8px 0 0", color: "#4b5563" }}>Signed in as <strong>{ctx.email}</strong> · Role: <strong>{ctx.roleKey || "member"}</strong></p>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <p style={{ margin: 0, color: "#374151" }}>
-            Signed in as <strong>{ctx.email}</strong>
-          </p>
-          <p style={{ margin: "4px 0 0", color: "#4b5563" }}>Role: <strong>{ctx.roleKey || "member"}</strong></p>
-          <button type="button" onClick={handleSignOut} style={{ ...buttonStyle, marginTop: 8 }}>
-            Sign Out
-          </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          <Link href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to ERP Home</Link>
+          <button type="button" onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
         </div>
       </header>
 
@@ -140,7 +136,7 @@ const subtitleStyle = {
 
 const cardGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 16,
 };
 
@@ -184,27 +180,27 @@ const cardDescriptionStyle = {
 
 const navItems = [
   {
-    title: "Products",
-    description: "Create and manage your product catalog.",
-    href: "/erp/products",
-    icon: "📦",
-  },
-  {
-    title: "Variants",
-    description: "Organize options and product variations.",
-    href: "/erp/variants",
-    icon: "🧩",
-  },
-  {
-    title: "Inventory",
-    description: "Track stock levels across variants.",
-    href: "/erp/inventory",
-    icon: "📊",
-  },
-  {
-    title: "Human Resources",
-    description: "Employees, salary, leave, and payroll.",
-    href: "/erp/hr",
+    title: "Employees",
+    description: "Manage employee directory and profiles.",
+    href: "/erp/hr/employees",
     icon: "🧑‍💼",
+  },
+  {
+    title: "Salary",
+    description: "Maintain salary structures and components.",
+    href: "/erp/hr/salary",
+    icon: "💰",
+  },
+  {
+    title: "Leave",
+    description: "Configure leave types and requests.",
+    href: "/erp/hr/leave",
+    icon: "🌴",
+  },
+  {
+    title: "Payroll",
+    description: "Run payroll and manage payouts.",
+    href: "/erp/hr/payroll",
+    icon: "📄",
   },
 ];

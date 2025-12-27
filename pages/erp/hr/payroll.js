@@ -1,0 +1,319 @@
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+import { supabase } from "../../../lib/supabaseClient";
+import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+
+export default function HrPayrollPage() {
+  const router = useRouter();
+  const [ctx, setCtx] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [runs, setRuns] = useState([]);
+  const [selectedRun, setSelectedRun] = useState("");
+  const [items, setItems] = useState([]);
+  const [employees, setEmployees] = useState([]);
+
+  const [year, setYear] = useState(new Date().getFullYear().toString());
+  const [month, setMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
+  const [status, setStatus] = useState("draft");
+
+  const [itemEmployee, setItemEmployee] = useState("");
+  const [gross, setGross] = useState("");
+  const [deductions, setDeductions] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+      const context = await getCompanyContext(session);
+      if (!active) return;
+      setCtx(context);
+      if (!context.companyId) {
+        setErr(context.membershipError || "No active company membership found for this user.");
+        setLoading(false);
+        return;
+      }
+      await Promise.all([
+        loadRuns(context.companyId, active),
+        loadEmployees(context.companyId, active),
+      ]);
+      if (active) setLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  async function loadRuns(companyId, isActive = true) {
+    const { data, error } = await supabase
+      .from("erp_payroll_runs")
+      .select("id, year, month, status")
+      .eq("company_id", companyId)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false });
+    if (error) {
+      if (isActive) setErr(error.message);
+      return;
+    }
+    if (isActive) {
+      setRuns(data || []);
+      const first = data?.[0]?.id;
+      if (!selectedRun && first) {
+        setSelectedRun(first);
+        loadItems(companyId, first);
+      }
+    }
+  }
+
+  async function loadItems(companyId, runId, isActive = true) {
+    if (!runId) {
+      setItems([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("erp_payroll_items")
+      .select("id, payroll_run_id, employee_id, gross, deductions, net_pay, notes")
+      .eq("company_id", companyId)
+      .eq("payroll_run_id", runId)
+      .order("created_at", { ascending: false });
+    if (error) {
+      if (isActive) setErr(error.message);
+      return;
+    }
+    if (isActive) setItems(data || []);
+  }
+
+  async function loadEmployees(companyId, isActive = true) {
+    const { data, error } = await supabase
+      .from("erp_employees")
+      .select("id, full_name, employee_no")
+      .eq("company_id", companyId)
+      .order("full_name", { ascending: true });
+    if (error) {
+      if (isActive) setErr(error.message);
+      return;
+    }
+    if (isActive) {
+      setEmployees(data || []);
+      if (!itemEmployee && data?.length) setItemEmployee(data[0].id);
+    }
+  }
+
+  async function createRun(e) {
+    e.preventDefault();
+    if (!ctx?.companyId) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/owner can create payroll runs.");
+      return;
+    }
+    const payload = {
+      company_id: ctx.companyId,
+      year: Number(year),
+      month: Number(month),
+      status,
+    };
+    const { data, error } = await supabase.from("erp_payroll_runs").insert(payload).select().single();
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setSelectedRun(data?.id || "");
+    await loadRuns(ctx.companyId);
+    if (data?.id) await loadItems(ctx.companyId, data.id);
+  }
+
+  async function createItem(e) {
+    e.preventDefault();
+    if (!ctx?.companyId || !selectedRun) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/owner can add payroll items.");
+      return;
+    }
+    if (!itemEmployee) {
+      setErr("Select an employee.");
+      return;
+    }
+    const grossNum = gross ? Number(gross) : 0;
+    const deductionsNum = deductions ? Number(deductions) : 0;
+    const payload = {
+      company_id: ctx.companyId,
+      payroll_run_id: selectedRun,
+      employee_id: itemEmployee,
+      gross: grossNum,
+      deductions: deductionsNum,
+      net_pay: grossNum - deductionsNum,
+      notes: notes.trim() || null,
+    };
+    const { error } = await supabase.from("erp_payroll_items").insert(payload);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setGross("");
+    setDeductions("");
+    setNotes("");
+    await loadItems(ctx.companyId, selectedRun);
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.replace("/");
+  }
+
+  const selectedLabel = runs.find((r) => r.id === selectedRun);
+  const selectedTitle = selectedLabel ? `${selectedLabel.year}-${String(selectedLabel.month).padStart(2, "0")} (${selectedLabel.status})` : "—";
+
+  if (loading) return <div style={{ padding: 24 }}>Loading payroll…</div>;
+
+  if (!ctx?.companyId) {
+    return (
+      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+        <h1>Payroll</h1>
+        <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
+        <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Payroll</h1>
+          <p style={{ marginTop: 6, color: "#555" }}>Create payroll runs and add payout items.</p>
+          <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
+            Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <a href="/erp/hr">← HR Home</a>
+          <a href="/erp">ERP Home</a>
+        </div>
+      </div>
+
+      {err ? (
+        <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
+          {err}
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+        <h3 style={{ marginTop: 0 }}>Create Payroll Run</h3>
+        {!canWrite ? (
+          <div style={{ color: "#777" }}>You are in read-only mode (only owner/admin/hr can create/update).</div>
+        ) : (
+          <form onSubmit={createRun} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+            <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="Year" style={inputStyle} />
+            <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="Month" style={inputStyle} />
+            <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
+              <option value="draft">draft</option>
+              <option value="processing">processing</option>
+              <option value="completed">completed</option>
+            </select>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <button style={buttonStyle}>Create Run</button>
+            </div>
+          </form>
+        )}
+
+        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+          {runs.map((run) => (
+            <div key={run.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, border: "1px solid #eee", borderRadius: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{run.year}-{String(run.month).padStart(2, "0")}</div>
+                <div style={{ fontSize: 12, color: "#777" }}>{run.status} · {run.id}</div>
+              </div>
+              <button
+                style={smallButtonStyle}
+                onClick={() => {
+                  setSelectedRun(run.id);
+                  loadItems(ctx.companyId, run.id);
+                }}
+              >
+                View Items
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+        <h3 style={{ marginTop: 0 }}>Payroll Items for {selectedTitle}</h3>
+        {!selectedRun ? (
+          <div style={{ color: "#777" }}>Select or create a payroll run to add items.</div>
+        ) : (
+          <>
+            {!canWrite ? (
+              <div style={{ color: "#777", marginBottom: 8 }}>You are in read-only mode (only owner/admin/hr can create/update).</div>
+            ) : (
+              <form onSubmit={createItem} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+                <select value={itemEmployee} onChange={(e) => setItemEmployee(e.target.value)} style={inputStyle}>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.full_name} {emp.employee_no ? `(${emp.employee_no})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <input value={gross} onChange={(e) => setGross(e.target.value)} placeholder="Gross" style={inputStyle} />
+                <input value={deductions} onChange={(e) => setDeductions(e.target.value)} placeholder="Deductions" style={inputStyle} />
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" style={{ ...inputStyle, minHeight: 60 }} />
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <button style={buttonStyle}>Add Item</button>
+                </div>
+              </form>
+            )}
+
+            <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
+                Items ({items.length})
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left" }}>
+                      <th style={thStyle}>Employee</th>
+                      <th style={thStyle}>Amounts</th>
+                      <th style={thStyle}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it) => {
+                      const emp = employees.find((e) => e.id === it.employee_id);
+                      const net = (it.gross ?? 0) - (it.deductions ?? 0);
+                      return (
+                        <tr key={it.id}>
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 600 }}>{emp?.full_name || "—"}</div>
+                            <div style={{ fontSize: 12, color: "#777" }}>{emp?.employee_no || it.employee_id}</div>
+                            <div style={{ fontSize: 12, color: "#777" }}>ID: {it.id}</div>
+                          </td>
+                          <td style={tdStyle}>
+                            <div>Gross: {it.gross ?? "—"}</div>
+                            <div>Deductions: {it.deductions ?? "—"}</div>
+                            <div style={{ fontWeight: 600, marginTop: 6 }}>Net (client): {net}</div>
+                          </td>
+                          <td style={tdStyle}>{it.notes || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
+const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const smallButtonStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
+const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };
