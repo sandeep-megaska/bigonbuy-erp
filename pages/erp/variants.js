@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
-import { requireErpAuthOrRedirect, isAdmin } from "../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome, isAdmin } from "../../lib/erpContext";
 
 export default function ErpVariantsPage() {
+  const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -20,16 +22,32 @@ export default function ErpVariantsPage() {
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
   useEffect(() => {
-    (async () => {
-      const c = await requireErpAuthOrRedirect();
-      if (!c) return;
-      setCtx(c);
-      await loadAll(c.companyId);
-      setLoading(false);
-    })();
-  }, []);
+    let active = true;
 
-  async function loadAll(companyId) {
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const context = await getCompanyContext(session);
+      if (!active) return;
+
+      setCtx(context);
+      if (!context.companyId) {
+        setErr(context.membershipError || "No active company membership found for this user.");
+        setLoading(false);
+        return;
+      }
+
+      await loadAll(context.companyId, active);
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  async function loadAll(companyId, isActive = true) {
     setErr("");
 
     const { data: prods, error: perr } = await supabase
@@ -39,8 +57,10 @@ export default function ErpVariantsPage() {
       .order("created_at", { ascending: false });
 
     if (perr) setErr(perr.message);
-    setProducts(prods || []);
-    setProductId(prods?.[0]?.id || "");
+    if (isActive) {
+      setProducts(prods || []);
+      setProductId(prods?.[0]?.id ?? "");
+    }
 
     const { data: vars, error: verr } = await supabase
       .from("erp_variants")
@@ -48,19 +68,23 @@ export default function ErpVariantsPage() {
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
-    if (verr) setErr(verr.message);
+    if (verr && isActive) setErr(verr.message);
 
     // attach product title
     const map = new Map((prods || []).map((p) => [p.id, p.title]));
     const withTitle = (vars || []).map((v) => ({ ...v, product_title: map.get(v.product_id) || "" }));
-    setItems(withTitle);
+    if (isActive) setItems(withTitle);
   }
 
   async function createVariant(e) {
     e.preventDefault();
-    if (!ctx) return;
+    if (!ctx || !ctx.companyId) return;
     if (!productId) return;
     if (!sku.trim()) return;
+    if (!canWrite) {
+      setErr("Only owner/admin can create variants.");
+      return;
+    }
 
     setErr("");
     const payload = {
@@ -88,8 +112,12 @@ export default function ErpVariantsPage() {
   }
 
   async function deleteVariant(id) {
-    if (!ctx) return;
+    if (!ctx || !ctx.companyId) return;
     if (!confirm("Delete this variant? Ledger rows referencing it may block deletion.")) return;
+    if (!canWrite) {
+      setErr("Only owner/admin can delete variants.");
+      return;
+    }
 
     setErr("");
     const { error } = await supabase
@@ -102,7 +130,24 @@ export default function ErpVariantsPage() {
     await loadAll(ctx.companyId);
   }
 
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.replace("/");
+  }
+
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
+
+  if (!ctx?.companyId) {
+    return (
+      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+        <h1>Variants</h1>
+        <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
+        <button onClick={handleSignOut} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>
+          Sign Out
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
