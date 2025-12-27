@@ -15,6 +15,8 @@ export default function EmployeeLoginsPage() {
   const [linking, setLinking] = useState({});
 
   const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
+const [recoveryLink, setRecoveryLink] = useState("");
+const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -86,15 +88,25 @@ export default function EmployeeLoginsPage() {
         throw new Error("No active session. Please sign in again.");
       }
 
-      const resp = await fetch("/api/hr/link-employee-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          companyId: ctx.companyId,
-          employeeId: emp.id,
-          employeeEmail: email,
-        }),
-      });
+     const res = await fetch("/api/hr/link-employee-user", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    companyId,
+    employeeId,
+    employeeEmail,
+  }),
+});
+
+const data = await res.json();
+
+if (!res.ok || !data.ok) {
+  throw new Error(data.error || "Failed to link employee login");
+}
+
+setSuccessMsg("Employee login linked successfully.");
+setRecoveryLink(data.recoveryLink || "");
+
 
       const payload = await resp.json().catch(() => ({}));
       if (!resp.ok || !payload.ok) {
@@ -145,36 +157,36 @@ export default function EmployeeLoginsPage() {
       {err ? (
         <div style={errorBoxStyle}>{err}</div>
       ) : null}
-      {success ? (
-        <div style={successBoxStyle}>
-          <div style={{ fontWeight: 600 }}>{success}</div>
-          {linkResult?.userId ? (
-            <div style={{ marginTop: 4 }}>User ID: {linkResult.userId}</div>
-          ) : null}
-          {linkResult?.recoveryLink ? (
-            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button
-                onClick={() => navigator?.clipboard?.writeText(linkResult.recoveryLink)}
-                style={secondaryButtonStyle}
-                type="button"
-              >
-                Copy password setup link
-              </button>
-              <input
-                type="text"
-                readOnly
-                value={linkResult.recoveryLink}
-                style={{ ...inputStyle, minWidth: 260, flex: 1 }}
-              />
-            </div>
-          ) : null}
-          {linkResult?.recoveryLink ? (
-            <div style={{ marginTop: 6, color: "#374151", fontSize: 13 }}>
-              Send this link to the employee to set their password.
-            </div>
-          ) : null}
+      {successMsg && (
+  <div style={{ marginTop: 12, padding: 12, border: "1px solid #d1fae5", background: "#ecfdf5", borderRadius: 6 }}>
+    <div style={{ fontWeight: 600 }}>{successMsg}</div>
+
+    {recoveryLink && (
+      <>
+        <div style={{ marginTop: 8, fontSize: 13 }}>
+          Send this link to the employee to set their password:
         </div>
-      ) : null}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <input
+            type="text"
+            value={recoveryLink}
+            readOnly
+            style={{ flex: 1, padding: 8, fontSize: 12 }}
+          />
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(recoveryLink);
+              alert("Password setup link copied");
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </>
+    )}
+  </div>
+)}
 
       {!canWrite ? (
         <div style={{ marginTop: 12, color: "#6b7280" }}>
