@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
-import { requireErpAuthOrRedirect, isAdmin } from "../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome, isAdmin } from "../../lib/erpContext";
 
 export default function ErpInventoryPage() {
+  const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -22,16 +24,32 @@ export default function ErpInventoryPage() {
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
   useEffect(() => {
-    (async () => {
-      const c = await requireErpAuthOrRedirect();
-      if (!c) return;
-      setCtx(c);
-      await loadAll(c.companyId);
-      setLoading(false);
-    })();
-  }, []);
+    let active = true;
 
-  async function loadAll(companyId) {
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const context = await getCompanyContext(session);
+      if (!active) return;
+      setCtx(context);
+
+      if (!context.companyId) {
+        setErr(context.membershipError || "No active company membership found for this user.");
+        setLoading(false);
+        return;
+      }
+
+      await loadAll(context.companyId, active);
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  async function loadAll(companyId, isActive = true) {
     setErr("");
 
     const { data: wh, error: whErr } = await supabase
@@ -40,9 +58,11 @@ export default function ErpInventoryPage() {
       .eq("company_id", companyId)
       .order("name", { ascending: true });
 
-    if (whErr) setErr(whErr.message);
-    setWarehouses(wh || []);
-    setWarehouseId(wh?.[0]?.id || "");
+    if (whErr && isActive) setErr(whErr.message);
+    if (isActive) {
+      setWarehouses(wh || []);
+      setWarehouseId(wh?.[0]?.id || "");
+    }
 
     const { data: vars, error: vErr } = await supabase
       .from("erp_variants")
@@ -50,9 +70,11 @@ export default function ErpInventoryPage() {
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
-    if (vErr) setErr(vErr.message);
-    setVariants(vars || []);
-    setVariantId(vars?.[0]?.id || "");
+    if (vErr && isActive) setErr(vErr.message);
+    if (isActive) {
+      setVariants(vars || []);
+      setVariantId(vars?.[0]?.id || "");
+    }
 
     // stock view
     const { data: st, error: sErr } = await supabase
@@ -60,7 +82,7 @@ export default function ErpInventoryPage() {
       .select("company_id, warehouse_id, variant_id, qty_on_hand")
       .eq("company_id", companyId);
 
-    if (sErr) setErr(sErr.message);
+    if (sErr && isActive) setErr(sErr.message);
 
     // map names for display
     const whMap = new Map((wh || []).map((w) => [w.id, w.name]));
@@ -74,12 +96,16 @@ export default function ErpInventoryPage() {
 
     // sort: warehouse then sku
     decorated.sort((a, b) => (a.warehouse_name + a.sku).localeCompare(b.warehouse_name + b.sku));
-    setStockRows(decorated);
+    if (isActive) setStockRows(decorated);
   }
 
   async function createAdjustment(e) {
     e.preventDefault();
-    if (!ctx) return;
+    if (!ctx || !ctx.companyId) return;
+    if (!canWrite) {
+      setErr("Only owner/admin can post ledger entries.");
+      return;
+    }
 
     const q = Number(qty);
     if (!warehouseId || !variantId || !Number.isFinite(q) || q === 0) {
@@ -96,7 +122,7 @@ export default function ErpInventoryPage() {
       type,
       reason: reason || null,
       ref: ref || null,
-      created_by: ctx.user.id,
+      created_by: ctx.userId,
     };
 
     const { error } = await supabase.from("erp_inventory_ledger").insert(payload);
@@ -111,7 +137,24 @@ export default function ErpInventoryPage() {
     await loadAll(ctx.companyId);
   }
 
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    router.replace("/");
+  }
+
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
+
+  if (!ctx?.companyId) {
+    return (
+      <div style={{ padding: 24, fontFamily: "system-ui" }}>
+        <h1>Inventory</h1>
+        <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
+        <button onClick={handleSignOut} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>
+          Sign Out
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>

@@ -1,20 +1,166 @@
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
+import { getSessionOrNull } from "../lib/erpContext";
 
 export default function Home() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    getSessionOrNull().then((s) => {
+      if (!active) return;
+      setSession(s);
+      setLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setLoading(false);
+      setError("");
+    });
+
+    return () => {
+      active = false;
+      listener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInError) setError(signInError.message);
+
+    setSubmitting(false);
+  };
+
+  const handleSignOut = async () => {
+    setError("");
+    await supabase.auth.signOut();
+  };
+
+  if (loading) {
+    return (
+      <div style={containerStyle}>
+        <p>Checking session...</p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: 40, fontFamily: "system-ui" }}>
-      <h1>Bigonbuy Console</h1>
-      <p>Select a module:</p>
+    <div style={containerStyle}>
+      {!session ? (
+        <>
+          <h1 style={{ marginBottom: 8 }}>Login to Bigonbuy ERP</h1>
+          <p style={{ marginTop: 0, color: "#555" }}>Access the console with your Supabase credentials.</p>
 
-      <ul style={{ lineHeight: 2 }}>
-        <li>
-          <Link href="/erp">📦 ERP Dashboard</Link>
-        </li>
-      </ul>
+          <form onSubmit={handleSubmit} style={formStyle}>
+            <label style={labelStyle}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="you@example.com"
+            />
 
-      <p style={{ marginTop: 24, opacity: 0.7 }}>
-        (Internal use only)
-      </p>
+            <label style={labelStyle}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={inputStyle}
+              placeholder="••••••••"
+            />
+
+            <button type="submit" style={buttonStyle} disabled={submitting}>
+              {submitting ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
+
+          {error ? <p style={{ color: "red", marginTop: 12 }}>{error}</p> : null}
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <p style={eyebrowStyle}>Console</p>
+              <h1 style={{ margin: "6px 0" }}>Bigonbuy Console</h1>
+              <p style={{ marginTop: 0, color: "#555" }}>Choose a module to manage your ERP data.</p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ margin: 0, color: "#444" }}>
+                Signed in as <strong>{session.user.email}</strong>
+              </p>
+              <button onClick={handleSignOut} style={{ ...buttonStyle, marginTop: 8, background: "#e11d48" }}>
+                Sign Out
+              </button>
+            </div>
+          </div>
+
+          <ul style={{ lineHeight: 2, paddingLeft: 18, marginTop: 18 }}>
+            <li>
+              <Link href="/erp">/erp (ERP Home)</Link>
+            </li>
+            <li>
+              <Link href="/erp/products">/erp/products</Link>
+            </li>
+            <li>
+              <Link href="/erp/variants">/erp/variants</Link>
+            </li>
+            <li>
+              <Link href="/erp/inventory">/erp/inventory</Link>
+            </li>
+          </ul>
+        </>
+      )}
     </div>
   );
 }
+
+const containerStyle = {
+  maxWidth: 520,
+  margin: "80px auto",
+  padding: 24,
+  border: "1px solid #ddd",
+  borderRadius: 10,
+  fontFamily: "Arial, sans-serif",
+  boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+  backgroundColor: "#fff",
+};
+
+const formStyle = { display: "flex", flexDirection: "column", gap: 12, marginTop: 16 };
+const labelStyle = { fontWeight: 600, fontSize: 14 };
+const inputStyle = { padding: "10px 12px", fontSize: 16, borderRadius: 6, border: "1px solid #ccc" };
+const buttonStyle = {
+  padding: "12px 14px",
+  backgroundColor: "#111",
+  color: "#fff",
+  border: "none",
+  borderRadius: 6,
+  cursor: "pointer",
+  fontSize: 16,
+};
+const eyebrowStyle = {
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  fontSize: 12,
+  color: "#6b7280",
+  margin: 0,
+};
