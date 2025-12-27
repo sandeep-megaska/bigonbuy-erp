@@ -9,6 +9,7 @@ export default function EmployeeLoginsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [success, setSuccess] = useState("");
+  const [linkResult, setLinkResult] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [emailInputs, setEmailInputs] = useState({});
   const [linking, setLinking] = useState({});
@@ -77,10 +78,17 @@ export default function EmployeeLoginsPage() {
     setErr("");
     setSuccess("");
     setLinking((prev) => ({ ...prev, [emp.id]: true }));
+    setLinkResult(null);
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        throw new Error("No active session. Please sign in again.");
+      }
+
       const resp = await fetch("/api/hr/link-employee-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           companyId: ctx.companyId,
           employeeId: emp.id,
@@ -92,7 +100,8 @@ export default function EmployeeLoginsPage() {
       if (!resp.ok || !payload.ok) {
         throw new Error(payload.error || "Failed to link login.");
       }
-      setSuccess(`Linked ${emp.full_name} to user ${payload.userId}.`);
+      setSuccess("Linked successfully");
+      setLinkResult({ userId: payload.userId, recoveryLink: payload.recoveryLink });
     } catch (e) {
       setErr(e?.message || "Unable to link login.");
     } finally {
@@ -137,7 +146,34 @@ export default function EmployeeLoginsPage() {
         <div style={errorBoxStyle}>{err}</div>
       ) : null}
       {success ? (
-        <div style={successBoxStyle}>{success}</div>
+        <div style={successBoxStyle}>
+          <div style={{ fontWeight: 600 }}>{success}</div>
+          {linkResult?.userId ? (
+            <div style={{ marginTop: 4 }}>User ID: {linkResult.userId}</div>
+          ) : null}
+          {linkResult?.recoveryLink ? (
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                onClick={() => navigator?.clipboard?.writeText(linkResult.recoveryLink)}
+                style={secondaryButtonStyle}
+                type="button"
+              >
+                Copy password setup link
+              </button>
+              <input
+                type="text"
+                readOnly
+                value={linkResult.recoveryLink}
+                style={{ ...inputStyle, minWidth: 260, flex: 1 }}
+              />
+            </div>
+          ) : null}
+          {linkResult?.recoveryLink ? (
+            <div style={{ marginTop: 6, color: "#374151", fontSize: 13 }}>
+              Send this link to the employee to set their password.
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {!canWrite ? (
@@ -227,6 +263,16 @@ const primaryButtonStyle = {
   minWidth: 110,
 };
 
+const secondaryButtonStyle = {
+  padding: "10px 14px",
+  background: "#e5e7eb",
+  color: "#111827",
+  border: "1px solid #d1d5db",
+  borderRadius: 8,
+  cursor: "pointer",
+  fontWeight: 600,
+};
+
 const dangerButtonStyle = {
   padding: "10px 14px",
   background: "#dc2626",
@@ -254,4 +300,3 @@ const successBoxStyle = {
   border: "1px solid #bbf7d0",
   color: "#166534",
 };
-
