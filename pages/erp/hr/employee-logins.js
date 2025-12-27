@@ -195,9 +195,19 @@ export default function EmployeeLogins() {
 
     setBusyEmployeeId(emp.id);
     try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !sessionData?.session) {
+        throw new Error("Session expired. Please sign in again.");
+      }
+
+      const accessToken = sessionData.session.access_token;
+
       const res = await fetch("/api/hr/link-employee-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           companyId: companyId,
           employeeId: emp.id,
@@ -350,7 +360,7 @@ export default function EmployeeLogins() {
 
       {!loading && !canManage && (
         <div style={{ marginBottom: 12 }}>
-          <Pill tone="red">Read-only</Pill>{" "}
+          <Pill tone="red">Read-only / Not permitted</Pill>{" "}
           <span style={{ opacity: 0.8 }}>Only owner/admin/hr can link employee logins.</span>
         </div>
       )}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../../lib/supabaseClient";
-import { getEmployeeContext, requireAuthRedirectHome } from "../../lib/erpContext";
+import { requireAuthRedirectHome } from "../../lib/erpContext";
 
 export default function EmployeeProfilePage() {
   const router = useRouter();
@@ -16,16 +16,7 @@ export default function EmployeeProfilePage() {
     (async () => {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
-      const context = await getEmployeeContext(session);
-      if (!active) return;
-      setCtx(context);
-      if (!context.companyId || !context.employeeId) {
-        setErr("Your account is not linked to an employee record. Contact HR.");
-        setLoading(false);
-        return;
-      }
-      await loadEmployee(context.companyId, context.employeeId, active);
-      if (active) setLoading(false);
+      await loadEmployeeContext(session, active);
     })();
     return () => {
       active = false;
@@ -54,6 +45,45 @@ export default function EmployeeProfilePage() {
     await supabase.auth.signOut();
     router.replace("/");
   };
+
+  async function loadEmployeeContext(session, isActive = true) {
+    setErr("");
+    const { data: mapping, error: mapErr } = await supabase
+      .from("erp_employee_users")
+      .select("company_id, employee_id, is_active")
+      .eq("user_id", session.user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (mapErr) {
+      if (isActive) {
+        setErr(mapErr.message);
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!mapping?.employee_id || !mapping?.company_id) {
+      if (isActive) {
+        setErr("Your account is not linked to an employee record. Contact HR.");
+        setLoading(false);
+      }
+      return;
+    }
+
+    const context = {
+      session,
+      email: session.user.email ?? "",
+      userId: session.user.id,
+      companyId: mapping.company_id,
+      employeeId: mapping.employee_id,
+    };
+
+    if (isActive) setCtx(context);
+    await loadEmployee(context.companyId, context.employeeId, isActive);
+    if (isActive) setLoading(false);
+  }
 
   if (loading) {
     return <div style={containerStyle}>Loading profile…</div>;
