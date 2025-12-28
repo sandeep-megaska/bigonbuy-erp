@@ -214,7 +214,7 @@ const CompanyUsersPage: NextPage = () => {
             />
           </div>
           <div>
-            <label style={labelStyle}>Role</label>
+            <label style={labelStyle}>Access Role</label>
             <select
               value={roleKey}
               onChange={(e) => setRoleKey(e.target.value as InvitePayload["role_key"])}

@@ -8,7 +8,9 @@ export default function HrEmployeesPage() {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [accessToken, setAccessToken] = useState("");
   const [employees, setEmployees] = useState([]);
+  const [designations, setDesignations] = useState([]);
 
   const [employeeNo, setEmployeeNo] = useState("");
   const [fullName, setFullName] = useState("");
@@ -17,23 +19,32 @@ export default function HrEmployeesPage() {
   const [joiningDate, setJoiningDate] = useState("");
   const [status, setStatus] = useState("active");
   const [department, setDepartment] = useState("");
-  const [designation, setDesignation] = useState("");
+  const [designationId, setDesignationId] = useState("");
 
   const [editingId, setEditingId] = useState(null);
   const [editingValues, setEditingValues] = useState({});
 
   const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
+  const designationById = useMemo(() => {
+    const map = {};
+    designations.forEach((d) => {
+      map[d.id] = d;
+    });
+    return map;
+  }, [designations]);
 
   useEffect(() => {
     let active = true;
 
     (async () => {
+      setErr("");
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
       const context = await getCompanyContext(session);
       if (!active) return;
 
+      setAccessToken(session.access_token || "");
       setCtx(context);
       if (!context.companyId) {
         setErr(context.membershipError || "No active company membership found for this user.");
@@ -41,7 +52,10 @@ export default function HrEmployeesPage() {
         return;
       }
 
-      await loadEmployees(context.companyId, active);
+      await Promise.all([
+        loadDesignations(session.access_token, active),
+        loadEmployees(session.access_token, active),
+      ]);
       if (active) setLoading(false);
     })();
 
@@ -50,19 +64,34 @@ export default function HrEmployeesPage() {
     };
   }, [router]);
 
-  async function loadEmployees(companyId, isActive = true) {
-    setErr("");
-    const { data, error } = await supabase
-      .from("erp_employees")
-      .select("id, employee_no, full_name, work_email, phone, joining_date, status, department, designation, company_id")
-      .eq("company_id", companyId)
-      .order("joining_date", { ascending: false });
+  async function loadDesignations(token, isActive = true) {
+    if (!token) return;
+    const res = await fetch("/api/hr/designations", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
 
-    if (error) {
-      if (isActive) setErr(error.message);
+    if (!res.ok || !data?.ok) {
+      if (isActive) setErr(data?.error || "Failed to load designations");
       return;
     }
-    if (isActive) setEmployees(data || []);
+
+    if (isActive) setDesignations(data.designations || []);
+  }
+
+  async function loadEmployees(token, isActive = true) {
+    if (!token) return;
+    const res = await fetch("/api/hr/employees", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+
+    if (!res.ok || !data?.ok) {
+      if (isActive) setErr(data?.error || "Failed to load employees");
+      return;
+    }
+
+    if (isActive) setEmployees(data.employees || []);
   }
 
   async function handleCreate(e) {
@@ -72,14 +101,18 @@ export default function HrEmployeesPage() {
       setErr("Only HR/admin/owner can create employees.");
       return;
     }
+    if (!accessToken) {
+      setErr("Missing session. Please sign in again.");
+      return;
+    }
     if (!fullName.trim()) {
       setErr("Full name is required.");
       return;
     }
 
     setErr("");
+    const selectedDesignation = designationId ? designationById[designationId] : null;
     const payload = {
-      company_id: ctx.companyId,
       employee_no: employeeNo.trim() || null,
       full_name: fullName.trim(),
       work_email: workEmail.trim() || null,
@@ -87,12 +120,21 @@ export default function HrEmployeesPage() {
       joining_date: joiningDate || null,
       status: status || "active",
       department: department.trim() || null,
-      designation: designation.trim() || null,
+      designation_id: designationId || null,
+      designation: selectedDesignation?.name || null,
     };
 
-    const { error } = await supabase.from("erp_employees").insert(payload);
-    if (error) {
-      setErr(error.message);
+    const res = await fetch("/api/hr/employees", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      setErr(data?.error || "Failed to create employee");
       return;
     }
 
@@ -103,8 +145,8 @@ export default function HrEmployeesPage() {
     setJoiningDate("");
     setStatus("active");
     setDepartment("");
-    setDesignation("");
-    await loadEmployees(ctx.companyId);
+    setDesignationId("");
+    await loadEmployees(accessToken);
   }
 
   function startEdit(emp) {
@@ -117,7 +159,7 @@ export default function HrEmployeesPage() {
       joining_date: emp.joining_date ? emp.joining_date.split("T")[0] : "",
       status: emp.status || "active",
       department: emp.department || "",
-      designation: emp.designation || "",
+      designation_id: emp.designation_id || "",
     });
   }
 
@@ -127,29 +169,44 @@ export default function HrEmployeesPage() {
       setErr("Only HR/admin/owner can update employees.");
       return;
     }
+    if (!accessToken) {
+      setErr("Missing session. Please sign in again.");
+      return;
+    }
+    setErr("");
+    const trimmedName = (editingValues.full_name || "").trim();
+    if (!trimmedName) {
+      setErr("Full name is required.");
+      return;
+    }
+    const selectedDesignation = editingValues.designation_id ? designationById[editingValues.designation_id] : null;
     const payload = {
-      employee_no: editingValues.employee_no.trim() || null,
-      full_name: editingValues.full_name.trim(),
-      work_email: editingValues.work_email.trim() || null,
-      phone: editingValues.phone.trim() || null,
+      employee_no: (editingValues.employee_no || "").trim() || null,
+      full_name: trimmedName,
+      work_email: (editingValues.work_email || "").trim() || null,
+      phone: (editingValues.phone || "").trim() || null,
       joining_date: editingValues.joining_date || null,
       status: editingValues.status || "active",
-      department: editingValues.department.trim() || null,
-      designation: editingValues.designation.trim() || null,
+      department: (editingValues.department || "").trim() || null,
+      designation_id: editingValues.designation_id || null,
+      designation: selectedDesignation?.name || null,
     };
 
-    const { error } = await supabase
-      .from("erp_employees")
-      .update(payload)
-      .eq("id", id)
-      .eq("company_id", ctx.companyId);
-
-    if (error) {
-      setErr(error.message);
+    const res = await fetch("/api/hr/employees", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...payload, id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      setErr(data?.error || "Failed to update employee");
       return;
     }
     setEditingId(null);
-    await loadEmployees(ctx.companyId);
+    await loadEmployees(accessToken);
   }
 
   async function handleSignOut() {
@@ -209,7 +266,19 @@ export default function HrEmployeesPage() {
               <option value="on_leave">on_leave</option>
             </select>
             <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Department" style={inputStyle} />
-            <input value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="Designation" style={inputStyle} />
+            <select
+              value={designationId}
+              onChange={(e) => setDesignationId(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Select Designation (optional)</option>
+              {designations.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.department ? ` — ${d.department}` : ""}
+                </option>
+              ))}
+            </select>
             <div style={{ gridColumn: "1 / -1" }}>
               <button style={buttonStyle}>Create Employee</button>
             </div>
@@ -320,17 +389,28 @@ export default function HrEmployeesPage() {
                             placeholder="Department"
                             style={inputStyle}
                           />
-                          <input
-                            value={editingValues.designation}
-                            onChange={(e) => setEditingValues({ ...editingValues, designation: e.target.value })}
-                            placeholder="Designation"
+                          <select
+                            value={editingValues.designation_id}
+                            onChange={(e) => setEditingValues({ ...editingValues, designation_id: e.target.value })}
                             style={inputStyle}
-                          />
+                          >
+                            <option value="">Select Designation (optional)</option>
+                            {designations.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.name}
+                                {d.department ? ` — ${d.department}` : ""}
+                              </option>
+                            ))}
+                          </select>
                         </>
                       ) : (
                         <>
                           <div>{emp.department || "—"}</div>
-                          <div style={{ color: "#555" }}>{emp.designation || "—"}</div>
+                          <div style={{ color: "#555" }}>
+                            {emp.designation_id
+                              ? designationById[emp.designation_id]?.name || emp.designation || "—"
+                              : emp.designation || "—"}
+                          </div>
                         </>
                       )}
                     </td>
