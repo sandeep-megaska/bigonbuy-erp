@@ -8,7 +8,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select id from public.erp_companies limit 1
+  select 'b19c6a4e-7c6a-4b1a-9e4e-2d2b0b3a3b0a'::uuid
 $$;
 
 -- Authoritative manager predicate (owner/admin/hr)
