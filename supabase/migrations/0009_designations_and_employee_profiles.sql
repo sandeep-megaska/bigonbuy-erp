@@ -241,7 +241,7 @@ grant execute on function public.erp_list_employees() to authenticated;
 create or replace function public.erp_upsert_employee(
   p_employee_id uuid default null,
   p_employee_no text default null,
-  p_full_name text,
+  p_full_name text default null,
   p_work_email text default null,
   p_personal_email text default null,
   p_phone text default null,
