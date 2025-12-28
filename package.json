@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check:migrations": "bash scripts/check-migrations.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
