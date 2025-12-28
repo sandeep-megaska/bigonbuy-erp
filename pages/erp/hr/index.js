@@ -198,6 +198,12 @@ const navItems = [
     icon: "🌴",
   },
   {
+    title: "Roles",
+    description: "Manage ERP access roles.",
+    href: "/erp/hr/roles",
+    icon: "🛡️",
+  },
+  {
     title: "Payroll",
     description: "Run payroll and manage payouts.",
     href: "/erp/hr/payroll",
