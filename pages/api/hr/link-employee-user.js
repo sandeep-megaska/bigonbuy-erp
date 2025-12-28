@@ -1,36 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-const DEFAULT_REDIRECT = "https://erp.bigonbuy.com/reset-password";
-
-const AUTHORIZED_ROLES = ["owner", "admin", "hr"];
-
-async function authorizeHrForCompany({ supabaseUrl, anonKey, accessToken, companyId }) {
-  const supa = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data: udata, error: uerr } = await supa.auth.getUser();
-  if (uerr || !udata?.user) {
-    return { status: 401, error: "Invalid session" };
-  }
-
-  const { data: member, error: merr } = await supa
-    .from("erp_company_users")
-    .select("role_key, is_active, company_id")
-    .eq("company_id", companyId)
-    .eq("user_id", udata.user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (merr) return { status: 403, error: merr.message };
-  if (!member) return { status: 403, error: "Not a member of this company" };
-  if (!AUTHORIZED_ROLES.includes(member.role_key)) return { status: 403, error: "Not authorized" };
-
-  return { status: 200, userId: udata.user.id };
-}
-
 async function findUserByEmail(adminClient, email) {
   let page = 1;
   const perPage = 100;
@@ -66,6 +35,15 @@ async function findOrCreateUser(adminClient, email) {
   return data.user;
 }
 
+function getAccessToken(req) {
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+
+  return req.cookies?.["sb-access-token"] || null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -74,76 +52,79 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const redirectTo = process.env.ERP_REDIRECT_URL;
 
-  if (!supabaseUrl || !anonKey || !serviceKey) {
+  if (!supabaseUrl || !anonKey || !serviceKey || !redirectTo) {
     return res
       .status(500)
-      .json({ ok: false, error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY" });
+      .json({
+        ok: false,
+        error:
+          "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ERP_REDIRECT_URL",
+      });
   }
 
-  const authHeader = req.headers.authorization || "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const accessToken = getAccessToken(req);
   if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization Bearer token" });
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  const { companyId, employeeId, employeeEmail } = req.body || {};
-  if (!companyId || !employeeId || !employeeEmail) {
+  const { company_id, employee_id, employee_email } = req.body || {};
+  if (!company_id || !employee_id || !employee_email) {
     return res
       .status(400)
-      .json({ ok: false, error: "companyId, employeeId, and employeeEmail are required" });
+      .json({ ok: false, error: "company_id, employee_id, and employee_email are required" });
   }
 
   try {
-    const authz = await authorizeHrForCompany({
-      supabaseUrl,
-      anonKey,
-      accessToken,
-      companyId,
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-
-    if (authz.status !== 200) {
-      return res.status(authz.status).json({ ok: false, error: authz.error });
+    const { data: sessionUser, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !sessionUser?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const normalizedEmail = employeeEmail.trim().toLowerCase();
+    const normalizedEmail = employee_email.trim().toLowerCase();
     const user = await findOrCreateUser(adminClient, normalizedEmail);
 
-    const { error: upsertErr } = await adminClient.from("erp_employee_users").upsert(
-      {
-        company_id: companyId,
-        employee_id: employeeId,
-        user_id: user.id,
-        is_active: true,
-      },
-      { onConflict: "company_id,employee_id" }
-    );
-
-    if (upsertErr) {
-      return res.status(500).json({ ok: false, error: upsertErr.message });
-    }
-
-    const redirectTo = process.env.ERP_REDIRECT_URL || DEFAULT_REDIRECT;
-    const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
-      type: "recovery",
-      email: normalizedEmail,
-      options: { redirectTo },
+    const { data: rpcData, error: rpcError } = await userClient.rpc("public.erp_link_employee_login", {
+      p_company_id: company_id,
+      p_employee_id: employee_id,
+      p_auth_user_id: user.id,
+      p_employee_email: normalizedEmail,
     });
 
-    if (linkErr) {
-      return res.status(500).json({ ok: false, error: linkErr.message });
+    if (rpcError) {
+      return res.status(400).json({
+        ok: false,
+        error: rpcError.message,
+        details: rpcError.details || rpcError.hint || rpcError.code,
+      });
     }
 
-    const recoveryLink = linkData?.properties?.action_link;
-    return res.status(200).json({
-      ok: true,
-      userId: user.id,
-      recoveryLink,
+    const resetClient = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
+    const { error: resetError } = await resetClient.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo,
+    });
+
+    if (resetError) {
+      return res.status(200).json({
+        ok: true,
+        warning: "Linked but failed to send reset email",
+        email_error: resetError.message,
+        result: rpcData,
+      });
+    }
+
+    return res.status(200).json({ ok: true, result: rpcData });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
   }
