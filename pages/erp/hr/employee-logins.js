@@ -118,20 +118,20 @@ export default function EmployeeLogins() {
     setCompanyId(member.company_id);
     setRoleKey(member.role_key || "");
 
-    // Load employees
-    const { data: emps, error: eerr } = await supabase
-      .from("erp_employees")
-      .select("id, employee_no, full_name, work_email, personal_email, phone, status, department, designation")
-      .eq("company_id", member.company_id)
-      .order("created_at", { ascending: false });
-
-    if (eerr) {
-      setError(eerr.message);
+    // Load employees via RPC-backed API
+    const accessToken = session.access_token || "";
+    const res = await fetch("/api/hr/employees", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const body = await res.json();
+    if (!res.ok || !body?.ok) {
+      setError(body?.error || "Unable to load employees");
       setLoading(false);
       return;
     }
 
-    setEmployees(emps || []);
+    const emps = body.employees || [];
+    setEmployees(emps);
 
     // Prepare default email drafts
     const drafts = {};
