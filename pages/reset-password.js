@@ -3,6 +3,8 @@ import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
 
 export default function ResetPassword() {
+  const expiredMsg = "Link expired. Request a new password setup link from HR.";
+  const loginRedirectPath = "/";
   const [checking, setChecking] = useState(true);
   const [hasSession, setHasSession] = useState(false);
   const [email, setEmail] = useState("");
@@ -20,22 +22,45 @@ export default function ResetPassword() {
       setErrMsg("");
       setOkMsg("");
 
-      // Supabase client auto-detects recovery link params in URL and establishes session (if valid)
-      const { data, error } = await supabase.auth.getSession();
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get("code");
+      const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
 
-      if (cancelled) return;
+      try {
+        let session = null;
 
-      if (error) {
+        if (code) {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          session = data?.session || null;
+        } else if (hashParams.has("access_token") && hashParams.has("refresh_token")) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: hashParams.get("access_token"),
+            refresh_token: hashParams.get("refresh_token"),
+          });
+          if (error) throw error;
+          session = data?.session || null;
+        } else {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) throw error;
+          session = data?.session || null;
+        }
+
+        if (cancelled) return;
+
+        const sessionExists = !!session;
+        setHasSession(sessionExists);
+        setEmail(session?.user?.email || "");
+        if (!sessionExists) {
+          setErrMsg(expiredMsg);
+        }
+      } catch (_e) {
+        if (cancelled) return;
         setHasSession(false);
-        setChecking(false);
-        setErrMsg(error.message);
-        return;
+        setErrMsg(expiredMsg);
+      } finally {
+        if (!cancelled) setChecking(false);
       }
-
-      const session = data?.session || null;
-      setHasSession(!!session);
-      setEmail(session?.user?.email || "");
-      setChecking(false);
     }
 
     init();
@@ -63,10 +88,14 @@ export default function ResetPassword() {
     try {
       const { error } = await supabase.auth.updateUser({ password: pw1 });
       if (error) throw error;
+      await supabase.auth.signOut();
 
-      setOkMsg("Password set successfully. You can now sign in using email + password.");
+      setOkMsg("Password set successfully. Redirecting to login…");
       setPw1("");
       setPw2("");
+      setTimeout(() => {
+        window.location.assign(loginRedirectPath);
+      }, 1200);
     } catch (e2) {
       setErrMsg(e2?.message || "Failed to set password.");
     } finally {
@@ -87,11 +116,10 @@ export default function ResetPassword() {
         ) : !hasSession ? (
           <>
             <div style={errorBox}>
-              This link is invalid or expired. Please request a new password setup/reset link from HR,
-              or use “Forgot password” on the login page.
+              {expiredMsg}
             </div>
             <div style={{ marginTop: 12 }}>
-              <Link href="/">← Back to login</Link>
+              <Link href={loginRedirectPath}>← Back to login</Link>
             </div>
           </>
         ) : (
@@ -128,7 +156,7 @@ export default function ResetPassword() {
             </form>
 
             <div style={{ marginTop: 12 }}>
-              <Link href="/">← Back to login</Link>
+              <Link href={loginRedirectPath}>← Back to login</Link>
             </div>
           </>
         )}
