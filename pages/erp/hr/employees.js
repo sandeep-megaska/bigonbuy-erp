@@ -76,7 +76,7 @@ export default function HrEmployeesPage() {
       return;
     }
 
-    if (isActive) setDesignations(data.designations || []);
+    if (isActive) setDesignations(data.rows || data.designations || []);
   }
 
   async function loadEmployees(token, isActive = true) {

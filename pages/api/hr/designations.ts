@@ -10,7 +10,7 @@ type DesignationRow = {
 };
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
-type SuccessResponse = { ok: true; designations: DesignationRow[] };
+type SuccessResponse = { ok: true; rows: DesignationRow[]; designations?: DesignationRow[] };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -49,7 +49,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    return res.status(200).json({ ok: true, designations: (data as DesignationRow[]) || [] });
+    const rows = (data as DesignationRow[]) || [];
+    return res.status(200).json({ ok: true, rows, designations: rows });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
