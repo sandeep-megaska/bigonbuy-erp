@@ -93,7 +93,7 @@ export default async function handler(req, res) {
     const normalizedEmail = employee_email.trim().toLowerCase();
     const user = await findOrCreateUser(adminClient, normalizedEmail);
 
-    const { data: rpcData, error: rpcError } = await userClient.rpc("public.erp_link_employee_login", {
+    const { data: rpcData, error: rpcError } = await userClient.rpc("erp_link_employee_login", {
       p_company_id: company_id,
       p_employee_id: employee_id,
       p_auth_user_id: user.id,
