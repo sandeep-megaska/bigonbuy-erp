@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
+import { FormEvent, useEffect, useState, type CSSProperties } from "react";
+import type { NextPage } from "next";
 import { supabase } from "../lib/supabaseClient";
 
-export default function ResetPassword() {
-  const expiredMsg = "Link expired. Request a new password setup link from HR.";
-  const loginRedirectPath = "/";
+const ResetPasswordPage: NextPage = () => {
+  const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [hasSession, setHasSession] = useState(false);
   const [email, setEmail] = useState("");
@@ -35,8 +36,8 @@ export default function ResetPassword() {
           session = data?.session || null;
         } else if (hashParams.has("access_token") && hashParams.has("refresh_token")) {
           const { data, error } = await supabase.auth.setSession({
-            access_token: hashParams.get("access_token"),
-            refresh_token: hashParams.get("refresh_token"),
+            access_token: hashParams.get("access_token") as string,
+            refresh_token: hashParams.get("refresh_token") as string,
           });
           if (error) throw error;
           session = data?.session || null;
@@ -52,25 +53,26 @@ export default function ResetPassword() {
         setHasSession(sessionExists);
         setEmail(session?.user?.email || "");
         if (!sessionExists) {
-          setErrMsg(expiredMsg);
+          setErrMsg("Link expired. Please open the invitation email again.");
         }
-      } catch (_e) {
+      } catch (e) {
         if (cancelled) return;
+        const message = e instanceof Error ? e.message : "Link expired. Please open the invitation email again.";
         setHasSession(false);
-        setErrMsg(expiredMsg);
+        setErrMsg(message);
       } finally {
         if (!cancelled) setChecking(false);
       }
     }
 
-    init();
+    void init();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handleSetPassword = async (e) => {
+  const handleSetPassword = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrMsg("");
     setOkMsg("");
@@ -88,16 +90,16 @@ export default function ResetPassword() {
     try {
       const { error } = await supabase.auth.updateUser({ password: pw1 });
       if (error) throw error;
-      await supabase.auth.signOut();
 
-      setOkMsg("Password set successfully. Redirecting to login…");
+      setOkMsg("Password updated. Redirecting to ERP…");
       setPw1("");
       setPw2("");
       setTimeout(() => {
-        window.location.assign(loginRedirectPath);
-      }, 1200);
+        router.replace("/erp");
+      }, 900);
     } catch (e2) {
-      setErrMsg(e2?.message || "Failed to set password.");
+      const message = e2 instanceof Error ? e2.message : "Failed to set password.";
+      setErrMsg(message);
     } finally {
       setSubmitting(false);
     }
@@ -108,18 +110,16 @@ export default function ResetPassword() {
       <div style={card}>
         <h1 style={{ margin: "0 0 6px", fontSize: 34 }}>Set your password</h1>
         <div style={{ opacity: 0.75, marginBottom: 16 }}>
-          This page is used for first-time password setup and password reset.
+          Use this page from the invitation or recovery link sent to your email.
         </div>
 
         {checking ? (
           <div>Checking link…</div>
         ) : !hasSession ? (
           <>
-            <div style={errorBox}>
-              {expiredMsg}
-            </div>
+            <div style={errorBox}>{errMsg || "Link expired. Please open the invitation email again."}</div>
             <div style={{ marginTop: 12 }}>
-              <Link href={loginRedirectPath}>← Back to login</Link>
+              <Link href="/">← Back to login</Link>
             </div>
           </>
         ) : (
@@ -156,16 +156,18 @@ export default function ResetPassword() {
             </form>
 
             <div style={{ marginTop: 12 }}>
-              <Link href={loginRedirectPath}>← Back to login</Link>
+              <Link href="/erp">← Back to ERP</Link>
             </div>
           </>
         )}
       </div>
     </div>
   );
-}
+};
 
-const container = {
+export default ResetPasswordPage;
+
+const container: CSSProperties = {
   minHeight: "100vh",
   display: "flex",
   alignItems: "center",
@@ -175,7 +177,7 @@ const container = {
   background: "#f9fafb",
 };
 
-const card = {
+const card: CSSProperties = {
   width: "100%",
   maxWidth: 560,
   background: "#fff",
@@ -185,9 +187,9 @@ const card = {
   boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
 };
 
-const label = { display: "block", fontWeight: 700, marginTop: 10, marginBottom: 6 };
+const label: CSSProperties = { display: "block", fontWeight: 700, marginTop: 10, marginBottom: 6 };
 
-const input = {
+const input: CSSProperties = {
   width: "100%",
   padding: 12,
   borderRadius: 10,
@@ -195,7 +197,7 @@ const input = {
   fontSize: 14,
 };
 
-const button = {
+const button: CSSProperties = {
   width: "100%",
   marginTop: 14,
   padding: 12,
@@ -207,7 +209,7 @@ const button = {
   cursor: "pointer",
 };
 
-const errorBox = {
+const errorBox: CSSProperties = {
   background: "#fef2f2",
   border: "1px solid #fecaca",
   color: "#991b1b",
@@ -216,7 +218,7 @@ const errorBox = {
   whiteSpace: "pre-wrap",
 };
 
-const okBox = {
+const okBox: CSSProperties = {
   background: "#ecfdf5",
   border: "1px solid #bbf7d0",
   color: "#065f46",
