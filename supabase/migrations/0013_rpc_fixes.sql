@@ -50,27 +50,6 @@ revoke all on function public.is_erp_manager(uuid) from public;
 grant execute on function public.is_erp_manager(uuid) to authenticated;
 
 -- Employee list RPC with canonical company selection and manager gate
-create or replace function public.erp_list_employees()
-returns table (
-  id uuid,
-  company_id uuid,
-  employee_no text,
-  full_name text,
-  work_email text,
-  personal_email text,
-  phone text,
-  joining_date date,
-  status text,
-  department text,
-  designation text,
-  designation_id uuid,
-  created_at timestamptz,
-  updated_at timestamptz
-)
-language plpgsql
-security definer
-set search_path = public
-as $$
 declare
   v_company_id uuid;
 begin
