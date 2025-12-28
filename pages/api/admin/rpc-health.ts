@@ -69,11 +69,19 @@ export default async function handler(
       {},
     );
     if (employeesError) {
+      const details =
+        employeesError.details ||
+        employeesError.hint ||
+        employeesError.code ||
+        null;
+      const signatureNote =
+        employeesError.code === "PGRST204"
+          ? "Ensure public.erp_list_employees() exists with no parameters."
+          : null;
       return res.status(500).json({
         ok: false,
         error: employeesError.message || "erp_list_employees (no args) failed",
-        details:
-          employeesError.details || employeesError.hint || employeesError.code,
+        details: signatureNote || details,
       });
     }
 
