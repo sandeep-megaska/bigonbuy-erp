@@ -9,8 +9,6 @@ export default function ErpHomePage() {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [bootstrapBusy, setBootstrapBusy] = useState(false);
-  const [bootstrapError, setBootstrapError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -44,50 +42,15 @@ export default function ErpHomePage() {
   }
 
   if (!ctx?.companyId) {
-    const handleBootstrap = async () => {
-      setBootstrapError("");
-      setBootstrapBusy(true);
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
-        if (sessionError || !accessToken) {
-          setBootstrapError("Please log in again");
-          return;
-        }
-
-        const res = await fetch("/api/company/bootstrap-owner", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-        });
-
-        const body = await res.json();
-        if (!res.ok || !body.ok) {
-          throw new Error(body.error || "Failed to bootstrap owner");
-        }
-
-        router.reload();
-      } catch (e) {
-        setBootstrapError(e?.message || "Failed to bootstrap owner");
-      } finally {
-        setBootstrapBusy(false);
-      }
-    };
-
     return (
       <div style={containerStyle}>
         <h1 style={{ marginTop: 0 }}>ERP Home</h1>
         <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         <p style={{ color: "#555" }}>You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your account.</p>
+        <p style={{ color: "#374151", marginTop: 8 }}>Account not linked to company. Please ask admin to invite you.</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-          <button onClick={handleBootstrap} style={{ ...buttonStyle, backgroundColor: "#16a34a" }} disabled={bootstrapBusy}>
-            {bootstrapBusy ? "Bootstrapping..." : "Become Owner (Bootstrap)"}
-          </button>
           <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
         </div>
-        {bootstrapError ? <p style={{ color: "#b91c1c", marginTop: 10 }}>{bootstrapError}</p> : null}
       </div>
     );
   }
@@ -252,5 +215,11 @@ const navItems = [
     description: "Track expenses, categories, and spend totals.",
     href: "/erp/finance",
     icon: "💵",
+  },
+  {
+    title: "Company Users",
+    description: "Invite and manage ERP access for your team.",
+    href: "/erp/admin/company-users",
+    icon: "🛂",
   },
 ];
