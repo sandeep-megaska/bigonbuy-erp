@@ -49,15 +49,17 @@ export default function ErpHomePage() {
       setBootstrapBusy(true);
       try {
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError || !sessionData?.session) {
-          throw new Error("Not authenticated");
+        const accessToken = sessionData?.session?.access_token;
+        if (sessionError || !accessToken) {
+          setBootstrapError("Please log in again");
+          return;
         }
 
-        const accessToken = sessionData.session.access_token;
         const res = await fetch("/api/company/bootstrap-owner", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
           },
         });
 

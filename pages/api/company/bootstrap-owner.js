@@ -1,15 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
-function getAccessToken(req) {
-  const authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    return authHeader.slice(7);
-  }
-  return req.cookies?.["sb-access-token"] || null;
-}
-
 export default async function handler(req, res) {
   if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
@@ -23,10 +16,11 @@ export default async function handler(req, res) {
     });
   }
 
-  const accessToken = getAccessToken(req);
-  if (!accessToken) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
+  const accessToken = authHeader.replace(/^Bearer\s+/i, "").trim();
 
   try {
     const userClient = createClient(supabaseUrl, anonKey, {
@@ -34,17 +28,12 @@ export default async function handler(req, res) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data: sessionUser, error: sessionError } = await userClient.auth.getUser();
-    if (sessionError || !sessionUser?.user) {
-      return res.status(401).json({ ok: false, error: "Not authenticated" });
-    }
-
     const { data, error } = await userClient.rpc("erp_bootstrap_owner");
     if (error) {
       return res.status(400).json({
         ok: false,
         error: error.message || "Failed to bootstrap owner",
-        details: error.details || error.hint || error.code,
+        details: error.details || null,
       });
     }
 
