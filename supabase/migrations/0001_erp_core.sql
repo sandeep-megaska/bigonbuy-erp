@@ -185,6 +185,11 @@ insert into public.erp_roles (key, name) values
   ('staff', 'Staff')
 on conflict (key) do update set name = excluded.name;
 
+insert into public.erp_roles (key, name) values
+  ('hr', 'HR Manager'),
+  ('employee', 'Employee')
+on conflict (key) do nothing;
+
 -- Replace OWNER_USER_ID with your auth.users id before running this seed
 insert into public.erp_user_roles (user_id, role_key)
 select 'OWNER_USER_ID'::uuid, 'owner'
