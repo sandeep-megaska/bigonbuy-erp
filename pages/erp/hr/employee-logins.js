@@ -67,7 +67,7 @@ export default function EmployeeLogins() {
 
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-  const [recoveryLink, setRecoveryLink] = useState("");
+  const [warningMsg, setWarningMsg] = useState("");
   const [busyEmployeeId, setBusyEmployeeId] = useState(null);
 
   const canManage = useMemo(() => {
@@ -83,7 +83,7 @@ export default function EmployeeLogins() {
     setLoading(true);
     setError("");
     setSuccessMsg("");
-    setRecoveryLink("");
+    setWarningMsg("");
 
     const { data: sdata, error: serr } = await supabase.auth.getSession();
     if (serr || !sdata?.session) {
@@ -176,7 +176,7 @@ export default function EmployeeLogins() {
   async function linkLogin(emp) {
     setError("");
     setSuccessMsg("");
-    setRecoveryLink("");
+    setWarningMsg("");
 
     if (!canManage) {
       setError("You do not have permission to link employee logins.");
@@ -193,8 +193,9 @@ export default function EmployeeLogins() {
       return;
     }
 
-    setBusyEmployeeId(emp.id);
     try {
+      if (busyEmployeeId === emp.id) return;
+      setBusyEmployeeId(emp.id);
       const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
       if (sessionErr || !sessionData?.session) {
         throw new Error("Session expired. Please sign in again.");
@@ -209,20 +210,27 @@ export default function EmployeeLogins() {
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          companyId: companyId,
-          employeeId: emp.id,
-          employeeEmail: email,
+          company_id: companyId,
+          employee_id: emp.id,
+          employee_email: email,
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok || !data.ok) {
+      if (!res.ok) {
         throw new Error(data.error || "Failed to link employee login");
       }
 
-      setSuccessMsg("Employee login linked successfully.");
-      setRecoveryLink(data.recoveryLink || "");
+      if (!data.ok) {
+        throw new Error(data.error || "Failed to link employee login");
+      }
+
+      if (data.warning) {
+        setWarningMsg("Linked, but email failed. Retry.");
+      } else {
+        setSuccessMsg("Linked. Password setup email sent.");
+      }
 
       // refresh mappings so status updates
       const { data: maps, error: mapErr } = await supabase
@@ -302,7 +310,7 @@ export default function EmployeeLogins() {
         </div>
       )}
 
-      {!loading && (successMsg || recoveryLink) && (
+      {!loading && successMsg && (
         <div
           style={{
             background: "#ecfdf5",
@@ -313,48 +321,22 @@ export default function EmployeeLogins() {
             marginBottom: 14,
           }}
         >
-          <div style={{ fontWeight: 800 }}>{successMsg || "Success"}</div>
-          {recoveryLink ? (
-            <>
-              <div style={{ marginTop: 6, fontSize: 13 }}>
-                Send this link to the employee to set their password:
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                <input
-                  type="text"
-                  value={recoveryLink}
-                  readOnly
-                  style={{
-                    flex: 1,
-                    padding: 10,
-                    borderRadius: 10,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(recoveryLink);
-                      alert("Password setup link copied");
-                    } catch {
-                      alert("Could not copy. Please copy manually.");
-                    }
-                  }}
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid #d1d5db",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    background: "#fff",
-                  }}
-                >
-                  Copy
-                </button>
-              </div>
-            </>
-          ) : null}
+          <div style={{ fontWeight: 800 }}>{successMsg}</div>
+        </div>
+      )}
+
+      {!loading && warningMsg && (
+        <div
+          style={{
+            background: "#fffbeb",
+            border: "1px solid #fcd34d",
+            color: "#92400e",
+            padding: 12,
+            borderRadius: 10,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ fontWeight: 800 }}>{warningMsg}</div>
         </div>
       )}
 
