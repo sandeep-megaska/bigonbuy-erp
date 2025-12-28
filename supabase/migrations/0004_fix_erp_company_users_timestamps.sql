@@ -1,25 +1,25 @@
--- Ensure timestamp columns exist on erp_company_users
-ALTER TABLE public.erp_company_users
-ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+-- 0004_fix_erp_company_users_timestamps.sql
+-- Add timestamps expected by RPCs and keep updated_at current.
 
-ALTER TABLE public.erp_company_users
-ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+alter table public.erp_company_users
+  add column if not exists created_at timestamptz not null default now();
 
--- Generic trigger function to maintain updated_at
-CREATE OR REPLACE FUNCTION public.erp_set_updated_at()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
+alter table public.erp_company_users
+  add column if not exists updated_at timestamptz not null default now();
+
+create or replace function public.erp_set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
 $$;
 
--- Ensure trigger is present on erp_company_users
-DROP TRIGGER IF EXISTS erp_set_updated_at ON public.erp_company_users;
+drop trigger if exists trg_erp_company_users_set_updated_at on public.erp_company_users;
 
-CREATE TRIGGER erp_set_updated_at
-BEFORE UPDATE ON public.erp_company_users
-FOR EACH ROW
-EXECUTE FUNCTION public.erp_set_updated_at();
+create trigger trg_erp_company_users_set_updated_at
+before update on public.erp_company_users
+for each row
+execute function public.erp_set_updated_at();

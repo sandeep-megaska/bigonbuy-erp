@@ -15,16 +15,19 @@ insert into public.erp_company (id, legal_name, brand_name)
 values ('b19c6a4e-7c6a-4b1a-9e4e-2d2b0b3a3b0a', 'Bigonbuy Trading Private Limited', 'Megaska')
 on conflict (id) do nothing;
 
-insert into public.erp_companies (id, legal_name, brand_name, country_code, currency_code, gstin, pan)
-values (
-  'b19c6a4e-7c6a-4b1a-9e4e-2d2b0b3a3b0a',
-  'Bigonbuy Trading Private Limited',
-  'Megaska',
-  'IN',
-  'INR',
-  null,
-  null
-)
+-- Maintain compatibility with existing company foreign key references
+insert into public.erp_companies
+  (id, legal_name, brand_name, country_code, currency_code, gstin, pan)
+values
+  (
+    'b19c6a4e-7c6a-4b1a-9e4e-2d2b0b3a3b0a',
+    'Bigonbuy Trading Private Limited',
+    'Megaska',
+    'IN',
+    'INR',
+    null,
+    null
+  )
 on conflict (id) do nothing;
 
 -- RLS for the single-company master
