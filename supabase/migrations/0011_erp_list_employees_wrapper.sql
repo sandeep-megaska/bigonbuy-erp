@@ -1,3 +1,5 @@
+drop function if exists public.erp_list_employees();
+
 -- Ensure manager predicate aligns to canonical single-company setup
 create or replace function public.is_erp_manager(uid uuid)
 returns boolean
@@ -35,7 +37,7 @@ revoke all on function public.is_erp_manager(uuid) from public;
 grant execute on function public.is_erp_manager(uuid) to authenticated;
 
 -- Manager-only employee directory RPC with no parameters
-create or replace function public.erp_list_employees()
+create function public.erp_list_employees()
 returns table (
   id uuid,
   employee_no text,
@@ -84,15 +86,11 @@ begin
     e.status,
     e.designation_id,
     d.name as designation_name,
-    eu.user_id,
+    e.user_id,
     e.created_at,
     e.updated_at
   from public.erp_employees e
   left join public.erp_designations d on d.id = e.designation_id
-  left join public.erp_employee_users eu
-    on eu.employee_id = e.id
-   and coalesce(eu.company_id, v_company_id) = v_company_id
-   and coalesce(eu.is_active, true)
   where coalesce(e.company_id, v_company_id) = v_company_id
   order by e.joining_date desc nulls last, e.created_at desc;
 end;
