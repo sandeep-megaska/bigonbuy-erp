@@ -69,11 +69,11 @@ export default async function handler(req, res) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  const { company_id, employee_id, employee_email } = req.body || {};
-  if (!company_id || !employee_id || !employee_email) {
+  const { employee_id, employee_email } = req.body || {};
+  if (!employee_id || !employee_email) {
     return res
       .status(400)
-      .json({ ok: false, error: "company_id, employee_id, and employee_email are required" });
+      .json({ ok: false, error: "employee_id and employee_email are required" });
   }
 
   try {
@@ -93,8 +93,17 @@ export default async function handler(req, res) {
     const normalizedEmail = employee_email.trim().toLowerCase();
     const user = await findOrCreateUser(adminClient, normalizedEmail);
 
+    const { data: companyId, error: companyErr } = await userClient.rpc("erp_get_company");
+    if (companyErr || !companyId) {
+      return res.status(400).json({
+        ok: false,
+        error: companyErr?.message || "Unable to resolve company",
+        details: companyErr?.details || companyErr?.hint || companyErr?.code,
+      });
+    }
+
     const { data: rpcData, error: rpcError } = await userClient.rpc("erp_link_employee_login", {
-      p_company_id: company_id,
+      p_company_id: companyId,
       p_employee_id: employee_id,
       p_auth_user_id: user.id,
       p_employee_email: normalizedEmail,
