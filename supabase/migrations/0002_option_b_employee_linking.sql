@@ -1,4 +1,3 @@
--- Option B: company and employee user mappings with secure RPC
 
 -- Ensure pgcrypto for UUID generation
 create extension if not exists "pgcrypto";
@@ -82,9 +81,11 @@ $$;
 
 -- Seed additional roles needed for linkage
 insert into public.erp_roles (key, name) values
+  ('owner', 'Owner'),
+  ('admin', 'Administrator'),
   ('hr', 'HR Manager'),
   ('employee', 'Employee')
-on conflict (key) do update set name = excluded.name;
+on conflict (key) do nothing;
 
 -- RLS configuration
 alter table public.erp_company_users enable row level security;
@@ -93,7 +94,19 @@ alter table public.erp_company_users force row level security;
 alter table public.erp_employee_users enable row level security;
 alter table public.erp_employee_users force row level security;
 
--- Company user policies
+-- Remove legacy mutation policies to keep minimal surface
+DO $$
+BEGIN
+  DROP POLICY IF EXISTS erp_company_users_insert_admins ON public.erp_company_users;
+  DROP POLICY IF EXISTS erp_company_users_update_admins ON public.erp_company_users;
+  DROP POLICY IF EXISTS erp_company_users_delete_admins ON public.erp_company_users;
+  DROP POLICY IF EXISTS erp_employee_users_insert_admins ON public.erp_employee_users;
+  DROP POLICY IF EXISTS erp_employee_users_update_admins ON public.erp_employee_users;
+  DROP POLICY IF EXISTS erp_employee_users_delete_admins ON public.erp_employee_users;
+END
+$$;
+
+-- Minimal SELECT policies
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -116,78 +129,6 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_company_users' AND p.policyname = 'erp_company_users_insert_admins'
-  ) THEN
-    create policy erp_company_users_insert_admins
-      on public.erp_company_users
-      for insert
-      with check (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_company_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      );
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_company_users' AND p.policyname = 'erp_company_users_update_admins'
-  ) THEN
-    create policy erp_company_users_update_admins
-      on public.erp_company_users
-      for update
-      using (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_company_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      )
-      with check (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_company_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      );
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_company_users' AND p.policyname = 'erp_company_users_delete_admins'
-  ) THEN
-    create policy erp_company_users_delete_admins
-      on public.erp_company_users
-      for delete
-      using (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_company_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      );
-  END IF;
-END
-$$;
-
--- Employee user policies
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
     WHERE p.schemaname = 'public' AND p.tablename = 'erp_employee_users' AND p.policyname = 'erp_employee_users_select_member'
   ) THEN
     create policy erp_employee_users_select_member
@@ -200,73 +141,6 @@ BEGIN
           from public.erp_company_users cu
           where cu.company_id = erp_employee_users.company_id
             and cu.user_id = auth.uid()
-        )
-      );
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_employee_users' AND p.policyname = 'erp_employee_users_insert_admins'
-  ) THEN
-    create policy erp_employee_users_insert_admins
-      on public.erp_employee_users
-      for insert
-      with check (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_employee_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      );
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_employee_users' AND p.policyname = 'erp_employee_users_update_admins'
-  ) THEN
-    create policy erp_employee_users_update_admins
-      on public.erp_employee_users
-      for update
-      using (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_employee_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      )
-      with check (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_employee_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
-        )
-      );
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_policies p
-    WHERE p.schemaname = 'public' AND p.tablename = 'erp_employee_users' AND p.policyname = 'erp_employee_users_delete_admins'
-  ) THEN
-    create policy erp_employee_users_delete_admins
-      on public.erp_employee_users
-      for delete
-      using (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = erp_employee_users.company_id
-            and cu.user_id = auth.uid()
-            and cu.role_key in ('owner', 'admin', 'hr')
         )
       );
   END IF;
@@ -322,7 +196,7 @@ begin
     insert into public.erp_company_users (company_id, user_id, role_key)
     values (p_company_id, p_auth_user_id, 'employee')
     on conflict (company_id, user_id) do update
-      set role_key = coalesce(public.erp_company_users.role_key, excluded.role_key),
+      set role_key = excluded.role_key,
           updated_at = now()
     returning id into v_company_user_id;
 
