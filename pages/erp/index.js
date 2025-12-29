@@ -2,7 +2,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import ErpNavBar from "../../components/erp/ErpNavBar";
-import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome } from "../../lib/erpContext";
+import { ERP_NAV, getCurrentErpAccess, isNavItemAllowed } from "../../lib/erp/nav";
 import { supabase } from "../../lib/supabaseClient";
 
 export default function ErpHomePage() {
@@ -10,8 +11,23 @@ export default function ErpHomePage() {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const canManage = useMemo(() => isHr(ctx?.roleKey), [ctx]);
-  const navItems = useMemo(() => buildNavItems(canManage), [canManage]);
+  const [access, setAccess] = useState({
+    isAuthenticated: false,
+    isManager: false,
+    roleKey: undefined,
+  });
+
+  const navItemsBySection = useMemo(() => {
+    const allowedItems = ERP_NAV.filter((item) => isNavItemAllowed(item, access)).filter(
+      (item) => item.id !== "erp-home" && item.description
+    );
+
+    return allowedItems.reduce((acc, item) => {
+      acc[item.section] = acc[item.section] || [];
+      acc[item.section].push(item);
+      return acc;
+    }, {});
+  }, [access]);
 
   useEffect(() => {
     let active = true;
@@ -20,9 +36,16 @@ export default function ErpHomePage() {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
-      const context = await getCompanyContext(session);
+      const [accessState, context] = await Promise.all([
+        getCurrentErpAccess(session),
+        getCompanyContext(session),
+      ]);
       if (!active) return;
 
+      setAccess({
+        ...accessState,
+        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
+      });
       setCtx(context);
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found for this user.");
@@ -60,7 +83,7 @@ export default function ErpHomePage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar roleKey={ctx?.roleKey} />
+      <ErpNavBar access={access} />
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>ERP Home</p>
@@ -71,27 +94,37 @@ export default function ErpHomePage() {
           <p style={{ margin: 0, color: "#374151" }}>
             Signed in as <strong>{ctx.email}</strong>
           </p>
-          <p style={{ margin: "4px 0 0", color: "#4b5563" }}>Role: <strong>{ctx.roleKey || "member"}</strong></p>
+          <p style={{ margin: "4px 0 0", color: "#4b5563" }}>
+            Role: <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
+          </p>
           <button type="button" onClick={handleSignOut} style={{ ...buttonStyle, marginTop: 8 }}>
             Sign Out
           </button>
         </div>
       </header>
 
-      <section style={cardGridStyle}>
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} style={cardStyle}>
-            <div style={cardIconStyle}>{item.icon}</div>
-            <div style={{ flex: 1 }}>
-              <h2 style={cardTitleStyle}>{item.title}</h2>
-              <p style={cardDescriptionStyle}>{item.description}</p>
-              {item.ctaLabel ? (
-                <div style={{ marginTop: 10 }}>
-                  <span style={cardCtaStyle}>{item.ctaLabel} →</span>
-                </div>
-              ) : null}
+      <section style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {Object.entries(navItemsBySection).map(([section, items]) => (
+          <div key={section} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <p style={sectionLabelStyle}>{section}</p>
+              <div style={sectionDividerStyle} />
             </div>
-          </Link>
+            <div style={cardGridStyle}>
+              {items.map((item) => (
+                <Link key={item.href} href={item.href} style={cardStyle}>
+                  <div style={cardIconStyle}>{item.label.slice(0, 2)}</div>
+                  <div style={{ flex: 1 }}>
+                    <h2 style={cardTitleStyle}>{item.label}</h2>
+                    <p style={cardDescriptionStyle}>{item.description}</p>
+                    <div style={{ marginTop: 10 }}>
+                      <span style={cardCtaStyle}>Open →</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
         ))}
       </section>
     </div>
@@ -206,50 +239,16 @@ const cardCtaStyle = {
   textDecoration: "none",
   fontSize: 14,
 };
+const sectionLabelStyle = {
+  margin: 0,
+  fontSize: 12,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#6b7280",
+};
 
-function buildNavItems(canManage) {
-  const items = [
-    {
-      title: "Products",
-      description: "Create and manage your product catalog.",
-      href: "/erp/products",
-      icon: "📦",
-    },
-    {
-      title: "Variants",
-      description: "Organize options and product variations.",
-      href: "/erp/variants",
-      icon: "🧩",
-    },
-    {
-      title: "Inventory",
-      description: "Track stock levels across variants.",
-      href: "/erp/inventory",
-      icon: "📊",
-    },
-    {
-      title: "Human Resources",
-      description: "Employees, salary, leave, and payroll.",
-      href: "/erp/hr",
-      icon: "🧑‍💼",
-    },
-    {
-      title: "Finance",
-      description: "Track expenses, categories, and spend totals.",
-      href: "/erp/finance",
-      icon: "💵",
-    },
-  ];
-
-  if (canManage) {
-    items.push({
-      title: "Company Users",
-      description: "Invite staff, assign roles, manage access.",
-      href: "/erp/admin/company-users",
-      icon: "🛂",
-      ctaLabel: "Open",
-    });
-  }
-
-  return items;
-}
+const sectionDividerStyle = {
+  flex: 1,
+  height: 1,
+  background: "#e5e7eb",
+};
