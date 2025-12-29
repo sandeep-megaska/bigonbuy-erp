@@ -3,14 +3,16 @@ import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../lib/s
 
 type EmployeeRow = {
   id: string;
-  company_id: string | null;
+  employee_code: string | null;
   employee_no: string | null;
   full_name: string;
+  email: string | null;
   work_email: string | null;
   personal_email: string | null;
   phone: string | null;
   joining_date: string | null;
   status: string | null;
+  employment_status: string | null;
   department: string | null;
   designation: string | null;
   designation_id: string | null;
