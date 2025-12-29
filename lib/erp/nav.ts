@@ -61,6 +61,22 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "hr-masters",
+    label: "HR Masters",
+    href: "/erp/hr/masters",
+    section: "HR",
+    description: "Departments, job titles, locations, and employment types.",
+    access: "manager",
+  },
+  {
+    id: "hr-employees",
+    label: "Employees",
+    href: "/erp/hr/employees",
+    section: "HR",
+    description: "Employee directory and profiles.",
+    access: "manager",
+  },
+  {
     id: "finance",
     label: "Finance",
     href: "/erp/finance",

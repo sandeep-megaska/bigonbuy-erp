@@ -219,6 +219,12 @@ const cardCtaStyle = {
 function buildNavItems(canManage) {
   const items = [
     {
+      title: "HR Masters",
+      description: "Manage departments, job titles, locations, and employment types.",
+      href: "/erp/hr/masters",
+      icon: "📚",
+    },
+    {
       title: "Employees",
       description: "Manage employee directory and profiles.",
       href: "/erp/hr/employees",
