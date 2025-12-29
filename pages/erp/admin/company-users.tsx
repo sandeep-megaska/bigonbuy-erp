@@ -1,398 +1,206 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
-import type { NextPage } from "next";
 import Link from "next/link";
+import { useRouter } from "next/router";
+import type { CSSProperties, FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import ErpNavBar from "../../../components/erp/ErpNavBar";
+import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { supabase } from "../../../lib/supabaseClient";
 
-type Session = Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"];
-
-type EmployeeRow = {
-  id: string;
-  employee_code: string;
-  full_name: string;
-  email: string | null;
-  phone: string | null;
-  department: string | null;
-  designation: string | null;
-  employment_status: string | null;
-  joining_date: string | null;
-  user_id: string | null;
-  role_key: string | null;
-};
-
-type RoleRow = { key: string; name: string; usageCount?: number };
-
-type ApiError = { ok: false; error: string; details?: string | null };
-type ApiListResponse = { ok: true; employees: EmployeeRow[] };
-type ApiCreateResponse = { ok: true; employee: EmployeeRow };
-type ApiGrantResponse = {
-  ok: true;
-  employee_id: string;
-  employee_code: string;
+type RoleRow = { key: string; name?: string };
+type CompanyUserRow = {
   user_id: string;
+  email: string | null;
   role_key: string;
-  temp_password?: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
-type ApiUploadResponse = { ok: true; path: string; uploadUrl: string };
 
-const defaultEmployeeStatus = "active";
-
-const CompanyUsersPage: NextPage = () => {
-  const [session, setSession] = useState<Session | null>(null);
+export default function CompanyUsersPage() {
+  const router = useRouter();
+  const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"employees" | "access">("employees");
-  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [accessToken, setAccessToken] = useState("");
+
   const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [users, setUsers] = useState<CompanyUserRow[]>([]);
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("employee");
+  const [inviteDesignation, setInviteDesignation] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+
   const [listError, setListError] = useState("");
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [designation, setDesignation] = useState("");
-  const [department, setDepartment] = useState("");
-  const [joiningDate, setJoiningDate] = useState("");
-  const [employmentStatus, setEmploymentStatus] = useState(defaultEmployeeStatus);
-  const [dob, setDob] = useState("");
-  const [gender, setGender] = useState("");
-  const [aadhaarLast4, setAadhaarLast4] = useState("");
-  const [idProofType, setIdProofType] = useState("");
-  const [addressJson, setAddressJson] = useState("");
-  const [salaryJson, setSalaryJson] = useState("");
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [idProofFile, setIdProofFile] = useState<File | null>(null);
-
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [createSuccess, setCreateSuccess] = useState("");
-
-  const [grantEmployeeId, setGrantEmployeeId] = useState("");
-  const [grantEmail, setGrantEmail] = useState("");
-  const [grantRoleKey, setGrantRoleKey] = useState("employee");
-  const [grantBusy, setGrantBusy] = useState(false);
-  const [grantError, setGrantError] = useState("");
-  const [tempPassword, setTempPassword] = useState<string | null>(null);
-  const [grantSuccess, setGrantSuccess] = useState("");
-
-  const signedInEmail = useMemo(() => session?.user?.email ?? "member", [session]);
-
-  const fetchAccessToken = useCallback(async () => {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data?.session?.access_token) return null;
-    return data.session.access_token;
-  }, []);
-
-  const loadEmployees = useCallback(async () => {
-    setListError("");
-    const token = await fetchAccessToken();
-    if (!token) {
-      setListError("Please sign in again.");
-      return;
-    }
-
-    const res = await fetch("/api/erp/employees/list", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const body = (await res.json()) as ApiListResponse | ApiError;
-
-    if (!res.ok || !body.ok) {
-      setEmployees([]);
-      setListError(body.ok ? "Unable to load employees" : body.error);
-      return;
-    }
-    setEmployees(body.employees || []);
-  }, [fetchAccessToken]);
-
-  const loadRoles = useCallback(async () => {
-    const token = await fetchAccessToken();
-    if (!token) return;
-
-    const res = await fetch("/api/hr/roles/list", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const body = (await res.json()) as { ok: boolean; roles?: RoleRow[]; error?: string };
-    if (res.ok && body.ok && body.roles) {
-      setRoles(body.roles);
-    }
-  }, [fetchAccessToken]);
+  const canManage = useMemo(() => isHr(ctx?.roleKey), [ctx]);
 
   useEffect(() => {
     let active = true;
 
     (async () => {
-      const { data } = await supabase.auth.getSession();
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      setAccessToken(session.access_token || "");
+      const context = await getCompanyContext(session);
       if (!active) return;
-      const currentSession = data?.session ?? null;
-      if (!currentSession) {
-        window.location.href = "/erp/login";
+
+      setCtx(context);
+      if (!context.companyId) {
+        setListError(context.membershipError || "No active company membership found for this user.");
+        setLoading(false);
         return;
       }
 
-      setSession(currentSession);
-      await Promise.all([loadEmployees(), loadRoles()]);
+      if (!isHr(context.roleKey)) {
+        setLoading(false);
+        return;
+      }
+
+      await Promise.all([
+        loadRoles(session.access_token, active),
+        loadUsers(session.access_token, active),
+      ]);
       if (active) setLoading(false);
     })();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!nextSession) {
-        window.location.href = "/erp/login";
-      } else {
-        setSession(nextSession);
-      }
-    });
-
     return () => {
       active = false;
-      authListener?.subscription.unsubscribe();
     };
-  }, [loadEmployees, loadRoles]);
+  }, [router]);
 
-  const parseJsonField = (value: string, label: string) => {
-    if (!value.trim()) return null;
-    try {
-      return JSON.parse(value);
-    } catch (err) {
-      throw new Error(`${label} must be valid JSON`);
+  async function loadRoles(token: string, isActive = true) {
+    if (!token) return;
+    const res = await fetch("/api/hr/roles/list", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) return;
+    if (isActive) {
+      setRoles(data.roles || []);
+      const preferred = data.roles?.find((r: RoleRow) => r.key === "employee")?.key;
+      setInviteRole(preferred || data.roles?.[0]?.key || "employee");
     }
-  };
+  }
 
-  const uploadFile = useCallback(
-    async (file: File, kind: "photo" | "id-proof", employeeId: string | null) => {
-      const token = await fetchAccessToken();
-      if (!token) throw new Error("Missing session token");
+  async function loadUsers(token: string, isActive = true) {
+    if (!token) return;
+    setListError("");
+    const res = await fetch("/api/erp/company-users", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
 
-      const endpoint =
-        kind === "photo" ? "/api/erp/employees/upload-photo" : "/api/erp/employees/upload-id-proof";
-      const res = await fetch(endpoint, {
+    if (!res.ok || !data?.ok) {
+      if (isActive) setListError(data?.error || "Failed to load company users");
+      return;
+    }
+
+    if (isActive) setUsers(data.users || []);
+  }
+
+  async function handleInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canManage) {
+      setInviteError("Only owner/admin/hr can invite or grant access.");
+      return;
+    }
+    if (!accessToken) {
+      setInviteError("Missing session. Please sign in again.");
+      return;
+    }
+
+    const trimmedEmail = inviteEmail.trim().toLowerCase();
+    if (!trimmedEmail) {
+      setInviteError("Email is required.");
+      return;
+    }
+
+    setInviteBusy(true);
+    setInviteError("");
+    setInviteSuccess("");
+
+    try {
+      const res = await fetch("/api/erp/company-users/invite", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          employee_id: employeeId,
-          file_name: file.name,
-          content_type: file.type || "application/octet-stream",
+          email: trimmedEmail,
+          role_key: inviteRole,
+          designation: inviteDesignation.trim() || null,
         }),
       });
 
-      const body = (await res.json()) as ApiUploadResponse | ApiError;
-      if (!res.ok || !body.ok) {
-        throw new Error(body.ok ? "Failed to prepare upload" : body.error);
+      const data = await res.json();
+      if (!res.ok || !data?.ok) {
+        setInviteError(data?.error || "Failed to send invite");
+        return;
       }
 
-      const upload = await fetch(body.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
+      setInviteSuccess(`Invite created / access granted for ${data.email} (${data.role_key}).`);
+      setInviteEmail("");
+      setInviteDesignation("");
+      await loadUsers(accessToken);
+    } finally {
+      setInviteBusy(false);
+    }
+  }
 
-      if (!upload.ok) {
-        throw new Error("Failed to upload file to storage");
-      }
-
-      return body.path;
-    },
-    [fetchAccessToken],
-  );
-
-  const handleCreate = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      setCreateError("");
-      setCreateSuccess("");
-      setCreateBusy(true);
-      setTempPassword(null);
-
-      try {
-        if (!fullName.trim()) {
-          setCreateError("Full name is required.");
-          return;
-        }
-
-        const address = parseJsonField(addressJson, "Address JSON");
-        const salary = parseJsonField(salaryJson, "Salary JSON");
-
-        let photoPath: string | null = null;
-        let idProofPath: string | null = null;
-
-        if (photoFile) {
-          photoPath = await uploadFile(photoFile, "photo", null);
-        }
-
-        if (idProofFile) {
-          idProofPath = await uploadFile(idProofFile, "id-proof", null);
-        }
-
-        const token = await fetchAccessToken();
-        if (!token) {
-          setCreateError("Please sign in again.");
-          return;
-        }
-
-        const res = await fetch("/api/erp/employees/create", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            full_name: fullName,
-            email: email || null,
-            phone: phone || null,
-            designation: designation || null,
-            department: department || null,
-            joining_date: joiningDate || null,
-            employment_status: employmentStatus || defaultEmployeeStatus,
-            dob: dob || null,
-            gender: gender || null,
-            address_json: address,
-            salary_json: salary,
-            photo_path: photoPath,
-            id_proof_type: idProofType || null,
-            aadhaar_last4: aadhaarLast4 || null,
-            id_proof_path: idProofPath,
-          }),
-        });
-
-        const body = (await res.json()) as ApiCreateResponse | ApiError;
-        if (!res.ok || !body.ok) {
-          setCreateError(body.ok ? "Failed to create employee" : body.error);
-          return;
-        }
-
-        const created = body.employee as EmployeeRow;
-        setCreateSuccess(`Employee created with code ${created.employee_code}`);
-        await loadEmployees();
-        setTab("access");
-        setGrantEmployeeId(created.id);
-        setGrantEmail(created.email || email || "");
-        setGrantRoleKey("employee");
-        setFullName("");
-        setEmail("");
-        setPhone("");
-        setDesignation("");
-        setDepartment("");
-        setJoiningDate("");
-        setEmploymentStatus(defaultEmployeeStatus);
-        setDob("");
-        setGender("");
-        setAadhaarLast4("");
-        setIdProofType("");
-        setAddressJson("");
-        setSalaryJson("");
-        setPhotoFile(null);
-        setIdProofFile(null);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to create employee";
-        setCreateError(message);
-      } finally {
-        setCreateBusy(false);
-      }
-    },
-    [
-      fullName,
-      email,
-      phone,
-      designation,
-      department,
-      joiningDate,
-      employmentStatus,
-      dob,
-      gender,
-      addressJson,
-      salaryJson,
-      idProofType,
-      aadhaarLast4,
-      photoFile,
-      idProofFile,
-      fetchAccessToken,
-      uploadFile,
-      loadEmployees,
-    ],
-  );
-
-  const handleGrant = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      setGrantError("");
-      setGrantSuccess("");
-      setTempPassword(null);
-      setGrantBusy(true);
-
-      try {
-        if (!grantEmployeeId) {
-          setGrantError("Select an employee first.");
-          return;
-        }
-        const trimmedEmail = grantEmail.trim().toLowerCase();
-        if (!trimmedEmail) {
-          setGrantError("Email is required.");
-          return;
-        }
-
-        const token = await fetchAccessToken();
-        if (!token) {
-          setGrantError("Please sign in again.");
-          return;
-        }
-
-        const res = await fetch("/api/erp/employees/grant-access", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            employee_id: grantEmployeeId,
-            email: trimmedEmail,
-            role_key: grantRoleKey,
-          }),
-        });
-
-        const body = (await res.json()) as ApiGrantResponse | ApiError;
-        if (!res.ok || !body.ok) {
-          setGrantError(body.ok ? "Failed to grant access" : body.error);
-          return;
-        }
-
-        setGrantSuccess("System access granted successfully.");
-        setTempPassword(body.temp_password || null);
-        await loadEmployees();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to grant access";
-        setGrantError(message);
-      } finally {
-        setGrantBusy(false);
-      }
-    },
-    [grantEmployeeId, grantEmail, grantRoleKey, fetchAccessToken, loadEmployees],
-  );
-
-  const handleSignOut = useCallback(async () => {
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
-    window.location.href = "/erp/login";
-  }, []);
-
-  const selectedEmployee = useMemo(
-    () => employees.find((e) => e.id === grantEmployeeId) || null,
-    [employees, grantEmployeeId],
-  );
+    router.replace("/");
+  };
 
   if (loading) {
     return <div style={containerStyle}>Loading company users…</div>;
   }
 
+  if (!ctx?.companyId) {
+    return (
+      <div style={containerStyle}>
+        <h1 style={{ marginTop: 0 }}>Company Users</h1>
+        <p style={{ color: "#b91c1c" }}>{listError || "No company is linked to this account."}</p>
+        <button onClick={handleSignOut} style={buttonStyle}>
+          Sign Out
+        </button>
+      </div>
+    );
+  }
+
+  if (!canManage) {
+    return (
+      <div style={containerStyle}>
+        <p style={eyebrowStyle}>Admin</p>
+        <h1 style={titleStyle}>Company Users</h1>
+        <div style={errorBox}>Not authorized. Contact your administrator for access.</div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <Link href="/erp" style={linkButtonStyle}>
+            Back to ERP Home
+          </Link>
+          <button onClick={handleSignOut} style={buttonStyle}>
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={containerStyle}>
+      <ErpNavBar roleKey={ctx?.roleKey} />
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>Admin</p>
           <h1 style={titleStyle}>Company Users</h1>
           <p style={subtitleStyle}>
-            Create employee records and provision ERP login access with secure temporary passwords.
+            Invite staff, assign ERP roles, and manage who can sign in to your company.
           </p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
-            Signed in as <strong>{signedInEmail}</strong>
+            Signed in as <strong>{ctx?.email}</strong> · Role: <strong>{ctx?.roleKey}</strong>
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
@@ -405,266 +213,39 @@ const CompanyUsersPage: NextPage = () => {
         </div>
       </header>
 
-      <div style={tabRowStyle}>
-        <button
-          type="button"
-          style={tab === "employees" ? tabButtonActive : tabButton}
-          onClick={() => setTab("employees")}
-        >
-          Employees
-        </button>
-        <button
-          type="button"
-          style={tab === "access" ? tabButtonActive : tabButton}
-          onClick={() => setTab("access")}
-        >
-          Grant System Access
-        </button>
-      </div>
-
-      {tab === "employees" ? (
+      <div style={gridCols2}>
         <section style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <h2 style={{ margin: "0 0 8px" }}>Create Employee</h2>
+              <h2 style={{ margin: "0 0 6px" }}>Invite User</h2>
               <p style={{ margin: 0, color: "#4b5563" }}>
-                Add HR and legal details. Employee codes are generated automatically.
+                Send an access invite email and assign their ERP role.
               </p>
             </div>
-            <button type="button" onClick={loadEmployees} style={{ ...buttonStyle, background: "#111827" }}>
-              Refresh List
-            </button>
           </div>
 
-          {createError ? <div style={errorBox}>{createError}</div> : null}
-          {createSuccess ? <div style={okBox}>{createSuccess}</div> : null}
+          {inviteError ? <div style={errorBox}>{inviteError}</div> : null}
+          {inviteSuccess ? <div style={okBox}>{inviteSuccess}</div> : null}
 
-          <form onSubmit={handleCreate} style={{ display: "grid", gap: 12 }}>
+          <form onSubmit={handleInvite} style={{ display: "grid", gap: 12, marginTop: 12 }}>
             <div style={gridCols2}>
-              <Field label="Full name *">
-                <input
-                  style={inputStyle}
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Employee full name"
-                  required
-                />
-              </Field>
-              <Field label="Work email (optional)">
+              <label style={labelStyle}>
+                Email
                 <input
                   style={inputStyle}
                   type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
-                />
-              </Field>
-            </div>
-
-            <div style={gridCols3}>
-              <Field label="Phone">
-                <input
-                  style={inputStyle}
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+91 ..."
-                />
-              </Field>
-              <Field label="Department">
-                <input
-                  style={inputStyle}
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="Department"
-                />
-              </Field>
-              <Field label="Designation (title)">
-                <input
-                  style={inputStyle}
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  placeholder="HR Executive"
-                />
-              </Field>
-            </div>
-
-            <div style={gridCols3}>
-              <Field label="Joining date">
-                <input
-                  style={inputStyle}
-                  type="date"
-                  value={joiningDate}
-                  onChange={(e) => setJoiningDate(e.target.value)}
-                />
-              </Field>
-              <Field label="Employment status">
-                <select
-                  style={selectStyle}
-                  value={employmentStatus}
-                  onChange={(e) => setEmploymentStatus(e.target.value)}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="terminated">Terminated</option>
-                </select>
-              </Field>
-              <Field label="Gender">
-                <input
-                  style={inputStyle}
-                  value={gender}
-                  onChange={(e) => setGender(e.target.value)}
-                  placeholder="Gender"
-                />
-              </Field>
-            </div>
-
-            <div style={gridCols3}>
-              <Field label="Date of birth">
-                <input style={inputStyle} type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
-              </Field>
-              <Field label="ID proof type">
-                <input
-                  style={inputStyle}
-                  value={idProofType}
-                  onChange={(e) => setIdProofType(e.target.value)}
-                  placeholder="aadhaar / passport / PAN"
-                />
-              </Field>
-              <Field label="Aadhaar last 4">
-                <input
-                  style={inputStyle}
-                  maxLength={4}
-                  value={aadhaarLast4}
-                  onChange={(e) => setAadhaarLast4(e.target.value)}
-                  placeholder="1234"
-                />
-              </Field>
-            </div>
-
-            <div style={gridCols2}>
-              <Field label="Address JSON (optional)">
-                <textarea
-                  style={textAreaStyle}
-                  value={addressJson}
-                  onChange={(e) => setAddressJson(e.target.value)}
-                  placeholder='{"line1": "123 Street", "city": "Bengaluru"}'
-                  rows={3}
-                />
-              </Field>
-              <Field label="Salary JSON (optional)">
-                <textarea
-                  style={textAreaStyle}
-                  value={salaryJson}
-                  onChange={(e) => setSalaryJson(e.target.value)}
-                  placeholder='{"ctc": 1000000, "currency": "INR"}'
-                  rows={3}
-                />
-              </Field>
-            </div>
-
-            <div style={gridCols2}>
-              <Field label="Photo (storage path only)">
-                <input
-                  style={inputStyle}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setPhotoFile(e.target.files?.[0] || null)}
-                />
-              </Field>
-              <Field label="ID proof document">
-                <input
-                  style={inputStyle}
-                  type="file"
-                  onChange={(e) => setIdProofFile(e.target.files?.[0] || null)}
-                />
-              </Field>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="submit"
-                style={{ ...buttonStyle, background: "#2563eb" }}
-                disabled={createBusy}
-              >
-                {createBusy ? "Creating..." : "Create employee"}
-              </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-
-      {tab === "access" ? (
-        <section style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <h2 style={{ margin: "0 0 8px" }}>Grant System Access</h2>
-              <p style={{ margin: 0, color: "#4b5563" }}>
-                Link an employee to Supabase Auth and assign an ERP role. Temporary passwords are
-                shown once.
-              </p>
-            </div>
-            <button type="button" onClick={loadEmployees} style={{ ...buttonStyle, background: "#111827" }}>
-              Refresh List
-            </button>
-          </div>
-
-          {grantError ? <div style={errorBox}>{grantError}</div> : null}
-          {grantSuccess ? <div style={okBox}>{grantSuccess}</div> : null}
-          {tempPassword ? (
-            <div style={{ ...okBox, background: "#ecfdf3", color: "#166534" }}>
-              Temporary password: <code>{tempPassword}</code>
-              <button
-                type="button"
-                style={{ ...buttonStyle, background: "#059669", marginLeft: 12 }}
-                onClick={() => navigator.clipboard.writeText(tempPassword || "")}
-              >
-                Copy
-              </button>
-              <p style={{ margin: "6px 0 0", fontSize: 14 }}>
-                Share securely with the employee. This will not be shown again.
-              </p>
-            </div>
-          ) : null}
-
-          <form onSubmit={handleGrant} style={{ display: "grid", gap: 12, marginTop: 12 }}>
-            <div style={gridCols2}>
-              <Field label="Employee">
-                <select
-                  style={selectStyle}
-                  value={grantEmployeeId}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setGrantEmployeeId(value);
-                    const emp = employees.find((em) => em.id === value);
-                    if (emp?.email) setGrantEmail(emp.email);
-                  }}
-                >
-                  <option value="">Select employee</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.employee_code} — {emp.full_name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Email for login">
-                <input
-                  style={inputStyle}
-                  type="email"
-                  value={grantEmail}
-                  onChange={(e) => setGrantEmail(e.target.value)}
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="user@example.com"
                   required
                 />
-              </Field>
-            </div>
-
-            <div style={gridCols2}>
-              <Field label="ERP role">
+              </label>
+              <label style={labelStyle}>
+                Role
                 <select
                   style={selectStyle}
-                  value={grantRoleKey}
-                  onChange={(e) => setGrantRoleKey(e.target.value)}
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
                 >
                   {roles.map((role) => (
                     <option key={role.key} value={role.key}>
@@ -673,109 +254,80 @@ const CompanyUsersPage: NextPage = () => {
                   ))}
                   {!roles.length ? <option value="employee">employee</option> : null}
                 </select>
-              </Field>
+              </label>
             </div>
 
-            {selectedEmployee ? (
-              <div style={{ padding: 12, background: "#f3f4f6", borderRadius: 8 }}>
-                <strong>{selectedEmployee.full_name}</strong> — {selectedEmployee.employee_code} •{" "}
-                {selectedEmployee.designation || "No title"}{" "}
-                {selectedEmployee.user_id ? "(already linked)" : "(no login yet)"}
-              </div>
-            ) : null}
+            <label style={labelStyle}>
+              Designation (optional)
+              <input
+                style={inputStyle}
+                value={inviteDesignation}
+                onChange={(e) => setInviteDesignation(e.target.value)}
+                placeholder="HR Manager, Finance Lead…"
+              />
+            </label>
 
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button
                 type="submit"
                 style={{ ...buttonStyle, background: "#2563eb" }}
-                disabled={grantBusy}
+                disabled={inviteBusy}
               >
-                {grantBusy ? "Granting..." : "Grant access"}
+                {inviteBusy ? "Sending..." : "Send invite"}
               </button>
             </div>
           </form>
         </section>
-      ) : null}
 
-      <section style={{ ...cardStyle, marginTop: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div>
-            <h2 style={{ margin: 0 }}>Employees</h2>
-            <p style={{ margin: "4px 0 0", color: "#4b5563" }}>
-              Owner/Admin/HR only. Use Grant Access to provision logins.
-            </p>
+        <section style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h2 style={{ margin: "0 0 6px" }}>Company Users</h2>
+              <p style={{ margin: 0, color: "#4b5563" }}>Active users for this ERP account.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadUsers(accessToken)}
+              style={{ ...buttonStyle, background: "#111827" }}
+            >
+              Refresh
+            </button>
           </div>
-          <button type="button" onClick={loadEmployees} style={{ ...buttonStyle, background: "#111827" }}>
-            Refresh
-          </button>
-        </div>
-        {listError ? <p style={{ color: "#b91c1c" }}>{listError}</p> : null}
-        {!listError && employees.length === 0 ? (
-          <p style={{ color: "#4b5563", margin: 0 }}>No employees found.</p>
-        ) : null}
-        {!listError && employees.length > 0 ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Code</th>
-                  <th style={thStyle}>Name</th>
-                  <th style={thStyle}>Designation</th>
-                  <th style={thStyle}>Department</th>
-                  <th style={thStyle}>Email</th>
-                  <th style={thStyle}>Role</th>
-                  <th style={thStyle}>Status</th>
-                  <th style={thStyle}>Joined</th>
-                  <th style={thStyle}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {employees.map((emp) => (
-                  <tr key={emp.id}>
-                    <td style={tdStyle}>{emp.employee_code}</td>
-                    <td style={tdStyle}>{emp.full_name}</td>
-                    <td style={tdStyle}>{emp.designation || "—"}</td>
-                    <td style={tdStyle}>{emp.department || "—"}</td>
-                    <td style={tdStyle}>{emp.email || "—"}</td>
-                    <td style={tdStyle}>{emp.role_key || "—"}</td>
-                    <td style={tdStyle}>{emp.employment_status || "—"}</td>
-                    <td style={tdStyle}>{formatDate(emp.joining_date)}</td>
-                    <td style={tdStyle}>
-                      {emp.user_id ? (
-                        <span style={{ color: "#059669", fontWeight: 600 }}>Linked</span>
-                      ) : (
-                        <button
-                          type="button"
-                          style={{ ...buttonStyle, background: "#2563eb", padding: "8px 10px" }}
-                          onClick={() => {
-                            setTab("access");
-                            setGrantEmployeeId(emp.id);
-                            setGrantEmail(emp.email || "");
-                          }}
-                        >
-                          Grant Access
-                        </button>
-                      )}
-                    </td>
+
+          {listError ? <div style={errorBox}>{listError}</div> : null}
+          {!listError && users.length === 0 ? (
+            <p style={{ color: "#6b7280" }}>No users yet. Invite your first employee.</p>
+          ) : null}
+
+          {!listError && users.length > 0 ? (
+            <div style={{ overflowX: "auto", marginTop: 10 }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Email</th>
+                    <th style={thStyle}>Role</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Created / Invited</th>
+                    <th style={thStyle}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </section>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.user_id}>
+                      <td style={tdStyle}>{user.email || "—"}</td>
+                      <td style={tdStyle}>{user.role_key}</td>
+                      <td style={tdStyle}>Active</td>
+                      <td style={tdStyle}>{formatDate(user.created_at || user.updated_at)}</td>
+                      <td style={{ ...tdStyle, color: "#9ca3af" }}>—</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      </div>
     </div>
-  );
-};
-
-export default CompanyUsersPage;
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6, fontWeight: 700 }}>
-      <span>{label}</span>
-      {children}
-    </label>
   );
 }
 
@@ -789,7 +341,7 @@ function formatDate(value: string | null): string {
 const containerStyle: CSSProperties = {
   maxWidth: 1100,
   margin: "60px auto",
-  padding: "40px 48px",
+  padding: "36px 44px",
   borderRadius: 10,
   border: "1px solid #e5e7eb",
   fontFamily: "Inter, Arial, sans-serif",
@@ -804,7 +356,7 @@ const headerStyle: CSSProperties = {
   gap: 24,
   flexWrap: "wrap",
   borderBottom: "1px solid #f1f3f5",
-  paddingBottom: 24,
+  paddingBottom: 20,
   marginBottom: 24,
 };
 
@@ -816,6 +368,13 @@ const buttonStyle: CSSProperties = {
   borderRadius: 6,
   cursor: "pointer",
   fontSize: 15,
+};
+
+const linkButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  backgroundColor: "#111827",
+  textDecoration: "none",
+  display: "inline-block",
 };
 
 const eyebrowStyle: CSSProperties = {
@@ -844,7 +403,6 @@ const cardStyle: CSSProperties = {
   padding: 18,
   backgroundColor: "#f9fafb",
   boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
-  marginBottom: 12,
 };
 
 const inputStyle: CSSProperties = {
@@ -856,24 +414,13 @@ const inputStyle: CSSProperties = {
 };
 
 const selectStyle: CSSProperties = {
-  width: "100%",
-  padding: "12px",
-  borderRadius: 6,
-  border: "1px solid #d1d5db",
-  fontSize: 15,
-  backgroundColor: "#fff",
-};
-
-const textAreaStyle: CSSProperties = {
   ...inputStyle,
-  minHeight: 80,
-  fontFamily: "inherit",
+  backgroundColor: "#fff",
 };
 
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  marginTop: 8,
 };
 
 const thStyle: CSSProperties = {
@@ -910,32 +457,15 @@ const okBox: CSSProperties = {
   margin: "12px 0",
 };
 
-const tabRowStyle: CSSProperties = {
-  display: "flex",
-  gap: 8,
-  marginBottom: 12,
-};
-
-const tabButton: CSSProperties = {
-  ...buttonStyle,
-  background: "#e5e7eb",
-  color: "#111827",
-};
-
-const tabButtonActive: CSSProperties = {
-  ...buttonStyle,
-  background: "#2563eb",
-  color: "#fff",
-};
-
 const gridCols2: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: 12,
 };
 
-const gridCols3: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-  gap: 12,
+const labelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  fontWeight: 700,
 };
