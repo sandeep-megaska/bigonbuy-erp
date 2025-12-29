@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { supabase } from "../../../lib/supabaseClient";
+import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { supabase } from "../../../lib/supabaseClient";
 
 export default function HrEmployeesPage() {
   const router = useRouter();
@@ -228,6 +229,7 @@ export default function HrEmployeesPage() {
 
   return (
     <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
+      <ErpNavBar roleKey={ctx?.roleKey} />
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0 }}>Employees</h1>
@@ -237,6 +239,15 @@ export default function HrEmployeesPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => router.push("/erp/admin/company-users")}
+              style={primaryButtonStyle}
+            >
+              Invite / Grant Access
+            </button>
+          ) : null}
           <a href="/erp/hr">← HR Home</a>
           <a href="/erp">ERP Home</a>
         </div>
@@ -441,6 +452,12 @@ export default function HrEmployeesPage() {
 
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
 const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const primaryButtonStyle = {
+  ...buttonStyle,
+  backgroundColor: "#2563eb",
+  color: "#fff",
+  border: "1px solid #1d4ed8",
+};
 const smallButtonStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
 const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
 const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };

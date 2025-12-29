@@ -1,14 +1,17 @@
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import ErpNavBar from "../../../components/erp/ErpNavBar";
+import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { supabase } from "../../../lib/supabaseClient";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
 export default function HrHomePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const canManage = useMemo(() => isHr(ctx?.roleKey), [ctx]);
+  const navItems = useMemo(() => buildNavItems(canManage), [canManage]);
 
   useEffect(() => {
     let active = true;
@@ -54,6 +57,7 @@ export default function HrHomePage() {
 
   return (
     <div style={containerStyle}>
+      <ErpNavBar roleKey={ctx?.roleKey} />
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR</p>
@@ -71,9 +75,14 @@ export default function HrHomePage() {
         {navItems.map((item) => (
           <Link key={item.href} href={item.href} style={cardStyle}>
             <div style={cardIconStyle}>{item.icon}</div>
-            <div>
+            <div style={{ flex: 1 }}>
               <h2 style={cardTitleStyle}>{item.title}</h2>
               <p style={cardDescriptionStyle}>{item.description}</p>
+              {item.ctaLabel ? (
+                <div style={{ marginTop: 10 }}>
+                  <span style={cardCtaStyle}>{item.ctaLabel} →</span>
+                </div>
+              ) : null}
             </div>
           </Link>
         ))}
@@ -178,41 +187,68 @@ const cardDescriptionStyle = {
   fontSize: 14,
 };
 
-const navItems = [
-  {
-    title: "Employees",
-    description: "Manage employee directory and profiles.",
-    href: "/erp/hr/employees",
-    icon: "🧑‍💼",
-  },
-  {
-    title: "Salary",
-    description: "Maintain salary structures and components.",
-    href: "/erp/hr/salary",
-    icon: "💰",
-  },
-  {
-    title: "Leave",
-    description: "Configure leave types and requests.",
-    href: "/erp/hr/leave",
-    icon: "🌴",
-  },
-  {
-    title: "Roles",
-    description: "Manage ERP access roles.",
-    href: "/erp/hr/roles",
-    icon: "🛡️",
-  },
-  {
-    title: "Payroll",
-    description: "Run payroll and manage payouts.",
-    href: "/erp/hr/payroll",
-    icon: "📄",
-  },
-  {
-    title: "Employee Logins",
-    description: "Link employees to Supabase Auth users.",
-    href: "/erp/hr/employee-logins",
-    icon: "🔗",
-  },
-];
+const cardCtaStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#111827",
+  color: "#fff",
+  fontWeight: 700,
+  textDecoration: "none",
+  fontSize: 14,
+};
+
+function buildNavItems(canManage) {
+  const items = [
+    {
+      title: "Employees",
+      description: "Manage employee directory and profiles.",
+      href: "/erp/hr/employees",
+      icon: "🧑‍💼",
+    },
+    {
+      title: "Salary",
+      description: "Maintain salary structures and components.",
+      href: "/erp/hr/salary",
+      icon: "💰",
+    },
+    {
+      title: "Leave",
+      description: "Configure leave types and requests.",
+      href: "/erp/hr/leave",
+      icon: "🌴",
+    },
+    {
+      title: "Roles",
+      description: "Manage ERP access roles.",
+      href: "/erp/hr/roles",
+      icon: "🛡️",
+    },
+    {
+      title: "Payroll",
+      description: "Run payroll and manage payouts.",
+      href: "/erp/hr/payroll",
+      icon: "📄",
+    },
+    {
+      title: "Employee Logins",
+      description: "Link employees to Supabase Auth users.",
+      href: "/erp/hr/employee-logins",
+      icon: "🔗",
+    },
+  ];
+
+  if (canManage) {
+    items.push({
+      title: "Company Users & Access",
+      description: "Invite employees and assign roles.",
+      href: "/erp/admin/company-users",
+      icon: "🛂",
+      ctaLabel: "Manage",
+    });
+  }
+
+  return items;
+}
