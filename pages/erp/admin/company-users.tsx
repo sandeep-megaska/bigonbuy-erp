@@ -4,6 +4,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCurrentErpAccess, type ErpAccessState } from "../../../lib/erp/nav";
 import { supabase } from "../../../lib/supabaseClient";
 
 type RoleRow = { key: string; name?: string };
@@ -20,6 +21,11 @@ export default function CompanyUsersPage() {
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState("");
+  const [access, setAccess] = useState<ErpAccessState>({
+    isAuthenticated: false,
+    isManager: false,
+    roleKey: undefined,
+  });
 
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [users, setUsers] = useState<CompanyUserRow[]>([]);
@@ -33,7 +39,7 @@ export default function CompanyUsersPage() {
 
   const [listError, setListError] = useState("");
 
-  const canManage = useMemo(() => isHr(ctx?.roleKey), [ctx]);
+  const canManage = useMemo(() => access.isManager || isHr(ctx?.roleKey), [access.isManager, ctx]);
 
   useEffect(() => {
     let active = true;
@@ -43,9 +49,16 @@ export default function CompanyUsersPage() {
       if (!session || !active) return;
 
       setAccessToken(session.access_token || "");
-      const context = await getCompanyContext(session);
+      const [accessState, context] = await Promise.all([
+        getCurrentErpAccess(session),
+        getCompanyContext(session),
+      ]);
       if (!active) return;
 
+      setAccess({
+        ...accessState,
+        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
+      });
       setCtx(context);
       if (!context.companyId) {
         setListError(context.membershipError || "No active company membership found for this user.");
@@ -53,7 +66,7 @@ export default function CompanyUsersPage() {
         return;
       }
 
-      if (!isHr(context.roleKey)) {
+      if (!accessState.isManager && !isHr(context.roleKey)) {
         setLoading(false);
         return;
       }
@@ -191,7 +204,7 @@ export default function CompanyUsersPage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar roleKey={ctx?.roleKey} />
+      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>Admin</p>
@@ -200,7 +213,8 @@ export default function CompanyUsersPage() {
             Invite staff, assign ERP roles, and manage who can sign in to your company.
           </p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
-            Signed in as <strong>{ctx?.email}</strong> · Role: <strong>{ctx?.roleKey}</strong>
+            Signed in as <strong>{ctx?.email}</strong> · Role:{" "}
+            <strong>{ctx?.roleKey || access.roleKey || "member"}</strong>
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>

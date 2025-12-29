@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCurrentErpAccess } from "../../../lib/erp/nav";
 import { supabase } from "../../../lib/supabaseClient";
 
 export default function HrHomePage() {
@@ -10,7 +11,12 @@ export default function HrHomePage() {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const canManage = useMemo(() => isHr(ctx?.roleKey), [ctx]);
+  const [access, setAccess] = useState({
+    isAuthenticated: false,
+    isManager: false,
+    roleKey: undefined,
+  });
+  const canManage = useMemo(() => access.isManager || isHr(ctx?.roleKey), [access.isManager, ctx]);
   const navItems = useMemo(() => buildNavItems(canManage), [canManage]);
 
   useEffect(() => {
@@ -20,9 +26,16 @@ export default function HrHomePage() {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
-      const context = await getCompanyContext(session);
+      const [accessState, context] = await Promise.all([
+        getCurrentErpAccess(session),
+        getCompanyContext(session),
+      ]);
       if (!active) return;
 
+      setAccess({
+        ...accessState,
+        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
+      });
       setCtx(context);
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found for this user.");
@@ -57,13 +70,16 @@ export default function HrHomePage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar roleKey={ctx?.roleKey} />
+      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR</p>
           <h1 style={titleStyle}>Human Resources</h1>
           <p style={subtitleStyle}>Manage employees, salary, leave, and payroll.</p>
-          <p style={{ margin: "8px 0 0", color: "#4b5563" }}>Signed in as <strong>{ctx.email}</strong> · Role: <strong>{ctx.roleKey || "member"}</strong></p>
+          <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
+            Signed in as <strong>{ctx.email}</strong> · Role:{" "}
+            <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
+          </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
           <Link href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to ERP Home</Link>
