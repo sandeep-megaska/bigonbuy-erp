@@ -338,7 +338,9 @@ export default function HrEmployeesPage() {
                         <>
                           <div style={{ fontWeight: 600 }}>{emp.full_name}</div>
                           <div style={{ fontSize: 12, color: "#777" }}>{emp.employee_no || "—"} · {emp.id}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, color: "#777" }}>Status: {emp.status}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, color: "#777" }}>
+                            Status: {emp.lifecycle_status || emp.status}
+                          </div>
                         </>
                       )}
                     </td>
@@ -418,9 +420,7 @@ export default function HrEmployeesPage() {
                         <>
                           <div>{emp.department || "—"}</div>
                           <div style={{ color: "#555" }}>
-                            {emp.designation_id
-                              ? designationById[emp.designation_id]?.name || emp.designation || "—"
-                              : emp.designation || "—"}
+                            {emp.job_title || emp.designation || "—"}
                           </div>
                         </>
                       )}
@@ -433,7 +433,12 @@ export default function HrEmployeesPage() {
                             <button onClick={() => setEditingId(null)} style={smallButtonStyle}>Cancel</button>
                           </div>
                         ) : (
-                          <button onClick={() => startEdit(emp)} style={smallButtonStyle}>Edit</button>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => router.push(`/erp/hr/employees/${emp.id}`)} style={smallButtonStyle}>
+                              Profile
+                            </button>
+                            <button onClick={() => startEdit(emp)} style={smallButtonStyle}>Edit</button>
+                          </div>
                         )
                       ) : (
                         <span style={{ color: "#777" }}>Read-only</span>
