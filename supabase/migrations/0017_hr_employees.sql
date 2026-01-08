@@ -42,6 +42,7 @@ grant execute on function public.erp_is_hr_admin(uuid) to authenticated;
 do $$
 declare
   v_owner uuid;
+  v_max_seq bigint;
 begin
   select user_id
     into v_owner
@@ -77,21 +78,15 @@ begin
   alter table public.erp_employees
     alter column employee_code set not null;
 
-  do $$
-  declare
-    v_max_seq bigint;
-  begin
-    select coalesce(max(nullif(regexp_replace(employee_code, '\\D', '', 'g'), '')::bigint), 0)
-      into v_max_seq
-      from public.erp_employees;
+  select coalesce(max(nullif(regexp_replace(employee_code, '\\D', '', 'g'), '')::bigint), 0)
+    into v_max_seq
+    from public.erp_employees;
 
-    if v_max_seq is null then
-      v_max_seq := 0;
-    end if;
+  if v_max_seq is null then
+    v_max_seq := 0;
+  end if;
 
-    perform setval('public.erp_employee_seq', v_max_seq, true);
-  end;
-  $$;
+  perform setval('public.erp_employee_seq', v_max_seq, true);
 
   -- employee identity linkage
   alter table public.erp_employees
