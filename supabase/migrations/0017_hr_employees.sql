@@ -39,7 +39,7 @@ revoke all on function public.erp_is_hr_admin(uuid) from public;
 grant execute on function public.erp_is_hr_admin(uuid) to authenticated;
 
 -- Align employee profile table with canonical single-company model
-do $$
+do $erp_employees$
 declare
   v_owner uuid;
   v_max_seq bigint;
@@ -172,7 +172,7 @@ begin
   create unique index if not exists erp_employees_employee_code_key
     on public.erp_employees (employee_code);
 end
-$$;
+$erp_employees$;
 
 -- RLS: owner/admin/hr manage; employees can read their own profile
 alter table public.erp_employees enable row level security;
