@@ -19,12 +19,20 @@ create table if not exists public.erp_company_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- ---------------------------------------------------------------------
+-- Schema alignment for existing erp_company_settings (older schema)
+-- ---------------------------------------------------------------------
+alter table public.erp_company_settings
+  add column if not exists employee_id_prefix text,
+  add column if not exists employee_id_digits int;
 
 create table if not exists public.erp_company_counters (
   company_id uuid primary key references public.erp_companies(id) on delete cascade,
   employee_seq bigint not null default 0,
   updated_at timestamptz not null default now()
 );
+alter table public.erp_company_counters
+  add column if not exists employee_seq bigint;
 
 -- updated_at trigger helper (only create once)
 create or replace function public.erp_touch_updated_at()
@@ -63,11 +71,10 @@ end $$;
 -- If erp_company_settings has audit columns like created_by/updated_by NOT NULL,
 -- seed them using the company owner/admin user if available.
 
-insert into public.erp_company_settings (company_id, employee_id_prefix, employee_id_digits, created_by, updated_by)
+-- Seed missing settings rows with required audit fields
+insert into public.erp_company_settings (company_id, created_by, updated_by)
 select
   c.id,
-  'BB',
-  6,
   coalesce(
     (select cu.user_id
      from public.erp_company_users cu
@@ -82,7 +89,7 @@ select
        and coalesce(cu2.is_active, true)
      order by cu2.created_at nulls last
      limit 1)
-  ) as created_by,
+  ),
   coalesce(
     (select cu.user_id
      from public.erp_company_users cu
@@ -97,11 +104,18 @@ select
        and coalesce(cu2.is_active, true)
      order by cu2.created_at nulls last
      limit 1)
-  ) as updated_by
+  )
 from public.erp_companies c
 where not exists (
   select 1 from public.erp_company_settings s where s.company_id = c.id
 );
+
+-- Now ensure BB/6 defaults are present (for both new + existing rows)
+update public.erp_company_settings
+set employee_id_prefix = coalesce(employee_id_prefix, 'BB'),
+    employee_id_digits = coalesce(employee_id_digits, 6)
+where employee_id_prefix is null
+   or employee_id_digits is null;
 
 
 insert into public.erp_company_counters (company_id)
