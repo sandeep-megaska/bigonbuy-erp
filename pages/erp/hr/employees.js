@@ -2,61 +2,143 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import {
+  assignManager,
+  assignUserRole,
+  linkUser,
+  listEmployees,
+  listManagers,
+  upsertEmployee,
+} from "../../../lib/hrEmployeesApi";
 import { supabase } from "../../../lib/supabaseClient";
+
+const ROLE_OPTIONS = [
+  { label: "Owner", value: "owner" },
+  { label: "Admin", value: "admin" },
+  { label: "HR", value: "hr" },
+  { label: "Employee", value: "employee" },
+];
+
+function Banner({ tone = "info", title, children, onDismiss }) {
+  const theme =
+    tone === "error"
+      ? { bg: "#fef2f2", border: "#fecaca", color: "#991b1b" }
+      : tone === "success"
+      ? { bg: "#ecfdf3", border: "#bbf7d0", color: "#166534" }
+      : { bg: "#eff6ff", border: "#bfdbfe", color: "#1e40af" };
+
+  return (
+    <div style={{ background: theme.bg, border: `1px solid ${theme.border}`, color: theme.color, borderRadius: 10, padding: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div>
+          {title ? <strong style={{ display: "block", marginBottom: 4 }}>{title}</strong> : null}
+          <div>{children}</div>
+        </div>
+        {onDismiss ? (
+          <button onClick={onDismiss} style={linkButtonStyle}>
+            Dismiss
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children, footer }) {
+  return (
+    <div style={modalOverlayStyle}>
+      <div style={modalStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>
+          <button onClick={onClose} style={linkButtonStyle}>Close</button>
+        </div>
+        <div style={{ marginTop: 16 }}>{children}</div>
+        {footer ? <div style={{ marginTop: 20 }}>{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function ActionMenu({ actions, disabled }) {
+  return (
+    <details style={{ position: "relative", display: "inline-block" }} disabled={disabled}>
+      <summary style={actionButtonStyle}>Actions</summary>
+      <div style={menuStyle}>
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={action.onClick}
+            style={menuItemStyle}
+            disabled={action.disabled}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
 
 export default function HrEmployeesPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-  const [accessToken, setAccessToken] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
   const [employees, setEmployees] = useState([]);
-  const [designations, setDesignations] = useState([]);
+  const [managers, setManagers] = useState([]);
+  const [search, setSearch] = useState("");
 
-  const [employeeNo, setEmployeeNo] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [workEmail, setWorkEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [joiningDate, setJoiningDate] = useState("");
-  const [status, setStatus] = useState("active");
-  const [department, setDepartment] = useState("");
-  const [designationId, setDesignationId] = useState("");
+  const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
+  const [employeeForm, setEmployeeForm] = useState({
+    id: null,
+    full_name: "",
+    employee_code: "",
+    is_active: true,
+  });
 
-  const [editingId, setEditingId] = useState(null);
-  const [editingValues, setEditingValues] = useState({});
+  const [managerModal, setManagerModal] = useState({ open: false, employee: null, managerId: "" });
+  const [roleModal, setRoleModal] = useState({ open: false, employee: null, roleKey: "" });
+  const [linkModal, setLinkModal] = useState({ open: false, employee: null, userId: "" });
 
-  const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
-  const designationById = useMemo(() => {
-    const map = {};
-    designations.forEach((d) => {
-      map[d.id] = d;
+  const canManage = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
+
+  const filteredEmployees = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return employees;
+    return employees.filter((employee) => {
+      return [
+        employee.full_name,
+        employee.employee_code,
+        employee.email,
+        employee.role_key,
+        employee.manager_name,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
     });
-    return map;
-  }, [designations]);
+  }, [employees, search]);
 
   useEffect(() => {
     let active = true;
-
     (async () => {
-      setErr("");
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
       const context = await getCompanyContext(session);
       if (!active) return;
-
-      setAccessToken(session.access_token || "");
       setCtx(context);
+
       if (!context.companyId) {
-        setErr(context.membershipError || "No active company membership found for this user.");
+        setError(context.membershipError || "No active company membership found for this user.");
         setLoading(false);
         return;
       }
 
-      await Promise.all([
-        loadDesignations(session.access_token, active),
-        loadEmployees(session.access_token, active),
-      ]);
+      await refreshData();
       if (active) setLoading(false);
     })();
 
@@ -65,149 +147,137 @@ export default function HrEmployeesPage() {
     };
   }, [router]);
 
-  async function loadDesignations(token, isActive = true) {
-    if (!token) return;
-    const res = await fetch("/api/hr/designations", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
+  async function refreshData() {
+    setIsRefreshing(true);
+    setError("");
+    const [{ data: employeeData, error: employeeError }, { data: managerData, error: managerError }] =
+      await Promise.all([listEmployees(), listManagers()]);
 
-    if (!res.ok || !data?.ok) {
-      if (isActive) setErr(data?.error || "Failed to load designations");
-      return;
+    if (employeeError) {
+      setError(employeeError.message || "Unable to load employees.");
+    } else {
+      setEmployees(employeeData);
     }
 
-    if (isActive) setDesignations(data.rows || data.designations || []);
+    if (managerError) {
+      setError((prev) => prev || managerError.message || "Unable to load managers.");
+    } else {
+      setManagers(managerData);
+    }
+    setIsRefreshing(false);
   }
 
-  async function loadEmployees(token, isActive = true) {
-    if (!token) return;
-    const res = await fetch("/api/hr/employees", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-
-    if (!res.ok || !data?.ok) {
-      if (isActive) setErr(data?.error || "Failed to load employees");
-      return;
-    }
-
-    if (isActive) setEmployees(data.employees || []);
+  function openAddModal() {
+    setEmployeeForm({ id: null, full_name: "", employee_code: "", is_active: true });
+    setEmployeeModalOpen(true);
   }
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!ctx?.companyId) return;
-    if (!canWrite) {
-      setErr("Only HR/admin/owner can create employees.");
-      return;
-    }
-    if (!accessToken) {
-      setErr("Missing session. Please sign in again.");
-      return;
-    }
-    if (!fullName.trim()) {
-      setErr("Full name is required.");
-      return;
-    }
-
-    setErr("");
-    const selectedDesignation = designationId ? designationById[designationId] : null;
-    const payload = {
-      employee_no: employeeNo.trim() || null,
-      full_name: fullName.trim(),
-      work_email: workEmail.trim() || null,
-      phone: phone.trim() || null,
-      joining_date: joiningDate || null,
-      status: status || "active",
-      department: department.trim() || null,
-      designation_id: designationId || null,
-      designation: selectedDesignation?.name || null,
-    };
-
-    const res = await fetch("/api/hr/employees", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+  function openEditModal(employee) {
+    setEmployeeForm({
+      id: employee.id,
+      full_name: employee.full_name || "",
+      employee_code: employee.employee_code || "",
+      is_active: employee.is_active ?? true,
     });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) {
-      setErr(data?.error || "Failed to create employee");
-      return;
-    }
-
-    setEmployeeNo("");
-    setFullName("");
-    setWorkEmail("");
-    setPhone("");
-    setJoiningDate("");
-    setStatus("active");
-    setDepartment("");
-    setDesignationId("");
-    await loadEmployees(accessToken);
+    setEmployeeModalOpen(true);
   }
 
-  function startEdit(emp) {
-    setEditingId(emp.id);
-    setEditingValues({
-      employee_no: emp.employee_no || "",
-      full_name: emp.full_name || "",
-      work_email: emp.work_email || "",
-      phone: emp.phone || "",
-      joining_date: emp.joining_date ? emp.joining_date.split("T")[0] : "",
-      status: emp.status || "active",
-      department: emp.department || "",
-      designation_id: emp.designation_id || "",
+  async function handleSaveEmployee() {
+    if (!employeeForm.full_name.trim()) {
+      setError("Full name is required.");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    const { error: upsertError } = await upsertEmployee({
+      id: employeeForm.id,
+      full_name: employeeForm.full_name.trim(),
+      employee_code: employeeForm.employee_code.trim() || null,
+      is_active: employeeForm.is_active,
+    });
+
+    if (upsertError) {
+      setError(upsertError.message || "Unable to save employee.");
+      return;
+    }
+
+    setEmployeeModalOpen(false);
+    setSuccess(employeeForm.id ? "Employee updated successfully." : "Employee added successfully.");
+    await refreshData();
+  }
+
+  function openManagerModal(employee) {
+    setManagerModal({
+      open: true,
+      employee,
+      managerId: employee.manager_employee_id || "",
     });
   }
 
-  async function saveEdit(id) {
-    if (!ctx?.companyId) return;
-    if (!canWrite) {
-      setErr("Only HR/admin/owner can update employees.");
+  async function handleAssignManager() {
+    if (!managerModal.employee) return;
+    setError("");
+    setSuccess("");
+    const { error: assignError } = await assignManager(
+      managerModal.employee.id,
+      managerModal.managerId || null
+    );
+    if (assignError) {
+      setError(assignError.message || "Unable to assign manager.");
       return;
     }
-    if (!accessToken) {
-      setErr("Missing session. Please sign in again.");
-      return;
-    }
-    setErr("");
-    const trimmedName = (editingValues.full_name || "").trim();
-    if (!trimmedName) {
-      setErr("Full name is required.");
-      return;
-    }
-    const selectedDesignation = editingValues.designation_id ? designationById[editingValues.designation_id] : null;
-    const payload = {
-      employee_no: (editingValues.employee_no || "").trim() || null,
-      full_name: trimmedName,
-      work_email: (editingValues.work_email || "").trim() || null,
-      phone: (editingValues.phone || "").trim() || null,
-      joining_date: editingValues.joining_date || null,
-      status: editingValues.status || "active",
-      department: (editingValues.department || "").trim() || null,
-      designation_id: editingValues.designation_id || null,
-      designation: selectedDesignation?.name || null,
-    };
+    setManagerModal({ open: false, employee: null, managerId: "" });
+    setSuccess("Manager assignment updated.");
+    await refreshData();
+  }
 
-    const res = await fetch("/api/hr/employees", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ...payload, id }),
+  function openRoleModal(employee) {
+    setRoleModal({
+      open: true,
+      employee,
+      roleKey: employee.role_key || "employee",
     });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) {
-      setErr(data?.error || "Failed to update employee");
+  }
+
+  async function handleAssignRole() {
+    if (!roleModal.employee?.user_id) {
+      setError("Link a user before assigning a role.");
       return;
     }
-    setEditingId(null);
-    await loadEmployees(accessToken);
+    setError("");
+    setSuccess("");
+    const { error: roleError } = await assignUserRole(roleModal.employee.user_id, roleModal.roleKey);
+    if (roleError) {
+      setError(roleError.message || "Unable to assign role.");
+      return;
+    }
+    setRoleModal({ open: false, employee: null, roleKey: "" });
+    setSuccess("Role updated successfully.");
+    await refreshData();
+  }
+
+  function openLinkModal(employee) {
+    setLinkModal({ open: true, employee, userId: employee.user_id || "" });
+  }
+
+  async function handleLinkUser() {
+    if (!linkModal.employee) return;
+    const userId = linkModal.userId.trim();
+    if (!userId) {
+      setError("User ID is required to link.");
+      return;
+    }
+    setError("");
+    setSuccess("");
+    const { error: linkError } = await linkUser(linkModal.employee.id, userId);
+    if (linkError) {
+      setError(linkError.message || "Unable to link user.");
+      return;
+    }
+    setLinkModal({ open: false, employee: null, userId: "" });
+    setSuccess("User linked successfully.");
+    await refreshData();
   }
 
   async function handleSignOut() {
@@ -215,254 +285,408 @@ export default function HrEmployeesPage() {
     router.replace("/");
   }
 
-  if (loading) return <div style={{ padding: 24 }}>Loading employees…</div>;
+  if (loading) return <div style={pageStyle}>Loading employees…</div>;
 
   if (!ctx?.companyId) {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h1>Employees</h1>
-        <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
+      <div style={pageStyle}>
+        <h1 style={{ marginTop: 0 }}>Employees</h1>
+        <p style={{ color: "#b91c1c" }}>{error || "No company is linked to this account."}</p>
         <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
+    <div style={pageStyle}>
       <ErpNavBar roleKey={ctx?.roleKey} />
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <header style={headerStyle}>
         <div>
           <h1 style={{ margin: 0 }}>Employees</h1>
-          <p style={{ marginTop: 6, color: "#555" }}>Manage employee directory and profiles.</p>
+          <p style={{ marginTop: 6, color: "#555" }}>Manage employee profiles and access.</p>
           <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
             Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
           </p>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          {canWrite ? (
-            <button
-              type="button"
-              onClick={() => router.push("/erp/admin/company-users")}
-              style={primaryButtonStyle}
-            >
-              Invite / Grant Access
+          {canManage ? (
+            <button type="button" onClick={openAddModal} style={primaryButtonStyle}>
+              Add Employee
             </button>
           ) : null}
-          <a href="/erp/hr">← HR Home</a>
-          <a href="/erp">ERP Home</a>
+          <a href="/erp/hr" style={linkStyle}>← HR Home</a>
+          <a href="/erp" style={linkStyle}>ERP Home</a>
         </div>
+      </header>
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {error ? <Banner tone="error" title="Something went wrong" onDismiss={() => setError("")}>{error}</Banner> : null}
+        {success ? <Banner tone="success" title="Success" onDismiss={() => setSuccess("")}>{success}</Banner> : null}
       </div>
 
-      {err ? (
-        <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
-          {err}
+      <section style={panelStyle}>
+        <div style={panelHeaderStyle}>
+          <div>
+            <h3 style={{ margin: 0 }}>Employee Directory</h3>
+            <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>
+              {isRefreshing ? "Refreshing data…" : `${filteredEmployees.length} employees`}
+            </p>
+          </div>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name, code, manager, email, role…"
+            style={searchInputStyle}
+          />
         </div>
-      ) : null}
 
-      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <h3 style={{ marginTop: 0 }}>Add Employee</h3>
-
-        {!canWrite ? (
-          <div style={{ color: "#777" }}>You are in read-only mode (only owner/admin/hr can create/update).</div>
+        {!filteredEmployees.length ? (
+          <div style={emptyStateStyle}>
+            <h4 style={{ marginTop: 0 }}>No employees found</h4>
+            <p style={{ margin: 0, color: "#6b7280" }}>
+              {search.trim()
+                ? "Try adjusting your search keywords or clear the filter."
+                : "Add your first employee to start building the directory."}
+            </p>
+          </div>
         ) : (
-          <form onSubmit={handleCreate} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            <input value={employeeNo} onChange={(e) => setEmployeeNo(e.target.value)} placeholder="Employee No" style={inputStyle} />
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full Name *" style={inputStyle} required />
-            <input value={workEmail} onChange={(e) => setWorkEmail(e.target.value)} placeholder="Work Email" style={inputStyle} />
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" style={inputStyle} />
-            <input value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} placeholder="Joining Date" type="date" style={inputStyle} />
-            <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
-              <option value="on_leave">on_leave</option>
-            </select>
-            <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Department" style={inputStyle} />
-            <select
-              value={designationId}
-              onChange={(e) => setDesignationId(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">Select Designation (optional)</option>
-              {designations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.department ? ` — ${d.department}` : ""}
-                </option>
-              ))}
-            </select>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <button style={buttonStyle}>Create Employee</button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-        <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
-          Employees ({employees.length})
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                <th style={thStyle}>Employee</th>
-                <th style={thStyle}>Contact</th>
-                <th style={thStyle}>Dates</th>
-                <th style={thStyle}>Org</th>
-                <th style={thStyle}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {employees.map((emp) => {
-                const isEditing = editingId === emp.id;
-                return (
-                  <tr key={emp.id}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left" }}>
+                  <th style={thStyle}>Name</th>
+                  <th style={thStyle}>Employee Code</th>
+                  <th style={thStyle}>Role</th>
+                  <th style={thStyle}>Manager</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEmployees.map((employee) => (
+                  <tr key={employee.id}>
                     <td style={tdStyle}>
-                      {isEditing ? (
-                        <>
-                          <input
-                            value={editingValues.employee_no}
-                            onChange={(e) => setEditingValues({ ...editingValues, employee_no: e.target.value })}
-                            placeholder="Employee No"
-                            style={inputStyle}
-                          />
-                          <input
-                            value={editingValues.full_name}
-                            onChange={(e) => setEditingValues({ ...editingValues, full_name: e.target.value })}
-                            placeholder="Full Name"
-                            style={inputStyle}
-                          />
-                          <div style={{ fontSize: 12, color: "#777" }}>#{emp.id}</div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ fontWeight: 600 }}>{emp.full_name}</div>
-                          <div style={{ fontSize: 12, color: "#777" }}>{emp.employee_no || "—"} · {emp.id}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, color: "#777" }}>
-                            Status: {emp.lifecycle_status || emp.status}
-                          </div>
-                        </>
-                      )}
+                      <div style={{ fontWeight: 600 }}>{employee.full_name || "Unnamed employee"}</div>
+                      <div style={{ color: "#6b7280", fontSize: 12 }}>{employee.email || "No email on file"}</div>
                     </td>
+                    <td style={tdStyle}>{employee.employee_code || "—"}</td>
                     <td style={tdStyle}>
-                      {isEditing ? (
-                        <>
-                          <input
-                            value={editingValues.work_email}
-                            onChange={(e) => setEditingValues({ ...editingValues, work_email: e.target.value })}
-                            placeholder="Work Email"
-                            style={inputStyle}
-                          />
-                          <input
-                            value={editingValues.phone}
-                            onChange={(e) => setEditingValues({ ...editingValues, phone: e.target.value })}
-                            placeholder="Phone"
-                            style={inputStyle}
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <div>{emp.work_email || "—"}</div>
-                          <div style={{ color: "#555" }}>{emp.phone || "—"}</div>
-                        </>
-                      )}
+                      <span style={pillStyle(employee.role_key ? "blue" : "gray")}>
+                        {employee.role_key || "unassigned"}
+                      </span>
                     </td>
+                    <td style={tdStyle}>{employee.manager_name || "—"}</td>
                     <td style={tdStyle}>
-                      {isEditing ? (
-                        <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
-                          <input
-                            type="date"
-                            value={editingValues.joining_date}
-                            onChange={(e) => setEditingValues({ ...editingValues, joining_date: e.target.value })}
-                            style={inputStyle}
-                          />
-                          <select
-                            value={editingValues.status}
-                            onChange={(e) => setEditingValues({ ...editingValues, status: e.target.value })}
-                            style={inputStyle}
-                          >
-                            <option value="active">active</option>
-                            <option value="inactive">inactive</option>
-                            <option value="on_leave">on_leave</option>
-                          </select>
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{ color: "#555" }}>Joined: {emp.joining_date ? new Date(emp.joining_date).toLocaleDateString() : "—"}</div>
-                          <div style={{ fontSize: 12, color: "#777" }}>{emp.status}</div>
-                        </>
-                      )}
-                    </td>
-                    <td style={tdStyle}>
-                      {isEditing ? (
-                        <>
-                          <input
-                            value={editingValues.department}
-                            onChange={(e) => setEditingValues({ ...editingValues, department: e.target.value })}
-                            placeholder="Department"
-                            style={inputStyle}
-                          />
-                          <select
-                            value={editingValues.designation_id}
-                            onChange={(e) => setEditingValues({ ...editingValues, designation_id: e.target.value })}
-                            style={inputStyle}
-                          >
-                            <option value="">Select Designation (optional)</option>
-                            {designations.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                                {d.department ? ` — ${d.department}` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      ) : (
-                        <>
-                          <div>{emp.department || "—"}</div>
-                          <div style={{ color: "#555" }}>
-                            {emp.job_title || emp.designation || "—"}
-                          </div>
-                        </>
-                      )}
+                      <span style={pillStyle(employee.is_active ? "green" : "red")}>
+                        {employee.is_active ? "Active" : "Inactive"}
+                      </span>
                     </td>
                     <td style={{ ...tdStyle, textAlign: "right" }}>
-                      {canWrite ? (
-                        isEditing ? (
-                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <button onClick={() => saveEdit(emp.id)} style={smallButtonStyle}>Save</button>
-                            <button onClick={() => setEditingId(null)} style={smallButtonStyle}>Cancel</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <button onClick={() => router.push(`/erp/hr/employees/${emp.id}`)} style={smallButtonStyle}>
-                              Profile
-                            </button>
-                            <button onClick={() => startEdit(emp)} style={smallButtonStyle}>Edit</button>
-                          </div>
-                        )
+                      {canManage ? (
+                        <ActionMenu
+                          actions={[
+                            {
+                              label: "Edit employee",
+                              onClick: () => openEditModal(employee),
+                            },
+                            {
+                              label: "Assign manager",
+                              onClick: () => openManagerModal(employee),
+                            },
+                            {
+                              label: "Assign role",
+                              onClick: () => openRoleModal(employee),
+                            },
+                            {
+                              label: "Link user",
+                              onClick: () => openLinkModal(employee),
+                            },
+                          ]}
+                        />
                       ) : (
-                        <span style={{ color: "#777" }}>Read-only</span>
+                        <span style={{ color: "#6b7280", fontSize: 13 }}>Read-only</span>
                       )}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {employeeModalOpen ? (
+        <Modal
+          title={employeeForm.id ? "Edit Employee" : "Add Employee"}
+          onClose={() => setEmployeeModalOpen(false)}
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button onClick={() => setEmployeeModalOpen(false)} style={buttonStyle}>Cancel</button>
+              <button onClick={handleSaveEmployee} style={primaryButtonStyle}>
+                {employeeForm.id ? "Save Changes" : "Create Employee"}
+              </button>
+            </div>
+          }
+        >
+          <div style={formGridStyle}>
+            <label style={labelStyle}>
+              Full name
+              <input
+                value={employeeForm.full_name}
+                onChange={(event) => setEmployeeForm({ ...employeeForm, full_name: event.target.value })}
+                placeholder="Jane Doe"
+                style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle}>
+              Employee code
+              <input
+                value={employeeForm.employee_code}
+                onChange={(event) => setEmployeeForm({ ...employeeForm, employee_code: event.target.value })}
+                placeholder="EMP-001"
+                style={inputStyle}
+              />
+            </label>
+            <label style={labelStyle}>
+              Status
+              <select
+                value={employeeForm.is_active ? "active" : "inactive"}
+                onChange={(event) =>
+                  setEmployeeForm({ ...employeeForm, is_active: event.target.value === "active" })
+                }
+                style={inputStyle}
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+          </div>
+        </Modal>
+      ) : null}
+
+      {managerModal.open ? (
+        <Modal
+          title="Assign Manager"
+          onClose={() => setManagerModal({ open: false, employee: null, managerId: "" })}
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button onClick={() => setManagerModal({ open: false, employee: null, managerId: "" })} style={buttonStyle}>
+                Cancel
+              </button>
+              <button onClick={handleAssignManager} style={primaryButtonStyle}>Save</button>
+            </div>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            Update manager for <strong>{managerModal.employee?.full_name}</strong>.
+          </p>
+          <label style={labelStyle}>
+            Manager
+            <select
+              value={managerModal.managerId}
+              onChange={(event) => setManagerModal({ ...managerModal, managerId: event.target.value })}
+              style={inputStyle}
+            >
+              <option value="">No manager</option>
+              {managers
+                .filter((manager) => manager.id !== managerModal.employee?.id)
+                .map((manager) => (
+                  <option key={manager.id} value={manager.id}>
+                    {manager.full_name || manager.id}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </Modal>
+      ) : null}
+
+      {roleModal.open ? (
+        <Modal
+          title="Assign Role"
+          onClose={() => setRoleModal({ open: false, employee: null, roleKey: "" })}
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button onClick={() => setRoleModal({ open: false, employee: null, roleKey: "" })} style={buttonStyle}>
+                Cancel
+              </button>
+              <button onClick={handleAssignRole} style={primaryButtonStyle} disabled={!roleModal.employee?.user_id}>
+                Save Role
+              </button>
+            </div>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            Assign a company role to <strong>{roleModal.employee?.full_name}</strong>.
+          </p>
+          {!roleModal.employee?.user_id ? (
+            <Banner tone="info" title="User not linked">
+              Link this employee to an auth user before assigning a role.
+            </Banner>
+          ) : (
+            <p style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+              Linked user: <code>{roleModal.employee?.user_id}</code>
+            </p>
+          )}
+          <label style={labelStyle}>
+            Role
+            <select
+              value={roleModal.roleKey}
+              onChange={(event) => setRoleModal({ ...roleModal, roleKey: event.target.value })}
+              style={inputStyle}
+              disabled={!roleModal.employee?.user_id}
+            >
+              {ROLE_OPTIONS.map((role) => (
+                <option key={role.value} value={role.value}>
+                  {role.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </Modal>
+      ) : null}
+
+      {linkModal.open ? (
+        <Modal
+          title="Link User"
+          onClose={() => setLinkModal({ open: false, employee: null, userId: "" })}
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button onClick={() => setLinkModal({ open: false, employee: null, userId: "" })} style={buttonStyle}>
+                Cancel
+              </button>
+              <button onClick={handleLinkUser} style={primaryButtonStyle}>Link User</button>
+            </div>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            Connect <strong>{linkModal.employee?.full_name}</strong> to a Supabase user.
+          </p>
+          <label style={labelStyle}>
+            User ID (UUID)
+            <input
+              value={linkModal.userId}
+              onChange={(event) => setLinkModal({ ...linkModal, userId: event.target.value })}
+              placeholder="00000000-0000-0000-0000-000000000000"
+              style={inputStyle}
+            />
+          </label>
+          <p style={{ margin: 0, color: "#6b7280", fontSize: 12 }}>
+            Linking a user also grants the employee role if they do not already have access.
+          </p>
+        </Modal>
+      ) : null}
     </div>
   );
 }
 
-const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
-const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const pageStyle = { padding: 24, fontFamily: "system-ui", maxWidth: 1200, margin: "0 auto" };
+const headerStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap",
+  alignItems: "flex-start",
+  marginBottom: 18,
+};
+const panelStyle = {
+  marginTop: 18,
+  padding: 16,
+  border: "1px solid #eee",
+  borderRadius: 12,
+  background: "#fff",
+};
+const panelHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+const emptyStateStyle = {
+  border: "1px dashed #e5e7eb",
+  borderRadius: 12,
+  padding: 24,
+  textAlign: "center",
+};
+const formGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+const labelStyle = { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 600 };
+const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14 };
+const searchInputStyle = { ...inputStyle, minWidth: 240 };
+const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #d1d5db", cursor: "pointer", background: "#fff" };
 const primaryButtonStyle = {
   ...buttonStyle,
   backgroundColor: "#2563eb",
   color: "#fff",
   border: "1px solid #1d4ed8",
 };
-const smallButtonStyle = { padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
-const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
-const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };
+const linkButtonStyle = { background: "none", border: "none", color: "#2563eb", cursor: "pointer", padding: 0 };
+const linkStyle = { color: "#2563eb", textDecoration: "none" };
+const actionButtonStyle = {
+  listStyle: "none",
+  cursor: "pointer",
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  fontWeight: 600,
+};
+const menuStyle = {
+  position: "absolute",
+  right: 0,
+  top: "calc(100% + 6px)",
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 10,
+  boxShadow: "0 8px 20px rgba(15,23,42,0.15)",
+  padding: 8,
+  minWidth: 180,
+  display: "grid",
+  gap: 6,
+  zIndex: 20,
+};
+const menuItemStyle = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1px solid transparent",
+  background: "#f9fafb",
+  cursor: "pointer",
+  textAlign: "left",
+  fontWeight: 600,
+};
+const thStyle = { padding: 12, borderBottom: "1px solid #e5e7eb", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em", color: "#6b7280" };
+const tdStyle = { padding: 12, borderBottom: "1px solid #f3f4f6", verticalAlign: "top" };
+const modalOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15,23,42,0.4)",
+  display: "grid",
+  placeItems: "center",
+  zIndex: 50,
+  padding: 16,
+};
+const modalStyle = {
+  background: "#fff",
+  borderRadius: 16,
+  padding: 24,
+  maxWidth: 640,
+  width: "100%",
+  boxShadow: "0 24px 40px rgba(15,23,42,0.2)",
+};
+
+function pillStyle(tone) {
+  if (tone === "green") {
+    return { background: "#dcfce7", color: "#166534", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 600 };
+  }
+  if (tone === "red") {
+    return { background: "#fee2e2", color: "#991b1b", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 600 };
+  }
+  if (tone === "blue") {
+    return { background: "#dbeafe", color: "#1e40af", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 600 };
+  }
+  return { background: "#f3f4f6", color: "#374151", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 600 };
+}
