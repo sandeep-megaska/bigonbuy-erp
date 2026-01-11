@@ -103,7 +103,11 @@ update public.erp_employees
 insert into public.erp_company_counters (company_id, employee_code_seq, updated_at)
 select e.company_id,
        coalesce(
+  coalesce(
   max(nullif(regexp_replace(e.employee_code, '[^0-9]', '', 'g'), '')::bigint),
+  0
+),
+
   0
 ),
 
