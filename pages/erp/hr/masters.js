@@ -1,17 +1,30 @@
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
+import {
+  listDepartments,
+  listEmploymentTypes,
+  listJobTitles,
+  listLocations,
+  upsertDepartment,
+  upsertEmploymentType,
+  upsertJobTitle,
+  upsertLocation,
+} from "../../../lib/hrMastersApi";
 import { supabase } from "../../../lib/supabaseClient";
 
 const TAB_CONFIG = {
   departments: {
     label: "Departments",
-    listRpc: "erp_hr_departments_list",
-    upsertRpc: "erp_hr_department_upsert",
+    itemLabel: "department",
+    listFn: listDepartments,
+    upsertFn: upsertDepartment,
     empty: { id: null, name: "", code: "", is_active: true },
     searchKeys: ["name", "code"],
+    requiredKeys: ["name"],
     fields: [
       { key: "name", label: "Department Name", placeholder: "e.g., Operations", required: true },
       { key: "code", label: "Code", placeholder: "Optional short code" },
@@ -26,10 +39,12 @@ const TAB_CONFIG = {
   },
   jobTitles: {
     label: "Job Titles",
-    listRpc: "erp_hr_job_titles_list",
-    upsertRpc: "erp_hr_job_title_upsert",
+    itemLabel: "job title",
+    listFn: listJobTitles,
+    upsertFn: upsertJobTitle,
     empty: { id: null, title: "", level: "", is_active: true },
     searchKeys: ["title", "level"],
+    requiredKeys: ["title"],
     fields: [
       { key: "title", label: "Job Title", placeholder: "e.g., Senior Engineer", required: true },
       { key: "level", label: "Level", type: "number", placeholder: "Optional level" },
@@ -44,10 +59,12 @@ const TAB_CONFIG = {
   },
   locations: {
     label: "Locations",
-    listRpc: "erp_hr_locations_list",
-    upsertRpc: "erp_hr_location_upsert",
+    itemLabel: "location",
+    listFn: listLocations,
+    upsertFn: upsertLocation,
     empty: { id: null, name: "", country: "", state: "", city: "", is_active: true },
     searchKeys: ["name", "city", "state", "country"],
+    requiredKeys: ["name"],
     fields: [
       { key: "name", label: "Location Name", placeholder: "e.g., Bengaluru", required: true },
       { key: "country", label: "Country", placeholder: "Country" },
@@ -68,10 +85,12 @@ const TAB_CONFIG = {
   },
   employmentTypes: {
     label: "Employment Types",
-    listRpc: "erp_hr_employment_types_list",
-    upsertRpc: "erp_hr_employment_type_upsert",
+    itemLabel: "employment type",
+    listFn: listEmploymentTypes,
+    upsertFn: upsertEmploymentType,
     empty: { id: null, key: "", name: "", is_active: true },
     searchKeys: ["key", "name"],
+    requiredKeys: ["key", "name"],
     fields: [
       { key: "key", label: "Key", placeholder: "e.g., permanent", required: true },
       { key: "name", label: "Display Name", placeholder: "e.g., Permanent", required: true },
@@ -88,35 +107,23 @@ const TAB_CONFIG = {
 
 const TAB_ORDER = ["departments", "jobTitles", "locations", "employmentTypes"];
 
+const initialTabState = TAB_ORDER.reduce((acc, key) => {
+  acc[key] = { loading: false, error: "", loaded: false };
+  return acc;
+}, {});
+
 export default function HrMastersPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [access, setAccess] = useState({ isAuthenticated: false, isManager: false, roleKey: undefined });
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("departments");
-  const [tabErrors, setTabErrors] = useState({
-    departments: "",
-    jobTitles: "",
-    locations: "",
-    employmentTypes: "",
-  });
-  const [tabLoading, setTabLoading] = useState({
-    departments: false,
-    jobTitles: false,
-    locations: false,
-    employmentTypes: false,
-  });
+  const [tabState, setTabState] = useState(initialTabState);
   const [records, setRecords] = useState({
     departments: [],
     jobTitles: [],
     locations: [],
     employmentTypes: [],
-  });
-  const [formValues, setFormValues] = useState({
-    departments: TAB_CONFIG.departments.empty,
-    jobTitles: TAB_CONFIG.jobTitles.empty,
-    locations: TAB_CONFIG.locations.empty,
-    employmentTypes: TAB_CONFIG.employmentTypes.empty,
   });
   const [searchTerms, setSearchTerms] = useState({
     departments: "",
@@ -124,7 +131,14 @@ export default function HrMastersPage() {
     locations: "",
     employmentTypes: "",
   });
+  const [modalState, setModalState] = useState({
+    open: false,
+    tabKey: "departments",
+    values: { ...TAB_CONFIG.departments.empty },
+  });
+  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -150,15 +164,18 @@ export default function HrMastersPage() {
       });
       setCtx(context);
       if (!context.companyId) {
-        setTabErrors((prev) => ({
+        setTabState((prev) => ({
           ...prev,
-          departments: context.membershipError || "No active company membership found for this user.",
+          departments: {
+            ...prev.departments,
+            error: context.membershipError || "No active company membership found for this user.",
+          },
         }));
         setLoading(false);
         return;
       }
 
-      await Promise.all(TAB_ORDER.map((tabKey) => loadRecords(tabKey)));
+      await loadRecords("departments");
       if (active) setLoading(false);
     })();
 
@@ -167,80 +184,114 @@ export default function HrMastersPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!ctx?.companyId) return;
+    const state = tabState[activeTab];
+    if (!state?.loaded && !state?.loading) {
+      loadRecords(activeTab);
+    }
+  }, [activeTab, ctx?.companyId, tabState]);
+
   async function loadRecords(tabKey) {
     const config = TAB_CONFIG[tabKey];
     if (!config) return;
 
-    setTabLoading((prev) => ({ ...prev, [tabKey]: true }));
-    setTabErrors((prev) => ({ ...prev, [tabKey]: "" }));
+    setTabState((prev) => ({
+      ...prev,
+      [tabKey]: { ...prev[tabKey], loading: true, error: "" },
+    }));
 
-    const { data, error } = await supabase.rpc(config.listRpc);
-    if (error) {
-      setTabErrors((prev) => ({
+    try {
+      const data = await config.listFn();
+      setRecords((prev) => ({ ...prev, [tabKey]: Array.isArray(data) ? data : [] }));
+      setTabState((prev) => ({
         ...prev,
-        [tabKey]: error.message || `Failed to load ${config.label}`,
+        [tabKey]: { ...prev[tabKey], loading: false, loaded: true },
       }));
-      setTabLoading((prev) => ({ ...prev, [tabKey]: false }));
-      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Failed to load ${config.label}`;
+      setTabState((prev) => ({
+        ...prev,
+        [tabKey]: { ...prev[tabKey], loading: false, error: message },
+      }));
     }
-
-    setRecords((prev) => ({ ...prev, [tabKey]: Array.isArray(data) ? data : [] }));
-    setTabLoading((prev) => ({ ...prev, [tabKey]: false }));
   }
 
-  function resetForm(tabKey) {
-    setFormValues((prev) => ({ ...prev, [tabKey]: { ...TAB_CONFIG[tabKey].empty } }));
+  function openModal(tabKey, row = null) {
+    const config = TAB_CONFIG[tabKey];
+    setModalState({
+      open: true,
+      tabKey,
+      values: row ? { ...row } : { ...config.empty },
+    });
+    setFormError("");
   }
 
-  async function handleSave(e) {
-    e.preventDefault();
-    if (!canManage) {
-      setTabErrors((prev) => ({
-        ...prev,
-        [activeTab]: "Only owner/admin/hr can manage masters.",
-      }));
-      return;
+  function closeModal() {
+    setModalState((prev) => ({ ...prev, open: false }));
+    setFormError("");
+  }
+
+  function showToast(nextToast) {
+    setToast(nextToast);
+    if (nextToast) {
+      window.setTimeout(() => {
+        setToast(null);
+      }, 3000);
     }
-    const config = TAB_CONFIG[activeTab];
+  }
+
+  async function handleSave(event) {
+    event.preventDefault();
+    if (!canManage) return;
+    const config = TAB_CONFIG[modalState.tabKey];
     if (!config) return;
-    const payload = buildUpsertPayload(activeTab, formValues[activeTab]);
-    setSaving(true);
-    setTabErrors((prev) => ({ ...prev, [activeTab]: "" }));
 
-    const { error } = await supabase.rpc(config.upsertRpc, payload);
-    if (error) {
-      setTabErrors((prev) => ({
-        ...prev,
-        [activeTab]: error.message || `Failed to save ${config.label}`,
-      }));
-      setSaving(false);
+    const missing = config.requiredKeys.find(
+      (key) => !String(modalState.values[key] ?? "").trim()
+    );
+    if (missing) {
+      setFormError(`Please enter ${missing.replace("_", " ")}.`);
       return;
     }
-    resetForm(activeTab);
-    await loadRecords(activeTab);
-    setSaving(false);
+
+    setSaving(true);
+    setFormError("");
+    try {
+      const payload = buildUpsertPayload(modalState.tabKey, modalState.values);
+      await config.upsertFn(payload);
+      showToast({ type: "success", message: `${config.label} saved successfully.` });
+      await loadRecords(modalState.tabKey);
+      closeModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Failed to save ${config.label}`;
+      showToast({ type: "error", message });
+      setFormError(message);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function startEdit(tabKey, row) {
-    setActiveTab(tabKey);
-    setFormValues((prev) => ({ ...prev, [tabKey]: { ...row } }));
-  }
-
-  async function handleDeactivate(tabKey, row) {
+  async function handleToggleStatus(tabKey, row) {
     if (!canManage) return;
     const config = TAB_CONFIG[tabKey];
     if (!config) return;
-    const payload = buildUpsertPayload(tabKey, { ...row, is_active: !row.is_active });
-
-    const { error } = await supabase.rpc(config.upsertRpc, payload);
-    if (error) {
-      setTabErrors((prev) => ({
+    try {
+      const payload = buildUpsertPayload(tabKey, { ...row, is_active: !row.is_active });
+      await config.upsertFn(payload);
+      showToast({
+        type: "success",
+        message: `${config.label} ${row.is_active ? "deactivated" : "activated"}.`,
+      });
+      await loadRecords(tabKey);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update status";
+      showToast({ type: "error", message });
+      setTabState((prev) => ({
         ...prev,
-        [tabKey]: error.message || "Failed to update status",
+        [tabKey]: { ...prev[tabKey], error: message },
       }));
-      return;
     }
-    await loadRecords(tabKey);
   }
 
   const currentConfig = TAB_CONFIG[activeTab];
@@ -260,19 +311,34 @@ export default function HrMastersPage() {
     return (
       <div style={containerStyle}>
         <h1 style={{ marginTop: 0 }}>HR Masters</h1>
-        <p style={{ color: "#b91c1c" }}>{tabErrors.departments || "No company linked to this account."}</p>
-        <button onClick={async () => { await supabase.auth.signOut(); router.replace("/"); }} style={dangerButtonStyle}>
+        <p style={{ color: "#b91c1c" }}>{tabState.departments.error || "No company linked to this account."}</p>
+        <button
+          onClick={async () => {
+            await supabase.auth.signOut();
+            router.replace("/");
+          }}
+          style={dangerButtonStyle}
+        >
           Sign Out
         </button>
       </div>
     );
   }
 
+  const tabMeta = tabState[activeTab];
+
   return (
     <div style={containerStyle}>
       <ErpNavBar access={access} roleKey={ctx?.roleKey} />
       <div style={headerStyle}>
         <div>
+          <nav style={breadcrumbStyle}>
+            <Link href="/erp" style={breadcrumbLinkStyle}>ERP Home</Link>
+            <span style={breadcrumbSeparatorStyle}>/</span>
+            <Link href="/erp/hr" style={breadcrumbLinkStyle}>HR Home</Link>
+            <span style={breadcrumbSeparatorStyle}>/</span>
+            <span style={breadcrumbCurrentStyle}>HR Masters</span>
+          </nav>
           <p style={eyebrowStyle}>HR</p>
           <h1 style={titleStyle}>HR Masters</h1>
           <p style={subtitleStyle}>Manage foundational HR data used across employees.</p>
@@ -282,8 +348,8 @@ export default function HrMastersPage() {
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <a href="/erp/hr" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to HR Home</a>
-          <a href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>ERP Home</a>
+          <Link href="/erp/hr" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to HR Home</Link>
+          <Link href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>ERP Home</Link>
         </div>
       </div>
 
@@ -312,65 +378,16 @@ export default function HrMastersPage() {
           </div>
           {canManage ? (
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => resetForm(activeTab)} style={buttonStyle}>New</button>
+              <button onClick={() => openModal(activeTab)} style={buttonStyle}>Add {currentConfig.itemLabel}</button>
             </div>
           ) : null}
         </div>
 
         {!canManage ? (
           <div style={{ color: "#6b7280" }}>Read-only mode. Only owner/admin/hr can add or edit.</div>
-        ) : (
-          <form onSubmit={handleSave} style={formGridStyle}>
-            {currentConfig.fields.map((field) => (
-              <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontWeight: 600, color: "#111827" }}>
-                  {field.label} {field.required ? "*" : ""}
-                </span>
-                {field.type === "checkbox" ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(formValues[activeTab][field.key])}
-                      onChange={(e) =>
-                        setFormValues((prev) => ({
-                          ...prev,
-                          [activeTab]: { ...prev[activeTab], [field.key]: e.target.checked },
-                        }))
-                      }
-                    />
-                    <span style={{ color: "#4b5563" }}>Active</span>
-                  </div>
-                ) : (
-                  <input
-                    type={field.type || "text"}
-                    required={Boolean(field.required)}
-                    value={formValues[activeTab][field.key] ?? ""}
-                    placeholder={field.placeholder || ""}
-                    onChange={(e) =>
-                      setFormValues((prev) => ({
-                        ...prev,
-                        [activeTab]: { ...prev[activeTab], [field.key]: e.target.value },
-                      }))
-                    }
-                    style={inputStyle}
-                  />
-                )}
-              </label>
-            ))}
-            <div style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" style={primaryButtonStyle} disabled={saving}>
-                {saving ? "Saving..." : "Save"}
-              </button>
-              {formValues[activeTab]?.id ? (
-                <span style={{ marginLeft: 12, color: "#6b7280" }}>
-                  Editing record #{formValues[activeTab].id}
-                </span>
-              ) : null}
-            </div>
-          </form>
-        )}
+        ) : null}
 
-        <div style={{ marginTop: 20 }}>
+        <div style={{ marginTop: 16 }}>
           <div style={tableHeaderStyle}>
             <span>
               {currentConfig.label} ({filteredRecords.length}
@@ -399,7 +416,18 @@ export default function HrMastersPage() {
             </button>
           </div>
 
-          {tabErrors[activeTab] ? <div style={errorBoxStyle}>{tabErrors[activeTab]}</div> : null}
+          {tabMeta?.error ? (
+            <div style={errorBoxStyle}>
+              <div>{tabMeta.error}</div>
+              <button type="button" onClick={() => loadRecords(activeTab)} style={retryButtonStyle}>
+                Retry
+              </button>
+            </div>
+          ) : null}
+
+          {toast ? (
+            <div style={toast.type === "success" ? successBoxStyle : errorBoxStyle}>{toast.message}</div>
+          ) : null}
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -412,7 +440,7 @@ export default function HrMastersPage() {
                 </tr>
               </thead>
               <tbody>
-                {tabLoading[activeTab] ? (
+                {tabMeta?.loading ? (
                   <tr>
                     <td style={tdStyle} colSpan={currentConfig.columns.length + (canManage ? 1 : 0)}>
                       Loading {currentConfig.label.toLowerCase()}...
@@ -421,9 +449,21 @@ export default function HrMastersPage() {
                 ) : filteredRecords.length === 0 ? (
                   <tr>
                     <td style={tdStyle} colSpan={currentConfig.columns.length + (canManage ? 1 : 0)}>
-                      {searchValue
-                        ? "No matches for this search."
-                        : `No ${currentConfig.label.toLowerCase()} have been added yet.`}
+                      <div style={emptyStateStyle}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>No {currentConfig.itemLabel}s yet.</div>
+                          <div style={{ color: "#6b7280" }}>
+                            {searchValue
+                              ? "No matches for this search."
+                              : `Add your first ${currentConfig.itemLabel} to get started.`}
+                          </div>
+                        </div>
+                        {canManage ? (
+                          <button onClick={() => openModal(activeTab)} style={primaryButtonStyle}>
+                            Add {currentConfig.itemLabel}
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -437,9 +477,9 @@ export default function HrMastersPage() {
                       {canManage ? (
                         <td style={{ ...tdStyle, textAlign: "right" }}>
                           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                            <button onClick={() => startEdit(activeTab, row)} style={smallButtonStyle}>Edit</button>
+                            <button onClick={() => openModal(activeTab, row)} style={smallButtonStyle}>Edit</button>
                             <button
-                              onClick={() => handleDeactivate(activeTab, row)}
+                              onClick={() => handleToggleStatus(activeTab, row)}
                               style={smallButtonStyle}
                             >
                               {row.is_active ? "Deactivate" : "Activate"}
@@ -455,14 +495,77 @@ export default function HrMastersPage() {
           </div>
         </div>
       </div>
+
+      {modalState.open ? (
+        <div style={modalOverlayStyle}>
+          <div style={modalCardStyle}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <h3 style={{ margin: 0 }}>
+                  {modalState.values?.id ? "Edit" : "Add"} {TAB_CONFIG[modalState.tabKey].itemLabel}
+                </h3>
+                <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+                  Keep master data consistent for employee records.
+                </p>
+              </div>
+              <button type="button" onClick={closeModal} style={buttonStyle}>Close</button>
+            </div>
+            <form onSubmit={handleSave} style={formGridStyle}>
+              {TAB_CONFIG[modalState.tabKey].fields.map((field) => (
+                <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ fontWeight: 600, color: "#111827" }}>
+                    {field.label} {field.required ? "*" : ""}
+                  </span>
+                  {field.type === "checkbox" ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(modalState.values[field.key])}
+                        onChange={(e) =>
+                          setModalState((prev) => ({
+                            ...prev,
+                            values: { ...prev.values, [field.key]: e.target.checked },
+                          }))
+                        }
+                      />
+                      <span style={{ color: "#4b5563" }}>Active</span>
+                    </div>
+                  ) : (
+                    <input
+                      type={field.type || "text"}
+                      required={Boolean(field.required)}
+                      value={modalState.values[field.key] ?? ""}
+                      placeholder={field.placeholder || ""}
+                      onChange={(e) =>
+                        setModalState((prev) => ({
+                          ...prev,
+                          values: { ...prev.values, [field.key]: e.target.value },
+                        }))
+                      }
+                      style={inputStyle}
+                    />
+                  )}
+                </label>
+              ))}
+              {formError ? <div style={errorBoxStyle}>{formError}</div> : null}
+              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                <button type="button" onClick={closeModal} style={buttonStyle}>Cancel</button>
+                <button type="submit" style={primaryButtonStyle} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function buildUpsertPayload(tabKey, values) {
   const base = {
-    p_id: values.id || null,
-    p_is_active:
+    id: values.id || null,
+    is_active:
       typeof values.is_active === "boolean"
         ? values.is_active
         : String(values.is_active ?? "").toLowerCase() !== "false",
@@ -472,28 +575,28 @@ function buildUpsertPayload(tabKey, values) {
     case "departments":
       return {
         ...base,
-        p_name: values.name || null,
-        p_code: values.code || null,
+        name: values.name || null,
+        code: values.code || null,
       };
     case "jobTitles":
       return {
         ...base,
-        p_title: values.title || null,
-        p_level: values.level === "" || values.level === null ? null : Number(values.level),
+        title: values.title || null,
+        level: values.level === "" || values.level === null ? null : Number(values.level),
       };
     case "locations":
       return {
         ...base,
-        p_name: values.name || null,
-        p_country: values.country || null,
-        p_state: values.state || null,
-        p_city: values.city || null,
+        name: values.name || null,
+        country: values.country || null,
+        state: values.state || null,
+        city: values.city || null,
       };
     case "employmentTypes":
       return {
         ...base,
-        p_key: values.key || null,
-        p_name: values.name || null,
+        key: values.key || null,
+        name: values.name || null,
       };
     default:
       return base;
@@ -525,6 +628,30 @@ const headerStyle = {
   alignItems: "flex-start",
   marginBottom: 18,
   flexWrap: "wrap",
+};
+
+const breadcrumbStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 13,
+  color: "#6b7280",
+  marginBottom: 8,
+};
+
+const breadcrumbLinkStyle = {
+  color: "#2563eb",
+  textDecoration: "none",
+  fontWeight: 600,
+};
+
+const breadcrumbSeparatorStyle = {
+  color: "#9ca3af",
+};
+
+const breadcrumbCurrentStyle = {
+  color: "#111827",
+  fontWeight: 700,
 };
 
 const eyebrowStyle = {
@@ -605,6 +732,14 @@ const dangerButtonStyle = {
 
 const smallButtonStyle = { ...buttonStyle, padding: "8px 10px" };
 
+const retryButtonStyle = {
+  ...buttonStyle,
+  marginTop: 10,
+  background: "#fff",
+  borderColor: "#fca5a5",
+  color: "#b91c1c",
+};
+
 const tableHeaderStyle = {
   padding: "10px 12px",
   borderBottom: "1px solid #e5e7eb",
@@ -622,4 +757,52 @@ const errorBoxStyle = {
   border: "1px solid #fecaca",
   background: "#fef2f2",
   color: "#991b1b",
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+
+const successBoxStyle = {
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid #86efac",
+  background: "#f0fdf4",
+  color: "#166534",
+};
+
+const emptyStateStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  background: "#f9fafb",
+  borderRadius: 10,
+  padding: 16,
+};
+
+const modalOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15, 23, 42, 0.4)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 40,
+};
+
+const modalCardStyle = {
+  width: "min(720px, 100%)",
+  background: "#fff",
+  borderRadius: 12,
+  padding: 20,
+  boxShadow: "0 18px 40px rgba(15, 23, 42, 0.2)",
+};
+
+const modalHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 16,
 };
