@@ -186,13 +186,36 @@ begin
   end if;
 
   -- Ensure settings row exists with required NOT NULL columns
-  insert into public.erp_company_settings (
-    company_id, employee_code_prefix, created_at, created_by, updated_at, updated_by
-  )
-  values (
-    p_company_id, 'BB', now(), v_actor, now(), v_actor
-  )
-  on conflict (company_id) do nothing;
+  -- Pick an actor for NOT NULL audit columns
+select coalesce(
+  (select cu.user_id
+   from public.erp_company_users cu
+   where cu.company_id = p_company_id
+     and coalesce(cu.is_active, true)
+     and cu.role_key in ('owner','admin')
+   order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+   limit 1),
+  (select cu2.user_id
+   from public.erp_company_users cu2
+   where cu2.company_id = p_company_id
+     and coalesce(cu2.is_active, true)
+   order by cu2.created_at nulls last
+   limit 1)
+) into v_actor;
+
+if v_actor is null then
+  raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
+    using errcode = '23502';
+end if;
+
+-- Insert settings row with required NOT NULL columns
+insert into public.erp_company_settings (
+  company_id, employee_code_prefix, created_at, created_by, updated_at, updated_by
+)
+values (
+  p_company_id, 'BB', now(), v_actor, now(), v_actor
+)
+on conflict (company_id) do nothing;
 
   -- Ensure counters row exists
   insert into public.erp_company_counters (company_id, employee_code_seq, updated_at)
