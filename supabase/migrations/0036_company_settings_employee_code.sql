@@ -102,7 +102,11 @@ update public.erp_employees
 
 insert into public.erp_company_counters (company_id, employee_code_seq, updated_at)
 select e.company_id,
-       max(nullif(regexp_replace(e.employee_code, '\\D', '', 'g'), '')::bigint),
+       coalesce(
+  max(nullif(regexp_replace(e.employee_code, '[^0-9]', '', 'g'), '')::bigint),
+  0
+),
+
        now()
   from public.erp_employees e
  where e.company_id is not null
