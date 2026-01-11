@@ -72,9 +72,19 @@ end $$;
 -- seed them using the company owner/admin user if available.
 
 -- Seed missing settings rows with required audit fields
-insert into public.erp_company_settings (company_id, created_by, updated_by)
+-- Ensure every existing company has settings row (with required audit fields)
+insert into public.erp_company_settings (
+  company_id,
+  employee_code_prefix,
+  created_at,
+  created_by,
+  updated_at,
+  updated_by
+)
 select
   c.id,
+  'BB',
+  now(),
   coalesce(
     (select cu.user_id
      from public.erp_company_users cu
@@ -89,7 +99,8 @@ select
        and coalesce(cu2.is_active, true)
      order by cu2.created_at nulls last
      limit 1)
-  ),
+  ) as created_by,
+  now(),
   coalesce(
     (select cu.user_id
      from public.erp_company_users cu
@@ -104,11 +115,17 @@ select
        and coalesce(cu2.is_active, true)
      order by cu2.created_at nulls last
      limit 1)
-  )
+  ) as updated_by
 from public.erp_companies c
 where not exists (
   select 1 from public.erp_company_settings s where s.company_id = c.id
 );
+
+-- Ensure prefix is BB for all companies (keep consistent)
+update public.erp_company_settings
+set employee_code_prefix = 'BB',
+    updated_at = now()
+where employee_code_prefix is distinct from 'BB';
 
 -- Now ensure BB/6 defaults are present (for both new + existing rows)
 update public.erp_company_settings
@@ -147,10 +164,14 @@ begin
   values (p_company_id)
   on conflict (company_id) do nothing;
 
-  select employee_id_prefix, employee_id_digits
-    into v_prefix, v_digits
-  from public.erp_company_settings
-  where company_id = p_company_id;
+  -- Prefer existing schema column employee_code_prefix (NOT NULL in your DB)
+select
+  coalesce(employee_code_prefix, employee_id_prefix, 'BB') as prefix,
+  coalesce(employee_id_digits, 6) as digits
+into v_prefix, v_digits
+from public.erp_company_settings
+where company_id = p_company_id;
+
 
   -- Atomic increment per company
   update public.erp_company_counters
