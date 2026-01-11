@@ -8,8 +8,10 @@ import { supabase } from "../../../lib/supabaseClient";
 const TAB_CONFIG = {
   departments: {
     label: "Departments",
-    apiType: "departments",
+    listRpc: "erp_hr_departments_list",
+    upsertRpc: "erp_hr_department_upsert",
     empty: { id: null, name: "", code: "", is_active: true },
+    searchKeys: ["name", "code"],
     fields: [
       { key: "name", label: "Department Name", placeholder: "e.g., Operations", required: true },
       { key: "code", label: "Code", placeholder: "Optional short code" },
@@ -24,8 +26,10 @@ const TAB_CONFIG = {
   },
   jobTitles: {
     label: "Job Titles",
-    apiType: "job-titles",
+    listRpc: "erp_hr_job_titles_list",
+    upsertRpc: "erp_hr_job_title_upsert",
     empty: { id: null, title: "", level: "", is_active: true },
+    searchKeys: ["title", "level"],
     fields: [
       { key: "title", label: "Job Title", placeholder: "e.g., Senior Engineer", required: true },
       { key: "level", label: "Level", type: "number", placeholder: "Optional level" },
@@ -40,8 +44,10 @@ const TAB_CONFIG = {
   },
   locations: {
     label: "Locations",
-    apiType: "locations",
+    listRpc: "erp_hr_locations_list",
+    upsertRpc: "erp_hr_location_upsert",
     empty: { id: null, name: "", country: "", state: "", city: "", is_active: true },
+    searchKeys: ["name", "city", "state", "country"],
     fields: [
       { key: "name", label: "Location Name", placeholder: "e.g., Bengaluru", required: true },
       { key: "country", label: "Country", placeholder: "Country" },
@@ -62,8 +68,10 @@ const TAB_CONFIG = {
   },
   employmentTypes: {
     label: "Employment Types",
-    apiType: "employment-types",
+    listRpc: "erp_hr_employment_types_list",
+    upsertRpc: "erp_hr_employment_type_upsert",
     empty: { id: null, key: "", name: "", is_active: true },
+    searchKeys: ["key", "name"],
     fields: [
       { key: "key", label: "Key", placeholder: "e.g., permanent", required: true },
       { key: "name", label: "Display Name", placeholder: "e.g., Permanent", required: true },
@@ -84,10 +92,20 @@ export default function HrMastersPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [access, setAccess] = useState({ isAuthenticated: false, isManager: false, roleKey: undefined });
-  const [accessToken, setAccessToken] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("departments");
+  const [tabErrors, setTabErrors] = useState({
+    departments: "",
+    jobTitles: "",
+    locations: "",
+    employmentTypes: "",
+  });
+  const [tabLoading, setTabLoading] = useState({
+    departments: false,
+    jobTitles: false,
+    locations: false,
+    employmentTypes: false,
+  });
   const [records, setRecords] = useState({
     departments: [],
     jobTitles: [],
@@ -100,6 +118,13 @@ export default function HrMastersPage() {
     locations: TAB_CONFIG.locations.empty,
     employmentTypes: TAB_CONFIG.employmentTypes.empty,
   });
+  const [searchTerms, setSearchTerms] = useState({
+    departments: "",
+    jobTitles: "",
+    locations: "",
+    employmentTypes: "",
+  });
+  const [saving, setSaving] = useState(false);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -124,14 +149,16 @@ export default function HrMastersPage() {
         roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
       });
       setCtx(context);
-      setAccessToken(session.access_token || "");
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        setTabErrors((prev) => ({
+          ...prev,
+          departments: context.membershipError || "No active company membership found for this user.",
+        }));
         setLoading(false);
         return;
       }
 
-      await Promise.all(TAB_ORDER.map((tabKey) => loadRecords(tabKey, session.access_token)));
+      await Promise.all(TAB_ORDER.map((tabKey) => loadRecords(tabKey)));
       if (active) setLoading(false);
     })();
 
@@ -140,19 +167,25 @@ export default function HrMastersPage() {
     };
   }, [router]);
 
-  async function loadRecords(tabKey, token = accessToken) {
+  async function loadRecords(tabKey) {
     const config = TAB_CONFIG[tabKey];
-    if (!config || !token) return;
+    if (!config) return;
 
-    const res = await fetch(`/api/erp/hr/masters?type=${config.apiType}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) {
-      setError(data?.error || `Failed to load ${config.label}`);
+    setTabLoading((prev) => ({ ...prev, [tabKey]: true }));
+    setTabErrors((prev) => ({ ...prev, [tabKey]: "" }));
+
+    const { data, error } = await supabase.rpc(config.listRpc);
+    if (error) {
+      setTabErrors((prev) => ({
+        ...prev,
+        [tabKey]: error.message || `Failed to load ${config.label}`,
+      }));
+      setTabLoading((prev) => ({ ...prev, [tabKey]: false }));
       return;
     }
-    setRecords((prev) => ({ ...prev, [tabKey]: data.rows || [] }));
+
+    setRecords((prev) => ({ ...prev, [tabKey]: Array.isArray(data) ? data : [] }));
+    setTabLoading((prev) => ({ ...prev, [tabKey]: false }));
   }
 
   function resetForm(tabKey) {
@@ -162,32 +195,30 @@ export default function HrMastersPage() {
   async function handleSave(e) {
     e.preventDefault();
     if (!canManage) {
-      setError("Only owner/admin/hr can manage masters.");
+      setTabErrors((prev) => ({
+        ...prev,
+        [activeTab]: "Only owner/admin/hr can manage masters.",
+      }));
       return;
     }
     const config = TAB_CONFIG[activeTab];
     if (!config) return;
-    const payload = { ...formValues[activeTab] };
-    if (config.apiType === "job-titles" && payload.level !== "" && payload.level !== null) {
-      payload.level = Number(payload.level);
-    }
+    const payload = buildUpsertPayload(activeTab, formValues[activeTab]);
+    setSaving(true);
+    setTabErrors((prev) => ({ ...prev, [activeTab]: "" }));
 
-    const res = await fetch(`/api/erp/hr/masters?type=${config.apiType}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) {
-      setError(data?.error || `Failed to save ${config.label}`);
+    const { error } = await supabase.rpc(config.upsertRpc, payload);
+    if (error) {
+      setTabErrors((prev) => ({
+        ...prev,
+        [activeTab]: error.message || `Failed to save ${config.label}`,
+      }));
+      setSaving(false);
       return;
     }
-    setError("");
     resetForm(activeTab);
     await loadRecords(activeTab);
+    setSaving(false);
   }
 
   function startEdit(tabKey, row) {
@@ -196,34 +227,40 @@ export default function HrMastersPage() {
   }
 
   async function handleDeactivate(tabKey, row) {
+    if (!canManage) return;
     const config = TAB_CONFIG[tabKey];
     if (!config) return;
-    const payload = { ...row, is_active: !row.is_active };
-    const res = await fetch(`/api/erp/hr/masters?type=${config.apiType}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) {
-      setError(data?.error || "Failed to update status");
+    const payload = buildUpsertPayload(tabKey, { ...row, is_active: !row.is_active });
+
+    const { error } = await supabase.rpc(config.upsertRpc, payload);
+    if (error) {
+      setTabErrors((prev) => ({
+        ...prev,
+        [tabKey]: error.message || "Failed to update status",
+      }));
       return;
     }
-    setError("");
     await loadRecords(tabKey);
   }
 
   const currentConfig = TAB_CONFIG[activeTab];
+  const searchValue = (searchTerms[activeTab] || "").trim().toLowerCase();
+  const filteredRecords = useMemo(() => {
+    const list = records[activeTab] || [];
+    if (!searchValue) return list;
+    const keys = currentConfig.searchKeys || [];
+    return list.filter((row) =>
+      keys.some((key) => String(row?.[key] ?? "").toLowerCase().includes(searchValue))
+    );
+  }, [activeTab, currentConfig.searchKeys, records, searchValue]);
+
   if (loading) return <div style={containerStyle}>Loading HR Masters…</div>;
 
   if (!ctx?.companyId) {
     return (
       <div style={containerStyle}>
         <h1 style={{ marginTop: 0 }}>HR Masters</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "No company linked to this account."}</p>
+        <p style={{ color: "#b91c1c" }}>{tabErrors.departments || "No company linked to this account."}</p>
         <button onClick={async () => { await supabase.auth.signOut(); router.replace("/"); }} style={dangerButtonStyle}>
           Sign Out
         </button>
@@ -250,10 +287,6 @@ export default function HrMastersPage() {
         </div>
       </div>
 
-      {error ? (
-        <div style={errorBoxStyle}>{error}</div>
-      ) : null}
-
       <div style={tabsRowStyle}>
         {TAB_ORDER.map((tabKey) => (
           <button
@@ -277,9 +310,11 @@ export default function HrMastersPage() {
               {currentConfig.label} are shared across employee profiles and dropdowns.
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => resetForm(activeTab)} style={buttonStyle}>New</button>
-          </div>
+          {canManage ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => resetForm(activeTab)} style={buttonStyle}>New</button>
+            </div>
+          ) : null}
         </div>
 
         {!canManage ? (
@@ -323,7 +358,9 @@ export default function HrMastersPage() {
               </label>
             ))}
             <div style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" style={primaryButtonStyle}>Save</button>
+              <button type="submit" style={primaryButtonStyle} disabled={saving}>
+                {saving ? "Saving..." : "Save"}
+              </button>
               {formValues[activeTab]?.id ? (
                 <span style={{ marginLeft: 12, color: "#6b7280" }}>
                   Editing record #{formValues[activeTab].id}
@@ -335,8 +372,35 @@ export default function HrMastersPage() {
 
         <div style={{ marginTop: 20 }}>
           <div style={tableHeaderStyle}>
-            <span>{currentConfig.label} ({records[activeTab]?.length || 0})</span>
+            <span>
+              {currentConfig.label} ({filteredRecords.length}
+              {filteredRecords.length !== (records[activeTab]?.length || 0)
+                ? ` of ${records[activeTab]?.length || 0}`
+                : ""}
+              )
+            </span>
           </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "12px 0" }}>
+            <input
+              type="text"
+              placeholder={`Search ${currentConfig.label.toLowerCase()}...`}
+              value={searchTerms[activeTab] || ""}
+              onChange={(e) =>
+                setSearchTerms((prev) => ({ ...prev, [activeTab]: e.target.value }))
+              }
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            <button
+              type="button"
+              onClick={() => setSearchTerms((prev) => ({ ...prev, [activeTab]: "" }))}
+              style={buttonStyle}
+            >
+              Clear
+            </button>
+          </div>
+
+          {tabErrors[activeTab] ? <div style={errorBoxStyle}>{tabErrors[activeTab]}</div> : null}
+
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -344,31 +408,48 @@ export default function HrMastersPage() {
                   {currentConfig.columns.map((col) => (
                     <th key={col.key} style={thStyle}>{col.label}</th>
                   ))}
-                  <th style={thStyle}></th>
+                  {canManage ? <th style={thStyle}></th> : null}
                 </tr>
               </thead>
               <tbody>
-                {(records[activeTab] || []).map((row) => (
-                  <tr key={row.id}>
-                    {currentConfig.columns.map((col) => (
-                      <td key={col.key} style={tdStyle}>
-                        {col.render ? col.render(row) : row[col.key] || "—"}
-                      </td>
-                    ))}
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button onClick={() => startEdit(activeTab, row)} style={smallButtonStyle}>Edit</button>
-                        <button
-                          onClick={() => handleDeactivate(activeTab, row)}
-                          style={smallButtonStyle}
-                          disabled={!canManage}
-                        >
-                          {row.is_active ? "Deactivate" : "Activate"}
-                        </button>
-                      </div>
+                {tabLoading[activeTab] ? (
+                  <tr>
+                    <td style={tdStyle} colSpan={currentConfig.columns.length + (canManage ? 1 : 0)}>
+                      Loading {currentConfig.label.toLowerCase()}...
                     </td>
                   </tr>
-                ))}
+                ) : filteredRecords.length === 0 ? (
+                  <tr>
+                    <td style={tdStyle} colSpan={currentConfig.columns.length + (canManage ? 1 : 0)}>
+                      {searchValue
+                        ? "No matches for this search."
+                        : `No ${currentConfig.label.toLowerCase()} have been added yet.`}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRecords.map((row) => (
+                    <tr key={row.id}>
+                      {currentConfig.columns.map((col) => (
+                        <td key={col.key} style={tdStyle}>
+                          {col.render ? col.render(row) : row[col.key] || "—"}
+                        </td>
+                      ))}
+                      {canManage ? (
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                            <button onClick={() => startEdit(activeTab, row)} style={smallButtonStyle}>Edit</button>
+                            <button
+                              onClick={() => handleDeactivate(activeTab, row)}
+                              style={smallButtonStyle}
+                            >
+                              {row.is_active ? "Deactivate" : "Activate"}
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -376,6 +457,47 @@ export default function HrMastersPage() {
       </div>
     </div>
   );
+}
+
+function buildUpsertPayload(tabKey, values) {
+  const base = {
+    p_id: values.id || null,
+    p_is_active:
+      typeof values.is_active === "boolean"
+        ? values.is_active
+        : String(values.is_active ?? "").toLowerCase() !== "false",
+  };
+
+  switch (tabKey) {
+    case "departments":
+      return {
+        ...base,
+        p_name: values.name || null,
+        p_code: values.code || null,
+      };
+    case "jobTitles":
+      return {
+        ...base,
+        p_title: values.title || null,
+        p_level: values.level === "" || values.level === null ? null : Number(values.level),
+      };
+    case "locations":
+      return {
+        ...base,
+        p_name: values.name || null,
+        p_country: values.country || null,
+        p_state: values.state || null,
+        p_city: values.city || null,
+      };
+    case "employmentTypes":
+      return {
+        ...base,
+        p_key: values.key || null,
+        p_name: values.name || null,
+      };
+    default:
+      return base;
+  }
 }
 
 function formatDate(value) {
