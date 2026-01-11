@@ -14,28 +14,24 @@ create table if not exists public.erp_company_counters (
   updated_at timestamptz not null default now()
 );
 
-insert into public.erp_company_settings (company_id, created_by, updated_by)
-select c.id,
-       coalesce(
-         (select cu.user_id
-            from public.erp_company_users cu
-           where cu.company_id = c.id
-             and cu.role_key = 'owner'
-           limit 1),
-         auth.uid(),
-         '00000000-0000-0000-0000-000000000000'::uuid
-       ),
-       coalesce(
-         (select cu.user_id
-            from public.erp_company_users cu
-           where cu.company_id = c.id
-             and cu.role_key = 'owner'
-           limit 1),
-         auth.uid(),
-         '00000000-0000-0000-0000-000000000000'::uuid
-       )
-from public.erp_companies c
+insert into public.erp_company_settings (
+  company_id,
+  employee_code_prefix,
+  created_at,
+  created_by,
+  updated_at,
+  updated_by
+)
+values (
+  p_company_id,
+  'BB',
+  now(),
+  v_actor,
+  now(),
+  v_actor
+)
 on conflict (company_id) do nothing;
+
 
 create or replace function public.erp_next_employee_code(p_company_id uuid)
 returns text
@@ -49,6 +45,28 @@ declare
   v_seq bigint;
   v_prefix text;
 begin
+-- Pick an actor user_id for audit columns (owner/admin preferred)
+select coalesce(
+  (select cu.user_id
+   from public.erp_company_users cu
+   where cu.company_id = p_company_id
+     and coalesce(cu.is_active, true)
+     and cu.role_key in ('owner','admin')
+   order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+   limit 1),
+  (select cu2.user_id
+   from public.erp_company_users cu2
+   where cu2.company_id = p_company_id
+     and coalesce(cu2.is_active, true)
+   order by cu2.created_at nulls last
+   limit 1)
+) into v_actor;
+
+if v_actor is null then
+  raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
+    using errcode = '23502';
+end if;
+
   if v_company_id is null then
     raise exception 'company_id is required';
   end if;
