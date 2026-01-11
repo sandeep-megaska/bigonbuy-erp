@@ -9,6 +9,15 @@ alter table public.erp_salary_structures
   add column if not exists is_active boolean default true,
   add column if not exists created_at timestamptz default now(),
   add column if not exists updated_at timestamptz default now();
+alter table public.erp_salary_structures
+  add column if not exists company_id uuid,
+  add column if not exists name text,
+  add column if not exists code text,
+  add column if not exists pay_frequency text default 'monthly',
+  add column if not exists currency text default 'INR',
+  add column if not exists is_active boolean default true,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
 
 -- Optional: If company_id should be NOT NULL later, do it after backfill.
 
