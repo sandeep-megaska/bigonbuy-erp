@@ -1,4 +1,17 @@
 -- Salary structures and components
+-- Ensure required columns exist even if table was created earlier
+alter table public.erp_salary_structures
+  add column if not exists company_id uuid,
+  add column if not exists name text;
+alter table public.erp_salary_structures
+  add column if not exists pay_frequency text default 'monthly',
+  add column if not exists currency text default 'INR',
+  add column if not exists is_active boolean default true,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+-- Optional: If company_id should be NOT NULL later, do it after backfill.
+
 create table if not exists public.erp_salary_structures (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null default public.erp_current_company_id(),
