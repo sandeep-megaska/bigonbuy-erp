@@ -21,12 +21,6 @@ declare
   v_prefix text;
   v_digits int;
   v_next bigint;
-begin
-  -- Ensure rows exist
-  declare
-  v_prefix text;
-  v_digits int;
-  v_next bigint;
   v_actor uuid;
 begin
   -- Pick an actor user_id for audit columns (owner/admin preferred)
@@ -46,34 +40,53 @@ begin
      limit 1)
   ) into v_actor;
 
-  -- If no actor exists, fail loudly (better than writing NULL audit fields)
   if v_actor is null then
     raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
       using errcode = '23502';
   end if;
 
   -- Ensure settings row exists with required NOT NULL columns
-  -- Pick an actor for NOT NULL audit columns
-select coalesce(
-  (select cu.user_id
-   from public.erp_company_users cu
-   where cu.company_id = p_company_id
-     and coalesce(cu.is_active, true)
-     and cu.role_key in ('owner','admin')
-   order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
-   limit 1),
-  (select cu2.user_id
-   from public.erp_company_users cu2
-   where cu2.company_id = p_company_id
-     and coalesce(cu2.is_active, true)
-   order by cu2.created_at nulls last
-   limit 1)
-) into v_actor;
+  insert into public.erp_company_settings (
+    company_id, employee_code_prefix, created_at, created_by, updated_at, updated_by
+  )
+  values (
+    p_company_id, 'BB', now(), v_actor, now(), v_actor
+  )
+  on conflict (company_id) do nothing;
 
-if v_actor is null then
-  raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
-    using errcode = '23502';
-end if;
+  -- Ensure counters row exists
+  insert into public.erp_company_counters (company_id, employee_code_seq, updated_at)
+  values (p_company_id, 0, now())
+  on conflict (company_id) do nothing;
+
+  -- Load prefix/digits (prefix is from your real column)
+  select
+    coalesce(employee_code_prefix, 'BB'),
+    coalesce(employee_id_digits, 6)
+  into v_prefix, v_digits
+  from public.erp_company_settings
+  where company_id = p_company_id;
+
+  -- Atomic increment per company
+  update public.erp_company_counters
+     set employee_code_seq = employee_code_seq + 1,
+         updated_at = now()
+   where company_id = p_company_id
+  returning employee_code_seq into v_next;
+
+  return v_prefix || lpad(v_next::text, v_digits, '0');
+end;
+$$;
+create or replace function public.erp_next_employee_code()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.erp_next_employee_code(public.erp_current_company_id())
+$$;
+
 
 create table if not exists public.erp_company_settings (
   company_id uuid primary key references public.erp_companies(id) on delete cascade,
@@ -267,15 +280,6 @@ $$;
 
 -- Backward-compatible wrapper (old code paths call without args)
 -- Uses erp_current_company_id() for the logged-in context.
-create or replace function public.erp_next_employee_code()
-returns text
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select public.erp_next_employee_code(public.erp_current_company_id())
-$$;
 
 -- Restrict direct execution (recommended)
 revoke all on function public.erp_next_employee_code(uuid) from public;
