@@ -11,6 +11,69 @@ create extension if not exists "pgcrypto";
 -- ---------------------------------------------------------------------
 -- 1) Company settings + counters (company-scoped)
 -- ---------------------------------------------------------------------
+create or replace function public.erp_next_employee_code(p_company_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_prefix text;
+  v_digits int;
+  v_next bigint;
+begin
+  -- Ensure rows exist
+  declare
+  v_prefix text;
+  v_digits int;
+  v_next bigint;
+  v_actor uuid;
+begin
+  -- Pick an actor user_id for audit columns (owner/admin preferred)
+  select coalesce(
+    (select cu.user_id
+     from public.erp_company_users cu
+     where cu.company_id = p_company_id
+       and coalesce(cu.is_active, true)
+       and cu.role_key in ('owner','admin')
+     order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+     limit 1),
+    (select cu2.user_id
+     from public.erp_company_users cu2
+     where cu2.company_id = p_company_id
+       and coalesce(cu2.is_active, true)
+     order by cu2.created_at nulls last
+     limit 1)
+  ) into v_actor;
+
+  -- If no actor exists, fail loudly (better than writing NULL audit fields)
+  if v_actor is null then
+    raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
+      using errcode = '23502';
+  end if;
+
+  -- Ensure settings row exists with required NOT NULL columns
+  -- Pick an actor for NOT NULL audit columns
+select coalesce(
+  (select cu.user_id
+   from public.erp_company_users cu
+   where cu.company_id = p_company_id
+     and coalesce(cu.is_active, true)
+     and cu.role_key in ('owner','admin')
+   order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+   limit 1),
+  (select cu2.user_id
+   from public.erp_company_users cu2
+   where cu2.company_id = p_company_id
+     and coalesce(cu2.is_active, true)
+   order by cu2.created_at nulls last
+   limit 1)
+) into v_actor;
+
+if v_actor is null then
+  raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
+    using errcode = '23502';
+end if;
 
 create table if not exists public.erp_company_settings (
   company_id uuid primary key references public.erp_companies(id) on delete cascade,
@@ -144,69 +207,6 @@ on conflict (company_id) do nothing;
 -- 2) New company-scoped generator: erp_next_employee_code(company_id)
 -- ---------------------------------------------------------------------
 
-create or replace function public.erp_next_employee_code(p_company_id uuid)
-returns text
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_prefix text;
-  v_digits int;
-  v_next bigint;
-begin
-  -- Ensure rows exist
-  declare
-  v_prefix text;
-  v_digits int;
-  v_next bigint;
-  v_actor uuid;
-begin
-  -- Pick an actor user_id for audit columns (owner/admin preferred)
-  select coalesce(
-    (select cu.user_id
-     from public.erp_company_users cu
-     where cu.company_id = p_company_id
-       and coalesce(cu.is_active, true)
-       and cu.role_key in ('owner','admin')
-     order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
-     limit 1),
-    (select cu2.user_id
-     from public.erp_company_users cu2
-     where cu2.company_id = p_company_id
-       and coalesce(cu2.is_active, true)
-     order by cu2.created_at nulls last
-     limit 1)
-  ) into v_actor;
-
-  -- If no actor exists, fail loudly (better than writing NULL audit fields)
-  if v_actor is null then
-    raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
-      using errcode = '23502';
-  end if;
-
-  -- Ensure settings row exists with required NOT NULL columns
-  -- Pick an actor for NOT NULL audit columns
-select coalesce(
-  (select cu.user_id
-   from public.erp_company_users cu
-   where cu.company_id = p_company_id
-     and coalesce(cu.is_active, true)
-     and cu.role_key in ('owner','admin')
-   order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
-   limit 1),
-  (select cu2.user_id
-   from public.erp_company_users cu2
-   where cu2.company_id = p_company_id
-     and coalesce(cu2.is_active, true)
-   order by cu2.created_at nulls last
-   limit 1)
-) into v_actor;
-
-if v_actor is null then
-  raise exception 'Cannot generate employee code: no company user found for company_id %', p_company_id
-    using errcode = '23502';
-end if;
 
 -- Insert settings row with required NOT NULL columns
 insert into public.erp_company_settings (
