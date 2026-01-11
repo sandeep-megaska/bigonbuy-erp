@@ -89,7 +89,7 @@ grant execute on function public.erp_next_employee_code() to authenticated;
 
 -- Normalize existing employee codes to BB000001 format when possible
 update public.erp_employees
-   set employee_code = 'BB' || lpad(nullif(regexp_replace(e.employee_code, '[^0-9]', '', 'g')
+   set employee_code = 'BB' || lpad(nullif(regexp_replace(e.employee_code, '\\D', '', 'g')
 , '')::text, 6, '0')
  where employee_code is not null
    and employee_code <> ''
