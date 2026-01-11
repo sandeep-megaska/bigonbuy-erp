@@ -59,10 +59,50 @@ begin
 end $$;
 
 -- Ensure every existing company has settings + counters
-insert into public.erp_company_settings (company_id)
-select c.id
+-- Ensure every existing company has settings + counters
+-- If erp_company_settings has audit columns like created_by/updated_by NOT NULL,
+-- seed them using the company owner/admin user if available.
+
+insert into public.erp_company_settings (company_id, employee_id_prefix, employee_id_digits, created_by, updated_by)
+select
+  c.id,
+  'BB',
+  6,
+  coalesce(
+    (select cu.user_id
+     from public.erp_company_users cu
+     where cu.company_id = c.id
+       and coalesce(cu.is_active, true)
+       and cu.role_key in ('owner','admin')
+     order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+     limit 1),
+    (select cu2.user_id
+     from public.erp_company_users cu2
+     where cu2.company_id = c.id
+       and coalesce(cu2.is_active, true)
+     order by cu2.created_at nulls last
+     limit 1)
+  ) as created_by,
+  coalesce(
+    (select cu.user_id
+     from public.erp_company_users cu
+     where cu.company_id = c.id
+       and coalesce(cu.is_active, true)
+       and cu.role_key in ('owner','admin')
+     order by case when cu.role_key='owner' then 0 else 1 end, cu.created_at nulls last
+     limit 1),
+    (select cu2.user_id
+     from public.erp_company_users cu2
+     where cu2.company_id = c.id
+       and coalesce(cu2.is_active, true)
+     order by cu2.created_at nulls last
+     limit 1)
+  ) as updated_by
 from public.erp_companies c
-on conflict (company_id) do nothing;
+where not exists (
+  select 1 from public.erp_company_settings s where s.company_id = c.id
+);
+
 
 insert into public.erp_company_counters (company_id)
 select c.id
