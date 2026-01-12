@@ -310,10 +310,8 @@ export default function EmployeeProfilePage() {
         employee_id: employeeId,
         doc_type: docForm.doc_type,
         notes: docForm.notes || null,
-        file_path: uploadData.path,
+        storage_path: uploadData.path,
         file_name: uploadFile.name,
-        mime_type: uploadFile.type || null,
-        size_bytes: uploadFile.size || null,
       }),
     });
 
@@ -331,6 +329,7 @@ export default function EmployeeProfilePage() {
 
   async function handleDeleteDocument(docId) {
     if (!canManage) return;
+    if (!window.confirm("Delete this document?")) return;
     const res = await fetch("/api/erp/hr/employees/documents", {
       method: "DELETE",
       headers: {
@@ -776,7 +775,7 @@ export default function EmployeeProfilePage() {
                       <td style={{ ...tdStyle, textAlign: "right" }}>
                         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                           <button onClick={() => handleViewDocument(doc.id)} style={smallButtonStyle}>
-                            View
+                            Download
                           </button>
                           {canManage ? (
                             <button onClick={() => handleDeleteDocument(doc.id)} style={smallButtonStyle}>
