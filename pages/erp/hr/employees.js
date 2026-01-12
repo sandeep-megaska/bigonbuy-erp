@@ -193,7 +193,7 @@ export default function HrEmployeesPage() {
     const { error: upsertError } = await upsertEmployee({
       id: employeeForm.id,
       full_name: employeeForm.full_name.trim(),
-      employee_code: employeeForm.employee_code.trim() || null,
+      employee_code: employeeForm.id ? employeeForm.employee_code.trim() || null : null,
       is_active: employeeForm.is_active,
     });
 
@@ -442,10 +442,13 @@ export default function HrEmployeesPage() {
               Employee code
               <input
                 value={employeeForm.employee_code}
-                onChange={(event) => setEmployeeForm({ ...employeeForm, employee_code: event.target.value })}
-                placeholder="EMP-001"
-                style={inputStyle}
+                placeholder="BB000001"
+                style={{ ...inputStyle, backgroundColor: "#f3f4f6" }}
+                readOnly
               />
+              <span style={{ color: "#6b7280", fontSize: 12 }}>
+                Employee ID will be auto-generated (BB000001).
+              </span>
             </label>
             <label style={labelStyle}>
               Status
