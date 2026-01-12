@@ -200,7 +200,13 @@ export default function EmployeeProfilePage() {
       setError(data?.error || "Failed to load job history");
       return;
     }
-    setJobHistory(Array.isArray(data.jobs) ? data.jobs : []);
+    const jobs = Array.isArray(data.jobs) ? [...data.jobs] : [];
+    jobs.sort((a, b) => {
+      const dateA = new Date(a.effective_from || 0).getTime();
+      const dateB = new Date(b.effective_from || 0).getTime();
+      return dateB - dateA;
+    });
+    setJobHistory(jobs);
   }
 
   async function loadEmployeeDirectory(token = accessToken) {
@@ -359,6 +365,23 @@ export default function EmployeeProfilePage() {
     locations: masters.locations.filter((d) => d.is_active),
     employmentTypes: masters.employmentTypes.filter((d) => d.is_active),
   };
+
+  const departmentNames = useMemo(
+    () => new Map(masters.departments.map((dept) => [dept.id, dept.name])),
+    [masters.departments]
+  );
+  const designationNames = useMemo(
+    () => new Map(masters.designations.map((designation) => [designation.id, designation.name])),
+    [masters.designations]
+  );
+  const locationNames = useMemo(
+    () => new Map(masters.locations.map((location) => [location.id, location.name])),
+    [masters.locations]
+  );
+  const managerNames = useMemo(
+    () => new Map(employeeList.map((emp) => [emp.id, emp.full_name || emp.employee_code || "—"])),
+    [employeeList]
+  );
 
   const currentJob = useMemo(() => {
     if (!Array.isArray(jobHistory) || jobHistory.length === 0) return null;
@@ -619,6 +642,49 @@ export default function EmployeeProfilePage() {
               </button>
             </div>
           </form>
+          <div style={{ marginTop: 18 }}>
+            <div style={tableHeaderStyle}>Job History ({jobHistory.length})</div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Effective From</th>
+                    <th style={thStyle}>Effective To</th>
+                    <th style={thStyle}>Department</th>
+                    <th style={thStyle}>Job Title</th>
+                    <th style={thStyle}>Location</th>
+                    <th style={thStyle}>Manager</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobHistory.length === 0 ? (
+                    <tr>
+                      <td style={tdStyle} colSpan={6}>
+                        No job history available yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    jobHistory.map((job) => (
+                      <tr key={job.id || `${job.employee_id}-${job.effective_from}`}>
+                        <td style={tdStyle}>{formatDate(job.effective_from)}</td>
+                        <td style={tdStyle}>
+                          {job.effective_to ? (
+                            formatDate(job.effective_to)
+                          ) : (
+                            <span style={badgeStyle}>Current</span>
+                          )}
+                        </td>
+                        <td style={tdStyle}>{departmentNames.get(job.department_id) || "—"}</td>
+                        <td style={tdStyle}>{designationNames.get(job.designation_id) || "—"}</td>
+                        <td style={tdStyle}>{locationNames.get(job.location_id) || "—"}</td>
+                        <td style={tdStyle}>{managerNames.get(job.manager_employee_id) || "—"}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -856,6 +922,17 @@ const smallButtonStyle = {
   border: "1px solid #d1d5db",
   background: "#f9fafb",
   cursor: "pointer",
+};
+
+const badgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "2px 8px",
+  borderRadius: 999,
+  background: "#ecfccb",
+  color: "#3f6212",
+  fontSize: 12,
+  fontWeight: 700,
 };
 
 const tableHeaderStyle = {
