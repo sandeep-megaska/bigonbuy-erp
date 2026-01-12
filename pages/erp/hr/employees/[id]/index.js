@@ -337,7 +337,8 @@ export default function EmployeeProfilePage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
+      <ErpNavBar access={ctx?.access} roleKey={ctx?.roleKey} />
+
       <div style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR · Employee</p>
