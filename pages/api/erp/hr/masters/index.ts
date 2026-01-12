@@ -1,91 +1,97 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../lib/serverSupabase";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
-type MasterType = "departments" | "job-titles" | "locations" | "employment-types";
+type MasterType = "departments" | "designations" | "grades" | "locations" | "cost-centers";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessListResponse = { ok: true; rows: unknown[] };
 type SuccessUpsertResponse = { ok: true; row: unknown };
 type ApiResponse = ErrorResponse | SuccessListResponse | SuccessUpsertResponse;
 
+const COMMON_SELECT = "id, name, code, description, is_active, created_at, updated_at";
+
 const MASTER_CONFIG: Record<
   MasterType,
   {
-    listRpc: string;
-    upsertRpc: string;
+    table: string;
+    select: string;
     buildPayload: (body: Record<string, unknown>) => Record<string, unknown>;
   }
 > = {
   departments: {
-    listRpc: "erp_hr_departments_list",
-    upsertRpc: "erp_hr_department_upsert",
+    table: "erp_hr_departments",
+    select: COMMON_SELECT,
     buildPayload: (body) => ({
-      p_id: (body.id as string) ?? null,
-      p_name: (body.name as string) ?? null,
-      p_code: (body.code as string) ?? null,
-      p_is_active:
-        typeof body.is_active === "boolean"
-          ? body.is_active
-          : String(body.is_active ?? "").toLowerCase() !== "false",
+      ...buildBasePayload(body),
     }),
   },
-  "job-titles": {
-    listRpc: "erp_hr_job_titles_list",
-    upsertRpc: "erp_hr_job_title_upsert",
+  designations: {
+    table: "erp_hr_designations",
+    select: COMMON_SELECT,
     buildPayload: (body) => ({
-      p_id: (body.id as string) ?? null,
-      p_title: (body.title as string) ?? null,
-      p_level: Number.isFinite(body.level as number) ? (body.level as number) : null,
-      p_is_active:
-        typeof body.is_active === "boolean"
-          ? body.is_active
-          : String(body.is_active ?? "").toLowerCase() !== "false",
+      ...buildBasePayload(body),
+    }),
+  },
+  grades: {
+    table: "erp_hr_grades",
+    select: COMMON_SELECT,
+    buildPayload: (body) => ({
+      ...buildBasePayload(body),
     }),
   },
   locations: {
-    listRpc: "erp_hr_locations_list",
-    upsertRpc: "erp_hr_location_upsert",
+    table: "erp_hr_locations",
+    select: `${COMMON_SELECT}, country, state, city`,
     buildPayload: (body) => ({
-      p_id: (body.id as string) ?? null,
-      p_name: (body.name as string) ?? null,
-      p_country: (body.country as string) ?? null,
-      p_state: (body.state as string) ?? null,
-      p_city: (body.city as string) ?? null,
-      p_is_active:
-        typeof body.is_active === "boolean"
-          ? body.is_active
-          : String(body.is_active ?? "").toLowerCase() !== "false",
+      ...buildBasePayload(body),
+      country: (body.country as string) ?? null,
+      state: (body.state as string) ?? null,
+      city: (body.city as string) ?? null,
     }),
   },
-  "employment-types": {
-    listRpc: "erp_hr_employment_types_list",
-    upsertRpc: "erp_hr_employment_type_upsert",
+  "cost-centers": {
+    table: "erp_hr_cost_centers",
+    select: COMMON_SELECT,
     buildPayload: (body) => ({
-      p_id: (body.id as string) ?? null,
-      p_key: (body.key as string) ?? null,
-      p_name: (body.name as string) ?? null,
-      p_is_active:
-        typeof body.is_active === "boolean"
-          ? body.is_active
-          : String(body.is_active ?? "").toLowerCase() !== "false",
+      ...buildBasePayload(body),
     }),
   },
 };
+
+function buildBasePayload(body: Record<string, unknown>) {
+  const payload: Record<string, unknown> = {
+    name: (body.name as string) ?? null,
+    code: (body.code as string) ?? null,
+    description: (body.description as string) ?? null,
+    is_active: resolveIsActive(body.is_active),
+  };
+
+  if (typeof body.id === "string" && body.id.trim()) {
+    payload.id = body.id;
+  }
+
+  return payload;
+}
+
+function resolveIsActive(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === null || value === undefined || value === "") return true;
+  return String(value).toLowerCase() !== "false";
+}
 
 function resolveMasterType(value: string | string[] | undefined): MasterType | null {
   const normalized = Array.isArray(value) ? value[0] : value;
   if (!normalized) return null;
   if (normalized === "departments") return "departments";
-  if (normalized === "job-titles" || normalized === "job_titles" || normalized === "jobTitles") {
-    return "job-titles";
-  }
+  if (normalized === "designations") return "designations";
+  if (normalized === "grades") return "grades";
   if (normalized === "locations") return "locations";
   if (
-    normalized === "employment-types" ||
-    normalized === "employment_types" ||
-    normalized === "employmentTypes"
+    normalized === "cost-centers" ||
+    normalized === "cost_centers" ||
+    normalized === "costCenters"
   ) {
-    return "employment-types";
+    return "cost-centers";
   }
   return null;
 }
@@ -127,7 +133,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { userClient } = await ensureAuthenticatedClient(req);
 
     if (req.method === "GET") {
-      const { data, error } = await userClient.rpc(config.listRpc);
+      const { data, error } = await userClient
+        .from(config.table)
+        .select(config.select)
+        .order("name", { ascending: true });
       if (error) {
         return res.status(400).json({
           ok: false,
@@ -139,8 +148,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (req.method === "POST") {
-      const rpcInput = config.buildPayload((req.body ?? {}) as Record<string, unknown>);
-      const { data, error } = await userClient.rpc(config.upsertRpc, rpcInput);
+      const payload = config.buildPayload((req.body ?? {}) as Record<string, unknown>);
+      const { data, error } = await userClient
+        .from(config.table)
+        .upsert(payload, { onConflict: "id" })
+        .select(config.select)
+        .single();
       if (error) {
         return res.status(400).json({
           ok: false,
