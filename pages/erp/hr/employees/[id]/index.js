@@ -36,15 +36,16 @@ export default function EmployeeProfilePage() {
   const [contacts, setContacts] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [employeeList, setEmployeeList] = useState([]);
+  const [jobHistory, setJobHistory] = useState([]);
   const [masters, setMasters] = useState({
     departments: [],
-    jobTitles: [],
+    designations: [],
     locations: [],
     employmentTypes: [],
   });
   const [jobForm, setJobForm] = useState({
     department_id: "",
-    job_title_id: "",
+    designation_id: "",
     location_id: "",
     employment_type_id: "",
     manager_employee_id: "",
@@ -109,6 +110,7 @@ export default function EmployeeProfilePage() {
         loadDocuments(session.access_token),
         loadEmployeeDirectory(session.access_token),
         loadContacts(session.access_token),
+        loadJobHistory(session.access_token),
       ]);
       if (active) setLoading(false);
     })();
@@ -134,21 +136,12 @@ export default function EmployeeProfilePage() {
     if (Array.isArray(profile?.contacts)) {
       setContacts(profile.contacts);
     }
-    setJobForm({
-      department_id: emp.department_id || "",
-      job_title_id: emp.job_title_id || "",
-      location_id: emp.location_id || "",
-      employment_type_id: emp.employment_type_id || "",
-      manager_employee_id: emp.manager_employee_id || "",
-      lifecycle_status: emp.lifecycle_status || "preboarding",
-      exit_date: emp.exit_date ? emp.exit_date.split("T")[0] : "",
-    });
   }
 
   async function loadMasters(token = accessToken) {
     const types = [
       ["departments", "departments"],
-      ["jobTitles", "job-titles"],
+      ["designations", "designations"],
       ["locations", "locations"],
       ["employmentTypes", "employment-types"],
     ];
@@ -197,6 +190,19 @@ export default function EmployeeProfilePage() {
     setContacts(data.contacts || []);
   }
 
+  async function loadJobHistory(token = accessToken) {
+    if (!employeeId || !token) return;
+    const res = await fetch(`/api/erp/hr/employees/job-history?employee_id=${employeeId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      setError(data?.error || "Failed to load job history");
+      return;
+    }
+    setJobHistory(Array.isArray(data.jobs) ? data.jobs : []);
+  }
+
   async function loadEmployeeDirectory(token = accessToken) {
     const res = await fetch("/api/hr/employees", {
       headers: { Authorization: `Bearer ${token}` },
@@ -218,9 +224,9 @@ export default function EmployeeProfilePage() {
     const payload = {
       employee_id: employeeId,
       department_id: jobForm.department_id || null,
-      job_title_id: jobForm.job_title_id || null,
+      designation_id: jobForm.designation_id || null,
       location_id: jobForm.location_id || null,
-      employment_type_id: jobForm.employment_type_id || null,
+      employment_type: resolveEmploymentTypeKey(jobForm.employment_type_id, masters.employmentTypes) || null,
       manager_employee_id: jobForm.manager_employee_id || null,
       lifecycle_status: jobForm.lifecycle_status || "preboarding",
       exit_date: jobForm.exit_date || null,
@@ -240,7 +246,7 @@ export default function EmployeeProfilePage() {
       setError(data?.error || "Failed to update job info");
       return;
     }
-    await loadEmployee();
+    await Promise.all([loadEmployee(), loadJobHistory()]);
   }
 
   async function handleUploadDocument(e) {
@@ -347,10 +353,81 @@ export default function EmployeeProfilePage() {
 
   const jobOptions = {
     departments: masters.departments.filter((d) => d.is_active),
-    jobTitles: masters.jobTitles.filter((d) => d.is_active),
+    designations: masters.designations.filter((d) => d.is_active),
     locations: masters.locations.filter((d) => d.is_active),
     employmentTypes: masters.employmentTypes.filter((d) => d.is_active),
   };
+
+  const currentJob = useMemo(() => {
+    if (!Array.isArray(jobHistory) || jobHistory.length === 0) return null;
+    const activeJob = jobHistory.find((job) => !job.effective_to);
+    if (activeJob) return activeJob;
+    return jobHistory.reduce((latest, job) => {
+      if (!latest) return job;
+      const latestDate = new Date(latest.effective_from || 0).getTime();
+      const jobDate = new Date(job.effective_from || 0).getTime();
+      return jobDate >= latestDate ? job : latest;
+    }, null);
+  }, [jobHistory]);
+
+  const overviewDepartment = useMemo(() => {
+    if (currentJob?.department_id) {
+      return (
+        masters.departments.find((d) => d.id === currentJob.department_id)?.name ||
+        employee?.department_name ||
+        employee?.department ||
+        "—"
+      );
+    }
+    return employee?.department_name || employee?.department || "—";
+  }, [currentJob, masters.departments, employee]);
+
+  const overviewDesignation = useMemo(() => {
+    if (currentJob?.designation_id) {
+      return (
+        masters.designations.find((d) => d.id === currentJob.designation_id)?.name ||
+        employee?.job_title ||
+        employee?.designation ||
+        "—"
+      );
+    }
+    return employee?.job_title || employee?.designation || "—";
+  }, [currentJob, masters.designations, employee]);
+
+  const overviewLocation = useMemo(() => {
+    if (currentJob?.location_id) {
+      return (
+        masters.locations.find((d) => d.id === currentJob.location_id)?.name ||
+        employee?.location_name ||
+        "—"
+      );
+    }
+    return employee?.location_name || "—";
+  }, [currentJob, masters.locations, employee]);
+
+  const overviewEmploymentType = useMemo(() => {
+    if (employee?.employment_type_id) {
+      return (
+        masters.employmentTypes.find((d) => d.id === employee.employment_type_id)?.name ||
+        employee?.employment_type ||
+        "—"
+      );
+    }
+    return employee?.employment_type || "—";
+  }, [employee, masters.employmentTypes]);
+
+  useEffect(() => {
+    if (!employee) return;
+    setJobForm({
+      department_id: currentJob?.department_id || employee.department_id || "",
+      designation_id: currentJob?.designation_id || "",
+      location_id: currentJob?.location_id || employee.location_id || "",
+      employment_type_id: employee.employment_type_id || "",
+      manager_employee_id: currentJob?.manager_employee_id || employee.manager_employee_id || "",
+      lifecycle_status: employee.lifecycle_status || "preboarding",
+      exit_date: employee.exit_date ? employee.exit_date.split("T")[0] : "",
+    });
+  }, [employee, currentJob]);
 
   if (loading) {
     return <div style={containerStyle}>Loading employee…</div>;
@@ -418,10 +495,10 @@ export default function EmployeeProfilePage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
             <OverviewItem label="Email" value={headerEmail || "—"} />
             <OverviewItem label="Phone" value={headerPhone || "—"} />
-            <OverviewItem label="Department" value={employee.department_name || employee.department || "—"} />
-            <OverviewItem label="Job Title" value={employee.job_title || employee.designation || "—"} />
-            <OverviewItem label="Location" value={employee.location_name || "—"} />
-            <OverviewItem label="Employment Type" value={employee.employment_type || "—"} />
+            <OverviewItem label="Department" value={overviewDepartment} />
+            <OverviewItem label="Job Title" value={overviewDesignation} />
+            <OverviewItem label="Location" value={overviewLocation} />
+            <OverviewItem label="Employment Type" value={overviewEmploymentType} />
             <OverviewItem label="Lifecycle" value={employee.lifecycle_status || "preboarding"} />
             <OverviewItem label="Joining Date" value={formatDate(employee.joining_date)} />
           </div>
@@ -452,14 +529,14 @@ export default function EmployeeProfilePage() {
             <label style={labelStyle}>
               Job Title
               <select
-                value={jobForm.job_title_id}
-                onChange={(e) => setJobForm({ ...jobForm, job_title_id: e.target.value })}
+                value={jobForm.designation_id}
+                onChange={(e) => setJobForm({ ...jobForm, designation_id: e.target.value })}
                 style={inputStyle}
                 disabled={!canManage}
               >
                 <option value="">Select job title</option>
-                {jobOptions.jobTitles.map((d) => (
-                  <option key={d.id} value={d.id}>{d.title}</option>
+                {jobOptions.designations.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             </label>
@@ -671,6 +748,12 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString();
+}
+
+function resolveEmploymentTypeKey(employmentTypeId, employmentTypes) {
+  if (!employmentTypeId || !Array.isArray(employmentTypes)) return "";
+  const match = employmentTypes.find((type) => type.id === employmentTypeId);
+  return match?.key || match?.name || "";
 }
 
 const containerStyle = {
