@@ -53,6 +53,13 @@ export type EmploymentTypeRow = {
   updated_at?: string;
 };
 
+export type DesignationRow = {
+  id?: string;
+  code?: string;
+  name?: string;
+  is_active?: boolean;
+};
+
 export type UpsertDepartmentInput = {
   id?: string | null;
   name?: string | null;
@@ -123,6 +130,15 @@ export async function listEmploymentTypes(): Promise<EmploymentTypeRow[]> {
   const { data, error } = await supabase.rpc("erp_hr_employment_types_list");
   if (error) throw normalizeError(error, "Failed to load employment types");
   return Array.isArray(data) ? (data as EmploymentTypeRow[]) : [];
+}
+
+export async function listDesignations(): Promise<DesignationRow[]> {
+  const { data, error } = await supabase
+    .from("erp_hr_designations")
+    .select("id, name, code, is_active")
+    .order("name", { ascending: true });
+  if (error) throw normalizeError(error, "Failed to load designations");
+  return Array.isArray(data) ? (data as DesignationRow[]) : [];
 }
 
 export async function upsertDepartment(input: UpsertDepartmentInput): Promise<{ id: string }> {
