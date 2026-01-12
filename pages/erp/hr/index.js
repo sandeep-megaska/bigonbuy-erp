@@ -75,7 +75,7 @@ export default function HrHomePage() {
         <div>
           <p style={eyebrowStyle}>HR</p>
           <h1 style={titleStyle}>Human Resources</h1>
-          <p style={subtitleStyle}>Manage employees, salary, leave, and payroll.</p>
+          <p style={subtitleStyle}>Enterprise-ready HR and payroll operations for your India workforce.</p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
             Signed in as <strong>{ctx.email}</strong> · Role:{" "}
             <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
@@ -87,34 +87,54 @@ export default function HrHomePage() {
         </div>
       </header>
 
-      <section style={cardGridStyle}>
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} style={cardStyle}>
-            <div style={cardIconStyle}>{item.icon}</div>
-            <div style={{ flex: 1 }}>
-              <h2 style={cardTitleStyle}>{item.title}</h2>
-              <p style={cardDescriptionStyle}>{item.description}</p>
-              {item.ctaLabel ? (
-                <div style={{ marginTop: 10 }}>
-                  <span style={cardCtaStyle}>{item.ctaLabel} →</span>
-                </div>
-              ) : null}
+      <div style={sectionStackStyle}>
+        {navItems.map((section) => (
+          <section key={section.title} style={sectionStyle}>
+            <div style={sectionHeaderStyle}>
+              <div>
+                <h2 style={sectionTitleStyle}>{section.title}</h2>
+                <p style={sectionDescriptionStyle}>{section.description}</p>
+              </div>
+              <span style={sectionMetaStyle}>{section.meta}</span>
             </div>
-          </Link>
+            <div style={cardGridStyle}>
+              {section.items.map((item) => (
+                <ModuleCard key={item.title} item={item} />
+              ))}
+            </div>
+          </section>
         ))}
-      </section>
+      </div>
+      <style jsx>{`
+        .module-card {
+          transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+        }
+        .module-card:hover {
+          transform: translateY(-2px);
+          border-color: #c7d2fe;
+          box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+        }
+        .module-card.disabled {
+          cursor: not-allowed;
+        }
+        .module-card.disabled:hover {
+          transform: none;
+          border-color: #e5e7eb;
+          box-shadow: none;
+        }
+      `}</style>
     </div>
   );
 }
 
 const containerStyle = {
-  maxWidth: 960,
-  margin: "80px auto",
-  padding: "48px 56px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
+  maxWidth: 1120,
+  margin: "72px auto",
+  padding: "48px 56px 56px",
+  borderRadius: 12,
+  border: "1px solid #e7eaf0",
   fontFamily: "Arial, sans-serif",
-  boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+  boxShadow: "0 14px 32px rgba(15, 23, 42, 0.08)",
   backgroundColor: "#fff",
 };
 
@@ -124,13 +144,13 @@ const headerStyle = {
   alignItems: "flex-start",
   gap: 24,
   flexWrap: "wrap",
-  borderBottom: "1px solid #f1f3f5",
+  borderBottom: "1px solid #eef1f6",
   paddingBottom: 24,
-  marginBottom: 32,
+  marginBottom: 28,
 };
 
 const buttonStyle = {
-  padding: "12px 16px",
+  padding: "10px 16px",
   backgroundColor: "#dc2626",
   border: "none",
   color: "#fff",
@@ -149,7 +169,7 @@ const eyebrowStyle = {
 
 const titleStyle = {
   margin: "6px 0 8px",
-  fontSize: 32,
+  fontSize: 34,
   color: "#111827",
 };
 
@@ -157,43 +177,86 @@ const subtitleStyle = {
   margin: 0,
   color: "#4b5563",
   fontSize: 16,
+  maxWidth: 540,
+  lineHeight: 1.5,
+};
+
+const sectionStackStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 28,
+};
+
+const sectionStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 16,
+};
+
+const sectionHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  gap: 12,
+};
+
+const sectionTitleStyle = {
+  margin: 0,
+  fontSize: 20,
+  color: "#111827",
+};
+
+const sectionDescriptionStyle = {
+  margin: "6px 0 0",
+  color: "#6b7280",
+  fontSize: 14,
+};
+
+const sectionMetaStyle = {
+  padding: "6px 12px",
+  borderRadius: 999,
+  backgroundColor: "#eef2ff",
+  color: "#3730a3",
+  fontSize: 12,
+  fontWeight: 700,
 };
 
 const cardGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 16,
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 18,
 };
 
 const cardStyle = {
   display: "flex",
   gap: 14,
   alignItems: "flex-start",
-  border: "1px solid #e5e7eb",
-  borderRadius: 10,
+  border: "1px solid #e6e9ef",
+  borderRadius: 12,
   padding: 18,
-  backgroundColor: "#f9fafb",
+  backgroundColor: "#fbfcff",
   textAlign: "left",
   textDecoration: "none",
   color: "#111827",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+  boxShadow: "0 6px 16px rgba(15, 23, 42, 0.06)",
 };
 
 const cardIconStyle = {
   width: 42,
   height: 42,
-  borderRadius: 10,
+  borderRadius: 12,
   display: "grid",
   placeItems: "center",
-  backgroundColor: "#e0f2fe",
-  color: "#0ea5e9",
+  backgroundColor: "#eef2ff",
+  color: "#4338ca",
   fontWeight: "bold",
   fontSize: 18,
 };
 
 const cardTitleStyle = {
   margin: "2px 0 6px",
-  fontSize: 18,
+  fontSize: 17,
   color: "#111827",
 };
 
@@ -201,76 +264,219 @@ const cardDescriptionStyle = {
   margin: 0,
   color: "#4b5563",
   fontSize: 14,
+  lineHeight: 1.5,
+};
+
+const cardMetaStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginTop: 12,
+  gap: 12,
+};
+
+const statusBadgeStyle = {
+  padding: "4px 10px",
+  borderRadius: 999,
+  backgroundColor: "#ecfeff",
+  color: "#0e7490",
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const disabledStatusBadgeStyle = {
+  backgroundColor: "#fef3c7",
+  color: "#92400e",
 };
 
 const cardCtaStyle = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  padding: "8px 12px",
-  borderRadius: 8,
-  background: "#111827",
-  color: "#fff",
+  color: "#1d4ed8",
   fontWeight: 700,
   textDecoration: "none",
-  fontSize: 14,
+  fontSize: 13,
 };
 
+const disabledCardStyle = {
+  backgroundColor: "#f8fafc",
+  color: "#9ca3af",
+  borderColor: "#e5e7eb",
+  boxShadow: "none",
+};
+
+function ModuleCard({ item }) {
+  const content = (
+    <div style={{ display: "flex", gap: 14 }}>
+      <div style={cardIconStyle}>{item.icon}</div>
+      <div style={{ flex: 1 }}>
+        <h3 style={cardTitleStyle}>{item.title}</h3>
+        <p style={cardDescriptionStyle}>{item.description}</p>
+        <div style={cardMetaStyle}>
+          <span
+            style={{
+              ...statusBadgeStyle,
+              ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : {}),
+            }}
+          >
+            {item.status}
+          </span>
+          {item.ctaLabel ? <span style={cardCtaStyle}>{item.ctaLabel} →</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (item.disabled) {
+    return (
+      <div className="module-card disabled" style={{ ...cardStyle, ...disabledCardStyle }}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link className="module-card" href={item.href} style={cardStyle}>
+      {content}
+    </Link>
+  );
+}
+
 function buildNavItems(canManage) {
-  const items = [
+  const sections = [
     {
       title: "HR Masters",
-      description: "Manage departments, job titles, locations, and employment types.",
-      href: "/erp/hr/masters",
-      icon: "📚",
+      description: "Create foundations for departments, grades, locations, and cost centers.",
+      meta: "Foundation",
+      items: [
+        {
+          title: "HR Masters",
+          description:
+            "Manage departments, designations, grades, locations, and cost centers in one place.",
+          href: "/erp/hr/masters",
+          icon: "📚",
+          status: "Active",
+          ctaLabel: "Open",
+        },
+        {
+          title: "Departments",
+          description: "Organize business units and reporting structures.",
+          href: "/erp/hr/masters",
+          icon: "🏢",
+          status: "Coming Soon",
+          disabled: true,
+        },
+        {
+          title: "Designations",
+          description: "Standardize job titles and grading levels.",
+          href: "/erp/hr/masters",
+          icon: "🏷️",
+          status: "Coming Soon",
+          disabled: true,
+        },
+        {
+          title: "Grades",
+          description: "Define compensation grades and bands.",
+          href: "/erp/hr/masters",
+          icon: "📈",
+          status: "Coming Soon",
+          disabled: true,
+        },
+        {
+          title: "Locations",
+          description: "Maintain branches and statutory locations.",
+          href: "/erp/hr/masters",
+          icon: "📍",
+          status: "Coming Soon",
+          disabled: true,
+        },
+        {
+          title: "Cost Centers",
+          description: "Align payroll and HR costs to centers.",
+          href: "/erp/hr/masters",
+          icon: "🧾",
+          status: "Coming Soon",
+          disabled: true,
+        },
+      ],
     },
     {
-      title: "Employees",
-      description: "Manage employee directory and profiles.",
-      href: "/erp/hr/employees",
-      icon: "🧑‍💼",
+      title: "HR Operations",
+      description: "Run day-to-day HR, payroll, and employee lifecycle workflows.",
+      meta: "Operations",
+      items: [
+        {
+          title: "Employees",
+          description: "Maintain employee profiles, lifecycle, and compliance details.",
+          href: "/erp/hr/employees",
+          icon: "🧑‍💼",
+          status: "Active",
+          ctaLabel: "Manage",
+        },
+        {
+          title: "Salary Structures",
+          description: "Maintain salary structures and payroll components.",
+          href: "/erp/hr/salary",
+          icon: "💰",
+          status: "Active",
+          ctaLabel: "Review",
+        },
+        {
+          title: "Payroll",
+          description: "Run payroll cycles, approvals, and payouts.",
+          href: "/erp/hr/payroll",
+          icon: "📄",
+          status: "Active",
+          ctaLabel: "Run payroll",
+        },
+        {
+          title: "Leave",
+          description: "Configure leave policies, balances, and approvals.",
+          href: "/erp/hr/leave",
+          icon: "🌴",
+          status: "Active",
+          ctaLabel: "Configure",
+        },
+      ],
     },
     {
-      title: "Salary",
-      description: "Maintain salary structures and components.",
-      href: "/erp/hr/salary",
-      icon: "💰",
-    },
-    {
-      title: "Leave",
-      description: "Configure leave types and requests.",
-      href: "/erp/hr/leave",
-      icon: "🌴",
-    },
-    {
-      title: "Roles",
-      description: "Manage ERP access roles.",
-      href: "/erp/hr/roles",
-      icon: "🛡️",
-    },
-    {
-      title: "Payroll",
-      description: "Run payroll and manage payouts.",
-      href: "/erp/hr/payroll",
-      icon: "📄",
-    },
-    {
-      title: "Employee Logins",
-      description: "Link employees to Supabase Auth users.",
-      href: "/erp/hr/employee-logins",
-      icon: "🔗",
+      title: "Access & Governance",
+      description: "Control HR roles, permissions, and employee logins.",
+      meta: "Administration",
+      items: [
+        {
+          title: "Roles",
+          description: "Define HR roles and permission sets.",
+          href: "/erp/hr/roles",
+          icon: "🛡️",
+          status: "Active",
+          ctaLabel: "Assign",
+        },
+        {
+          title: "Employee Logins",
+          description: "Provision employee logins and identity mapping.",
+          href: "/erp/hr/employee-logins",
+          icon: "🔗",
+          status: "Active",
+          ctaLabel: "Connect",
+        },
+      ],
     },
   ];
 
   if (canManage) {
-    items.push({
+    sections[2].items.push({
       title: "Company Users & Access",
-      description: "Invite employees and assign roles.",
+      description: "Invite employees and manage role-based access.",
       href: "/erp/admin/company-users",
       icon: "🛂",
+      status: "Active",
       ctaLabel: "Manage",
     });
   }
 
-  return items;
+  return sections;
 }
