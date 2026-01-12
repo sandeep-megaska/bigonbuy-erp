@@ -10,6 +10,12 @@ import {
   listManagers,
   upsertEmployee,
 } from "../../../lib/hrEmployeesApi";
+import {
+  listDepartments,
+  listDesignations,
+  listEmploymentTypes,
+  listLocations,
+} from "../../../lib/hrMastersApi";
 import { supabase } from "../../../lib/supabaseClient";
 
 const ROLE_OPTIONS = [
@@ -17,6 +23,12 @@ const ROLE_OPTIONS = [
   { label: "Admin", value: "admin" },
   { label: "HR", value: "hr" },
   { label: "Employee", value: "employee" },
+];
+
+const EMPLOYMENT_TYPE_OPTIONS = [
+  { label: "Permanent", value: "Permanent" },
+  { label: "Contract", value: "Contract" },
+  { label: "Intern", value: "Intern" },
 ];
 
 function Banner({ tone = "info", title, children, onDismiss }) {
@@ -87,10 +99,17 @@ export default function HrEmployeesPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [accessToken, setAccessToken] = useState("");
 
   const [employees, setEmployees] = useState([]);
   const [managers, setManagers] = useState([]);
   const [search, setSearch] = useState("");
+  const [masters, setMasters] = useState({
+    departments: [],
+    designations: [],
+    locations: [],
+    employmentTypes: [],
+  });
 
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
@@ -98,6 +117,12 @@ export default function HrEmployeesPage() {
     full_name: "",
     employee_code: "",
     is_active: true,
+    join_date: "",
+    employment_type: "",
+    department_id: "",
+    designation_id: "",
+    location_id: "",
+    manager_employee_id: "",
   });
 
   const [managerModal, setManagerModal] = useState({ open: false, employee: null, managerId: "" });
@@ -113,7 +138,6 @@ export default function HrEmployeesPage() {
       return [
         employee.full_name,
         employee.employee_code,
-        employee.email,
         employee.role_key,
         employee.manager_name,
       ]
@@ -138,7 +162,8 @@ export default function HrEmployeesPage() {
         return;
       }
 
-      await refreshData();
+      setAccessToken(session.access_token || "");
+      await Promise.all([refreshData(), loadMasters()]);
       if (active) setLoading(false);
     })();
 
@@ -165,10 +190,41 @@ export default function HrEmployeesPage() {
       setManagers(managerData);
     }
     setIsRefreshing(false);
+    return { employees: employeeData, managers: managerData };
+  }
+
+  async function loadMasters() {
+    try {
+      const [departments, designations, locations, employmentTypes] = await Promise.all([
+        listDepartments(),
+        listDesignations(),
+        listLocations(),
+        listEmploymentTypes(),
+      ]);
+      setMasters({
+        departments,
+        designations,
+        locations,
+        employmentTypes,
+      });
+    } catch (err) {
+      setError((prev) => prev || err?.message || "Unable to load HR masters.");
+    }
   }
 
   function openAddModal() {
-    setEmployeeForm({ id: null, full_name: "", employee_code: "", is_active: true });
+    setEmployeeForm({
+      id: null,
+      full_name: "",
+      employee_code: "",
+      is_active: true,
+      join_date: "",
+      employment_type: "",
+      department_id: "",
+      designation_id: "",
+      location_id: "",
+      manager_employee_id: "",
+    });
     setEmployeeModalOpen(true);
   }
 
@@ -178,8 +234,25 @@ export default function HrEmployeesPage() {
       full_name: employee.full_name || "",
       employee_code: employee.employee_code || "",
       is_active: employee.is_active ?? true,
+      join_date: employee.joining_date ? employee.joining_date.split("T")[0] : "",
+      employment_type: employee.employment_type || "",
+      department_id: employee.department_id || "",
+      designation_id: employee.designation_id || "",
+      location_id: employee.location_id || "",
+      manager_employee_id: employee.manager_employee_id || "",
     });
     setEmployeeModalOpen(true);
+  }
+
+  function resolveEmploymentTypeId() {
+    const selected = employeeForm.employment_type?.toLowerCase();
+    if (!selected) return null;
+    const match = masters.employmentTypes.find((type) => {
+      const name = type.name?.toLowerCase();
+      const key = type.key?.toLowerCase();
+      return name === selected || key === selected;
+    });
+    return match?.id || null;
   }
 
   async function handleSaveEmployee() {
@@ -187,14 +260,22 @@ export default function HrEmployeesPage() {
       setError("Full name is required.");
       return;
     }
+    if (!employeeForm.join_date) {
+      setError("Date of joining is required.");
+      return;
+    }
+    if (!employeeForm.employment_type) {
+      setError("Employment type is required.");
+      return;
+    }
 
     setError("");
     setSuccess("");
-    const { error: upsertError } = await upsertEmployee({
+    const { data: upsertedId, error: upsertError } = await upsertEmployee({
       id: employeeForm.id,
       full_name: employeeForm.full_name.trim(),
-      employee_code: employeeForm.id ? employeeForm.employee_code.trim() || null : null,
       is_active: employeeForm.is_active,
+      manager_employee_id: employeeForm.manager_employee_id || null,
     });
 
     if (upsertError) {
@@ -202,9 +283,65 @@ export default function HrEmployeesPage() {
       return;
     }
 
+    const employeeId = employeeForm.id || upsertedId;
+    if (employeeId) {
+      const { error: joinDateError } = await supabase
+        .from("erp_employees")
+        .update({ joining_date: employeeForm.join_date })
+        .eq("id", employeeId);
+      if (joinDateError) {
+        setError(joinDateError.message || "Employee saved, but joining date update failed.");
+      }
+    }
+    if (employeeId && accessToken) {
+      const employmentTypeId = resolveEmploymentTypeId();
+      const jobPayload = {
+        employee_id: employeeId,
+        department_id: employeeForm.department_id || null,
+        job_title_id: null,
+        location_id: employeeForm.location_id || null,
+        employment_type_id: employmentTypeId,
+        manager_employee_id: employeeForm.manager_employee_id || null,
+        lifecycle_status: employeeForm.is_active ? "active" : "exited",
+      };
+
+      if (
+        jobPayload.department_id ||
+        jobPayload.job_title_id ||
+        jobPayload.location_id ||
+        jobPayload.employment_type_id ||
+        jobPayload.manager_employee_id
+      ) {
+        const res = await fetch("/api/erp/hr/employees/job", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(jobPayload),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data?.error || "Employee saved, but job info update failed.");
+        }
+      }
+      // TODO: Add designation_id when employee job API supports it.
+    }
+
     setEmployeeModalOpen(false);
-    setSuccess(employeeForm.id ? "Employee updated successfully." : "Employee added successfully.");
-    await refreshData();
+    const { employees: updatedEmployees } = await refreshData();
+    const createdEmployee =
+      !employeeForm.id && updatedEmployees
+        ? updatedEmployees.find((employee) => employee.id === employeeId)
+        : null;
+    const codeMessage = createdEmployee?.employee_code
+      ? ` Employee code: ${createdEmployee.employee_code}.`
+      : "";
+    setSuccess(
+      employeeForm.id
+        ? "Employee updated successfully."
+        : `Employee added successfully.${codeMessage}`
+    );
   }
 
   function openManagerModal(employee) {
@@ -335,7 +472,7 @@ export default function HrEmployeesPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by name, code, manager, email, role…"
+            placeholder="Search by name, code, manager, role…"
             style={searchInputStyle}
           />
         </div>
@@ -367,7 +504,6 @@ export default function HrEmployeesPage() {
                   <tr key={employee.id}>
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 600 }}>{employee.full_name || "Unnamed employee"}</div>
-                      <div style={{ color: "#6b7280", fontSize: 12 }}>{employee.email || "No email on file"}</div>
                     </td>
                     <td style={tdStyle}>{employee.employee_code || "—"}</td>
                     <td style={tdStyle}>
@@ -442,12 +578,13 @@ export default function HrEmployeesPage() {
               Employee code
               <input
                 value={employeeForm.employee_code}
-                placeholder="BB000001"
+                placeholder="Will be auto-generated (BB000001)"
                 style={{ ...inputStyle, backgroundColor: "#f3f4f6" }}
                 readOnly
+                disabled
               />
               <span style={{ color: "#6b7280", fontSize: 12 }}>
-                Employee ID will be auto-generated (BB000001).
+                Employee code will be auto-generated after creation.
               </span>
             </label>
             <label style={labelStyle}>
@@ -463,6 +600,118 @@ export default function HrEmployeesPage() {
                 <option value="inactive">Inactive</option>
               </select>
             </label>
+          </div>
+          <div style={sectionStyle}>
+            <h3 style={sectionTitleStyle}>Basic Details</h3>
+            <div style={formGridStyle}>
+              <label style={labelStyle}>
+                Date of joining
+                <input
+                  type="date"
+                  value={employeeForm.join_date}
+                  onChange={(event) => setEmployeeForm({ ...employeeForm, join_date: event.target.value })}
+                  style={inputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                Employment type
+                <select
+                  value={employeeForm.employment_type}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, employment_type: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Select employment type</option>
+                  {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div style={sectionStyle}>
+            <h3 style={sectionTitleStyle}>Organization</h3>
+            <div style={formGridStyle}>
+              <label style={labelStyle}>
+                Department
+                <select
+                  value={employeeForm.department_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, department_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Unassigned</option>
+                  {masters.departments
+                    .filter((department) => department.is_active !== false)
+                    .map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {department.name || department.code || department.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Designation
+                <select
+                  value={employeeForm.designation_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, designation_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Unassigned</option>
+                  {masters.designations
+                    .filter((designation) => designation.is_active !== false)
+                    .map((designation) => (
+                      <option key={designation.id} value={designation.id}>
+                        {designation.name || designation.code || designation.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Location
+                <select
+                  value={employeeForm.location_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, location_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Unassigned</option>
+                  {masters.locations
+                    .filter((location) => location.is_active !== false)
+                    .map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name || location.city || location.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Reporting manager
+                <select
+                  value={employeeForm.manager_employee_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, manager_employee_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Unassigned</option>
+                  {employees
+                    .filter((employee) => employee.id !== employeeForm.id)
+                    .map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.full_name || employee.employee_code || employee.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
           </div>
         </Modal>
       ) : null}
@@ -617,6 +866,14 @@ const formGridStyle = {
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 12,
 };
+const sectionStyle = {
+  marginTop: 18,
+  paddingTop: 16,
+  borderTop: "1px solid #e5e7eb",
+  display: "grid",
+  gap: 12,
+};
+const sectionTitleStyle = { margin: 0, fontSize: 16 };
 const labelStyle = { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, fontWeight: 600 };
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 14 };
 const searchInputStyle = { ...inputStyle, minWidth: 240 };
