@@ -104,6 +104,7 @@ export default function HrEmployeesPage() {
   const [employees, setEmployees] = useState([]);
   const [managers, setManagers] = useState([]);
   const [search, setSearch] = useState("");
+  const [hoveredEmployeeId, setHoveredEmployeeId] = useState(null);
   const [masters, setMasters] = useState({
     departments: [],
     designations: [],
@@ -501,7 +502,24 @@ export default function HrEmployeesPage() {
               </thead>
               <tbody>
                 {filteredEmployees.map((employee) => (
-                  <tr key={employee.id}>
+                  <tr
+                    key={employee.id}
+                    onClick={() => router.push(`/erp/hr/employees/${employee.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(`/erp/hr/employees/${employee.id}`);
+                      }
+                    }}
+                    onMouseEnter={() => setHoveredEmployeeId(employee.id)}
+                    onMouseLeave={() => setHoveredEmployeeId(null)}
+                    role="link"
+                    tabIndex={0}
+                    style={{
+                      cursor: "pointer",
+                      backgroundColor: hoveredEmployeeId === employee.id ? "#f8fafc" : "transparent",
+                    }}
+                  >
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 600 }}>{employee.full_name || "Unnamed employee"}</div>
                     </td>
@@ -517,7 +535,11 @@ export default function HrEmployeesPage() {
                         {employee.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                    <td
+                      style={{ ...tdStyle, textAlign: "right" }}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
                       {canManage ? (
                         <ActionMenu
                           actions={[
