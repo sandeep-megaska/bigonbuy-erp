@@ -1,7 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
-type MasterType = "departments" | "designations" | "grades" | "locations" | "cost-centers";
+type MasterType =
+  | "departments"
+  | "designations"
+  | "grades"
+  | "locations"
+  | "cost-centers"
+  | "employment-types";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessListResponse = { ok: true; rows: unknown[] };
@@ -49,6 +55,16 @@ const MASTER_CONFIG: Record<
       city: (body.city as string) ?? null,
     }),
   },
+  "employment-types": {
+    table: "erp_hr_employment_types",
+    select: "id, key, name, is_active, created_at, updated_at",
+    buildPayload: (body) => ({
+      key: (body.key as string) ?? null,
+      name: (body.name as string) ?? null,
+      is_active: resolveIsActive(body.is_active),
+      ...(typeof body.id === "string" && body.id.trim() ? { id: body.id } : {}),
+    }),
+  },
   "cost-centers": {
     table: "erp_hr_cost_centers",
     select: COMMON_SELECT,
@@ -86,6 +102,13 @@ function resolveMasterType(value: string | string[] | undefined): MasterType | n
   if (normalized === "designations") return "designations";
   if (normalized === "grades") return "grades";
   if (normalized === "locations") return "locations";
+  if (
+    normalized === "employment-types" ||
+    normalized === "employment_types" ||
+    normalized === "employmentTypes"
+  ) {
+    return "employment-types";
+  }
   if (
     normalized === "cost-centers" ||
     normalized === "cost_centers" ||
