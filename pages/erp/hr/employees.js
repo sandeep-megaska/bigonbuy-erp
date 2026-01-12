@@ -501,7 +501,11 @@ export default function HrEmployeesPage() {
               </thead>
               <tbody>
                 {filteredEmployees.map((employee) => (
-                  <tr key={employee.id}>
+                  <tr
+                    key={employee.id}
+                    onClick={() => router.push(`/erp/hr/employees/${employee.id}`)}
+                    style={{ cursor: "pointer" }}
+                  >
                     <td style={tdStyle}>
                       <div style={{ fontWeight: 600 }}>{employee.full_name || "Unnamed employee"}</div>
                     </td>
@@ -517,7 +521,7 @@ export default function HrEmployeesPage() {
                         {employee.is_active ? "Active" : "Inactive"}
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                    <td style={{ ...tdStyle, textAlign: "right" }} onClick={(event) => event.stopPropagation()}>
                       {canManage ? (
                         <ActionMenu
                           actions={[

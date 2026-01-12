@@ -1,21 +1,31 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
-type MasterType = "departments" | "job-titles" | "locations" | "employment-types";
+type MasterType =
+  | "departments"
+  | "job-titles"
+  | "locations"
+  | "employment-types"
+  | "designations"
+  | "grades"
+  | "cost-centers"
+  | "salary-structures";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessListResponse = { ok: true; rows: unknown[] };
 type SuccessUpsertResponse = { ok: true; row: unknown };
 type ApiResponse = ErrorResponse | SuccessListResponse | SuccessUpsertResponse;
 
-const MASTER_CONFIG: Record<
-  MasterType,
-  {
-    listRpc: string;
-    upsertRpc: string;
-    buildPayload: (body: Record<string, unknown>) => Record<string, unknown>;
-  }
-> = {
+type MasterConfig = {
+  listRpc?: string;
+  listTable?: string;
+  listSelect?: string;
+  listOrder?: string;
+  upsertRpc?: string;
+  buildPayload?: (body: Record<string, unknown>) => Record<string, unknown>;
+};
+
+const MASTER_CONFIG: Record<MasterType, MasterConfig> = {
   departments: {
     listRpc: "erp_hr_departments_list",
     upsertRpc: "erp_hr_department_upsert",
@@ -70,6 +80,26 @@ const MASTER_CONFIG: Record<
           : String(body.is_active ?? "").toLowerCase() !== "false",
     }),
   },
+  designations: {
+    listTable: "erp_hr_designations",
+    listSelect: "id, name, code, is_active",
+    listOrder: "name",
+  },
+  grades: {
+    listTable: "erp_hr_grades",
+    listSelect: "id, name, code, is_active",
+    listOrder: "name",
+  },
+  "cost-centers": {
+    listTable: "erp_hr_cost_centers",
+    listSelect: "id, name, code, is_active",
+    listOrder: "name",
+  },
+  "salary-structures": {
+    listTable: "erp_salary_structures",
+    listSelect: "id, name, code, currency, is_active",
+    listOrder: "name",
+  },
 };
 
 function resolveMasterType(value: string | string[] | undefined): MasterType | null {
@@ -86,6 +116,18 @@ function resolveMasterType(value: string | string[] | undefined): MasterType | n
     normalized === "employmentTypes"
   ) {
     return "employment-types";
+  }
+  if (normalized === "designations") return "designations";
+  if (normalized === "grades") return "grades";
+  if (normalized === "cost-centers" || normalized === "cost_centers" || normalized === "costCenters") {
+    return "cost-centers";
+  }
+  if (
+    normalized === "salary-structures" ||
+    normalized === "salary_structures" ||
+    normalized === "salaryStructures"
+  ) {
+    return "salary-structures";
   }
   return null;
 }
@@ -127,18 +169,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { userClient } = await ensureAuthenticatedClient(req);
 
     if (req.method === "GET") {
-      const { data, error } = await userClient.rpc(config.listRpc);
-      if (error) {
-        return res.status(400).json({
-          ok: false,
-          error: error.message || "Failed to load records",
-          details: error.details || error.hint || error.code,
-        });
+      if (config.listRpc) {
+        const { data, error } = await userClient.rpc(config.listRpc);
+        if (error) {
+          return res.status(400).json({
+            ok: false,
+            error: error.message || "Failed to load records",
+            details: error.details || error.hint || error.code,
+          });
+        }
+        return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
       }
-      return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
+
+      if (config.listTable) {
+        const { data, error } = await userClient
+          .from(config.listTable)
+          .select(config.listSelect ?? "*")
+          .order(config.listOrder ?? "created_at", { ascending: true });
+        if (error) {
+          return res.status(400).json({
+            ok: false,
+            error: error.message || "Failed to load records",
+            details: error.details || error.hint || error.code,
+          });
+        }
+        return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
+      }
     }
 
     if (req.method === "POST") {
+      if (!config.upsertRpc || !config.buildPayload) {
+        res.setHeader("Allow", "GET");
+        return res.status(405).json({ ok: false, error: "Method not allowed" });
+      }
       const rpcInput = config.buildPayload((req.body ?? {}) as Record<string, unknown>);
       const { data, error } = await userClient.rpc(config.upsertRpc, rpcInput);
       if (error) {
