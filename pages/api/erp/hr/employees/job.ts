@@ -5,17 +5,6 @@ type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; job_id: string };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
-function normalizeLifecycle(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return null;
-  if (["preboarding", "active", "on_notice", "on notice", "onnotice"].includes(trimmed)) {
-    return trimmed.startsWith("on") && trimmed.includes("notice") ? "on_notice" : trimmed;
-  }
-  if (trimmed === "exited") return "exited";
-  return null;
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -42,8 +31,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "employee_id is required" });
   }
 
-  const lifecycle = normalizeLifecycle(body.lifecycle_status) ?? "preboarding";
-
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
     const { data: userData, error: sessionError } = await userClient.auth.getUser();
@@ -56,9 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       p_department_id: (body.department_id as string) ?? null,
       p_designation_id: (body.designation_id as string) ?? null,
       p_location_id: (body.location_id as string) ?? null,
-      p_employment_type: (body.employment_type as string) ?? null,
       p_manager_employee_id: (body.manager_employee_id as string) ?? null,
-      p_lifecycle_status: lifecycle,
+      p_grade_id: (body.grade_id as string) ?? null,
+      p_cost_center_id: (body.cost_center_id as string) ?? null,
+      p_notes: (body.notes as string) ?? null,
       p_effective_from: (body.effective_from as string) ?? null,
     });
 

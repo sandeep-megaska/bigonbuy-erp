@@ -221,15 +221,17 @@ export default function EmployeeProfilePage() {
     }
     setSaving(true);
     setError("");
+    const effectiveFrom = currentJob?.effective_from || employee?.joining_date || null;
     const payload = {
       employee_id: employeeId,
       department_id: jobForm.department_id || null,
       designation_id: jobForm.designation_id || null,
       location_id: jobForm.location_id || null,
-      employment_type: resolveEmploymentTypeKey(jobForm.employment_type_id, masters.employmentTypes) || null,
       manager_employee_id: jobForm.manager_employee_id || null,
-      lifecycle_status: jobForm.lifecycle_status || "preboarding",
-      exit_date: jobForm.exit_date || null,
+      grade_id: currentJob?.grade_id || null,
+      cost_center_id: currentJob?.cost_center_id || null,
+      notes: currentJob?.notes || null,
+      effective_from: effectiveFrom,
     };
 
     const res = await fetch("/api/erp/hr/employees/job", {
@@ -560,13 +562,14 @@ export default function EmployeeProfilePage() {
                 value={jobForm.employment_type_id}
                 onChange={(e) => setJobForm({ ...jobForm, employment_type_id: e.target.value })}
                 style={inputStyle}
-                disabled={!canManage}
+                disabled
               >
                 <option value="">Select type</option>
                 {jobOptions.employmentTypes.map((d) => (
                   <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
+              <span style={helperTextStyle}>Coming soon</span>
             </label>
             <label style={labelStyle}>
               Manager
@@ -606,8 +609,9 @@ export default function EmployeeProfilePage() {
                 value={jobForm.exit_date || ""}
                 onChange={(e) => setJobForm({ ...jobForm, exit_date: e.target.value })}
                 style={inputStyle}
-                disabled={!canManage}
+                disabled
               />
+              <span style={helperTextStyle}>Coming soon</span>
             </label>
             <div style={{ gridColumn: "1 / -1" }}>
               <button type="submit" style={primaryButtonStyle} disabled={!canManage || saving}>
@@ -750,12 +754,6 @@ function formatDate(value) {
   return date.toLocaleDateString();
 }
 
-function resolveEmploymentTypeKey(employmentTypeId, employmentTypes) {
-  if (!employmentTypeId || !Array.isArray(employmentTypes)) return "";
-  const match = employmentTypes.find((type) => type.id === employmentTypeId);
-  return match?.key || match?.name || "";
-}
-
 const containerStyle = {
   maxWidth: 1100,
   margin: "60px auto",
@@ -817,6 +815,8 @@ const panelStyle = {
 };
 
 const labelStyle = { display: "flex", flexDirection: "column", gap: 6, color: "#111827", fontWeight: 600 };
+
+const helperTextStyle = { fontSize: 12, color: "#6b7280", fontWeight: 400 };
 
 const formGridStyle = {
   display: "grid",
