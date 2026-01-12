@@ -17,8 +17,6 @@ type ColumnRow = {
 
 type ColumnsByTable = Record<string, ColumnRow[]>;
 
-const isDev = process.env.NODE_ENV !== "production";
-
 export default function ErpSchemaPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -50,11 +48,6 @@ export default function ErpSchemaPage() {
     let active = true;
 
     (async () => {
-      if (!isDev) {
-        router.replace("/erp");
-        return;
-      }
-
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
@@ -111,10 +104,6 @@ export default function ErpSchemaPage() {
     await supabase.auth.signOut();
     router.replace("/");
   };
-
-  if (!isDev) {
-    return null;
-  }
 
   if (loading) {
     return <div style={containerStyle}>Loading ERP schema…</div>;
