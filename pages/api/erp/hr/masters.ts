@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-//import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../lib/serverSupabase";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../lib/serverSupabase";
+
 type MasterType = "departments" | "job-titles" | "locations" | "employment-types";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
