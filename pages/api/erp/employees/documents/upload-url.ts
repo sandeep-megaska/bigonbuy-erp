@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { randomUUID } from "crypto";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
@@ -48,16 +49,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { employee_id, file_name } = (req.body ?? {}) as Record<string, unknown>;
-  const employeeId = typeof employee_id === "string" ? employee_id : "unknown";
+  const employeeId = typeof employee_id === "string" ? employee_id : "";
   const fileName = typeof file_name === "string" ? sanitizeFileName(file_name) : "document.bin";
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
     await assertHr(userClient);
 
-    const path = `documents/${employeeId}/${Date.now()}-${fileName}`;
+    if (!employeeId) {
+      return res.status(400).json({ ok: false, error: "employee_id is required" });
+    }
+
+    const { data: companyId, error: companyError } = await userClient.rpc("erp_current_company_id");
+    if (companyError || !companyId) {
+      return res.status(400).json({
+        ok: false,
+        error: companyError?.message || "Failed to determine company",
+        details: companyError?.details || companyError?.hint || companyError?.code || null,
+      });
+    }
+
+    const path = `company/${companyId}/employees/${employeeId}/${randomUUID()}-${fileName}`;
     const { data, error } = await userClient.storage
-      .from("erp-employee-private")
+      .from("erp-employee-docs")
       .createSignedUploadUrl(path);
 
     if (error || !data?.signedUrl) {

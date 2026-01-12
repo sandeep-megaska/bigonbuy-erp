@@ -3,7 +3,7 @@ import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../..
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessListResponse = { ok: true; documents: unknown[] };
-type SuccessMutateResponse = { ok: true; document: Record<string, unknown> };
+type SuccessMutateResponse = { ok: true; document_id?: string | null };
 type ApiResponse = ErrorResponse | SuccessListResponse | SuccessMutateResponse;
 
 function docTypeIsValid(value: unknown): boolean {
@@ -61,7 +61,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       const body = (req.body ?? {}) as Record<string, unknown>;
       const employeeId = typeof body.employee_id === "string" ? body.employee_id : null;
       const docType = typeof body.doc_type === "string" ? body.doc_type.trim().toLowerCase() : "";
-      const filePath = typeof body.file_path === "string" ? body.file_path : "";
+      const storagePath =
+        typeof body.storage_path === "string"
+          ? body.storage_path
+          : typeof body.file_path === "string"
+          ? body.file_path
+          : "";
 
       if (!employeeId) {
         return res.status(400).json({ ok: false, error: "employee_id is required" });
@@ -69,17 +74,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       if (!docTypeIsValid(docType)) {
         return res.status(400).json({ ok: false, error: "Invalid doc_type" });
       }
-      if (!filePath) {
-        return res.status(400).json({ ok: false, error: "file_path is required" });
+      if (!storagePath) {
+        return res.status(400).json({ ok: false, error: "storage_path is required" });
       }
 
-      const { data, error } = await userClient.rpc("erp_employee_document_add", {
+      const { data, error } = await userClient.rpc("erp_hr_employee_document_create", {
         p_employee_id: employeeId,
         p_doc_type: docType,
-        p_file_path: filePath,
         p_file_name: (body.file_name as string) ?? null,
-        p_mime_type: (body.mime_type as string) ?? null,
-        p_size_bytes: (body.size_bytes as number) ?? null,
+        p_storage_path: storagePath,
         p_notes: (body.notes as string) ?? null,
       });
 
@@ -91,7 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         });
       }
 
-      return res.status(200).json({ ok: true, document: data as Record<string, unknown> });
+      return res.status(200).json({ ok: true, document_id: data as string | null });
     }
 
     if (req.method === "DELETE") {
@@ -106,8 +109,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return res.status(400).json({ ok: false, error: "document_id is required" });
       }
 
-      const { data, error } = await userClient.rpc("erp_employee_document_delete", {
-        p_document_id: documentId,
+      const { error } = await userClient.rpc("erp_hr_employee_document_delete", {
+        p_id: documentId,
       });
 
       if (error) {
@@ -118,7 +121,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         });
       }
 
-      return res.status(200).json({ ok: true, document: data as Record<string, unknown> });
+      return res.status(200).json({ ok: true, document_id: documentId });
     }
 
     res.setHeader("Allow", "GET, POST, DELETE");

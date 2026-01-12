@@ -40,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data: doc, error: docError } = await userClient
       .from("erp_employee_documents")
-      .select("id, file_path, file_name")
+      .select("id, file_path, storage_path, file_name")
       .eq("id", documentId)
       .eq("is_deleted", false)
       .maybeSingle();
@@ -57,9 +57,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ ok: false, error: "Document not found" });
     }
 
+    const storagePath =
+      (doc.storage_path as string | null) ?? (doc.file_path as string | null);
+    if (!storagePath) {
+      return res.status(400).json({ ok: false, error: "Document is missing storage path" });
+    }
+    const bucketId = storagePath.startsWith("company/") ? "erp-employee-docs" : "erp-employee-private";
+
     const { data, error } = await userClient.storage
-      .from("erp-employee-private")
-      .createSignedUrl(doc.file_path as string, 300);
+      .from(bucketId)
+      .createSignedUrl(storagePath, 300);
 
     if (error || !data?.signedUrl) {
       return res.status(500).json({
