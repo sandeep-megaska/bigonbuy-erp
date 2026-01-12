@@ -69,6 +69,12 @@ export default function EmployeeProfilePage() {
     const primaryEmail = contacts.find((contact) => contact.email && contact.is_primary);
     return primaryEmail?.email || "";
   }, [contacts]);
+  const headerPhone = useMemo(() => {
+    const mobilePhone = contacts.find((contact) => contact.contact_type === "mobile" && contact.phone);
+    if (mobilePhone?.phone) return mobilePhone.phone;
+    const primaryPhone = contacts.find((contact) => contact.phone && contact.is_primary);
+    return primaryPhone?.phone || "";
+  }, [contacts]);
 
   useEffect(() => {
     let active = true;
@@ -122,8 +128,12 @@ export default function EmployeeProfilePage() {
       setError(data?.error || "Failed to load employee");
       return;
     }
-    const emp = data.employee;
+    const profile = data.employee;
+    const emp = profile?.employee || profile;
     setEmployee(emp);
+    if (Array.isArray(profile?.contacts)) {
+      setContacts(profile.contacts);
+    }
     setJobForm({
       department_id: emp.department_id || "",
       job_title_id: emp.job_title_id || "",
@@ -407,7 +417,7 @@ export default function EmployeeProfilePage() {
           <h3 style={{ marginTop: 0 }}>Overview</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
             <OverviewItem label="Email" value={headerEmail || "—"} />
-            <OverviewItem label="Phone" value={employee.phone || "—"} />
+            <OverviewItem label="Phone" value={headerPhone || "—"} />
             <OverviewItem label="Department" value={employee.department_name || employee.department || "—"} />
             <OverviewItem label="Job Title" value={employee.job_title || employee.designation || "—"} />
             <OverviewItem label="Location" value={employee.location_name || "—"} />
