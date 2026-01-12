@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../../components/erp/ErpNavBar";
+import ContactsTab from "../../../../../components/erp/hr/employee-tabs/ContactsTab";
+import AddressTab from "../../../../../components/erp/hr/employee-tabs/AddressTab";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../../../lib/erp/nav";
 import { supabase } from "../../../../../lib/supabaseClient";
@@ -31,6 +33,7 @@ export default function EmployeeProfilePage() {
   const [access, setAccess] = useState({ isAuthenticated: false, isManager: false, roleKey: undefined });
   const [accessToken, setAccessToken] = useState("");
   const [employee, setEmployee] = useState(null);
+  const [contacts, setContacts] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [employeeList, setEmployeeList] = useState([]);
   const [masters, setMasters] = useState({
@@ -60,6 +63,12 @@ export default function EmployeeProfilePage() {
     () => access.isManager || isHr(ctx?.roleKey),
     [access.isManager, ctx?.roleKey]
   );
+  const headerEmail = useMemo(() => {
+    const workEmail = contacts.find((contact) => contact.contact_type === "work_email" && contact.email);
+    if (workEmail?.email) return workEmail.email;
+    const primaryEmail = contacts.find((contact) => contact.email && contact.is_primary);
+    return primaryEmail?.email || "";
+  }, [contacts]);
 
   useEffect(() => {
     let active = true;
@@ -93,6 +102,7 @@ export default function EmployeeProfilePage() {
         loadMasters(session.access_token),
         loadDocuments(session.access_token),
         loadEmployeeDirectory(session.access_token),
+        loadContacts(session.access_token),
       ]);
       if (active) setLoading(false);
     })();
@@ -162,6 +172,19 @@ export default function EmployeeProfilePage() {
       return;
     }
     setDocuments(data.documents || []);
+  }
+
+  async function loadContacts(token = accessToken) {
+    if (!employeeId || !token) return;
+    const res = await fetch(`/api/erp/hr/employees/${employeeId}/contacts`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      setError(data?.error || "Failed to load contacts");
+      return;
+    }
+    setContacts(data.contacts || []);
   }
 
   async function loadEmployeeDirectory(token = accessToken) {
@@ -344,7 +367,8 @@ export default function EmployeeProfilePage() {
           <p style={eyebrowStyle}>HR · Employee</p>
           <h1 style={titleStyle}>{employee.full_name || "Employee"}</h1>
           <p style={subtitleStyle}>
-            {employee.employee_code ? `#${employee.employee_code}` : ""} · {employee.email || "No email"}
+            {employee.employee_code ? `#${employee.employee_code}` : ""}
+            {headerEmail ? ` · ${headerEmail}` : ""}
           </p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
             Status: <strong>{employee.lifecycle_status || "preboarding"}</strong>{" "}
@@ -363,6 +387,8 @@ export default function EmployeeProfilePage() {
         {[
           ["overview", "Overview"],
           ["job", "Job"],
+          ["contacts", "Contacts"],
+          ["addresses", "Addresses"],
           ["documents", "Documents"],
           ["salary", "Salary"],
         ].map(([key, label]) => (
@@ -380,7 +406,7 @@ export default function EmployeeProfilePage() {
         <div style={panelStyle}>
           <h3 style={{ marginTop: 0 }}>Overview</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            <OverviewItem label="Email" value={employee.email || employee.work_email || employee.personal_email || "—"} />
+            <OverviewItem label="Email" value={headerEmail || "—"} />
             <OverviewItem label="Phone" value={employee.phone || "—"} />
             <OverviewItem label="Department" value={employee.department_name || employee.department || "—"} />
             <OverviewItem label="Job Title" value={employee.job_title || employee.designation || "—"} />
@@ -502,6 +528,24 @@ export default function EmployeeProfilePage() {
               </button>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {tab === "contacts" ? (
+        <div style={panelStyle}>
+          <ContactsTab
+            employeeId={employeeId}
+            accessToken={accessToken}
+            canManage={canManage}
+            initialContacts={contacts}
+            onContactsUpdated={setContacts}
+          />
+        </div>
+      ) : null}
+
+      {tab === "addresses" ? (
+        <div style={panelStyle}>
+          <AddressTab employeeId={employeeId} accessToken={accessToken} canManage={canManage} />
         </div>
       ) : null}
 
