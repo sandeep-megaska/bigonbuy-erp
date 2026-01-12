@@ -1,16 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken } from "../../../../lib/serverSupabase";
 
-const isDev = process.env.NODE_ENV !== "production";
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  if (!isDev) {
-    return res.status(404).json({ ok: false, error: "Not found" });
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
