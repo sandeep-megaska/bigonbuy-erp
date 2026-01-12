@@ -13,6 +13,10 @@ export default function HrPayrollPage() {
   const [selectedRun, setSelectedRun] = useState("");
   const [items, setItems] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [lineItems, setLineItems] = useState({});
+  const [lineForms, setLineForms] = useState({});
+  const [lineSavingId, setLineSavingId] = useState("");
+  const [lineErrors, setLineErrors] = useState({});
 
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [month, setMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
@@ -77,7 +81,7 @@ export default function HrPayrollPage() {
     }
     const { data, error } = await supabase
       .from("erp_payroll_items")
-      .select("id, payroll_run_id, employee_id, gross, deductions, net_pay, notes, payslip_no")
+      .select("id, payroll_run_id, employee_id, gross, deductions, net_pay, notes, payslip_no, basic, hra, allowances")
       .eq("company_id", companyId)
       .eq("payroll_run_id", runId)
       .order("created_at", { ascending: false });
@@ -85,7 +89,92 @@ export default function HrPayrollPage() {
       if (isActive) setErr(error.message);
       return;
     }
-    if (isActive) setItems(data || []);
+    if (isActive) {
+      const list = data || [];
+      setItems(list);
+      setLineErrors({});
+      await loadLineItems(list.map((item) => item.id), isActive);
+    }
+  }
+
+  async function loadLineItems(itemIds, isActive = true) {
+    if (!itemIds.length) {
+      if (isActive) setLineItems({});
+      return;
+    }
+    const requests = itemIds.map((itemId) =>
+      supabase.rpc("erp_payroll_item_line_list", { p_payroll_item_id: itemId }),
+    );
+    const responses = await Promise.all(requests);
+    const next = {};
+    const nextForms = {};
+    let firstError = "";
+    responses.forEach((response) => {
+      if (response.error && !firstError) firstError = response.error.message;
+      (response.data || []).forEach((line) => {
+        if (!next[line.payroll_item_id]) next[line.payroll_item_id] = [];
+        next[line.payroll_item_id].push(line);
+        if (line.code === "OT") {
+          nextForms[line.payroll_item_id] = {
+            units: line.units?.toString() || "",
+            rate: line.rate?.toString() || "",
+            amount: line.amount?.toString() || "",
+            notes: line.notes || "",
+          };
+        }
+      });
+    });
+    if (firstError) {
+      if (isActive) setLineErrors((prev) => ({ ...prev, global: firstError }));
+      return;
+    }
+    if (isActive) {
+      setLineItems(next);
+      setLineForms((prev) => ({ ...prev, ...nextForms }));
+    }
+  }
+
+  function updateLineForm(itemId, key, value, autoAmount = true) {
+    setLineForms((prev) => {
+      const current = prev[itemId] || { units: "", rate: "", amount: "", notes: "" };
+      const nextForm = { ...current, [key]: value };
+      if (autoAmount) {
+        const unitsNum = Number(nextForm.units || 0);
+        const rateNum = Number(nextForm.rate || 0);
+        if (Number.isFinite(unitsNum) && Number.isFinite(rateNum)) {
+          nextForm.amount = (unitsNum * rateNum).toString();
+        }
+      }
+      return { ...prev, [itemId]: nextForm };
+    });
+  }
+
+  async function saveLine(itemId) {
+    if (!ctx?.companyId || !itemId) return;
+    if (!canWrite || isRunFinalized) return;
+    setLineSavingId(itemId);
+    setLineErrors((prev) => ({ ...prev, [itemId]: "" }));
+    const form = lineForms[itemId] || { units: "", rate: "", amount: "", notes: "" };
+    const unitsNum = form.units ? Number(form.units) : null;
+    const rateNum = form.rate ? Number(form.rate) : null;
+    const amountNum = form.amount ? Number(form.amount) : 0;
+    const payload = {
+      p_payroll_item_id: itemId,
+      p_code: "OT",
+      p_units: Number.isFinite(unitsNum) ? unitsNum : null,
+      p_rate: Number.isFinite(rateNum) ? rateNum : null,
+      p_amount: Number.isFinite(amountNum) ? amountNum : 0,
+      p_notes: form.notes?.trim() || null,
+    };
+    const { error } = await supabase.rpc("erp_payroll_item_line_upsert", payload);
+    if (error) {
+      setLineErrors((prev) => ({ ...prev, [itemId]: error.message }));
+      setLineSavingId("");
+      return;
+    }
+    setLineForms((prev) => ({ ...prev, [itemId]: { units: "", rate: "", amount: "", notes: "" } }));
+    await loadItems(ctx.companyId, selectedRun);
+    setLineSavingId("");
   }
 
   async function loadEmployees(companyId, isActive = true) {
@@ -351,6 +440,7 @@ export default function HrPayrollPage() {
                     <tr style={{ textAlign: "left" }}>
                       <th style={thStyle}>Employee</th>
                       <th style={thStyle}>Amounts</th>
+                      <th style={thStyle}>Variable Earnings (OT)</th>
                       <th style={thStyle}>Notes & Payslip</th>
                     </tr>
                   </thead>
@@ -358,6 +448,11 @@ export default function HrPayrollPage() {
                     {items.map((it) => {
                       const emp = employees.find((e) => e.id === it.employee_id);
                       const net = it.net_pay ?? (it.gross ?? 0) - (it.deductions ?? 0);
+                      const lines = lineItems[it.id] || [];
+                      const otLine = lines.find((line) => line.code === "OT");
+                      const isSaving = lineSavingId === it.id;
+                      const currentForm = lineForms[it.id] || { units: "", rate: "", amount: "", notes: "" };
+                      const rowError = lineErrors[it.id] || lineErrors.global;
                       return (
                         <tr key={it.id}>
                           <td style={tdStyle}>
@@ -366,9 +461,58 @@ export default function HrPayrollPage() {
                             <div style={{ fontSize: 12, color: "#777" }}>ID: {it.id}</div>
                           </td>
                           <td style={tdStyle}>
+                            <div>Basic: {it.basic ?? "—"}</div>
+                            <div>HRA: {it.hra ?? "—"}</div>
+                            <div>Allowances: {it.allowances ?? "—"}</div>
                             <div>Gross: {it.gross ?? "—"}</div>
                             <div>Deductions: {it.deductions ?? "—"}</div>
                             <div style={{ fontWeight: 600, marginTop: 6 }}>Net (client): {net}</div>
+                          </td>
+                          <td style={tdStyle}>
+                            {canWrite && !isRunFinalized ? (
+                              <div style={{ display: "grid", gap: 8 }}>
+                                <input
+                                  value={currentForm.units}
+                                  onChange={(e) => updateLineForm(it.id, "units", e.target.value)}
+                                  placeholder="Hours"
+                                  style={inputStyle}
+                                />
+                                <input
+                                  value={currentForm.rate}
+                                  onChange={(e) => updateLineForm(it.id, "rate", e.target.value)}
+                                  placeholder="Rate"
+                                  style={inputStyle}
+                                />
+                                <input
+                                  value={currentForm.amount}
+                                  onChange={(e) => updateLineForm(it.id, "amount", e.target.value, false)}
+                                  placeholder="Amount"
+                                  style={inputStyle}
+                                />
+                                <input
+                                  value={currentForm.notes}
+                                  onChange={(e) => updateLineForm(it.id, "notes", e.target.value, false)}
+                                  placeholder="Notes"
+                                  style={inputStyle}
+                                />
+                                <button
+                                  type="button"
+                                  style={{ ...smallButtonStyle, justifySelf: "flex-start", opacity: isSaving ? 0.7 : 1 }}
+                                  onClick={() => saveLine(it.id)}
+                                  disabled={isSaving}
+                                >
+                                  {isSaving ? "Saving…" : "Save OT"}
+                                </button>
+                                {rowError ? <div style={{ color: "#b91c1c", fontSize: 12 }}>{rowError}</div> : null}
+                              </div>
+                            ) : (
+                              <div>
+                                <div>Hours: {otLine?.units ?? "—"}</div>
+                                <div>Rate: {otLine?.rate ?? "—"}</div>
+                                <div>Amount: {otLine?.amount ?? "—"}</div>
+                                {otLine?.notes ? <div style={{ fontSize: 12, color: "#555" }}>{otLine.notes}</div> : null}
+                              </div>
+                            )}
                           </td>
                           <td style={tdStyle}>
                             <div>{it.notes || "—"}</div>
