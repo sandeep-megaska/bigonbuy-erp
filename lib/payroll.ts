@@ -21,7 +21,8 @@ export type SalaryJson = {
       enabled: boolean;
       employee_rate: number;
       employer_rate: number;
-      wage_base: "basic";
+      wage_base: "salary_basic";
+
       monthly_wage_cap: number;
       voluntary_pf_rate: number;
     };
@@ -98,7 +99,8 @@ export const buildDefaultSalaryJson = (): SalaryJson => ({
       enabled: true,
       employee_rate: 0.12,
       employer_rate: 0.12,
-      wage_base: "basic",
+      wage_base: "salary_basic",
+
       monthly_wage_cap: 15000,
       voluntary_pf_rate: 0,
     },
