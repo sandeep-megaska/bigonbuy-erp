@@ -227,7 +227,7 @@ export const sanitizeSalaryJson = (input?: Partial<SalaryJson>): SalaryJson => {
 export const validateSalaryJson = (salary: SalaryJson): string[] => {
   const errors: string[] = [];
   const numbersToCheck: Array<[string, number]> = [
-    ["_monthly", salary.earnings._monthly],
+    ["basic_monthly", salary.earnings._monthly],
     ["hra_monthly", salary.earnings.hra_monthly],
     ["special_allowance_monthly", salary.earnings.special_allowance_monthly],
     ["conveyance_monthly", salary.earnings.conveyance_monthly],
