@@ -106,9 +106,10 @@ export default function PayrollRunDetailPage() {
   }
 
   function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const headers = {
+  "Content-Type": "application/json",
+};
+
 
   const token = ctx?.session?.access_token;
   if (token) {
