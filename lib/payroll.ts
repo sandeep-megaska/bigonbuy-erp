@@ -281,7 +281,7 @@ const capPfBase = (salary: SalaryJson): number => {
 export const calculateSalaryPreview = (raw: SalaryJson): SalaryPreview => {
   const salary = sanitizeSalaryJson(raw);
   const monthlyEarnings =
-    salary.earnings._monthly +
+    salary.earnings.basic_monthly +
     salary.earnings.hra_monthly +
     salary.earnings.special_allowance_monthly +
     salary.earnings.conveyance_monthly +
