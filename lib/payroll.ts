@@ -272,7 +272,7 @@ export const validateSalaryJson = (salary: SalaryJson): string[] => {
 };
 
 const capPfBase = (salary: SalaryJson): number => {
-  const base = salary.earnings._monthly;
+  const base = salary.earnings.basic_monthly;
   const cap = salary.statutory.pf.monthly_wage_cap;
   if (cap > 0) return Math.min(base, cap);
   return base;
