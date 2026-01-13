@@ -105,11 +105,10 @@ export default function PayrollRunDetailPage() {
     router.replace("/");
   }
 
-  function getAuthHeaders(): Record<string, string> {
+  function getAuthHeaders() {
   const headers = {
-  "Content-Type": "application/json",
-};
-
+    "Content-Type": "application/json",
+  };
 
   const token = ctx?.session?.access_token;
   if (token) {
@@ -118,6 +117,7 @@ export default function PayrollRunDetailPage() {
 
   return headers;
 }
+
 
 
   function updateOtForm(key, value, autoAmount = true) {
