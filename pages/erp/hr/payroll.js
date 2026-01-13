@@ -26,6 +26,7 @@ export default function HrPayrollPage() {
   const [deductions, setDeductions] = useState("");
   const [notes, setNotes] = useState("");
   const [finalizing, setFinalizing] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
 
@@ -322,6 +323,28 @@ export default function HrPayrollPage() {
     }
   }
 
+  async function generateItems() {
+    if (!ctx?.companyId || !selectedRun) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/owner can generate payroll items.");
+      return;
+    }
+    if (isRunFinalized) {
+      setErr("This payroll run is already finalized.");
+      return;
+    }
+    setGenerating(true);
+    setErr("");
+    const { error } = await supabase.rpc("erp_payroll_run_generate", { p_run_id: selectedRun });
+    if (error) {
+      setErr(error.message);
+      setGenerating(false);
+      return;
+    }
+    await loadItems(ctx.companyId, selectedRun);
+    setGenerating(false);
+  }
+
   if (loading) return <div style={{ padding: 24 }}>Loading payroll…</div>;
 
   if (!ctx?.companyId) {
@@ -423,15 +446,26 @@ export default function HrPayrollPage() {
               <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   <span>Items ({items.length})</span>
-                  {canWrite && selectedRun ? (
-                    <button
-                      style={{ ...smallButtonStyle, opacity: isRunFinalized || finalizing ? 0.7 : 1 }}
-                      onClick={finalizeRun}
-                      disabled={isRunFinalized || finalizing}
-                    >
-                      {isRunFinalized ? "Finalized" : finalizing ? "Finalizing…" : "Finalize Run"}
-                    </button>
-                  ) : null}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {canWrite && selectedRun ? (
+                      <button
+                        style={{ ...smallButtonStyle, opacity: isRunFinalized || generating ? 0.7 : 1 }}
+                        onClick={generateItems}
+                        disabled={isRunFinalized || generating}
+                      >
+                        {generating ? "Generating…" : "Generate Items"}
+                      </button>
+                    ) : null}
+                    {canWrite && selectedRun ? (
+                      <button
+                        style={{ ...smallButtonStyle, opacity: isRunFinalized || finalizing ? 0.7 : 1 }}
+                        onClick={finalizeRun}
+                        disabled={isRunFinalized || finalizing}
+                      >
+                        {isRunFinalized ? "Finalized" : finalizing ? "Finalizing…" : "Finalize Run"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
               <div style={{ overflowX: "auto" }}>
