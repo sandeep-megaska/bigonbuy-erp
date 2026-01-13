@@ -362,16 +362,12 @@ export const autoSplitFromGross = (
   current: SalaryJson,
   options?: { _ratio?: number; hra_non_metro_ratio?: number; hra_metro_ratio?: number },
 ): SalaryJson => {
-  const salary = sanitizeSalaryJson(current);
-  const Ratio = options?._ratio ?? 0.4;
-  const hraMetroRatio = options?.hra_metro_ratio ?? 0.5;
-  const hraNonMetroRatio = options?.hra_non_metro_ratio ?? 0.4;
-  // Default salary split ratios (tune later per company policy)
-const basicRatio = options?.basic_ratio ?? 0.4;
-     // 40% of gross monthly
-const hraMetroRatio = 0.5;     // HRA = 50% of Basic (metro)
-const hraNonMetroRatio = 0.4;  // HRA = 40% of Basic (non-metro)
+ const salary = sanitizeSalaryJson(current);
 
+// ratios (all local, single declaration)
+const basicRatio = options?._ratio ?? 0.4; // or options?.basic_ratio ?? 0.4 if that’s what you want
+const hraMetroRatio = options?.hra_metro_ratio ?? 0.5;
+const hraNonMetroRatio = options?.hra_non_metro_ratio ?? 0.4;
   if (!Number.isFinite(grossMonthly) || grossMonthly <= 0) return salary;
 
   const basic = grossMonthly * basicRatio;
