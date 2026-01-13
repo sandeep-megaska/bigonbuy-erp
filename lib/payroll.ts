@@ -21,7 +21,7 @@ export type SalaryJson = {
       enabled: boolean;
       employee_rate: number;
       employer_rate: number;
-      wage_base: "salary_basic";
+      wage_base: "salary_";
 
       monthly_wage_cap: number;
       voluntary_pf_rate: number;
@@ -82,7 +82,7 @@ export const buildDefaultSalaryJson = (): SalaryJson => ({
   pay_frequency: "monthly",
   ctc_annual: null,
   earnings: {
-    basic_monthly: 0,
+    _monthly: 0,
     hra_monthly: 0,
     special_allowance_monthly: 0,
     conveyance_monthly: 0,
@@ -99,7 +99,7 @@ export const buildDefaultSalaryJson = (): SalaryJson => ({
       enabled: true,
       employee_rate: 0.12,
       employer_rate: 0.12,
-      wage_base: "salary_basic",
+      wage_base: "salary_",
 
       monthly_wage_cap: 15000,
       voluntary_pf_rate: 0,
@@ -227,7 +227,7 @@ export const sanitizeSalaryJson = (input?: Partial<SalaryJson>): SalaryJson => {
 export const validateSalaryJson = (salary: SalaryJson): string[] => {
   const errors: string[] = [];
   const numbersToCheck: Array<[string, number]> = [
-    ["basic_monthly", salary.earnings.basic_monthly],
+    ["_monthly", salary.earnings._monthly],
     ["hra_monthly", salary.earnings.hra_monthly],
     ["special_allowance_monthly", salary.earnings.special_allowance_monthly],
     ["conveyance_monthly", salary.earnings.conveyance_monthly],
@@ -272,7 +272,7 @@ export const validateSalaryJson = (salary: SalaryJson): string[] => {
 };
 
 const capPfBase = (salary: SalaryJson): number => {
-  const base = salary.earnings.basic_monthly;
+  const base = salary.earnings._monthly;
   const cap = salary.statutory.pf.monthly_wage_cap;
   if (cap > 0) return Math.min(base, cap);
   return base;
@@ -281,7 +281,7 @@ const capPfBase = (salary: SalaryJson): number => {
 export const calculateSalaryPreview = (raw: SalaryJson): SalaryPreview => {
   const salary = sanitizeSalaryJson(raw);
   const monthlyEarnings =
-    salary.earnings.basic_monthly +
+    salary.earnings._monthly +
     salary.earnings.hra_monthly +
     salary.earnings.special_allowance_monthly +
     salary.earnings.conveyance_monthly +
@@ -360,10 +360,10 @@ export const calculateSalaryPreview = (raw: SalaryJson): SalaryPreview => {
 export const autoSplitFromGross = (
   grossMonthly: number,
   current: SalaryJson,
-  options?: { basic_ratio?: number; hra_non_metro_ratio?: number; hra_metro_ratio?: number },
+  options?: { _ratio?: number; hra_non_metro_ratio?: number; hra_metro_ratio?: number },
 ): SalaryJson => {
   const salary = sanitizeSalaryJson(current);
-  const basicRatio = options?.basic_ratio ?? 0.4;
+  const Ratio = options?._ratio ?? 0.4;
   const hraMetroRatio = options?.hra_metro_ratio ?? 0.5;
   const hraNonMetroRatio = options?.hra_non_metro_ratio ?? 0.4;
   if (!Number.isFinite(grossMonthly) || grossMonthly <= 0) return salary;
