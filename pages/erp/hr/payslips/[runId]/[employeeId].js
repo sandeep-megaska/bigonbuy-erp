@@ -115,7 +115,7 @@ export default function PayslipViewPage() {
         <h1>Payslip</h1>
         <p style={{ color: "#b91c1c" }}>{err || "Payslip not found for this payroll run and employee."}</p>
         <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <a href="/erp/hr/payroll" style={buttonStyle}>Back to Payroll</a>
+          <a href="/erp/hr/payroll/runs" style={buttonStyle}>Back to Payroll</a>
           <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
         </div>
       </div>
@@ -135,7 +135,7 @@ export default function PayslipViewPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <a href="/erp/hr/payroll" style={buttonStyle}>← Back to Payroll</a>
+          <a href="/erp/hr/payroll/runs" style={buttonStyle}>← Back to Payroll</a>
           <button onClick={() => window.print()} style={{ ...buttonStyle, background: "#111", color: "#fff", borderColor: "#111" }}>
             Print
           </button>

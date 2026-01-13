@@ -427,7 +427,7 @@ function buildNavItems(canManage) {
         {
           title: "Payroll",
           description: "Run payroll cycles, approvals, and payouts.",
-          href: "/erp/hr/payroll",
+          href: "/erp/hr/payroll/runs",
           icon: "📄",
           status: "Active",
           ctaLabel: "Run payroll",
