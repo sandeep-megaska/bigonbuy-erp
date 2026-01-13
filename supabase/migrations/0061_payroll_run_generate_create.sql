@@ -95,7 +95,8 @@ $$;
 revoke all on function public.erp_payroll_run_create(int, int, text) from public;
 grant execute on function public.erp_payroll_run_create(int, int, text) to authenticated;
 
-create or replace function public.erp_payroll_run_generate(p_payroll_run_id uuid)
+create or replace function public.erp_payroll_run_generate(p_run_id uuid)
+
 returns void
 language plpgsql
 security definer
@@ -124,7 +125,7 @@ begin
   select r.year, r.month, r.status
     into v_year, v_month, v_status
     from public.erp_payroll_runs r
-   where r.id = p_payroll_run_id
+   where r.id = p_run_id
      and r.company_id = v_company_id;
 
   if v_year is null then
