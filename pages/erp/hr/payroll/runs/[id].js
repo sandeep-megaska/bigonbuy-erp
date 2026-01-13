@@ -105,12 +105,19 @@ export default function PayrollRunDetailPage() {
     router.replace("/");
   }
 
-  function getAuthHeaders() {
-    const token = ctx?.session?.access_token;
-    return token
-      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-      : { "Content-Type": "application/json" };
+  function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  const token = ctx?.session?.access_token;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
+
+  return headers;
+}
+
 
   function updateOtForm(key, value, autoAmount = true) {
     setOtForm((prev) => {
