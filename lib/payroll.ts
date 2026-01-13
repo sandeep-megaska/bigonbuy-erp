@@ -366,6 +366,11 @@ export const autoSplitFromGross = (
   const Ratio = options?._ratio ?? 0.4;
   const hraMetroRatio = options?.hra_metro_ratio ?? 0.5;
   const hraNonMetroRatio = options?.hra_non_metro_ratio ?? 0.4;
+  // Default salary split ratios (tune later per company policy)
+const basicRatio = 0.4;        // 40% of gross monthly
+const hraMetroRatio = 0.5;     // HRA = 50% of Basic (metro)
+const hraNonMetroRatio = 0.4;  // HRA = 40% of Basic (non-metro)
+
   if (!Number.isFinite(grossMonthly) || grossMonthly <= 0) return salary;
 
   const basic = grossMonthly * basicRatio;
