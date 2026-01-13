@@ -30,7 +30,7 @@ export default function PayrollRunsPage() {
         setLoading(false);
         return;
       }
-      await loadRuns(context.companyId, active);
+      await loadRuns(context.companyId, active, context.session);
       if (active) setLoading(false);
     })();
     return () => {
@@ -38,18 +38,17 @@ export default function PayrollRunsPage() {
     };
   }, [router]);
 
-  async function loadRuns(companyId, isActive = true) {
-    const { data, error } = await supabase
-      .from("erp_payroll_runs")
-      .select("id, year, month, status, finalized_at")
-      .eq("company_id", companyId)
-      .order("year", { ascending: false })
-      .order("month", { ascending: false });
-    if (error) {
-      if (isActive) setErr(error.message);
+  async function loadRuns(companyId, isActive = true, session = null) {
+    const response = await fetch("/api/erp/payroll/runs/list", {
+      method: "GET",
+      headers: getAuthHeaders(session),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      if (isActive) setErr(payload?.error || "Unable to load payroll runs.");
       return;
     }
-    if (isActive) setRuns(data || []);
+    if (isActive) setRuns(payload.runs || []);
   }
 
   async function createRun(e) {
@@ -59,26 +58,35 @@ export default function PayrollRunsPage() {
       setErr("Only HR/admin/owner/payroll can create payroll runs.");
       return;
     }
-    const payload = {
-      company_id: ctx.companyId,
-      year: Number(year),
-      month: Number(month),
-      status: "draft",
-    };
-    const { data, error } = await supabase.from("erp_payroll_runs").insert(payload).select().single();
-    if (error) {
-      setErr(error.message);
+    const response = await fetch("/api/erp/payroll/runs/create", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        year: Number(year),
+        month: Number(month),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setErr(payload?.error || "Unable to create payroll run.");
       return;
     }
     await loadRuns(ctx.companyId);
-    if (data?.id) {
-      router.push(`/erp/hr/payroll/runs/${data.id}`);
+    if (payload?.id) {
+      router.push(`/erp/hr/payroll/runs/${payload.id}`);
     }
   }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
     router.replace("/");
+  }
+
+  function getAuthHeaders(sessionOverride = null) {
+    const token = sessionOverride?.access_token ?? ctx?.session?.access_token;
+    return token
+      ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+      : { "Content-Type": "application/json" };
   }
 
   if (loading) return <div style={{ padding: 24 }}>Loading payroll runs…</div>;
