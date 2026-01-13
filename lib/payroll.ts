@@ -82,7 +82,7 @@ export const buildDefaultSalaryJson = (): SalaryJson => ({
   pay_frequency: "monthly",
   ctc_annual: null,
   earnings: {
-    _monthly: 0,
+    basic_monthly: 0,
     hra_monthly: 0,
     special_allowance_monthly: 0,
     conveyance_monthly: 0,
