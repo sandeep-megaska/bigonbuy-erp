@@ -58,36 +58,41 @@ export default function PayrollRunDetailPage() {
     (async () => {
       setErr("");
       const companyId = ctx.companyId;
-      const [{ data: runData, error: runErr }, { data: itemsData, error: itemsErr }, { data: employeesData, error: employeesErr }] =
-        await Promise.all([
-          supabase
-            .from("erp_payroll_runs")
-            .select("id, year, month, status, finalized_at")
-            .eq("company_id", companyId)
-            .eq("id", runId)
-            .maybeSingle(),
-          supabase
-            .from("erp_payroll_items")
-            .select("id, employee_id, gross, deductions, net_pay, notes, payslip_no, basic, hra, allowances")
-            .eq("company_id", companyId)
-            .eq("payroll_run_id", runId)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("erp_employees")
-            .select("id, full_name, employee_no")
-            .eq("company_id", companyId)
-            .order("full_name", { ascending: true }),
-        ]);
+      const [runResponse, itemsResponse, employeesResponse] = await Promise.all([
+        fetch("/api/erp/payroll/runs/get", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ runId }),
+        }),
+        fetch("/api/erp/payroll/items/list", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ payrollRunId: runId }),
+        }),
+        supabase
+          .from("erp_employees")
+          .select("id, full_name, employee_no")
+          .eq("company_id", companyId)
+          .order("full_name", { ascending: true }),
+      ]);
+
+      const [runPayload, itemsPayload] = await Promise.all([runResponse.json(), itemsResponse.json()]);
+      const { data: employeesData, error: employeesErr } = employeesResponse;
 
       if (!active) return;
 
-      if (runErr || itemsErr || employeesErr) {
-        setErr(runErr?.message || itemsErr?.message || employeesErr?.message || "Unable to load payroll run.");
+      if (!runResponse.ok || !itemsResponse.ok || employeesErr) {
+        setErr(
+          runPayload?.error ||
+            itemsPayload?.error ||
+            employeesErr?.message ||
+            "Unable to load payroll run."
+        );
         return;
       }
 
-      setRun(runData);
-      setItems(itemsData || []);
+      setRun(runPayload?.run || null);
+      setItems(itemsPayload?.items || []);
       setEmployees(employeesData || []);
     })();
     return () => {
@@ -198,17 +203,17 @@ export default function PayrollRunDetailPage() {
 
   async function refreshItems() {
     if (!ctx?.companyId || !runId) return;
-    const { data, error } = await supabase
-      .from("erp_payroll_items")
-      .select("id, employee_id, gross, deductions, net_pay, notes, payslip_no, basic, hra, allowances")
-      .eq("company_id", ctx.companyId)
-      .eq("payroll_run_id", runId)
-      .order("created_at", { ascending: false });
-    if (error) {
-      setErr(error.message);
+    const response = await fetch("/api/erp/payroll/items/list", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ payrollRunId: runId }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setErr(payload?.error || "Failed to refresh payroll items.");
       return;
     }
-    setItems(data || []);
+    setItems(payload.items || []);
   }
 
   async function generateItems() {
@@ -223,13 +228,20 @@ export default function PayrollRunDetailPage() {
     }
     setIsGenerating(true);
     setErr("");
-    const { error } = await supabase.rpc("erp_payroll_run_generate", { p_run_id: runId });
-    if (error) {
-      setErr(error.message);
+    const response = await fetch("/api/erp/payroll/runs/generate", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ payrollRunId: runId }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setErr(payload?.error || "Failed to generate payroll items.");
       setIsGenerating(false);
       return;
     }
     await refreshItems();
+    setToast("Payroll items generated");
+    setTimeout(() => setToast(""), 2500);
     setIsGenerating(false);
   }
 
@@ -389,8 +401,11 @@ export default function PayrollRunDetailPage() {
               <thead>
                 <tr style={{ textAlign: "left" }}>
                   <th style={thStyle}>Employee</th>
-                  <th style={thStyle}>Gross</th>
+                  <th style={thStyle}>Basic</th>
+                  <th style={thStyle}>HRA</th>
+                  <th style={thStyle}>Allowances</th>
                   <th style={thStyle}>Deductions</th>
+                  <th style={thStyle}>Gross</th>
                   <th style={thStyle}>Net Pay</th>
                   <th style={thStyle}>Actions</th>
                 </tr>
@@ -399,14 +414,20 @@ export default function PayrollRunDetailPage() {
                 {items.map((item) => {
                   const emp = employees.find((e) => e.id === item.employee_id);
                   const net = item.net_pay ?? (item.gross ?? 0) - (item.deductions ?? 0);
+                  const basic = item.salary_basic ?? item.basic;
+                  const hra = item.salary_hra ?? item.hra;
+                  const allowances = item.salary_allowances ?? item.allowances;
                   return (
                     <tr key={item.id}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{emp?.full_name || "—"}</div>
                         <div style={{ fontSize: 12, color: "#777" }}>{emp?.employee_no || item.employee_id}</div>
                       </td>
-                      <td style={tdStyle}>{item.gross ?? "—"}</td>
+                      <td style={tdStyle}>{basic ?? "—"}</td>
+                      <td style={tdStyle}>{hra ?? "—"}</td>
+                      <td style={tdStyle}>{allowances ?? "—"}</td>
                       <td style={tdStyle}>{item.deductions ?? "—"}</td>
+                      <td style={tdStyle}>{item.gross ?? "—"}</td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{net}</div>
                         {isRunFinalized ? (
