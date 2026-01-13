@@ -4,6 +4,9 @@ import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../..
 type PayrollItem = {
   id: string;
   employee_id: string;
+  employee_name?: string | null;
+  employee_code?: string | null;
+  ot_amount?: number | null;
   gross: number | null;
   deductions: number | null;
   net_pay: number | null;
@@ -12,9 +15,6 @@ type PayrollItem = {
   salary_basic?: number | null;
   salary_hra?: number | null;
   salary_allowances?: number | null;
-  basic?: number | null;
-  hra?: number | null;
-  allowances?: number | null;
 };
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data, error } = await userClient
       .from("erp_payroll_items")
       .select(
-        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, salary_basic, salary_hra, salary_allowances, basic, hra, allowances"
+        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, salary_basic, salary_hra, salary_allowances"
       )
       .eq("payroll_run_id", payrollRunId)
       .order("created_at", { ascending: false });
@@ -70,7 +70,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    return res.status(200).json({ ok: true, items: (data as PayrollItem[]) || [] });
+    const items = (data as PayrollItem[]) || [];
+    const employeeIds = Array.from(new Set(items.map((item) => item.employee_id).filter(Boolean)));
+    const itemIds = items.map((item) => item.id).filter(Boolean);
+
+    let employeesById = new Map<string, { full_name: string | null; employee_code: string | null }>();
+    if (employeeIds.length > 0) {
+      const { data: employeeData, error: employeeError } = await userClient
+        .from("erp_employees")
+        .select("id, full_name, employee_code")
+        .in("id", employeeIds);
+
+      if (employeeError) {
+        return res.status(400).json({
+          ok: false,
+          error: employeeError.message || "Failed to load employees",
+          details: employeeError.details || employeeError.hint || employeeError.code,
+        });
+      }
+
+      employeesById = new Map(
+        (employeeData || []).map((employee) => [
+          employee.id,
+          {
+            full_name: employee.full_name ?? null,
+            employee_code: employee.employee_code ?? null,
+          },
+        ])
+      );
+    }
+
+    let otTotalsByItemId = new Map<string, number>();
+    if (itemIds.length > 0) {
+      const { data: lineData, error: lineError } = await userClient
+        .from("erp_payroll_item_lines")
+        .select("payroll_item_id, amount, code")
+        .in("payroll_item_id", itemIds)
+        .eq("code", "OT");
+
+      if (lineError) {
+        return res.status(400).json({
+          ok: false,
+          error: lineError.message || "Failed to load payroll item lines",
+          details: lineError.details || lineError.hint || lineError.code,
+        });
+      }
+
+      otTotalsByItemId = new Map();
+      (lineData || []).forEach((line) => {
+        const current = otTotalsByItemId.get(line.payroll_item_id) ?? 0;
+        otTotalsByItemId.set(line.payroll_item_id, current + (Number(line.amount) || 0));
+      });
+    }
+
+    const enrichedItems = items.map((item) => {
+      const employee = employeesById.get(item.employee_id);
+      return {
+        ...item,
+        employee_name: employee?.full_name ?? null,
+        employee_code: employee?.employee_code ?? null,
+        ot_amount: otTotalsByItemId.get(item.id) ?? 0,
+      };
+    });
+
+    return res.status(200).json({ ok: true, items: enrichedItems });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
