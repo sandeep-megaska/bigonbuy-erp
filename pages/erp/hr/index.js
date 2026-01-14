@@ -374,8 +374,8 @@ function buildNavItems(canManage) {
           description: "Standardize job titles and grading levels.",
           href: "/erp/hr/masters",
           icon: "🏷️",
-          status: "Coming Soon",
-          disabled: true,
+          status: "Active",
+          ctaLabel: "Manage",
         },
         {
           title: "Grades",

@@ -3,13 +3,12 @@ import { supabase } from "./supabaseClient";
 export type BaseRow = {
   id?: string;
   name?: string;
-  title?: string;
   key?: string;
   code?: string;
-  level?: number | null;
   country?: string;
   state?: string;
   city?: string;
+  description?: string;
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -19,15 +18,6 @@ export type DepartmentRow = {
   id?: string;
   name?: string;
   code?: string;
-  is_active?: boolean;
-  created_at?: string;
-  updated_at?: string;
-};
-
-export type JobTitleRow = {
-  id?: string;
-  title?: string;
-  level?: number | null;
   is_active?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -57,7 +47,10 @@ export type DesignationRow = {
   id?: string;
   code?: string;
   name?: string;
+  description?: string;
   is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type UpsertDepartmentInput = {
@@ -67,10 +60,11 @@ export type UpsertDepartmentInput = {
   is_active?: boolean | null;
 };
 
-export type UpsertJobTitleInput = {
+export type UpsertDesignationInput = {
   id?: string | null;
-  title?: string | null;
-  level?: number | null;
+  code?: string | null;
+  name?: string | null;
+  description?: string | null;
   is_active?: boolean | null;
 };
 
@@ -114,12 +108,6 @@ export async function listDepartments(): Promise<DepartmentRow[]> {
   return Array.isArray(data) ? (data as DepartmentRow[]) : [];
 }
 
-export async function listJobTitles(): Promise<JobTitleRow[]> {
-  const { data, error } = await supabase.rpc("erp_hr_job_titles_list");
-  if (error) throw normalizeError(error, "Failed to load job titles");
-  return Array.isArray(data) ? (data as JobTitleRow[]) : [];
-}
-
 export async function listLocations(): Promise<LocationRow[]> {
   const { data, error } = await supabase.rpc("erp_hr_locations_list");
   if (error) throw normalizeError(error, "Failed to load locations");
@@ -133,10 +121,9 @@ export async function listEmploymentTypes(): Promise<EmploymentTypeRow[]> {
 }
 
 export async function listDesignations(): Promise<DesignationRow[]> {
-  const { data, error } = await supabase
-    .from("erp_hr_designations")
-    .select("id, name, code, is_active")
-    .order("name", { ascending: true });
+  const { data, error } = await supabase.rpc("erp_hr_designations_list", {
+    p_include_inactive: true,
+  });
   if (error) throw normalizeError(error, "Failed to load designations");
   return Array.isArray(data) ? (data as DesignationRow[]) : [];
 }
@@ -152,14 +139,17 @@ export async function upsertDepartment(input: UpsertDepartmentInput): Promise<{ 
   return { id: resolveUpsertId(data, input.id ?? null) };
 }
 
-export async function upsertJobTitle(input: UpsertJobTitleInput): Promise<{ id: string }> {
-  const { data, error } = await supabase.rpc("erp_hr_job_title_upsert", {
+export async function upsertDesignation(
+  input: UpsertDesignationInput
+): Promise<{ id: string }> {
+  const { data, error } = await supabase.rpc("erp_hr_designation_upsert", {
     p_id: input.id ?? null,
-    p_title: input.title ?? null,
-    p_level: input.level ?? null,
+    p_code: input.code ?? null,
+    p_name: input.name ?? null,
+    p_description: input.description ?? null,
     p_is_active: input.is_active ?? true,
   });
-  if (error) throw normalizeError(error, "Failed to save job title");
+  if (error) throw normalizeError(error, "Failed to save designation");
   return { id: resolveUpsertId(data, input.id ?? null) };
 }
 

@@ -6,12 +6,12 @@ import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/e
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
 import {
   listDepartments,
+  listDesignations,
   listEmploymentTypes,
-  listJobTitles,
   listLocations,
   upsertDepartment,
+  upsertDesignation,
   upsertEmploymentType,
-  upsertJobTitle,
   upsertLocation,
 } from "../../../lib/hrMastersApi";
 import { supabase } from "../../../lib/supabaseClient";
@@ -37,22 +37,24 @@ const TAB_CONFIG = {
       { key: "updated_at", label: "Updated", render: (row) => formatDate(row.updated_at) },
     ],
   },
-  jobTitles: {
-    label: "Job Titles",
-    itemLabel: "job title",
-    listFn: listJobTitles,
-    upsertFn: upsertJobTitle,
-    empty: { id: null, title: "", level: "", is_active: true },
-    searchKeys: ["title", "level"],
-    requiredKeys: ["title"],
+  designations: {
+    label: "Designations",
+    itemLabel: "designation",
+    listFn: listDesignations,
+    upsertFn: upsertDesignation,
+    empty: { id: null, name: "", code: "", description: "", is_active: true },
+    searchKeys: ["name", "code", "description"],
+    requiredKeys: ["name"],
     fields: [
-      { key: "title", label: "Job Title", placeholder: "e.g., Senior Engineer", required: true },
-      { key: "level", label: "Level", type: "number", placeholder: "Optional level" },
+      { key: "name", label: "Designation Name", placeholder: "e.g., Senior Engineer", required: true },
+      { key: "code", label: "Code", placeholder: "Optional short code" },
+      { key: "description", label: "Description", placeholder: "Optional description" },
       { key: "is_active", label: "Active", type: "checkbox" },
     ],
     columns: [
-      { key: "title", label: "Title" },
-      { key: "level", label: "Level", render: (row) => row.level ?? "—" },
+      { key: "name", label: "Name" },
+      { key: "code", label: "Code" },
+      { key: "description", label: "Description", render: (row) => row.description || "—" },
       { key: "is_active", label: "Status", render: (row) => (row.is_active ? "Active" : "Inactive") },
       { key: "updated_at", label: "Updated", render: (row) => formatDate(row.updated_at) },
     ],
@@ -105,7 +107,7 @@ const TAB_CONFIG = {
   },
 };
 
-const TAB_ORDER = ["departments", "jobTitles", "locations", "employmentTypes"];
+const TAB_ORDER = ["departments", "designations", "locations", "employmentTypes"];
 
 const initialTabState = TAB_ORDER.reduce((acc, key) => {
   acc[key] = { loading: false, error: "", loaded: false };
@@ -121,13 +123,13 @@ export default function HrMastersPage() {
   const [tabState, setTabState] = useState(initialTabState);
   const [records, setRecords] = useState({
     departments: [],
-    jobTitles: [],
+    designations: [],
     locations: [],
     employmentTypes: [],
   });
   const [searchTerms, setSearchTerms] = useState({
     departments: "",
-    jobTitles: "",
+    designations: "",
     locations: "",
     employmentTypes: "",
   });
@@ -578,11 +580,12 @@ function buildUpsertPayload(tabKey, values) {
         name: values.name || null,
         code: values.code || null,
       };
-    case "jobTitles":
+    case "designations":
       return {
         ...base,
-        title: values.title || null,
-        level: values.level === "" || values.level === null ? null : Number(values.level),
+        name: values.name || null,
+        code: values.code || null,
+        description: values.description || null,
       };
     case "locations":
       return {
