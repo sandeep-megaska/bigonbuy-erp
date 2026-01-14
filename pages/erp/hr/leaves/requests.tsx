@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
 type LeaveRequest = {
   id: string;
   employee_id: string;
-  leave_type_code: string;
+  leave_type_id: string;
   start_date: string;
   end_date: string;
   days: number;
@@ -31,6 +31,7 @@ type LeaveRequest = {
 };
 
 type LeaveType = {
+  id: string;
   code: string;
   name: string;
   is_paid: boolean;
@@ -68,7 +69,7 @@ export default function HrLeaveRequestsPage() {
 
   const leaveTypeMap = useMemo(() => {
     return leaveTypes.reduce<Record<string, LeaveType>>((acc, type) => {
-      acc[type.code] = type;
+      acc[type.id] = type;
       return acc;
     }, {});
   }, [leaveTypes]);
@@ -114,7 +115,7 @@ export default function HrLeaveRequestsPage() {
   async function loadLeaveTypes() {
     const { data, error } = await supabase
       .from("erp_leave_types")
-      .select("code, name, is_paid")
+      .select("id, code, name, is_paid")
       .order("name", { ascending: true });
 
     if (error) {
@@ -129,7 +130,7 @@ export default function HrLeaveRequestsPage() {
     const { data, error } = await supabase
       .from("erp_leave_requests")
       .select(
-        "id, employee_id, leave_type_code, start_date, end_date, days, reason, status, reviewer_notes, reviewed_at, employee:employee_id(full_name, employee_code)"
+        "id, employee_id, leave_type_id, start_date, end_date, days, reason, status, reviewer_notes, reviewed_at, employee:employee_id(full_name, employee_code)"
       )
       .order("created_at", { ascending: false });
 
@@ -269,7 +270,7 @@ export default function HrLeaveRequestsPage() {
                 </tr>
               ) : (
                 filteredRequests.map((req) => {
-                  const leaveType = leaveTypeMap[req.leave_type_code];
+                  const leaveType = leaveTypeMap[req.leave_type_id];
                   return (
                     <tr key={req.id}>
                       <td style={tdStyle}>
@@ -277,7 +278,7 @@ export default function HrLeaveRequestsPage() {
                         <div style={{ color: "#6b7280" }}>{req.employee?.employee_code || req.employee_id}</div>
                       </td>
                       <td style={tdStyle}>
-                        {leaveType ? leaveType.name : req.leave_type_code}
+                        {leaveType ? leaveType.name : req.leave_type_id}
                         {leaveType ? (
                           <div style={{ color: "#6b7280" }}>{leaveType.is_paid ? "Paid" : "Unpaid"}</div>
                         ) : null}
