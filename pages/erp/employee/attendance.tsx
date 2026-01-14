@@ -9,18 +9,19 @@ import { supabase } from "../../../lib/supabaseClient";
 const STATUS_LABELS: Record<string, string> = {
   present: "Present",
   absent: "Absent",
-  half_day: "Half Day",
   leave: "Leave",
   holiday: "Holiday",
+  weekly_off: "Week Off",
+  half_day: "Half Day",
   weekoff: "Week Off",
 };
 
 type AttendanceRow = {
   id: string;
-  att_date: string;
+  day: string;
   status: string;
-  in_time: string | null;
-  out_time: string | null;
+  check_in_at: string | null;
+  check_out_at: string | null;
   notes: string | null;
 };
 
@@ -92,12 +93,12 @@ export default function EmployeeAttendancePage() {
   async function loadAttendance(employeeId: string, range: { start: string; end: string } | null) {
     if (!range) return;
     const { data, error } = await supabase
-      .from("erp_attendance_days")
-      .select("id, att_date, status, in_time, out_time, notes")
+      .from("erp_hr_attendance_days")
+      .select("id, day, status, check_in_at, check_out_at, notes")
       .eq("employee_id", employeeId)
-      .gte("att_date", range.start)
-      .lte("att_date", range.end)
-      .order("att_date", { ascending: false });
+      .gte("day", range.start)
+      .lte("day", range.end)
+      .order("day", { ascending: false });
 
     if (error) {
       setToast({ type: "error", message: error.message });
@@ -183,10 +184,10 @@ export default function EmployeeAttendancePage() {
               ) : (
                 attendance.map((row) => (
                   <tr key={row.id}>
-                    <td style={tdStyle}>{formatDate(row.att_date)}</td>
+                    <td style={tdStyle}>{formatDate(row.day)}</td>
                     <td style={tdStyle}>{STATUS_LABELS[row.status] || row.status}</td>
-                    <td style={tdStyle}>{row.in_time || "—"}</td>
-                    <td style={tdStyle}>{row.out_time || "—"}</td>
+                    <td style={tdStyle}>{formatTime(row.check_in_at)}</td>
+                    <td style={tdStyle}>{formatTime(row.check_out_at)}</td>
                     <td style={tdStyle}>{row.notes || "—"}</td>
                   </tr>
                 ))
@@ -204,6 +205,13 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString();
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 const containerStyle: CSSProperties = {
