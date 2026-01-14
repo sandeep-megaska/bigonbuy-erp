@@ -6,7 +6,25 @@ import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../li
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
 import { supabase } from "../../../../lib/supabaseClient";
 
-const ATTENDANCE_STATUSES = ["present", "absent", "leave", "holiday", "weekly_off"] as const;
+const STATUS_CODES: Record<string, string> = {
+  present: "P",
+  absent: "A",
+  leave: "L",
+  holiday: "H",
+  weekly_off: "WO",
+  unmarked: "U",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  present: "Present",
+  absent: "Absent",
+  leave: "Leave",
+  holiday: "Holiday",
+  weekly_off: "Week Off",
+  unmarked: "Unmarked",
+};
+
+const EDITABLE_STATUSES = ["unmarked", "present", "absent"];
 
 type EmployeeRow = {
   id: string;
@@ -14,21 +32,26 @@ type EmployeeRow = {
   employee_code: string | null;
 };
 
-type AttendanceRow = {
+type AttendanceDayRow = {
   employee_id: string;
+  day: string;
   status: string;
-  check_in_at: string | null;
-  check_out_at: string | null;
-  notes: string | null;
+  source: string | null;
+};
+
+type AttendancePeriod = {
+  status: "open" | "frozen";
+  frozen_at: string | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
-type AttendanceDraft = {
-  status: string;
-  check_in_at: string;
-  check_out_at: string;
-  notes: string;
+type MonthMeta = {
+  monthStart: string;
+  monthEnd: string;
+  daysInMonth: number;
+  days: string[];
+  label: string;
 };
 
 export default function HrAttendancePage() {
@@ -40,16 +63,55 @@ export default function HrAttendancePage() {
     roleKey: undefined,
   });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceDraft>>({});
+  const [attendanceRows, setAttendanceRows] = useState<AttendanceDayRow[]>([]);
+  const [periodStatus, setPeriodStatus] = useState<AttendancePeriod | null>(null);
+  const [monthValue, setMonthValue] = useState(() => new Date().toISOString().slice(0, 7));
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
     [access.isManager, ctx?.roleKey]
   );
+
+  const monthMeta = useMemo(() => buildMonthMeta(monthValue), [monthValue]);
+
+  const attendanceMap = useMemo(() => {
+    return attendanceRows.reduce<Record<string, AttendanceDayRow>>((acc, row) => {
+      acc[`${row.employee_id}-${row.day}`] = row;
+      return acc;
+    }, {});
+  }, [attendanceRows]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      present: 0,
+      absent: 0,
+      leave: 0,
+      holiday: 0,
+      weekly_off: 0,
+      unmarked: 0,
+    };
+
+    const totalCells = monthMeta ? employees.length * monthMeta.daysInMonth : 0;
+
+    attendanceRows.forEach((row) => {
+      if (counts[row.status] !== undefined) {
+        counts[row.status] += 1;
+      }
+    });
+
+    const recordedTotal = Object.keys(counts).reduce((sum, key) => {
+      return sum + counts[key];
+    }, 0);
+
+    if (totalCells > recordedTotal) {
+      counts.unmarked += totalCells - recordedTotal;
+    }
+
+    return counts;
+  }, [attendanceRows, employees.length, monthMeta]);
 
   useEffect(() => {
     let active = true;
@@ -75,6 +137,12 @@ export default function HrAttendancePage() {
         return;
       }
 
+      const canManageNow = accessState.isManager || isHr(context.roleKey);
+      if (!canManageNow) {
+        setLoading(false);
+        return;
+      }
+
       await loadEmployees();
       if (active) setLoading(false);
     })();
@@ -85,9 +153,10 @@ export default function HrAttendancePage() {
   }, [router]);
 
   useEffect(() => {
-    if (!ctx?.companyId) return;
-    loadAttendance(selectedDate);
-  }, [ctx?.companyId, selectedDate]);
+    if (!ctx?.companyId || !monthMeta || !canManage) return;
+    loadAttendanceMonth(monthMeta);
+    loadPeriodStatus(monthMeta.monthStart);
+  }, [ctx?.companyId, monthMeta, canManage]);
 
   async function loadEmployees() {
     const { data, error } = await supabase
@@ -103,105 +172,173 @@ export default function HrAttendancePage() {
     setEmployees((data as EmployeeRow[]) || []);
   }
 
-  async function loadAttendance(dateValue: string) {
-    if (!dateValue) return;
+  async function loadAttendanceMonth(meta: MonthMeta) {
     const { data, error } = await supabase
       .from("erp_hr_attendance_days")
-      .select("employee_id, status, check_in_at, check_out_at, notes")
-      .eq("day", dateValue);
+      .select("employee_id, day, status, source")
+      .gte("day", meta.monthStart)
+      .lte("day", meta.monthEnd)
+      .order("employee_id", { ascending: true })
+      .order("day", { ascending: true });
 
     if (error) {
       setToast({ type: "error", message: error.message });
       return;
     }
 
-    const mapped = (data as AttendanceRow[] | null)?.reduce<Record<string, AttendanceDraft>>(
-      (acc, row) => {
-        acc[row.employee_id] = {
-          status: row.status,
-          check_in_at: formatTimeInput(row.check_in_at),
-          check_out_at: formatTimeInput(row.check_out_at),
-          notes: row.notes || "",
-        };
-        return acc;
-      },
-      {}
-    ) || {};
-
-    setAttendanceMap(mapped);
+    setAttendanceRows((data as AttendanceDayRow[]) || []);
   }
 
-  function updateAttendance(employeeId: string, updates: Partial<AttendanceDraft>) {
-    setAttendanceMap((prev) => ({
-      ...prev,
-      [employeeId]: {
-        status: prev[employeeId]?.status || "",
-        check_in_at: prev[employeeId]?.check_in_at || "",
-        check_out_at: prev[employeeId]?.check_out_at || "",
-        notes: prev[employeeId]?.notes || "",
-        ...updates,
-      },
-    }));
-  }
+  async function loadPeriodStatus(monthStart: string) {
+    const { data, error } = await supabase
+      .from("erp_hr_attendance_periods")
+      .select("status, frozen_at")
+      .eq("month", monthStart)
+      .maybeSingle();
 
-  async function saveAttendance() {
-    if (!canManage) {
-      setToast({ type: "error", message: "Only HR/admin/payroll can mark attendance." });
-      return;
-    }
-    if (!selectedDate) return;
-
-    const payloads = employees
-      .map((employee) => {
-        const draft = attendanceMap[employee.id];
-        if (!draft?.status) return null;
-        const checkIn = toTimestamp(selectedDate, draft.check_in_at);
-        const checkOut = toTimestamp(selectedDate, draft.check_out_at);
-        return {
-          employee_id: employee.id,
-          status: draft.status,
-          check_in_at: checkIn,
-          check_out_at: checkOut,
-          notes: draft.notes || null,
-        };
-      })
-      .filter(Boolean) as Array<{
-      employee_id: string;
-      status: string;
-      check_in_at: string | null;
-      check_out_at: string | null;
-      notes: string | null;
-    }>;
-
-    if (!payloads.length) {
-      setToast({ type: "error", message: "Select at least one attendance status before saving." });
+    if (error) {
+      setToast({ type: "error", message: error.message });
       return;
     }
 
-    setSaving(true);
-    const results = await Promise.all(
-      payloads.map((payload) =>
-        supabase.rpc("erp_hr_attendance_set_day", {
-          p_employee_id: payload.employee_id,
-          p_day: selectedDate,
-          p_status: payload.status,
-          p_check_in: payload.check_in_at,
-          p_check_out: payload.check_out_at,
-          p_notes: payload.notes,
-        })
-      )
+    setPeriodStatus(
+      data
+        ? {
+            status: data.status,
+            frozen_at: data.frozen_at,
+          }
+        : null
+    );
+  }
+
+  async function handleGenerateMonth() {
+    if (!monthMeta) return;
+    setActionLoading("generate");
+    const { error } = await supabase.rpc("erp_attendance_generate_month", {
+      p_month: monthMeta.monthStart,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+    } else {
+      setToast({ type: "success", message: "Attendance month generated." });
+      await loadAttendanceMonth(monthMeta);
+      await loadPeriodStatus(monthMeta.monthStart);
+    }
+    setActionLoading(null);
+  }
+
+  async function handleMarkWeekdaysPresent() {
+    if (!monthMeta) return;
+    const employeeIds = employees.map((employee) => employee.id);
+    if (employeeIds.length === 0) {
+      setToast({ type: "error", message: "No employees available to mark." });
+      return;
+    }
+
+    setActionLoading("mark_weekdays");
+    const { error } = await supabase.rpc("erp_attendance_mark_bulk", {
+      p_month: monthMeta.monthStart,
+      p_employee_ids: employeeIds,
+      p_action: "mark_present_weekdays",
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+    } else {
+      setToast({ type: "success", message: "Weekdays marked present for selected month." });
+      await loadAttendanceMonth(monthMeta);
+    }
+    setActionLoading(null);
+  }
+
+  async function handleFreezeToggle() {
+    if (!monthMeta) return;
+    const isFrozen = periodStatus?.status === "frozen";
+    setActionLoading(isFrozen ? "unfreeze" : "freeze");
+
+    const { error } = await supabase.rpc(
+      isFrozen ? "erp_attendance_unfreeze_month" : "erp_attendance_freeze_month",
+      {
+        p_month: monthMeta.monthStart,
+      }
     );
 
-    const firstError = results.find((result) => result.error)?.error;
-    if (firstError) {
-      setToast({ type: "error", message: firstError.message });
-      setSaving(false);
+    if (error) {
+      setToast({ type: "error", message: error.message });
+    } else {
+      setToast({
+        type: "success",
+        message: isFrozen ? "Attendance month unfrozen." : "Attendance month frozen.",
+      });
+      await loadPeriodStatus(monthMeta.monthStart);
+    }
+
+    setActionLoading(null);
+  }
+
+  async function handleCellClick(employeeId: string, day: string) {
+    if (!monthMeta) return;
+    if (!canManage) {
+      setToast({ type: "error", message: "Only HR/admin users can edit attendance." });
+      return;
+    }
+    if (periodStatus?.status !== "open") {
+      setToast({
+        type: "error",
+        message: periodStatus?.status === "frozen" ? "Attendance period is frozen." : "Month not open.",
+      });
       return;
     }
 
-    setToast({ type: "success", message: "Attendance saved successfully." });
-    setSaving(false);
-    await loadAttendance(selectedDate);
+    const row = attendanceMap[`${employeeId}-${day}`];
+    if (row?.status === "leave" || row?.source === "leave") {
+      setToast({ type: "error", message: "Leave entries cannot be edited." });
+      return;
+    }
+
+    const currentStatus = row?.status || "unmarked";
+    const nextStatus = nextEditableStatus(currentStatus);
+
+    setActionLoading("cell");
+    const { error } = await supabase.rpc("erp_hr_attendance_set_day", {
+      p_employee_id: employeeId,
+      p_day: day,
+      p_status: nextStatus,
+      p_check_in: null,
+      p_check_out: null,
+      p_notes: null,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setActionLoading(null);
+      return;
+    }
+
+    setAttendanceRows((prev) => {
+      const next = [...prev];
+      const index = next.findIndex(
+        (item) => item.employee_id === employeeId && item.day === day
+      );
+      if (index >= 0) {
+        next[index] = {
+          ...next[index],
+          status: nextStatus,
+          source: "manual",
+        };
+      } else {
+        next.push({
+          employee_id: employeeId,
+          day,
+          status: nextStatus,
+          source: "manual",
+        });
+      }
+      return next;
+    });
+
+    setActionLoading(null);
   }
 
   const handleSignOut = async () => {
@@ -227,6 +364,24 @@ export default function HrAttendancePage() {
     );
   }
 
+  if (!canManage) {
+    return (
+      <div style={containerStyle}>
+        <p style={eyebrowStyle}>HR · Attendance</p>
+        <h1 style={titleStyle}>Attendance Month View</h1>
+        <div style={errorBoxStyle}>Not authorized. HR access is required.</div>
+        <div style={{ display: "flex", gap: 12 }}>
+          <a href="/erp/hr" style={linkStyle}>
+            Back to HR Home
+          </a>
+          <button onClick={handleSignOut} style={buttonStyle}>
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={containerStyle}>
       <ErpNavBar access={access} roleKey={ctx?.roleKey} />
@@ -234,17 +389,24 @@ export default function HrAttendancePage() {
       <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR · Attendance</p>
-          <h1 style={titleStyle}>Attendance Day Marking</h1>
-          <p style={subtitleStyle}>Select a date and mark attendance for each employee.</p>
+          <h1 style={titleStyle}>Attendance Month Grid</h1>
+          <p style={subtitleStyle}>Review and update attendance across the month.</p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
             Signed in as <strong>{ctx?.email}</strong> · Role: {" "}
             <strong>{ctx?.roleKey || access.roleKey || "member"}</strong>
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <a href="/erp/hr" style={linkStyle}>← Back to HR Home</a>
-          <button type="button" onClick={saveAttendance} style={primaryButtonStyle} disabled={saving}>
-            {saving ? "Saving..." : "Save Attendance"}
+          <a href="/erp/hr" style={linkStyle}>
+            ← Back to HR Home
+          </a>
+          <button
+            type="button"
+            onClick={handleFreezeToggle}
+            style={periodStatus?.status === "frozen" ? warningButtonStyle : primaryButtonStyle}
+            disabled={actionLoading === "freeze" || actionLoading === "unfreeze"}
+          >
+            {periodStatus?.status === "frozen" ? "Unfreeze Month" : "Freeze Month"}
           </button>
         </div>
       </header>
@@ -256,94 +418,121 @@ export default function HrAttendancePage() {
       <section style={sectionStyle}>
         <div style={toolbarStyle}>
           <label style={filterLabelStyle}>
-            Attendance date
+            Month
             <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              type="month"
+              value={monthValue}
+              onChange={(e) => setMonthValue(e.target.value)}
               style={inputStyle}
             />
           </label>
-          <span style={{ color: "#6b7280" }}>Employees: {employees.length}</span>
+          <div style={toolbarRightStyle}>
+            <span style={metaLabelStyle}>
+              Employees: <strong>{employees.length}</strong>
+            </span>
+            <span style={metaLabelStyle}>
+              Days: <strong>{monthMeta?.daysInMonth ?? 0}</strong>
+            </span>
+            <span style={metaLabelStyle}>
+              Status: <strong>{periodStatus?.status || "not generated"}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div style={actionsStyle}>
+          <button
+            type="button"
+            onClick={handleGenerateMonth}
+            style={secondaryButtonStyle}
+            disabled={actionLoading === "generate"}
+          >
+            {actionLoading === "generate" ? "Generating..." : "Generate Month"}
+          </button>
+          <button
+            type="button"
+            onClick={handleMarkWeekdaysPresent}
+            style={secondaryButtonStyle}
+            disabled={actionLoading === "mark_weekdays"}
+          >
+            {actionLoading === "mark_weekdays" ? "Marking..." : "Mark Weekdays Present"}
+          </button>
+        </div>
+
+        <div style={legendStyle}>
+          {Object.keys(STATUS_CODES).map((key) => (
+            <div key={key} style={legendItemStyle}>
+              <span style={legendBadgeStyle}>{STATUS_CODES[key]}</span>
+              <span>{STATUS_LABELS[key]}</span>
+              <span style={legendCountStyle}>{statusCounts[key] ?? 0}</span>
+            </div>
+          ))}
         </div>
 
         <div style={tableWrapStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={thStyle}>Employee</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>In Time</th>
-                <th style={thStyle}>Out Time</th>
-                <th style={thStyle}>Notes</th>
+                <th style={stickyHeaderStyle}>Employee</th>
+                {monthMeta?.days.map((day) => (
+                  <th key={day} style={dayHeaderStyle}>
+                    {day.split("-")[2]}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ ...tdStyle, textAlign: "center" }}>
+                  <td colSpan={(monthMeta?.daysInMonth ?? 0) + 1} style={emptyCellStyle}>
                     No employees found.
                   </td>
                 </tr>
               ) : (
-                employees.map((employee) => {
-                  const draft = attendanceMap[employee.id] || {
-                    status: "",
-                    check_in_at: "",
-                    check_out_at: "",
-                    notes: "",
-                  };
-                  return (
-                    <tr key={employee.id}>
-                      <td style={tdStyle}>
-                        <strong>{employee.full_name || "Employee"}</strong>
-                        <div style={{ color: "#6b7280" }}>{employee.employee_code || employee.id}</div>
-                      </td>
-                      <td style={tdStyle}>
-                        <select
-                          value={draft.status}
-                          onChange={(e) => updateAttendance(employee.id, { status: e.target.value })}
-                          style={selectStyle}
-                        >
-                          <option value="">Select status</option>
-                          {ATTENDANCE_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {status.replace("_", " ")}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          type="time"
-                          value={draft.check_in_at}
-                          onChange={(e) =>
-                            updateAttendance(employee.id, { check_in_at: e.target.value })
-                          }
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          type="time"
-                          value={draft.check_out_at}
-                          onChange={(e) =>
-                            updateAttendance(employee.id, { check_out_at: e.target.value })
-                          }
-                          style={inputStyle}
-                        />
-                      </td>
-                      <td style={tdStyle}>
-                        <input
-                          value={draft.notes}
-                          onChange={(e) => updateAttendance(employee.id, { notes: e.target.value })}
-                          placeholder="Optional notes"
-                          style={inputStyle}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })
+                employees.map((employee) => (
+                  <tr key={employee.id}>
+                    <td style={stickyCellStyle}>
+                      <strong>{employee.full_name || "Employee"}</strong>
+                      <div style={{ color: "#6b7280" }}>
+                        {employee.employee_code || employee.id}
+                      </div>
+                    </td>
+                    {monthMeta?.days.map((day) => {
+                      const row = attendanceMap[`${employee.id}-${day}`];
+                      const status = row?.status || "unmarked";
+                      const statusCode = STATUS_CODES[status] || "U";
+                      const isLocked =
+                        periodStatus?.status !== "open" ||
+                        row?.status === "leave" ||
+                        row?.source === "leave";
+                      return (
+                        <td key={`${employee.id}-${day}`} style={gridCellStyle}>
+                          <button
+                            type="button"
+                            onClick={() => handleCellClick(employee.id, day)}
+                            style={{
+                              ...cellButtonStyle,
+                              ...(status === "present" ? presentCellStyle : null),
+                              ...(status === "absent" ? absentCellStyle : null),
+                              ...(status === "leave" ? leaveCellStyle : null),
+                              ...(status === "holiday" ? holidayCellStyle : null),
+                              ...(status === "weekly_off" ? weekOffCellStyle : null),
+                              ...(status === "unmarked" ? unmarkedCellStyle : null),
+                              ...(isLocked ? lockedCellStyle : null),
+                            }}
+                            disabled={isLocked || actionLoading === "cell"}
+                            title={
+                              isLocked
+                                ? "Locked"
+                                : `Click to set ${STATUS_LABELS[nextEditableStatus(status)]}`
+                            }
+                          >
+                            {statusCode}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -353,18 +542,37 @@ export default function HrAttendancePage() {
   );
 }
 
-function formatTimeInput(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+function buildMonthMeta(value: string): MonthMeta | null {
+  if (!value) return null;
+  const [yearString, monthString] = value.split("-");
+  const year = Number(yearString);
+  const month = Number(monthString);
+  if (!year || !month) return null;
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const monthStart = `${yearString}-${monthString}-01`;
+  const monthEnd = `${yearString}-${monthString}-${String(daysInMonth).padStart(2, "0")}`;
+
+  const days: string[] = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dayValue = String(day).padStart(2, "0");
+    days.push(`${yearString}-${monthString}-${dayValue}`);
+  }
+
+  return {
+    monthStart,
+    monthEnd,
+    daysInMonth,
+    days,
+    label: `${yearString}-${monthString}`,
+  };
 }
 
-function toTimestamp(dateValue: string, timeValue?: string) {
-  if (!dateValue || !timeValue) return null;
-  const date = new Date(`${dateValue}T${timeValue}`);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
+function nextEditableStatus(current: string) {
+  const normalized = current || "unmarked";
+  const index = EDITABLE_STATUSES.indexOf(normalized);
+  const nextIndex = index >= 0 ? (index + 1) % EDITABLE_STATUSES.length : 0;
+  return EDITABLE_STATUSES[nextIndex];
 }
 
 const containerStyle: CSSProperties = {
@@ -413,6 +621,22 @@ const toolbarStyle: CSSProperties = {
   flexWrap: "wrap",
 };
 
+const toolbarRightStyle: CSSProperties = {
+  display: "flex",
+  gap: 16,
+  flexWrap: "wrap",
+};
+
+const metaLabelStyle: CSSProperties = {
+  color: "#6b7280",
+};
+
+const actionsStyle: CSSProperties = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
 const filterLabelStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -425,39 +649,87 @@ const inputStyle: CSSProperties = {
   padding: "8px 10px",
   borderRadius: 8,
   border: "1px solid #d1d5db",
-  minWidth: 140,
-};
-
-const selectStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
+  minWidth: 160,
 };
 
 const tableWrapStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: 12,
-  overflowX: "auto",
+  overflow: "auto",
 };
 
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  fontSize: 14,
+  fontSize: 13,
+  minWidth: 900,
 };
 
-const thStyle: CSSProperties = {
+const stickyHeaderStyle: CSSProperties = {
   textAlign: "left",
-  padding: "12px 14px",
+  padding: "10px 12px",
   backgroundColor: "#f9fafb",
   color: "#374151",
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
+  minWidth: 200,
 };
 
-const tdStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderTop: "1px solid #e5e7eb",
-  verticalAlign: "top",
+const dayHeaderStyle: CSSProperties = {
+  textAlign: "center",
+  padding: "8px 6px",
+  backgroundColor: "#f9fafb",
+  color: "#374151",
+  minWidth: 38,
 };
+
+const stickyCellStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderTop: "1px solid #e5e7eb",
+  backgroundColor: "#fff",
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
+  minWidth: 200,
+};
+
+const gridCellStyle: CSSProperties = {
+  padding: "6px",
+  borderTop: "1px solid #e5e7eb",
+  textAlign: "center",
+};
+
+const emptyCellStyle: CSSProperties = {
+  padding: "16px",
+  borderTop: "1px solid #e5e7eb",
+  textAlign: "center",
+};
+
+const cellButtonStyle: CSSProperties = {
+  width: 30,
+  height: 30,
+  borderRadius: 6,
+  border: "1px solid #d1d5db",
+  backgroundColor: "#fff",
+  cursor: "pointer",
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const presentCellStyle: CSSProperties = { backgroundColor: "#dcfce7", borderColor: "#86efac" };
+
+const absentCellStyle: CSSProperties = { backgroundColor: "#fee2e2", borderColor: "#fecaca" };
+
+const leaveCellStyle: CSSProperties = { backgroundColor: "#e0f2fe", borderColor: "#bae6fd" };
+
+const holidayCellStyle: CSSProperties = { backgroundColor: "#fef9c3", borderColor: "#fde68a" };
+
+const weekOffCellStyle: CSSProperties = { backgroundColor: "#f3e8ff", borderColor: "#e9d5ff" };
+
+const unmarkedCellStyle: CSSProperties = { backgroundColor: "#f3f4f6", borderColor: "#e5e7eb" };
+
+const lockedCellStyle: CSSProperties = { cursor: "not-allowed", opacity: 0.65 };
 
 const buttonStyle: CSSProperties = {
   padding: "8px 14px",
@@ -472,6 +744,55 @@ const primaryButtonStyle: CSSProperties = {
   backgroundColor: "#2563eb",
   borderColor: "#2563eb",
   color: "#fff",
+};
+
+const warningButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  backgroundColor: "#f97316",
+  borderColor: "#f97316",
+  color: "#fff",
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  backgroundColor: "#111827",
+  borderColor: "#111827",
+  color: "#fff",
+};
+
+const legendStyle: CSSProperties = {
+  display: "flex",
+  gap: 16,
+  flexWrap: "wrap",
+  padding: "12px",
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  backgroundColor: "#f9fafb",
+};
+
+const legendItemStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  color: "#374151",
+  fontSize: 13,
+};
+
+const legendBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 26,
+  height: 26,
+  borderRadius: 6,
+  backgroundColor: "#e5e7eb",
+  fontWeight: 700,
+};
+
+const legendCountStyle: CSSProperties = {
+  marginLeft: 4,
+  color: "#111827",
+  fontWeight: 600,
 };
 
 const errorBoxStyle: CSSProperties = {
