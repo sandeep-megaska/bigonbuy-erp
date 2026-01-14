@@ -464,6 +464,14 @@ function buildNavItems(canManage) {
           status: "Active",
           ctaLabel: "Manage",
         },
+        {
+          title: "Weekly Off Rules",
+          description: "Define weekly off patterns by location and employee overrides.",
+          href: "/erp/hr/weekly-off",
+          icon: "📆",
+          status: "Active",
+          ctaLabel: "Configure",
+        },
       ],
     },
     {
