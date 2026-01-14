@@ -456,6 +456,14 @@ function buildNavItems(canManage) {
           status: "Active",
           ctaLabel: "Mark days",
         },
+        {
+          title: "Calendars",
+          description: "Manage attendance calendars, holidays, and work location mappings.",
+          href: "/erp/hr/calendars",
+          icon: "📅",
+          status: "Active",
+          ctaLabel: "Manage",
+        },
       ],
     },
     {
