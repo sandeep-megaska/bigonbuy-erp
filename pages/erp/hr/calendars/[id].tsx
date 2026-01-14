@@ -92,7 +92,8 @@ export default function HrCalendarDetailPage() {
   }, [locations]);
 
   const mappedLocationIds = useMemo(
-    () => new Set(mappings.map((mapping) => mapping.work_location_id)),
+    () => mappings.map((m) => m.work_location_id),
+
     [mappings]
   );
 
@@ -335,7 +336,8 @@ export default function HrCalendarDetailPage() {
       return;
     }
 
-    const newIds = locationSelections.filter((locationId) => !mappedLocationIds.has(locationId));
+    const newIds = locationSelections.filter((locationId) => mappedLocationIds.indexOf(locationId) === -1);
+
     if (newIds.length === 0) {
       setMappingError("Select at least one new location to assign.");
       return;
@@ -598,10 +600,15 @@ export default function HrCalendarDetailPage() {
                 </option>
               ) : (
                 locations.map((location) => (
-                  <option key={location.id} value={location.id} disabled={mappedLocationIds.has(location.id || "")}>
-                    {location.name}
-                    {mappedLocationIds.has(location.id || "") ? " (assigned)" : ""}
-                  </option>
+                  <option
+  key={location.id}
+  value={location.id}
+  disabled={mappedLocationIds.indexOf(location.id || "") !== -1}
+>
+  {location.name}
+  {mappedLocationIds.indexOf(location.id || "") !== -1 ? " (assigned)" : ""}
+</option>
+
                 ))
               )}
             </select>
