@@ -14,6 +14,7 @@ export default function PayrollRunDetailPage() {
   const [run, setRun] = useState(null);
   const [items, setItems] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [itemStatuses, setItemStatuses] = useState([]);
   const [toast, setToast] = useState(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -32,6 +33,14 @@ export default function PayrollRunDetailPage() {
     if (!ctx?.roleKey) return false;
     return ["owner", "admin", "hr", "payroll"].includes(ctx.roleKey);
   }, [ctx]);
+
+  const statusMap = useMemo(() => {
+    const map = new Map();
+    (itemStatuses || []).forEach((row) => {
+      if (row?.payroll_item_id) map.set(row.payroll_item_id, row);
+    });
+    return map;
+  }, [itemStatuses]);
 
   const isRunFinalized = run?.status === "finalized";
 
@@ -61,7 +70,7 @@ export default function PayrollRunDetailPage() {
     (async () => {
       setErr("");
       const companyId = ctx.companyId;
-      const [runResponse, itemsResponse, employeesResponse] = await Promise.all([
+      const [runResponse, itemsResponse, employeesResponse, statusResponse] = await Promise.all([
         fetch("/api/erp/payroll/runs/get", {
           method: "POST",
           headers: getAuthHeaders(),
@@ -77,18 +86,23 @@ export default function PayrollRunDetailPage() {
           .select("id, full_name, employee_no")
           .eq("company_id", companyId)
           .order("full_name", { ascending: true }),
+        supabase.rpc("erp_payroll_run_items_status", {
+          p_payroll_run_id: runId,
+        }),
       ]);
 
       const [runPayload, itemsPayload] = await Promise.all([runResponse.json(), itemsResponse.json()]);
       const { data: employeesData, error: employeesErr } = employeesResponse;
+      const { data: statusData, error: statusErr } = statusResponse;
 
       if (!active) return;
 
-      if (!runResponse.ok || !itemsResponse.ok || employeesErr) {
+      if (!runResponse.ok || !itemsResponse.ok || employeesErr || statusErr) {
         setErr(
           runPayload?.error ||
             itemsPayload?.error ||
             employeesErr?.message ||
+            statusErr?.message ||
             "Unable to load payroll run."
         );
         return;
@@ -97,6 +111,7 @@ export default function PayrollRunDetailPage() {
       setRun(runPayload?.run || null);
       setItems(itemsPayload?.items || []);
       setEmployees(employeesData || []);
+      setItemStatuses(statusData || []);
     })();
     return () => {
       active = false;
@@ -109,18 +124,17 @@ export default function PayrollRunDetailPage() {
   }
 
   function getAuthHeaders() {
-  const headers = {
-    "Content-Type": "application/json",
-  };
+    const headers = {
+      "Content-Type": "application/json",
+    };
 
-  const token = ctx?.session?.access_token;
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    return headers;
   }
-
-  return headers;
-}
-
 
 
   function updateOtForm(key, value, autoAmount = true) {
@@ -152,6 +166,11 @@ export default function PayrollRunDetailPage() {
     setOtItem(item);
     setOtForm(emptyOtForm);
     setOtError("");
+    const status = statusMap.get(item?.id);
+    if (status?.has_salary_assignment === false) {
+      showToast("Assign salary to enable OT and payroll calculations.", "error");
+      return;
+    }
     setOtOpen(true);
     if (!item?.id) return;
     setOtLoading(true);
@@ -232,6 +251,7 @@ export default function PayrollRunDetailPage() {
       setOtOpen(false);
     } catch (e) {
       setOtError(e.message || "Failed to save OT");
+      showToast(e.message || "Failed to save OT", "error");
     } finally {
       setOtSaving(false);
     }
@@ -239,17 +259,38 @@ export default function PayrollRunDetailPage() {
 
   async function refreshItems() {
     if (!ctx?.companyId || !runId) return;
-    const response = await fetch("/api/erp/payroll/items/list", {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ payrollRunId: runId }),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      setErr(payload?.error || "Failed to refresh payroll items.");
+    const [itemsResponse, statusResponse] = await Promise.all([
+      fetch("/api/erp/payroll/items/list", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ payrollRunId: runId }),
+      }),
+      supabase.rpc("erp_payroll_run_items_status", {
+        p_payroll_run_id: runId,
+      }),
+    ]);
+    const payload = await itemsResponse.json();
+    const { data: statusData, error: statusErr } = statusResponse;
+    if (!itemsResponse.ok || statusErr) {
+      setErr(payload?.error || statusErr?.message || "Failed to refresh payroll items.");
       return;
     }
     setItems(payload.items || []);
+    setItemStatuses(statusData || []);
+  }
+
+  function formatCtc(value) {
+    if (value === null || value === undefined) return "—";
+    const num = Number(value);
+    if (!Number.isFinite(num)) return value;
+    return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(num);
+  }
+
+  function getSalaryStatusCopy(status) {
+    if (!status || status.has_salary_assignment === false) return null;
+    const structure = status.structure_name || "Salary structure";
+    const ctc = formatCtc(status.ctc_monthly);
+    return `${structure} · CTC ${ctc}`;
   }
 
   async function refreshRun() {
@@ -481,11 +522,28 @@ export default function PayrollRunDetailPage() {
                   const basic = item.salary_basic ?? item.basic;
                   const hra = item.salary_hra ?? item.hra;
                   const allowances = item.salary_allowances ?? item.allowances;
+                  const status = statusMap.get(item.id);
+                  const hasSalaryAssignment = status?.has_salary_assignment !== false;
+                  const salaryStatusCopy = getSalaryStatusCopy(status);
+                  const assignLink = `/erp/hr/employees/${item.employee_id}?tab=salary`;
                   return (
                     <tr key={item.id}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{emp?.full_name || "—"}</div>
                         <div style={{ fontSize: 12, color: "#777" }}>{emp?.employee_no || item.employee_id}</div>
+                        {status?.has_salary_assignment === false ? (
+                          <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <span style={missingBadgeStyle}>No salary assigned</span>
+                            <a href={assignLink} style={assignSalaryLinkStyle}>
+                              Assign salary →
+                            </a>
+                          </div>
+                        ) : null}
+                        {salaryStatusCopy ? (
+                          <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+                            {salaryStatusCopy}
+                          </div>
+                        ) : null}
                       </td>
                       <td style={tdStyle}>{basic ?? "—"}</td>
                       <td style={tdStyle}>{hra ?? "—"}</td>
@@ -508,9 +566,17 @@ export default function PayrollRunDetailPage() {
                       <td style={tdStyle}>
                         <button
                           type="button"
-                          style={{ ...smallButtonStyle, opacity: isRunFinalized ? 0.6 : 1 }}
+                          style={{
+                            ...smallButtonStyle,
+                            opacity: isRunFinalized || !hasSalaryAssignment ? 0.6 : 1,
+                          }}
                           onClick={() => openOtDrawer(item)}
-                          disabled={isRunFinalized}
+                          disabled={isRunFinalized || !hasSalaryAssignment}
+                          title={
+                            !hasSalaryAssignment
+                              ? "Assign salary to enable OT and payroll calculations."
+                              : "Add or edit OT"
+                          }
                         >
                           OT
                         </button>
@@ -622,6 +688,22 @@ const badgeStyle = {
   fontSize: 12,
   fontWeight: 600,
   textTransform: "capitalize",
+};
+const missingBadgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "2px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  background: "#fef2f2",
+  color: "#b91c1c",
+  border: "1px solid #fecaca",
+};
+const assignSalaryLinkStyle = {
+  fontSize: 12,
+  color: "#2563eb",
+  textDecoration: "none",
 };
 const statusBadgeStyles = {
   draft: { background: "#f3f4f6", color: "#374151" },
