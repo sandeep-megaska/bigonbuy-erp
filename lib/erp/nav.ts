@@ -101,6 +101,14 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "my-payslips",
+    label: "My Payslips",
+    href: "/erp/my/payslips",
+    section: "Employee",
+    description: "View your finalized payslips and downloads.",
+    access: "publicAuth",
+  },
+  {
     id: "finance",
     label: "Finance",
     href: "/erp/finance",

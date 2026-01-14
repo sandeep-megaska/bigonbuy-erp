@@ -15,6 +15,7 @@ export default function PayrollRunDetailPage() {
   const [items, setItems] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [itemStatuses, setItemStatuses] = useState([]);
+  const [payslips, setPayslips] = useState([]);
   const [toast, setToast] = useState(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -41,6 +42,14 @@ export default function PayrollRunDetailPage() {
     });
     return map;
   }, [itemStatuses]);
+
+  const payslipMap = useMemo(() => {
+    const map = new Map();
+    (payslips || []).forEach((row) => {
+      if (row?.employee_id) map.set(row.employee_id, row);
+    });
+    return map;
+  }, [payslips]);
 
   const isRunFinalized = run?.status === "finalized";
 
@@ -112,6 +121,18 @@ export default function PayrollRunDetailPage() {
       setItems(itemsPayload?.items || []);
       setEmployees(employeesData || []);
       setItemStatuses(statusData || []);
+      if (runPayload?.run?.status === "finalized") {
+        const { data: payslipData, error: payslipErr } = await supabase.rpc("erp_payroll_run_payslips", {
+          p_payroll_run_id: runId,
+        });
+        if (payslipErr) {
+          setErr(payslipErr.message || "Unable to load payslips.");
+          return;
+        }
+        setPayslips(payslipData || []);
+      } else {
+        setPayslips([]);
+      }
     })();
     return () => {
       active = false;
@@ -279,6 +300,18 @@ export default function PayrollRunDetailPage() {
     setItemStatuses(statusData || []);
   }
 
+  async function refreshPayslips() {
+    if (!ctx?.companyId || !runId) return;
+    const { data, error } = await supabase.rpc("erp_payroll_run_payslips", {
+      p_payroll_run_id: runId,
+    });
+    if (error) {
+      setErr(error.message || "Failed to refresh payslips.");
+      return;
+    }
+    setPayslips(data || []);
+  }
+
   function formatCtc(value) {
     if (value === null || value === undefined) return "—";
     const num = Number(value);
@@ -353,36 +386,6 @@ export default function PayrollRunDetailPage() {
     setIsFinalizing(true);
     setErr("");
     try {
-      const { data: runItems, error: itemsError } = await supabase
-        .from("erp_payroll_items")
-        .select("id, employee_id, payslip_no")
-        .eq("company_id", ctx.companyId)
-        .eq("payroll_run_id", runId);
-      if (itemsError) throw itemsError;
-
-      const paddedMonth = String(run?.month || "").padStart(2, "0");
-      const runYear = run?.year;
-      const updates = [];
-      (runItems || []).forEach((item) => {
-        if (!item.payslip_no) {
-          const emp = employees.find((e) => e.id === item.employee_id);
-          const empCode = emp?.employee_no || item.employee_id;
-          updates.push({
-            id: item.id,
-            payslip_no: `BB-${runYear}${paddedMonth}-${empCode}`,
-          });
-        }
-      });
-
-      for (const update of updates) {
-        const { error: updErr } = await supabase
-          .from("erp_payroll_items")
-          .update({ payslip_no: update.payslip_no })
-          .eq("company_id", ctx.companyId)
-          .eq("id", update.id);
-        if (updErr) throw updErr;
-      }
-
       const { error: finalizeErr } = await supabase.rpc("erp_payroll_run_finalize", {
         p_payroll_run_id: runId,
       });
@@ -390,6 +393,7 @@ export default function PayrollRunDetailPage() {
 
       await refreshRun();
       await refreshItems();
+      await refreshPayslips();
       showToast("Payroll run finalized");
     } catch (e) {
       showToast(e.message || "Failed to finalize payroll run.", "error");
@@ -512,6 +516,7 @@ export default function PayrollRunDetailPage() {
                   <th style={thStyle}>Deductions</th>
                   <th style={thStyle}>Gross</th>
                   <th style={thStyle}>Net Pay</th>
+                  <th style={thStyle}>Payslip</th>
                   <th style={thStyle}>Actions</th>
                 </tr>
               </thead>
@@ -526,6 +531,7 @@ export default function PayrollRunDetailPage() {
                   const hasSalaryAssignment = status?.has_salary_assignment !== false;
                   const salaryStatusCopy = getSalaryStatusCopy(status);
                   const assignLink = `/erp/hr/employees/${item.employee_id}?tab=salary`;
+                  const payslip = payslipMap.get(item.employee_id);
                   return (
                     <tr key={item.id}>
                       <td style={tdStyle}>
@@ -552,16 +558,22 @@ export default function PayrollRunDetailPage() {
                       <td style={tdStyle}>{item.gross ?? "—"}</td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{net}</div>
+                      </td>
+                      <td style={tdStyle}>
                         {isRunFinalized ? (
-                          <div style={{ marginTop: 6, fontSize: 12, color: "#555" }}>
-                            Payslip: {item.payslip_no || "Generating…"}
-                            <div style={{ marginTop: 6 }}>
-                              <a href={`/erp/hr/payslips/${runId}/${item.employee_id}`} style={{ fontWeight: 600 }}>
+                          payslip?.payslip_id ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <span style={{ fontSize: 12, color: "#555" }}>{payslip.payslip_no || "Payslip"}</span>
+                              <a href={`/erp/hr/payroll/payslips/${payslip.payslip_id}`} style={{ fontWeight: 600 }}>
                                 View Payslip
                               </a>
                             </div>
-                          </div>
-                        ) : null}
+                          ) : (
+                            <span style={{ fontSize: 12, color: "#777" }}>Generating…</span>
+                          )
+                        ) : (
+                          <span style={{ fontSize: 12, color: "#777" }}>Finalize to generate payslips</span>
+                        )}
                       </td>
                       <td style={tdStyle}>
                         <button
