@@ -24,6 +24,9 @@ export default function PayrollRunDetailPage() {
   const [otError, setOtError] = useState("");
   const [otItem, setOtItem] = useState(null);
   const [otForm, setOtForm] = useState(emptyOtForm);
+  const [otType, setOtType] = useState("normal");
+  const [otLineMap, setOtLineMap] = useState({ normal: null, holiday: null });
+  const [otCodeMap, setOtCodeMap] = useState({ normal: "OT_NORMAL", holiday: "OT_HOLIDAY" });
 
   const canWrite = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -134,6 +137,17 @@ export default function PayrollRunDetailPage() {
     });
   }
 
+  function applyOtLine(nextType, lineMap) {
+    const line = lineMap[nextType];
+    setOtType(nextType);
+    setOtForm({
+      units: line?.units?.toString() || "",
+      rate: line?.rate?.toString() || "",
+      amount: line?.amount?.toString() || "",
+      notes: line?.notes || "",
+    });
+  }
+
   async function openOtDrawer(item) {
     setOtItem(item);
     setOtForm(emptyOtForm);
@@ -151,13 +165,18 @@ export default function PayrollRunDetailPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load OT line");
       }
-      const otLine = (payload.lines || []).find((line) => line.code === "OT");
-      setOtForm({
-        units: otLine?.units?.toString() || "",
-        rate: otLine?.rate?.toString() || "",
-        amount: otLine?.amount?.toString() || "",
-        notes: otLine?.notes || "",
-      });
+      const lines = payload.lines || [];
+      const normalLine = lines.find((line) => line.code === "OT_NORMAL") || lines.find((line) => line.code === "OT");
+      const holidayLine = lines.find((line) => line.code === "OT_HOLIDAY");
+      const nextLineMap = { normal: normalLine || null, holiday: holidayLine || null };
+      const nextCodeMap = {
+        normal: normalLine?.code || "OT_NORMAL",
+        holiday: holidayLine?.code || "OT_HOLIDAY",
+      };
+      setOtLineMap(nextLineMap);
+      setOtCodeMap(nextCodeMap);
+      const initialType = holidayLine && !normalLine ? "holiday" : "normal";
+      applyOtLine(initialType, nextLineMap);
     } catch (e) {
       setOtError(e.message || "Failed to load OT line");
     } finally {
@@ -180,12 +199,13 @@ export default function PayrollRunDetailPage() {
     setOtSaving(true);
     setOtError("");
     try {
+      const otCode = otCodeMap[otType] || (otType === "holiday" ? "OT_HOLIDAY" : "OT_NORMAL");
       const response = await fetch("/api/erp/payroll/item-lines/upsert", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
           payrollItemId: otItem.id,
-          code: "OT",
+          code: otCode,
           units: otForm.units,
           rate: otForm.rate,
           amount: otForm.amount,
@@ -516,6 +536,18 @@ export default function PayrollRunDetailPage() {
             </div>
 
             <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+              <label style={labelStyle}>
+                OT Type
+                <select
+                  value={otType}
+                  onChange={(e) => applyOtLine(e.target.value, otLineMap)}
+                  style={inputStyle}
+                  disabled={!canWrite || isRunFinalized}
+                >
+                  <option value="normal">Normal OT</option>
+                  <option value="holiday">Holiday OT</option>
+                </select>
+              </label>
               <label style={labelStyle}>
                 OT Hours
                 <input
