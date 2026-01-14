@@ -96,6 +96,15 @@ export default function EmployeeProfilePage() {
   );
 
   useEffect(() => {
+    if (!router.isReady) return;
+    const tabParam = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
+    const allowedTabs = ["overview", "job", "contacts", "addresses", "documents", "salary"];
+    if (tabParam && allowedTabs.includes(tabParam)) {
+      setTab(tabParam);
+    }
+  }, [router.isReady, router.query.tab]);
+
+  useEffect(() => {
     let active = true;
     if (!router.isReady || !employeeId) return;
 
