@@ -37,6 +37,16 @@ export default function EmployeeProfilePage() {
   const [documents, setDocuments] = useState([]);
   const [employeeList, setEmployeeList] = useState([]);
   const [jobHistory, setJobHistory] = useState([]);
+  const [salaryCurrent, setSalaryCurrent] = useState(null);
+  const [salaryHistory, setSalaryHistory] = useState([]);
+  const [salaryStructures, setSalaryStructures] = useState([]);
+  const [salaryForm, setSalaryForm] = useState({
+    structureId: "",
+    effectiveFrom: "",
+    notes: "",
+  });
+  const [salaryLoading, setSalaryLoading] = useState(false);
+  const [salaryError, setSalaryError] = useState("");
   const [masters, setMasters] = useState({
     departments: [],
     designations: [],
@@ -78,6 +88,11 @@ export default function EmployeeProfilePage() {
     const primaryPhone = contacts.find((contact) => contact.phone && contact.is_primary);
     return primaryPhone?.phone || "";
   }, [contacts]);
+  const salaryRoleKey = ctx?.roleKey ?? access.roleKey ?? "";
+  const canEditSalary = useMemo(
+    () => ["owner", "admin", "hr", "payroll"].includes(salaryRoleKey),
+    [salaryRoleKey]
+  );
 
   useEffect(() => {
     let active = true;
@@ -113,7 +128,7 @@ export default function EmployeeProfilePage() {
         loadEmployeeDirectory(session.access_token),
         loadContacts(session.access_token),
         loadJobHistory(session.access_token),
-      ]);
+      ]); 
       if (active) setLoading(false);
     })();
 
@@ -121,6 +136,17 @@ export default function EmployeeProfilePage() {
       active = false;
     };
   }, [router.isReady, employeeId, router]);
+
+  useEffect(() => {
+    if (!employeeId || !ctx?.companyId) return;
+    loadSalaryData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId, ctx?.companyId, canEditSalary]);
+
+  function showToast(message, type = "success") {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 2500);
+  }
 
   async function loadEmployee(token = accessToken) {
     if (!employeeId || !token) return;
@@ -137,6 +163,64 @@ export default function EmployeeProfilePage() {
     setEmployee(emp);
     if (Array.isArray(profile?.contacts)) {
       setContacts(profile.contacts);
+    }
+  }
+
+  async function loadSalaryData() {
+    if (!employeeId || !ctx?.companyId) return;
+    setSalaryLoading(true);
+    setSalaryError("");
+    try {
+      const { data, error } = await supabase.rpc("erp_employee_salary_current", {
+        p_employee_id: employeeId,
+      });
+      if (error) throw error;
+      setSalaryCurrent(data?.current || null);
+      setSalaryHistory(Array.isArray(data?.history) ? data.history : []);
+
+      if (canEditSalary) {
+        const { data: structuresData, error: structuresError } = await supabase
+          .from("erp_salary_structures")
+          .select("id, name, is_active")
+          .eq("company_id", ctx.companyId)
+          .eq("is_active", true)
+          .order("name", { ascending: true });
+        if (structuresError) throw structuresError;
+        setSalaryStructures(structuresData || []);
+      }
+    } catch (e) {
+      setSalaryError(e.message || "Failed to load salary assignments");
+    } finally {
+      setSalaryLoading(false);
+    }
+  }
+
+  async function handleSalaryAssign(e) {
+    e.preventDefault();
+    if (!employeeId) return;
+    if (!canEditSalary) return;
+    if (!salaryForm.structureId) {
+      setSalaryError("Select a salary structure.");
+      return;
+    }
+    const effectiveFrom = salaryForm.effectiveFrom || new Date().toISOString().slice(0, 10);
+    setSalaryLoading(true);
+    setSalaryError("");
+    try {
+      const { error } = await supabase.rpc("erp_employee_salary_assign", {
+        p_employee_id: employeeId,
+        p_salary_structure_id: salaryForm.structureId,
+        p_effective_from: effectiveFrom,
+        p_notes: salaryForm.notes.trim() || null,
+      });
+      if (error) throw error;
+      setSalaryForm({ structureId: "", effectiveFrom: "", notes: "" });
+      showToast("Salary structure assigned");
+      await loadSalaryData();
+    } catch (e) {
+      setSalaryError(e.message || "Failed to assign salary structure");
+    } finally {
+      setSalaryLoading(false);
     }
   }
 
@@ -828,7 +912,108 @@ export default function EmployeeProfilePage() {
       {tab === "salary" ? (
         <div style={panelStyle}>
           <h3 style={{ marginTop: 0 }}>Salary</h3>
-          <p style={{ color: "#6b7280" }}>Salary details will be available in a future phase.</p>
+          {salaryLoading ? <p style={{ color: "#6b7280" }}>Loading salary assignments…</p> : null}
+          {salaryError ? <p style={{ color: "#b91c1c" }}>{salaryError}</p> : null}
+
+          <div style={{ display: "grid", gap: 16 }}>
+            <div style={{ padding: 12, border: "1px solid #e5e7eb", borderRadius: 10 }}>
+              <h4 style={{ margin: "0 0 8px" }}>Current Assignment</h4>
+              {salaryCurrent ? (
+                <div style={{ display: "grid", gap: 4 }}>
+                  <div style={{ fontWeight: 600 }}>{salaryCurrent.structure_name}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
+                    Effective from: {formatDate(salaryCurrent.effective_from)}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: "#6b7280" }}>No active salary structure assigned.</div>
+              )}
+            </div>
+
+            {canEditSalary ? (
+              <form onSubmit={handleSalaryAssign} style={{ display: "grid", gap: 12 }}>
+                <h4 style={{ margin: 0 }}>Assign / Change Structure</h4>
+                <label style={labelStyle}>
+                  Salary Structure
+                  <select
+                    value={salaryForm.structureId}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, structureId: e.target.value })}
+                    style={inputStyle}
+                    disabled={salaryLoading}
+                  >
+                    <option value="">Select structure</option>
+                    {salaryStructures.map((structure) => (
+                      <option key={structure.id} value={structure.id}>
+                        {structure.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={labelStyle}>
+                  Effective From
+                  <input
+                    type="date"
+                    value={salaryForm.effectiveFrom}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, effectiveFrom: e.target.value })}
+                    style={inputStyle}
+                    disabled={salaryLoading}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  Notes
+                  <input
+                    value={salaryForm.notes}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, notes: e.target.value })}
+                    style={inputStyle}
+                    placeholder="Optional notes"
+                    disabled={salaryLoading}
+                  />
+                </label>
+                <div>
+                  <button type="submit" style={primaryButtonStyle} disabled={salaryLoading}>
+                    {salaryLoading ? "Saving…" : "Assign Structure"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div style={{ color: "#6b7280" }}>
+                You have read-only access to salary assignments.
+              </div>
+            )}
+
+            <div>
+              <h4 style={{ margin: "0 0 8px" }}>Salary History</h4>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Structure</th>
+                      <th style={thStyle}>Effective From</th>
+                      <th style={thStyle}>Effective To</th>
+                      <th style={thStyle}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salaryHistory.map((row) => (
+                      <tr key={row.id}>
+                        <td style={tdStyle}>{row.structure_name || row.salary_structure_id}</td>
+                        <td style={tdStyle}>{formatDate(row.effective_from)}</td>
+                        <td style={tdStyle}>{formatDate(row.effective_to)}</td>
+                        <td style={tdStyle}>{row.notes || "—"}</td>
+                      </tr>
+                    ))}
+                    {!salaryHistory.length ? (
+                      <tr>
+                        <td style={tdStyle} colSpan={4}>
+                          <div style={{ color: "#6b7280" }}>No salary history available.</div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

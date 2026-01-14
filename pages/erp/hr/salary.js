@@ -1,26 +1,43 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { supabase } from "../../../lib/supabaseClient";
-import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
+
+const emptyStructureForm = { name: "", notes: "", isActive: true };
+const emptyComponentForm = {
+  code: "",
+  name: "",
+  componentType: "earning",
+  calcMode: "fixed",
+  value: "",
+  isActive: true,
+};
+const emptyOtRules = {
+  normal: { multiplier: "", base: "basic_hourly", hoursPerDay: "8", isActive: true },
+  holiday: { multiplier: "", base: "basic_hourly", hoursPerDay: "8", isActive: true },
+};
 
 export default function HrSalaryPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [employees, setEmployees] = useState([]);
+  const [toast, setToast] = useState(null);
+
   const [structures, setStructures] = useState([]);
-  const [selectedEmployee, setSelectedEmployee] = useState("");
+  const [selectedStructureId, setSelectedStructureId] = useState("");
+  const [structureForm, setStructureForm] = useState(emptyStructureForm);
 
-  const [effectiveFrom, setEffectiveFrom] = useState("");
-  const [ctcMonthly, setCtcMonthly] = useState("");
-  const [basic, setBasic] = useState("");
-  const [hra, setHra] = useState("");
-  const [allowances, setAllowances] = useState("");
-  const [deductions, setDeductions] = useState("");
-  const [notes, setNotes] = useState("");
+  const [components, setComponents] = useState([]);
+  const [componentForm, setComponentForm] = useState(emptyComponentForm);
 
-  const canWrite = useMemo(() => (ctx ? isHr(ctx.roleKey) : false), [ctx]);
+  const [otRules, setOtRules] = useState(emptyOtRules);
+
+  const roleKey = ctx?.roleKey ?? "";
+  const canWrite = useMemo(
+    () => ["owner", "admin", "hr", "payroll"].includes(roleKey),
+    [roleKey]
+  );
 
   useEffect(() => {
     let active = true;
@@ -37,8 +54,7 @@ export default function HrSalaryPage() {
         return;
       }
 
-      await loadEmployees(context.companyId, active);
-      await loadStructures(context.companyId, selectedEmployee || undefined, active);
+      await loadStructures(context.companyId, active);
       if (active) setLoading(false);
     })();
 
@@ -48,83 +64,177 @@ export default function HrSalaryPage() {
   }, [router]);
 
   useEffect(() => {
-    if (ctx?.companyId && selectedEmployee) {
-      loadStructures(ctx.companyId, selectedEmployee);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEmployee]);
+    if (!ctx?.companyId || !selectedStructureId) return;
+    loadComponents(ctx.companyId, selectedStructureId);
+    loadOtRules(ctx.companyId, selectedStructureId);
+  }, [ctx?.companyId, selectedStructureId]);
 
-  async function loadEmployees(companyId, isActive = true) {
+  function showToast(message, type = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  async function loadStructures(companyId, isActive = true) {
     const { data, error } = await supabase
-      .from("erp_employees")
-      .select("id, full_name, employee_no")
+      .from("erp_salary_structures")
+      .select("id, name, notes, is_active")
       .eq("company_id", companyId)
-      .order("full_name", { ascending: true });
+      .order("name", { ascending: true });
     if (error) {
       if (isActive) setErr(error.message);
       return;
     }
     if (isActive) {
-      setEmployees(data || []);
-      if (!selectedEmployee && data?.length) setSelectedEmployee(data[0].id);
+      setStructures(data || []);
+      if (!selectedStructureId && data?.length) {
+        const first = data[0];
+        setSelectedStructureId(first.id);
+        setStructureForm({
+          name: first.name ?? "",
+          notes: first.notes ?? "",
+          isActive: first.is_active ?? true,
+        });
+      }
     }
   }
 
-  async function loadStructures(companyId, employeeId, isActive = true) {
-    if (!employeeId && isActive) {
-      setStructures([]);
-      return;
-    }
+  async function loadComponents(companyId, structureId) {
     const { data, error } = await supabase
-      .from("erp_salary_structures")
-      .select("id, employee_id, effective_from, ctc_monthly, basic, hra, allowances, deductions, notes")
+      .from("erp_salary_structure_components")
+      .select("id, code, name, component_type, calc_mode, value, is_active")
       .eq("company_id", companyId)
-      .eq("employee_id", employeeId || selectedEmployee)
-      .order("effective_from", { ascending: false });
+      .eq("structure_id", structureId)
+      .order("code", { ascending: true });
     if (error) {
-      if (isActive) setErr(error.message);
+      setErr(error.message);
       return;
     }
-    if (isActive) setStructures(data || []);
+    setComponents(data || []);
   }
 
-  async function handleCreate(e) {
+  async function loadOtRules(companyId, structureId) {
+    const { data, error } = await supabase
+      .from("erp_salary_structure_ot_rules")
+      .select("ot_type, multiplier, base, hours_per_day, is_active")
+      .eq("company_id", companyId)
+      .eq("structure_id", structureId);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    const next = { ...emptyOtRules };
+    (data || []).forEach((rule) => {
+      if (rule.ot_type === "normal" || rule.ot_type === "holiday") {
+        next[rule.ot_type] = {
+          multiplier: rule.multiplier?.toString() ?? "",
+          base: rule.base ?? "basic_hourly",
+          hoursPerDay: rule.hours_per_day?.toString() ?? "8",
+          isActive: rule.is_active ?? true,
+        };
+      }
+    });
+    setOtRules(next);
+  }
+
+  async function handleStructureSave(e) {
     e.preventDefault();
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setErr("Only HR/admin/owner can create salary structures.");
-      return;
-    }
-    if (!selectedEmployee) {
-      setErr("Select an employee first.");
+      setErr("Only HR/admin/payroll can manage salary structures.");
       return;
     }
 
     const payload = {
-      company_id: ctx.companyId,
-      employee_id: selectedEmployee,
-      effective_from: effectiveFrom || null,
-      ctc_monthly: ctcMonthly ? Number(ctcMonthly) : null,
-      basic: basic ? Number(basic) : null,
-      hra: hra ? Number(hra) : null,
-      allowances: allowances ? Number(allowances) : null,
-      deductions: deductions ? Number(deductions) : null,
-      notes: notes.trim() || null,
+      p_name: structureForm.name.trim(),
+      p_is_active: structureForm.isActive,
+      p_notes: structureForm.notes.trim() || null,
+      p_id: selectedStructureId || null,
     };
-    const { error } = await supabase.from("erp_salary_structures").insert(payload);
+
+    const { data, error } = await supabase.rpc("erp_salary_structure_upsert", payload);
     if (error) {
       setErr(error.message);
       return;
     }
 
-    setEffectiveFrom("");
-    setCtcMonthly("");
-    setBasic("");
-    setHra("");
-    setAllowances("");
-    setDeductions("");
-    setNotes("");
-    await loadStructures(ctx.companyId, selectedEmployee);
+    const newId = data;
+    await loadStructures(ctx.companyId);
+    setSelectedStructureId(newId);
+    showToast(selectedStructureId ? "Salary structure updated" : "Salary structure created");
+  }
+
+  async function handleNewStructure() {
+    setSelectedStructureId("");
+    setStructureForm(emptyStructureForm);
+    setComponents([]);
+    setOtRules(emptyOtRules);
+  }
+
+  async function handleAddComponent(e) {
+    e.preventDefault();
+    if (!ctx?.companyId || !selectedStructureId) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/payroll can manage components.");
+      return;
+    }
+
+    const payload = {
+      p_structure_id: selectedStructureId,
+      p_code: componentForm.code.trim(),
+      p_name: componentForm.name.trim(),
+      p_component_type: componentForm.componentType,
+      p_calc_mode: componentForm.calcMode,
+      p_value: componentForm.value ? Number(componentForm.value) : null,
+      p_is_active: componentForm.isActive,
+    };
+
+    const { error } = await supabase.rpc("erp_salary_structure_component_upsert", payload);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    setComponentForm(emptyComponentForm);
+    await loadComponents(ctx.companyId, selectedStructureId);
+    showToast("Component saved");
+  }
+
+  async function handleSaveOtRule(type) {
+    if (!ctx?.companyId || !selectedStructureId) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/payroll can manage OT rules.");
+      return;
+    }
+
+    const rule = otRules[type];
+    const payload = {
+      p_structure_id: selectedStructureId,
+      p_ot_type: type,
+      p_multiplier: Number(rule.multiplier || 0),
+      p_base: rule.base,
+      p_is_active: rule.isActive,
+      p_hours_per_day: rule.hoursPerDay ? Number(rule.hoursPerDay) : 8,
+    };
+
+    const { error } = await supabase.rpc("erp_salary_structure_ot_rule_upsert", payload);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    showToast("OT rule saved");
+  }
+
+  async function handleSelectStructure(id) {
+    setSelectedStructureId(id);
+    const structure = structures.find((item) => item.id === id);
+    if (structure) {
+      setStructureForm({
+        name: structure.name ?? "",
+        notes: structure.notes ?? "",
+        isActive: structure.is_active ?? true,
+      });
+    }
   }
 
   async function handleSignOut() {
@@ -132,14 +242,12 @@ export default function HrSalaryPage() {
     router.replace("/");
   }
 
-  const selectedName = employees.find((e) => e.id === selectedEmployee)?.full_name || "—";
-
-  if (loading) return <div style={{ padding: 24 }}>Loading salary…</div>;
+  if (loading) return <div style={{ padding: 24 }}>Loading salary structures…</div>;
 
   if (!ctx?.companyId) {
     return (
       <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h1>Salary</h1>
+        <h1>Salary Structures</h1>
         <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
         <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
       </div>
@@ -147,11 +255,11 @@ export default function HrSalaryPage() {
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1100, margin: "0 auto" }}>
+    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1200, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ margin: 0 }}>Salary</h1>
-          <p style={{ marginTop: 6, color: "#555" }}>Maintain salary structures per employee.</p>
+          <h1 style={{ margin: 0 }}>Salary Structures</h1>
+          <p style={{ marginTop: 6, color: "#555" }}>Define salary structures, components, and OT rules.</p>
           <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
             Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
           </p>
@@ -162,90 +270,269 @@ export default function HrSalaryPage() {
         </div>
       </div>
 
+      {toast ? (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            background: toast.type === "error" ? "#fef2f2" : "#ecfdf5",
+            border: `1px solid ${toast.type === "error" ? "#fecaca" : "#a7f3d0"}`,
+            borderRadius: 8,
+            color: toast.type === "error" ? "#b91c1c" : "#047857",
+          }}
+        >
+          {toast.message}
+        </div>
+      ) : null}
+
       {err ? (
         <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
           {err}
         </div>
       ) : null}
 
-      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <h3 style={{ marginTop: 0 }}>Select Employee</h3>
-        <select
-          value={selectedEmployee}
-          onChange={(e) => {
-            setSelectedEmployee(e.target.value);
-            loadStructures(ctx.companyId, e.target.value);
-          }}
-          style={{ ...inputStyle, maxWidth: 360 }}
-        >
-          {employees.map((emp) => (
-            <option key={emp.id} value={emp.id}>
-              {emp.full_name} {emp.employee_no ? `(${emp.employee_no})` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <h3 style={{ marginTop: 0 }}>Add Salary Structure for {selectedName}</h3>
-
-        {!canWrite ? (
-          <div style={{ color: "#777" }}>You are in read-only mode (only owner/admin/hr can create/update).</div>
-        ) : (
-          <form onSubmit={handleCreate} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
-            <input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} placeholder="Effective From" style={inputStyle} />
-            <input value={ctcMonthly} onChange={(e) => setCtcMonthly(e.target.value)} placeholder="CTC Monthly" style={inputStyle} />
-            <input value={basic} onChange={(e) => setBasic(e.target.value)} placeholder="Basic" style={inputStyle} />
-            <input value={hra} onChange={(e) => setHra(e.target.value)} placeholder="HRA" style={inputStyle} />
-            <input value={allowances} onChange={(e) => setAllowances(e.target.value)} placeholder="Allowances" style={inputStyle} />
-            <input value={deductions} onChange={(e) => setDeductions(e.target.value)} placeholder="Deductions" style={inputStyle} />
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" style={{ ...inputStyle, minHeight: 80 }} />
-            <div style={{ gridColumn: "1 / -1" }}>
-              <button style={buttonStyle}>Add Structure</button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-        <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#fafafa", fontWeight: 600 }}>
-          Salary Structures ({structures.length}) for {selectedName}
+      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "minmax(220px, 260px) 1fr", gap: 18 }}>
+        <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h3 style={{ margin: 0 }}>Structures</h3>
+            {canWrite ? (
+              <button style={smallButtonStyle} onClick={handleNewStructure}>New</button>
+            ) : null}
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {structures.map((structure) => (
+              <button
+                key={structure.id}
+                type="button"
+                onClick={() => handleSelectStructure(structure.id)}
+                style={{
+                  ...structureButtonStyle,
+                  ...(structure.id === selectedStructureId ? structureButtonActiveStyle : null),
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{structure.name}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  {structure.is_active ? "Active" : "Inactive"}
+                </div>
+              </button>
+            ))}
+            {!structures.length ? <div style={{ color: "#777", fontSize: 13 }}>No structures yet.</div> : null}
+          </div>
         </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                <th style={thStyle}>Effective From</th>
-                <th style={thStyle}>CTC (Monthly)</th>
-                <th style={thStyle}>Components</th>
-                <th style={thStyle}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {structures.map((row) => {
-                const gross = (row.basic ?? 0) + (row.hra ?? 0) + (row.allowances ?? 0);
-                const deductionsVal = row.deductions ?? 0;
-                const net = gross - deductionsVal;
-                return (
-                  <tr key={row.id}>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 600 }}>{row.effective_from ? new Date(row.effective_from).toLocaleDateString() : "—"}</div>
-                      <div style={{ fontSize: 12, color: "#777" }}>{row.id}</div>
-                    </td>
-                    <td style={tdStyle}>{row.ctc_monthly ?? "—"}</td>
-                    <td style={tdStyle}>
-                      <div>Basic: {row.basic ?? "—"}</div>
-                      <div>HRA: {row.hra ?? "—"}</div>
-                      <div>Allowances: {row.allowances ?? "—"}</div>
-                      <div>Deductions: {row.deductions ?? "—"}</div>
-                      <div style={{ marginTop: 6, fontWeight: 600 }}>Net (client): {net}</div>
-                    </td>
-                    <td style={tdStyle}>{row.notes || "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+        <div style={{ display: "grid", gap: 18 }}>
+          <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ marginTop: 0 }}>Structure Details</h3>
+              {!canWrite ? <span style={{ fontSize: 12, color: "#777" }}>Read-only</span> : null}
+            </div>
+            <form onSubmit={handleStructureSave} style={{ display: "grid", gap: 12 }}>
+              <label style={labelStyle}>
+                Name
+                <input
+                  value={structureForm.name}
+                  onChange={(e) => setStructureForm({ ...structureForm, name: e.target.value })}
+                  style={inputStyle}
+                  placeholder="Structure name"
+                  disabled={!canWrite}
+                />
+              </label>
+              <label style={labelStyle}>
+                Notes
+                <textarea
+                  value={structureForm.notes}
+                  onChange={(e) => setStructureForm({ ...structureForm, notes: e.target.value })}
+                  style={{ ...inputStyle, minHeight: 80 }}
+                  placeholder="Optional notes"
+                  disabled={!canWrite}
+                />
+              </label>
+              <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={structureForm.isActive}
+                  onChange={(e) => setStructureForm({ ...structureForm, isActive: e.target.checked })}
+                  disabled={!canWrite}
+                />
+                Active
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={buttonStyle} disabled={!canWrite || !structureForm.name.trim()}>
+                  {selectedStructureId ? "Save Changes" : "Create Structure"}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+            <h3 style={{ marginTop: 0 }}>Components</h3>
+            {!selectedStructureId ? (
+              <div style={{ color: "#777" }}>Select a structure to manage components.</div>
+            ) : (
+              <>
+                {canWrite ? (
+                  <form onSubmit={handleAddComponent} style={{ display: "grid", gap: 10, marginBottom: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                      <input
+                        value={componentForm.code}
+                        onChange={(e) => setComponentForm({ ...componentForm, code: e.target.value })}
+                        placeholder="Code (e.g., BASIC)"
+                        style={inputStyle}
+                      />
+                      <input
+                        value={componentForm.name}
+                        onChange={(e) => setComponentForm({ ...componentForm, name: e.target.value })}
+                        placeholder="Name"
+                        style={inputStyle}
+                      />
+                      <select
+                        value={componentForm.componentType}
+                        onChange={(e) => setComponentForm({ ...componentForm, componentType: e.target.value })}
+                        style={inputStyle}
+                      >
+                        <option value="earning">Earning</option>
+                        <option value="deduction">Deduction</option>
+                      </select>
+                      <select
+                        value={componentForm.calcMode}
+                        onChange={(e) => setComponentForm({ ...componentForm, calcMode: e.target.value })}
+                        style={inputStyle}
+                      >
+                        <option value="fixed">Fixed</option>
+                        <option value="percent_of_basic">% of Basic</option>
+                        <option value="manual">Manual</option>
+                      </select>
+                      <input
+                        value={componentForm.value}
+                        onChange={(e) => setComponentForm({ ...componentForm, value: e.target.value })}
+                        placeholder="Value"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <button style={buttonStyle} disabled={!componentForm.code.trim() || !componentForm.name.trim()}>
+                      Save Component
+                    </button>
+                  </form>
+                ) : (
+                  <div style={{ color: "#777", marginBottom: 12 }}>Read-only access for components.</div>
+                )}
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>Code</th>
+                        <th style={thStyle}>Name</th>
+                        <th style={thStyle}>Type</th>
+                        <th style={thStyle}>Calc</th>
+                        <th style={thStyle}>Value</th>
+                        <th style={thStyle}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {components.map((row) => (
+                        <tr key={row.id}>
+                          <td style={tdStyle}>{row.code}</td>
+                          <td style={tdStyle}>{row.name}</td>
+                          <td style={tdStyle}>{row.component_type}</td>
+                          <td style={tdStyle}>{row.calc_mode}</td>
+                          <td style={tdStyle}>{row.value ?? "—"}</td>
+                          <td style={tdStyle}>{row.is_active ? "Active" : "Inactive"}</td>
+                        </tr>
+                      ))}
+                      {!components.length ? (
+                        <tr>
+                          <td style={tdStyle} colSpan={6}>
+                            <div style={{ color: "#777" }}>No components defined yet.</div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
+            <h3 style={{ marginTop: 0 }}>OT Rules</h3>
+            {!selectedStructureId ? (
+              <div style={{ color: "#777" }}>Select a structure to manage OT rules.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 16 }}>
+                {["normal", "holiday"].map((type) => {
+                  const rule = otRules[type];
+                  return (
+                    <div key={type} style={{ padding: 12, border: "1px solid #f0f0f0", borderRadius: 10 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 8 }}>{type === "normal" ? "Normal OT" : "Holiday OT"}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                        <label style={labelStyle}>
+                          Multiplier
+                          <input
+                            value={rule.multiplier}
+                            onChange={(e) => setOtRules({
+                              ...otRules,
+                              [type]: { ...rule, multiplier: e.target.value },
+                            })}
+                            placeholder="e.g., 1.25"
+                            style={inputStyle}
+                            disabled={!canWrite}
+                          />
+                        </label>
+                        <label style={labelStyle}>
+                          Base
+                          <select
+                            value={rule.base}
+                            onChange={(e) => setOtRules({
+                              ...otRules,
+                              [type]: { ...rule, base: e.target.value },
+                            })}
+                            style={inputStyle}
+                            disabled={!canWrite}
+                          >
+                            <option value="basic_hourly">Basic hourly</option>
+                            <option value="gross_hourly">Gross hourly</option>
+                          </select>
+                        </label>
+                        <label style={labelStyle}>
+                          Hours per day
+                          <input
+                            value={rule.hoursPerDay}
+                            onChange={(e) => setOtRules({
+                              ...otRules,
+                              [type]: { ...rule, hoursPerDay: e.target.value },
+                            })}
+                            placeholder="8"
+                            style={inputStyle}
+                            disabled={!canWrite}
+                          />
+                        </label>
+                        <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="checkbox"
+                            checked={rule.isActive}
+                            onChange={(e) => setOtRules({
+                              ...otRules,
+                              [type]: { ...rule, isActive: e.target.checked },
+                            })}
+                            disabled={!canWrite}
+                          />
+                          Active
+                        </label>
+                      </div>
+                      <button
+                        style={{ ...buttonStyle, marginTop: 10 }}
+                        onClick={() => handleSaveOtRule(type)}
+                        disabled={!canWrite || !rule.multiplier}
+                      >
+                        Save {type === "normal" ? "Normal" : "Holiday"} Rule
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -254,5 +541,21 @@ export default function HrSalaryPage() {
 
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
 const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
-const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
-const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };
+const smallButtonStyle = { padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const thStyle = { padding: 12, borderBottom: "1px solid #eee", textAlign: "left" };
+const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1" };
+const labelStyle = { display: "flex", flexDirection: "column", gap: 6, fontSize: 13, color: "#444" };
+const structureButtonStyle = {
+  width: "100%",
+  textAlign: "left",
+  padding: 10,
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  cursor: "pointer",
+};
+const structureButtonActiveStyle = {
+  borderColor: "#6366f1",
+  background: "#eef2ff",
+  color: "#312e81",
+};
