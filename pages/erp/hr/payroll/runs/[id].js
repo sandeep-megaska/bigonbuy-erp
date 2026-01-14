@@ -14,7 +14,7 @@ export default function PayrollRunDetailPage() {
   const [run, setRun] = useState(null);
   const [items, setItems] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -165,9 +165,18 @@ export default function PayrollRunDetailPage() {
     }
   }
 
+  function showToast(message, type = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2500);
+  }
+
   async function saveOt() {
     if (!otItem?.id) return;
-    if (!canWrite || isRunFinalized) return;
+    if (!canWrite) return;
+    if (isRunFinalized) {
+      showToast("Payroll run is finalized; edits are locked", "error");
+      return;
+    }
     setOtSaving(true);
     setOtError("");
     try {
@@ -199,8 +208,7 @@ export default function PayrollRunDetailPage() {
       }
 
       await refreshItems();
-      setToast("OT saved");
-      setTimeout(() => setToast(""), 2500);
+      showToast("OT saved");
       setOtOpen(false);
     } catch (e) {
       setOtError(e.message || "Failed to save OT");
@@ -222,6 +230,21 @@ export default function PayrollRunDetailPage() {
       return;
     }
     setItems(payload.items || []);
+  }
+
+  async function refreshRun() {
+    if (!ctx?.companyId || !runId) return;
+    const response = await fetch("/api/erp/payroll/runs/get", {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ runId }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setErr(payload?.error || "Failed to refresh payroll run.");
+      return;
+    }
+    setRun(payload?.run || null);
   }
 
   async function generateItems() {
@@ -248,8 +271,7 @@ export default function PayrollRunDetailPage() {
       return;
     }
     await refreshItems();
-    setToast("Payroll items generated");
-    setTimeout(() => setToast(""), 2500);
+    showToast("Payroll items generated");
     setIsGenerating(false);
   }
 
@@ -263,6 +285,10 @@ export default function PayrollRunDetailPage() {
       setErr("This payroll run is already finalized.");
       return;
     }
+    const confirmed = window.confirm(
+      "Finalize this payroll run? Finalizing will lock OT edits and payroll changes."
+    );
+    if (!confirmed) return;
     setIsFinalizing(true);
     setErr("");
     try {
@@ -296,28 +322,16 @@ export default function PayrollRunDetailPage() {
         if (updErr) throw updErr;
       }
 
-      const { error: finalizeErr } = await supabase
-        .from("erp_payroll_runs")
-        .update({
-          status: "finalized",
-          finalized_at: new Date().toISOString(),
-          finalized_by: ctx.userId,
-        })
-        .eq("company_id", ctx.companyId)
-        .eq("id", runId);
+      const { error: finalizeErr } = await supabase.rpc("erp_payroll_run_finalize", {
+        p_payroll_run_id: runId,
+      });
       if (finalizeErr) throw finalizeErr;
 
-      const { data: runData, error: runErr } = await supabase
-        .from("erp_payroll_runs")
-        .select("id, year, month, status, finalized_at")
-        .eq("company_id", ctx.companyId)
-        .eq("id", runId)
-        .maybeSingle();
-      if (runErr) throw runErr;
-      setRun(runData);
+      await refreshRun();
       await refreshItems();
+      showToast("Payroll run finalized");
     } catch (e) {
-      setErr(e.message || "Failed to finalize payroll run.");
+      showToast(e.message || "Failed to finalize payroll run.", "error");
     } finally {
       setIsFinalizing(false);
     }
@@ -352,10 +366,21 @@ export default function PayrollRunDetailPage() {
     <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1200, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ margin: 0 }}>Payroll Run</h1>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <h1 style={{ margin: 0 }}>Payroll Run</h1>
+            <span style={{ ...badgeStyle, ...statusBadgeStyles[run.status || "draft"] }}>
+              {run.status || "draft"}
+            </span>
+          </div>
           <p style={{ marginTop: 6, color: "#555" }}>
             {run.year}-{String(run.month).padStart(2, "0")} · {run.status}
           </p>
+          {isRunFinalized && run.finalized_at ? (
+            <p style={{ marginTop: 0, color: "#6b7280", fontSize: 12 }}>
+              Finalized: {new Date(run.finalized_at).toLocaleString()}
+              {run.finalized_by ? ` · By ${run.finalized_by}` : ""}
+            </p>
+          ) : null}
           <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
             Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
           </p>
@@ -373,8 +398,17 @@ export default function PayrollRunDetailPage() {
       ) : null}
 
       {toast ? (
-        <div style={{ marginTop: 12, padding: 10, background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 8, color: "#047857" }}>
-          {toast}
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            background: toast.type === "error" ? "#fef2f2" : "#ecfdf5",
+            border: `1px solid ${toast.type === "error" ? "#fecaca" : "#a7f3d0"}`,
+            borderRadius: 8,
+            color: toast.type === "error" ? "#b91c1c" : "#047857",
+          }}
+        >
+          {toast.message}
         </div>
       ) : null}
 
@@ -392,13 +426,15 @@ export default function PayrollRunDetailPage() {
               </button>
             ) : null}
             {canWrite ? (
-              <button
-                style={{ ...smallButtonStyle, opacity: isRunFinalized || isFinalizing ? 0.7 : 1 }}
-                onClick={finalizeRun}
-                disabled={isRunFinalized || isFinalizing}
-              >
-                {isRunFinalized ? "Finalized" : isFinalizing ? "Finalizing…" : "Finalize Run"}
-              </button>
+              !isRunFinalized ? (
+                <button
+                  style={{ ...smallButtonStyle, opacity: isFinalizing ? 0.7 : 1 }}
+                  onClick={finalizeRun}
+                  disabled={isFinalizing}
+                >
+                  {isFinalizing ? "Finalizing…" : "Finalize Run"}
+                </button>
+              ) : null
             ) : null}
           </div>
         </div>
@@ -452,8 +488,9 @@ export default function PayrollRunDetailPage() {
                       <td style={tdStyle}>
                         <button
                           type="button"
-                          style={smallButtonStyle}
+                          style={{ ...smallButtonStyle, opacity: isRunFinalized ? 0.6 : 1 }}
                           onClick={() => openOtDrawer(item)}
+                          disabled={isRunFinalized}
                         >
                           OT
                         </button>
@@ -486,6 +523,7 @@ export default function PayrollRunDetailPage() {
                   onChange={(e) => updateOtForm("units", e.target.value)}
                   placeholder="Hours"
                   style={inputStyle}
+                  disabled={!canWrite || isRunFinalized}
                 />
               </label>
               <label style={labelStyle}>
@@ -495,6 +533,7 @@ export default function PayrollRunDetailPage() {
                   onChange={(e) => updateOtForm("rate", e.target.value)}
                   placeholder="Rate"
                   style={inputStyle}
+                  disabled={!canWrite || isRunFinalized}
                 />
               </label>
               <label style={labelStyle}>
@@ -504,6 +543,7 @@ export default function PayrollRunDetailPage() {
                   onChange={(e) => updateOtForm("amount", e.target.value, false)}
                   placeholder="Amount"
                   style={inputStyle}
+                  disabled={!canWrite || isRunFinalized}
                 />
               </label>
               <label style={labelStyle}>
@@ -513,6 +553,7 @@ export default function PayrollRunDetailPage() {
                   onChange={(e) => updateOtForm("notes", e.target.value, false)}
                   placeholder="Notes"
                   style={{ ...inputStyle, minHeight: 80 }}
+                  disabled={!canWrite || isRunFinalized}
                 />
               </label>
             </div>
@@ -541,6 +582,20 @@ export default function PayrollRunDetailPage() {
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
 const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
 const smallButtonStyle = { padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
+const badgeStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "4px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 600,
+  textTransform: "capitalize",
+};
+const statusBadgeStyles = {
+  draft: { background: "#f3f4f6", color: "#374151" },
+  generated: { background: "#dbeafe", color: "#1d4ed8" },
+  finalized: { background: "#fee2e2", color: "#b91c1c" },
+};
 const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
 const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };
 const overlayStyle = {
