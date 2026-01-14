@@ -6,7 +6,7 @@ import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../li
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
 import { supabase } from "../../../../lib/supabaseClient";
 
-const ATTENDANCE_STATUSES = ["present", "absent", "half_day", "leave", "holiday", "weekoff"] as const;
+const ATTENDANCE_STATUSES = ["present", "absent", "leave", "holiday", "weekly_off"] as const;
 
 type EmployeeRow = {
   id: string;
@@ -17,8 +17,8 @@ type EmployeeRow = {
 type AttendanceRow = {
   employee_id: string;
   status: string;
-  in_time: string | null;
-  out_time: string | null;
+  check_in_at: string | null;
+  check_out_at: string | null;
   notes: string | null;
 };
 
@@ -26,8 +26,8 @@ type ToastState = { type: "success" | "error"; message: string } | null;
 
 type AttendanceDraft = {
   status: string;
-  in_time: string;
-  out_time: string;
+  check_in_at: string;
+  check_out_at: string;
   notes: string;
 };
 
@@ -106,9 +106,9 @@ export default function HrAttendancePage() {
   async function loadAttendance(dateValue: string) {
     if (!dateValue) return;
     const { data, error } = await supabase
-      .from("erp_attendance_days")
-      .select("employee_id, status, in_time, out_time, notes")
-      .eq("att_date", dateValue);
+      .from("erp_hr_attendance_days")
+      .select("employee_id, status, check_in_at, check_out_at, notes")
+      .eq("day", dateValue);
 
     if (error) {
       setToast({ type: "error", message: error.message });
@@ -119,8 +119,8 @@ export default function HrAttendancePage() {
       (acc, row) => {
         acc[row.employee_id] = {
           status: row.status,
-          in_time: row.in_time || "",
-          out_time: row.out_time || "",
+          check_in_at: formatTimeInput(row.check_in_at),
+          check_out_at: formatTimeInput(row.check_out_at),
           notes: row.notes || "",
         };
         return acc;
@@ -136,8 +136,8 @@ export default function HrAttendancePage() {
       ...prev,
       [employeeId]: {
         status: prev[employeeId]?.status || "",
-        in_time: prev[employeeId]?.in_time || "",
-        out_time: prev[employeeId]?.out_time || "",
+        check_in_at: prev[employeeId]?.check_in_at || "",
+        check_out_at: prev[employeeId]?.check_out_at || "",
         notes: prev[employeeId]?.notes || "",
         ...updates,
       },
@@ -155,19 +155,21 @@ export default function HrAttendancePage() {
       .map((employee) => {
         const draft = attendanceMap[employee.id];
         if (!draft?.status) return null;
+        const checkIn = toTimestamp(selectedDate, draft.check_in_at);
+        const checkOut = toTimestamp(selectedDate, draft.check_out_at);
         return {
           employee_id: employee.id,
           status: draft.status,
-          in_time: draft.in_time || null,
-          out_time: draft.out_time || null,
+          check_in_at: checkIn,
+          check_out_at: checkOut,
           notes: draft.notes || null,
         };
       })
       .filter(Boolean) as Array<{
       employee_id: string;
       status: string;
-      in_time: string | null;
-      out_time: string | null;
+      check_in_at: string | null;
+      check_out_at: string | null;
       notes: string | null;
     }>;
 
@@ -179,12 +181,12 @@ export default function HrAttendancePage() {
     setSaving(true);
     const results = await Promise.all(
       payloads.map((payload) =>
-        supabase.rpc("erp_attendance_day_upsert", {
+        supabase.rpc("erp_hr_attendance_set_day", {
           p_employee_id: payload.employee_id,
-          p_att_date: selectedDate,
+          p_day: selectedDate,
           p_status: payload.status,
-          p_in_time: payload.in_time,
-          p_out_time: payload.out_time,
+          p_check_in: payload.check_in_at,
+          p_check_out: payload.check_out_at,
           p_notes: payload.notes,
         })
       )
@@ -287,8 +289,8 @@ export default function HrAttendancePage() {
                 employees.map((employee) => {
                   const draft = attendanceMap[employee.id] || {
                     status: "",
-                    in_time: "",
-                    out_time: "",
+                    check_in_at: "",
+                    check_out_at: "",
                     notes: "",
                   };
                   return (
@@ -314,16 +316,20 @@ export default function HrAttendancePage() {
                       <td style={tdStyle}>
                         <input
                           type="time"
-                          value={draft.in_time}
-                          onChange={(e) => updateAttendance(employee.id, { in_time: e.target.value })}
+                          value={draft.check_in_at}
+                          onChange={(e) =>
+                            updateAttendance(employee.id, { check_in_at: e.target.value })
+                          }
                           style={inputStyle}
                         />
                       </td>
                       <td style={tdStyle}>
                         <input
                           type="time"
-                          value={draft.out_time}
-                          onChange={(e) => updateAttendance(employee.id, { out_time: e.target.value })}
+                          value={draft.check_out_at}
+                          onChange={(e) =>
+                            updateAttendance(employee.id, { check_out_at: e.target.value })
+                          }
                           style={inputStyle}
                         />
                       </td>
@@ -345,6 +351,20 @@ export default function HrAttendancePage() {
       </section>
     </div>
   );
+}
+
+function formatTimeInput(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function toTimestamp(dateValue: string, timeValue?: string) {
+  if (!dateValue || !timeValue) return null;
+  const date = new Date(`${dateValue}T${timeValue}`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }
 
 const containerStyle: CSSProperties = {
