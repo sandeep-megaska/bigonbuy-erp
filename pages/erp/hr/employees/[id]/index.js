@@ -57,8 +57,10 @@ export default function EmployeeProfilePage() {
   const [tab, setTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -136,6 +138,22 @@ export default function EmployeeProfilePage() {
     if (Array.isArray(profile?.contacts)) {
       setContacts(profile.contacts);
     }
+  }
+
+  async function handleActivate() {
+    if (!employee?.id) return;
+    setActivating(true);
+    const { error: activateError } = await supabase.rpc("erp_hr_employee_activate", {
+      p_employee_id: employee.id,
+    });
+    if (activateError) {
+      setToast({ type: "error", message: activateError.message });
+      setActivating(false);
+      return;
+    }
+    setToast({ type: "success", message: "Employee activated successfully." });
+    setActivating(false);
+    await loadEmployee();
   }
 
   async function loadMasters(token = accessToken) {
@@ -487,10 +505,24 @@ export default function EmployeeProfilePage() {
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          {canManage && employee.lifecycle_status !== "active" ? (
+            <button
+              type="button"
+              onClick={handleActivate}
+              style={primaryButtonStyle}
+              disabled={activating}
+            >
+              {activating ? "Activating..." : "Activate Employee"}
+            </button>
+          ) : null}
           <a href="/erp/hr/employees" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to Employees</a>
           <a href="/erp/hr" style={{ color: "#2563eb", textDecoration: "none" }}>HR Home</a>
         </div>
       </div>
+
+      {toast ? (
+        <div style={toast.type === "success" ? successBoxStyle : errorBoxStyle}>{toast.message}</div>
+      ) : null}
 
       {error ? <div style={errorBoxStyle}>{error}</div> : null}
 
@@ -951,4 +983,13 @@ const errorBoxStyle = {
   border: "1px solid #fecaca",
   background: "#fef2f2",
   color: "#991b1b",
+};
+
+const successBoxStyle = {
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid #a7f3d0",
+  background: "#ecfdf5",
+  color: "#047857",
 };
