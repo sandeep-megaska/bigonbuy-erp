@@ -59,11 +59,14 @@ export default function EmployeeProfilePage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [activationToast, setActivationToast] = useState(null);
+  const [activating, setActivating] = useState(false);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
     [access.isManager, ctx?.roleKey]
   );
+  const canActivate = useMemo(() => isHr(ctx?.roleKey), [ctx?.roleKey]);
   const headerEmail = useMemo(() => {
     const workEmail = contacts.find((contact) => contact.contact_type === "work_email" && contact.email);
     if (workEmail?.email) return workEmail.email;
@@ -207,6 +210,23 @@ export default function EmployeeProfilePage() {
       return dateB - dateA;
     });
     setJobHistory(jobs);
+  }
+
+  async function handleActivateEmployee() {
+    if (!employeeId) return;
+    setActivationToast(null);
+    setActivating(true);
+    const { error: activateError } = await supabase.rpc("erp_hr_employee_activate", {
+      p_employee_id: employeeId,
+    });
+    if (activateError) {
+      setActivationToast({ type: "error", message: activateError.message });
+      setActivating(false);
+      return;
+    }
+    setActivationToast({ type: "success", message: "Employee activated successfully." });
+    await loadEmployee();
+    setActivating(false);
   }
 
   async function loadEmployeeDirectory(token = accessToken) {
@@ -489,9 +509,23 @@ export default function EmployeeProfilePage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
           <a href="/erp/hr/employees" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to Employees</a>
           <a href="/erp/hr" style={{ color: "#2563eb", textDecoration: "none" }}>HR Home</a>
+          {canActivate && employee.lifecycle_status !== "active" ? (
+            <button
+              onClick={handleActivateEmployee}
+              style={{ ...primaryButtonStyle, width: "100%" }}
+              disabled={activating}
+            >
+              {activating ? "Activating..." : "Activate Employee"}
+            </button>
+          ) : null}
         </div>
       </div>
 
+      {activationToast ? (
+        <div style={activationToast.type === "success" ? successBoxStyle : errorBoxStyle}>
+          {activationToast.message}
+        </div>
+      ) : null}
       {error ? <div style={errorBoxStyle}>{error}</div> : null}
 
       <div style={tabsRowStyle}>
@@ -951,4 +985,13 @@ const errorBoxStyle = {
   border: "1px solid #fecaca",
   background: "#fef2f2",
   color: "#991b1b",
+};
+
+const successBoxStyle = {
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid #a7f3d0",
+  background: "#ecfdf5",
+  color: "#047857",
 };
