@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
@@ -14,25 +14,54 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+const SESSION_OPTIONS = [
+  { value: "full", label: "Full day" },
+  { value: "half_am", label: "Half day (AM)" },
+  { value: "half_pm", label: "Half day (PM)" },
+] as const;
+
 type LeaveType = {
   id: string;
-  code: string;
+  key: string;
   name: string;
   is_paid: boolean;
+  is_active: boolean;
+  allows_half_day: boolean;
+  display_order: number;
 };
 
 type LeaveRequest = {
   id: string;
   leave_type_id: string;
-  start_date: string;
-  end_date: string;
-  days: number;
+  date_from: string;
+  date_to: string;
   reason: string | null;
   status: string;
-  reviewer_notes: string | null;
+  decision_note: string | null;
+  decided_at: string | null;
+  start_session: string | null;
+  end_session: string | null;
+  leave_type?: { name?: string | null } | null;
+};
+
+type LeavePreviewRow = {
+  leave_date: string;
+  day_fraction: number;
+  is_weekly_off: boolean;
+  is_holiday: boolean;
+  counted: boolean;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
+
+type FormState = {
+  leave_type_id: string;
+  date_from: string;
+  date_to: string;
+  start_session: string;
+  end_session: string;
+  reason: string;
+};
 
 export default function EmployeeLeavesPage() {
   const router = useRouter();
@@ -45,12 +74,19 @@ export default function EmployeeLeavesPage() {
   const [loading, setLoading] = useState(true);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
+  const [requestDaysMap, setRequestDaysMap] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<ToastState>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
+  const [saving, setSaving] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [previewRows, setPreviewRows] = useState<LeavePreviewRow[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>({
     leave_type_id: "",
-    start_date: "",
-    end_date: "",
+    date_from: "",
+    date_to: "",
+    start_session: "full",
+    end_session: "full",
     reason: "",
   });
 
@@ -60,6 +96,15 @@ export default function EmployeeLeavesPage() {
       return acc;
     }, {});
   }, [leaveTypes]);
+
+  const selectedLeaveType = leaveTypeMap[form.leave_type_id];
+
+  const previewTotal = useMemo(() => {
+    return previewRows.reduce((sum, row) => {
+      if (!row.counted) return sum;
+      return sum + Number(row.day_fraction || 0);
+    }, 0);
+  }, [previewRows]);
 
   useEffect(() => {
     let active = true;
@@ -94,11 +139,66 @@ export default function EmployeeLeavesPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!selectedLeaveType?.allows_half_day) {
+      setForm((prev) => ({ ...prev, start_session: "full", end_session: "full" }));
+    }
+  }, [selectedLeaveType?.allows_half_day]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!ctx?.employeeId || !form.leave_type_id || !form.date_from || !form.date_to) {
+      setPreviewRows([]);
+      setPreviewError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    (async () => {
+      setPreviewLoading(true);
+      const { data, error } = await supabase.rpc("erp_leave_request_preview", {
+        p_employee_id: ctx.employeeId,
+        p_leave_type_id: form.leave_type_id,
+        p_date_from: form.date_from,
+        p_date_to: form.date_to,
+        p_start_session: form.start_session,
+        p_end_session: form.end_session,
+      });
+
+      if (!active) return;
+
+      if (error) {
+        setPreviewError(error.message);
+        setPreviewRows([]);
+        setPreviewLoading(false);
+        return;
+      }
+
+      setPreviewError(null);
+      setPreviewRows((data as LeavePreviewRow[]) || []);
+      setPreviewLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    ctx?.employeeId,
+    form.leave_type_id,
+    form.date_from,
+    form.date_to,
+    form.start_session,
+    form.end_session,
+  ]);
+
   async function loadLeaveTypes() {
     const { data, error } = await supabase
-      .from("erp_leave_types")
-      .select("id, code, name, is_paid")
+      .from("erp_hr_leave_types")
+      .select("id, key, name, is_paid, is_active, allows_half_day, display_order")
       .eq("is_active", true)
+      .order("display_order", { ascending: true })
       .order("name", { ascending: true });
 
     if (error) {
@@ -106,16 +206,19 @@ export default function EmployeeLeavesPage() {
       return;
     }
 
-    setLeaveTypes((data as LeaveType[]) || []);
-    if (!form.leave_type_id && data?.length) {
-      setForm((prev) => ({ ...prev, leave_type_id: data[0].id }));
+    const rows = (data as LeaveType[]) || [];
+    setLeaveTypes(rows);
+    if (!form.leave_type_id && rows.length) {
+      setForm((prev) => ({ ...prev, leave_type_id: rows[0].id }));
     }
   }
 
   async function loadRequests(employeeId: string) {
     const { data, error } = await supabase
-      .from("erp_leave_requests")
-      .select("id, leave_type_id, start_date, end_date, days, reason, status, reviewer_notes")
+      .from("erp_hr_leave_requests")
+      .select(
+        "id, leave_type_id, date_from, date_to, reason, status, decision_note, decided_at, start_session, end_session, leave_type:leave_type_id(name)"
+      )
       .eq("employee_id", employeeId)
       .order("created_at", { ascending: false });
 
@@ -124,48 +227,158 @@ export default function EmployeeLeavesPage() {
       return;
     }
 
-    setRequests((data as LeaveRequest[]) || []);
+    const rows = (data as LeaveRequest[]) || [];
+    setRequests(rows);
+    await loadRequestDays(rows);
   }
 
-  async function submitRequest(event: FormEvent) {
-    event.preventDefault();
-    if (!ctx?.employeeId) return;
-    if (!form.leave_type_id || !form.start_date || !form.end_date) {
-      setToast({ type: "error", message: "Leave type and date range are required." });
+  async function loadRequestDays(rows: LeaveRequest[]) {
+    if (!rows.length) {
+      setRequestDaysMap({});
       return;
     }
 
-    setSubmitting(true);
+    const requestIds = rows.map((row) => row.id);
+    const { data, error } = await supabase
+      .from("erp_hr_leave_request_days")
+      .select("leave_request_id, day_fraction")
+      .in("leave_request_id", requestIds);
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      return;
+    }
+
+    const mapped = (data as { leave_request_id: string; day_fraction: number }[] | null)?.reduce(
+      (acc, row) => {
+        const current = acc[row.leave_request_id] ?? 0;
+        acc[row.leave_request_id] = current + Number(row.day_fraction || 0);
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
+    setRequestDaysMap(mapped || {});
+  }
+
+  async function saveDraft() {
+    if (!ctx?.employeeId) return null;
+    if (!form.leave_type_id || !form.date_from || !form.date_to) {
+      setToast({ type: "error", message: "Leave type and date range are required." });
+      return null;
+    }
+
+    const payload = {
+      employee_id: ctx.employeeId,
+      leave_type_id: form.leave_type_id,
+      date_from: form.date_from,
+      date_to: form.date_to,
+      reason: form.reason.trim() || null,
+      status: "draft",
+      start_session: form.start_session,
+      end_session: form.end_session,
+      updated_by: ctx?.userId ?? null,
+    };
+
+    setSaving(true);
+
+    if (draftId) {
+      const { data, error } = await supabase
+        .from("erp_hr_leave_requests")
+        .update(payload)
+        .eq("id", draftId)
+        .select("id")
+        .maybeSingle();
+
+      if (error) {
+        setToast({ type: "error", message: error.message });
+        setSaving(false);
+        return null;
+      }
+
+      setToast({ type: "success", message: "Draft updated." });
+      setSaving(false);
+      await loadRequests(ctx.employeeId);
+      return data?.id ?? draftId;
+    }
+
+    const { data, error } = await supabase
+      .from("erp_hr_leave_requests")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setSaving(false);
+      return null;
+    }
+
+    setToast({ type: "success", message: "Draft saved." });
+    setSaving(false);
+    setDraftId(data.id);
+    await loadRequests(ctx.employeeId);
+    return data.id;
+  }
+
+  async function submitDraft() {
+    let requestId = draftId;
+    if (!requestId) {
+      const createdId = await saveDraft();
+      if (!createdId) return;
+      requestId = createdId;
+      setDraftId(createdId);
+    }
+
+    setSaving(true);
     const { error } = await supabase.rpc("erp_leave_request_submit", {
-      p_employee_id: ctx.employeeId,
-      p_leave_type_id: form.leave_type_id,
-      p_start_date: form.start_date,
-      p_end_date: form.end_date,
-      p_reason: form.reason.trim() || null,
+      p_request_id: requestId,
     });
 
     if (error) {
       setToast({ type: "error", message: error.message });
-      setSubmitting(false);
+      setSaving(false);
       return;
     }
 
     setToast({ type: "success", message: "Leave request submitted." });
-    setSubmitting(false);
-    setForm({
-      leave_type_id: form.leave_type_id,
-      start_date: "",
-      end_date: "",
+    setSaving(false);
+    setDraftId(null);
+    setForm((prev) => ({
+      ...prev,
+      date_from: "",
+      date_to: "",
       reason: "",
+      start_session: "full",
+      end_session: "full",
+    }));
+    await loadRequests(ctx.employeeId);
+  }
+
+  async function submitRequest(requestId: string) {
+    setSaving(true);
+    const { error } = await supabase.rpc("erp_leave_request_submit", {
+      p_request_id: requestId,
     });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setSaving(false);
+      return;
+    }
+
+    setToast({ type: "success", message: "Leave request submitted." });
+    setSaving(false);
     await loadRequests(ctx.employeeId);
   }
 
   async function cancelRequest(requestId: string) {
-    const { error } = await supabase.rpc("erp_leave_request_set_status", {
+    const confirmed = window.confirm("Cancel this leave request?");
+    if (!confirmed) return;
+
+    const { error } = await supabase.rpc("erp_leave_request_cancel", {
       p_request_id: requestId,
-      p_status: "cancelled",
-      p_reviewer_notes: null,
+      p_note: null,
     });
 
     if (error) {
@@ -174,9 +387,7 @@ export default function EmployeeLeavesPage() {
     }
 
     setToast({ type: "success", message: "Leave request cancelled." });
-    if (ctx?.employeeId) {
-      await loadRequests(ctx.employeeId);
-    }
+    await loadRequests(ctx.employeeId);
   }
 
   const handleSignOut = async () => {
@@ -223,56 +434,136 @@ export default function EmployeeLeavesPage() {
       <section style={sectionStyle}>
         <div style={panelStyle}>
           <h3 style={{ marginTop: 0 }}>New Leave Request</h3>
-          <form onSubmit={submitRequest} style={formGridStyle}>
-            <label style={labelStyle}>
-              Leave type
-              <select
-                value={form.leave_type_id}
-                onChange={(e) => setForm((prev) => ({ ...prev, leave_type_id: e.target.value }))}
-                style={inputStyle}
-              >
-                <option value="">Select leave type</option>
-                {leaveTypes.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.name} {type.is_paid ? "(Paid)" : "(Unpaid)"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              Start date
-              <input
-                type="date"
-                value={form.start_date}
-                onChange={(e) => setForm((prev) => ({ ...prev, start_date: e.target.value }))}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              End date
-              <input
-                type="date"
-                value={form.end_date}
-                onChange={(e) => setForm((prev) => ({ ...prev, end_date: e.target.value }))}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              Reason
-              <textarea
-                value={form.reason}
-                onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
-                style={textareaStyle}
-                rows={3}
-                placeholder="Optional reason"
-              />
-            </label>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="submit" style={primaryButtonStyle} disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit"}
-              </button>
+          <div style={formPreviewGridStyle}>
+            <form style={formGridStyle}>
+              <label style={labelStyle}>
+                Leave type
+                <select
+                  value={form.leave_type_id}
+                  onChange={(e) => setForm((prev) => ({ ...prev, leave_type_id: e.target.value }))}
+                  style={inputStyle}
+                >
+                  <option value="">Select leave type</option>
+                  {leaveTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name} {type.is_paid ? "(Paid)" : "(Unpaid)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Date from
+                <input
+                  type="date"
+                  value={form.date_from}
+                  onChange={(e) => setForm((prev) => ({ ...prev, date_from: e.target.value }))}
+                  style={inputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                Date to
+                <input
+                  type="date"
+                  value={form.date_to}
+                  onChange={(e) => setForm((prev) => ({ ...prev, date_to: e.target.value }))}
+                  style={inputStyle}
+                />
+              </label>
+              {selectedLeaveType?.allows_half_day ? (
+                <>
+                  <label style={labelStyle}>
+                    Start session
+                    <select
+                      value={form.start_session}
+                      onChange={(e) => setForm((prev) => ({ ...prev, start_session: e.target.value }))}
+                      style={inputStyle}
+                    >
+                      {SESSION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={labelStyle}>
+                    End session
+                    <select
+                      value={form.end_session}
+                      onChange={(e) => setForm((prev) => ({ ...prev, end_session: e.target.value }))}
+                      style={inputStyle}
+                    >
+                      {SESSION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : null}
+              <label style={labelStyle}>
+                Reason
+                <textarea
+                  value={form.reason}
+                  onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
+                  style={textareaStyle}
+                  rows={3}
+                  placeholder="Optional reason"
+                />
+              </label>
+              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                <button type="button" onClick={saveDraft} style={buttonStyle} disabled={saving}>
+                  {saving ? "Saving..." : "Save Draft"}
+                </button>
+                <button type="button" onClick={submitDraft} style={primaryButtonStyle} disabled={saving}>
+                  {saving ? "Submitting..." : "Submit"}
+                </button>
+              </div>
+            </form>
+            <div style={previewCardStyle}>
+              <div style={previewHeaderStyle}>
+                <div>
+                  <h4 style={{ margin: 0 }}>Preview</h4>
+                  <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+                    Estimated leave days before submitting.
+                  </p>
+                </div>
+                <span style={previewTotalStyle}>Total: {formatDayCount(previewTotal)}</span>
+              </div>
+              {previewLoading ? (
+                <p style={{ margin: 0, color: "#6b7280" }}>Loading preview…</p>
+              ) : previewError ? (
+                <p style={{ margin: 0, color: "#b91c1c" }}>{previewError}</p>
+              ) : previewRows.length === 0 ? (
+                <p style={{ margin: 0, color: "#6b7280" }}>Select details to preview days.</p>
+              ) : (
+                <div style={previewTableWrapStyle}>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>Date</th>
+                        <th style={thStyle}>Holiday/Off</th>
+                        <th style={thStyle}>Counted</th>
+                        <th style={thStyle}>Day fraction</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((row) => (
+                        <tr key={row.leave_date}>
+                          <td style={tdStyle}>{formatDate(row.leave_date)}</td>
+                          <td style={tdStyle}>
+                            {row.is_holiday ? "Holiday" : row.is_weekly_off ? "Weekly off" : "—"}
+                          </td>
+                          <td style={tdStyle}>{row.counted ? "Yes" : "No"}</td>
+                          <td style={tdStyle}>{formatDayCount(row.day_fraction)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          </form>
+          </div>
         </div>
 
         <div style={panelStyle}>
@@ -298,35 +589,52 @@ export default function EmployeeLeavesPage() {
                   </tr>
                 ) : (
                   requests.map((request) => {
-                    const leaveType = leaveTypeMap[request.leave_type_id];
+                    const countedDays = requestDaysMap[request.id];
                     return (
                       <tr key={request.id}>
-                        <td style={tdStyle}>{leaveType ? leaveType.name : request.leave_type_id}</td>
+                        <td style={tdStyle}>{request.leave_type?.name || request.leave_type_id}</td>
                         <td style={tdStyle}>
-                          {formatDate(request.start_date)} → {formatDate(request.end_date)}
+                          {formatDate(request.date_from)} → {formatDate(request.date_to)}
+                          <div style={{ color: "#6b7280", marginTop: 4 }}>
+                            {formatSession(request.start_session)} → {formatSession(request.end_session)}
+                          </div>
                         </td>
-                        <td style={tdStyle}>{request.days || "—"}</td>
+                        <td style={tdStyle}>
+                          {typeof countedDays === "number" ? formatDayCount(countedDays) : "—"}
+                        </td>
                         <td style={tdStyle}>{STATUS_LABELS[request.status] || request.status}</td>
                         <td style={tdStyle}>
                           {request.reason || "—"}
-                          {request.reviewer_notes ? (
+                          {request.decision_note ? (
                             <div style={{ marginTop: 6, color: "#6b7280" }}>
-                              Reviewer: {request.reviewer_notes}
+                              Decision: {request.decision_note}
                             </div>
                           ) : null}
                         </td>
                         <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {request.status === "submitted" ? (
-                            <button
-                              type="button"
-                              onClick={() => cancelRequest(request.id)}
-                              style={buttonStyle}
-                            >
-                              Cancel
-                            </button>
-                          ) : (
-                            <span style={{ color: "#6b7280" }}>—</span>
-                          )}
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            {request.status === "draft" ? (
+                              <button
+                                type="button"
+                                onClick={() => submitRequest(request.id)}
+                                style={primaryButtonStyle}
+                              >
+                                Submit
+                              </button>
+                            ) : null}
+                            {request.status === "submitted" || request.status === "approved" ? (
+                              <button
+                                type="button"
+                                onClick={() => cancelRequest(request.id)}
+                                style={buttonStyle}
+                              >
+                                Cancel
+                              </button>
+                            ) : null}
+                            {request.status !== "draft" && request.status !== "submitted" ? (
+                              <span style={{ color: "#6b7280" }}>—</span>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -348,8 +656,21 @@ function formatDate(value?: string | null) {
   return date.toLocaleDateString();
 }
 
+function formatDayCount(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "—";
+  if (Number.isInteger(value)) return value.toString();
+  return value.toFixed(1);
+}
+
+function formatSession(value?: string | null) {
+  if (!value || value === "full") return "Full day";
+  if (value === "half_am") return "Half day (AM)";
+  if (value === "half_pm") return "Half day (PM)";
+  return value;
+}
+
 const containerStyle: CSSProperties = {
-  maxWidth: 1100,
+  maxWidth: 1150,
   margin: "60px auto",
   padding: "32px 36px",
   borderRadius: 12,
@@ -393,10 +714,18 @@ const panelStyle: CSSProperties = {
   backgroundColor: "#fff",
 };
 
+const formPreviewGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 20,
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  alignItems: "flex-start",
+};
+
 const formGridStyle: CSSProperties = {
   display: "grid",
   gap: 12,
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  alignItems: "end",
 };
 
 const labelStyle: CSSProperties = {
@@ -418,6 +747,35 @@ const textareaStyle: CSSProperties = {
   borderRadius: 8,
   border: "1px solid #d1d5db",
   resize: "vertical",
+};
+
+const previewCardStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  padding: 16,
+  backgroundColor: "#f9fafb",
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+};
+
+const previewHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+};
+
+const previewTotalStyle: CSSProperties = {
+  fontWeight: 700,
+  color: "#111827",
+};
+
+const previewTableWrapStyle: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 10,
+  overflowX: "auto",
+  backgroundColor: "#fff",
 };
 
 const tableWrapStyle: CSSProperties = {
