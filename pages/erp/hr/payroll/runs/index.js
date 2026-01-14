@@ -60,7 +60,7 @@ export default function PayrollRunsPage() {
       setErr("Only HR/admin/owner/payroll can create payroll runs.");
       return;
     }
-    const monthValue = Number(month);
+    const monthValue = Number.parseInt(month, 10);
     if (!Number.isInteger(monthValue) || monthValue < 1 || monthValue > 12) {
       const message = "Month must be between 1 and 12.";
       setErr(message);

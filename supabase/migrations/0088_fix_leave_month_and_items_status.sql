@@ -1,4 +1,4 @@
--- Fix leave request join in payroll run generation and refresh payroll run items status RPC
+-- Fix leave request joins to use leave_type_id and refresh payroll run item status RPC
 
 create or replace function public.erp_payroll_run_generate(
   p_payroll_run_id uuid
@@ -179,6 +179,91 @@ $$;
 
 revoke all on function public.erp_payroll_run_generate(uuid) from public;
 grant execute on function public.erp_payroll_run_generate(uuid) to authenticated;
+
+drop function if exists public.erp_leave_request_submit(uuid,text,date,date,text);
+drop function if exists public.erp_leave_request_submit(uuid,text,date,date);
+drop function if exists public.erp_leave_request_submit(uuid,uuid,date,date,text);
+
+create or replace function public.erp_leave_request_submit(
+  p_employee_id uuid,
+  p_leave_type_id uuid,
+  p_start_date date,
+  p_end_date date,
+  p_reason text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  v_actor uuid := auth.uid();
+  v_company_id uuid := public.erp_current_company_id();
+  v_request_id uuid;
+begin
+  if v_actor is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if p_employee_id is null then
+    raise exception 'employee_id is required';
+  end if;
+
+  if p_leave_type_id is null then
+    raise exception 'leave_type_id is required';
+  end if;
+
+  if p_start_date is null or p_end_date is null then
+    raise exception 'start_date and end_date are required';
+  end if;
+
+  if p_start_date > p_end_date then
+    raise exception 'start_date cannot be after end_date';
+  end if;
+
+  if not (
+    exists (
+      select 1
+      from public.erp_employees e
+      where e.company_id = v_company_id
+        and e.id = p_employee_id
+        and e.user_id = v_actor
+    )
+    or exists (
+      select 1
+      from public.erp_company_users cu
+      where cu.company_id = v_company_id
+        and cu.user_id = v_actor
+        and coalesce(cu.is_active, true)
+        and cu.role_key in ('owner','admin','hr','payroll')
+    )
+  ) then
+    raise exception 'Not authorized';
+  end if;
+
+  if not exists (
+    select 1
+    from public.erp_leave_types lt
+    where lt.company_id = v_company_id
+      and lt.id = p_leave_type_id
+      and lt.is_active = true
+  ) then
+    raise exception 'Leave type not found or inactive';
+  end if;
+
+  insert into public.erp_leave_requests(
+    company_id, employee_id, leave_type_id, start_date, end_date, reason, status
+  ) values (
+    v_company_id, p_employee_id, p_leave_type_id, p_start_date, p_end_date, p_reason, 'submitted'
+  )
+  returning id into v_request_id;
+
+  return v_request_id;
+end;
+$function$;
+
+revoke all on function public.erp_leave_request_submit(uuid,uuid,date,date,text) from public;
+grant execute on function public.erp_leave_request_submit(uuid,uuid,date,date,text) to authenticated;
 
 drop function if exists public.erp_payroll_run_items_status(uuid);
 

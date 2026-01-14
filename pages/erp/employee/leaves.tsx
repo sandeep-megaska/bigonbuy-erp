@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 type LeaveType = {
+  id: string;
   code: string;
   name: string;
   is_paid: boolean;
@@ -22,7 +23,7 @@ type LeaveType = {
 
 type LeaveRequest = {
   id: string;
-  leave_type_code: string;
+  leave_type_id: string;
   start_date: string;
   end_date: string;
   days: number;
@@ -47,7 +48,7 @@ export default function EmployeeLeavesPage() {
   const [toast, setToast] = useState<ToastState>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    leave_type_code: "",
+    leave_type_id: "",
     start_date: "",
     end_date: "",
     reason: "",
@@ -55,7 +56,7 @@ export default function EmployeeLeavesPage() {
 
   const leaveTypeMap = useMemo(() => {
     return leaveTypes.reduce<Record<string, LeaveType>>((acc, type) => {
-      acc[type.code] = type;
+      acc[type.id] = type;
       return acc;
     }, {});
   }, [leaveTypes]);
@@ -96,7 +97,7 @@ export default function EmployeeLeavesPage() {
   async function loadLeaveTypes() {
     const { data, error } = await supabase
       .from("erp_leave_types")
-      .select("code, name, is_paid")
+      .select("id, code, name, is_paid")
       .eq("is_active", true)
       .order("name", { ascending: true });
 
@@ -106,15 +107,15 @@ export default function EmployeeLeavesPage() {
     }
 
     setLeaveTypes((data as LeaveType[]) || []);
-    if (!form.leave_type_code && data?.length) {
-      setForm((prev) => ({ ...prev, leave_type_code: data[0].code }));
+    if (!form.leave_type_id && data?.length) {
+      setForm((prev) => ({ ...prev, leave_type_id: data[0].id }));
     }
   }
 
   async function loadRequests(employeeId: string) {
     const { data, error } = await supabase
       .from("erp_leave_requests")
-      .select("id, leave_type_code, start_date, end_date, days, reason, status, reviewer_notes")
+      .select("id, leave_type_id, start_date, end_date, days, reason, status, reviewer_notes")
       .eq("employee_id", employeeId)
       .order("created_at", { ascending: false });
 
@@ -129,7 +130,7 @@ export default function EmployeeLeavesPage() {
   async function submitRequest(event: FormEvent) {
     event.preventDefault();
     if (!ctx?.employeeId) return;
-    if (!form.leave_type_code || !form.start_date || !form.end_date) {
+    if (!form.leave_type_id || !form.start_date || !form.end_date) {
       setToast({ type: "error", message: "Leave type and date range are required." });
       return;
     }
@@ -137,7 +138,7 @@ export default function EmployeeLeavesPage() {
     setSubmitting(true);
     const { error } = await supabase.rpc("erp_leave_request_submit", {
       p_employee_id: ctx.employeeId,
-      p_leave_type_code: form.leave_type_code,
+      p_leave_type_id: form.leave_type_id,
       p_start_date: form.start_date,
       p_end_date: form.end_date,
       p_reason: form.reason.trim() || null,
@@ -152,7 +153,7 @@ export default function EmployeeLeavesPage() {
     setToast({ type: "success", message: "Leave request submitted." });
     setSubmitting(false);
     setForm({
-      leave_type_code: form.leave_type_code,
+      leave_type_id: form.leave_type_id,
       start_date: "",
       end_date: "",
       reason: "",
@@ -226,13 +227,13 @@ export default function EmployeeLeavesPage() {
             <label style={labelStyle}>
               Leave type
               <select
-                value={form.leave_type_code}
-                onChange={(e) => setForm((prev) => ({ ...prev, leave_type_code: e.target.value }))}
+                value={form.leave_type_id}
+                onChange={(e) => setForm((prev) => ({ ...prev, leave_type_id: e.target.value }))}
                 style={inputStyle}
               >
                 <option value="">Select leave type</option>
                 {leaveTypes.map((type) => (
-                  <option key={type.code} value={type.code}>
+                  <option key={type.id} value={type.id}>
                     {type.name} {type.is_paid ? "(Paid)" : "(Unpaid)"}
                   </option>
                 ))}
@@ -297,10 +298,10 @@ export default function EmployeeLeavesPage() {
                   </tr>
                 ) : (
                   requests.map((request) => {
-                    const leaveType = leaveTypeMap[request.leave_type_code];
+                    const leaveType = leaveTypeMap[request.leave_type_id];
                     return (
                       <tr key={request.id}>
-                        <td style={tdStyle}>{leaveType ? leaveType.name : request.leave_type_code}</td>
+                        <td style={tdStyle}>{leaveType ? leaveType.name : request.leave_type_id}</td>
                         <td style={tdStyle}>
                           {formatDate(request.start_date)} → {formatDate(request.end_date)}
                         </td>
