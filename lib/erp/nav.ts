@@ -101,6 +101,14 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "hr-calendars",
+    label: "HR Calendars",
+    href: "/erp/hr/calendars",
+    section: "HR",
+    description: "Manage calendars, holidays, and work location mappings.",
+    access: "manager",
+  },
+  {
     id: "my-payslips",
     label: "My Payslips",
     href: "/erp/my/payslips",
