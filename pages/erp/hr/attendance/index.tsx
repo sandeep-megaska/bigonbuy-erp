@@ -39,6 +39,19 @@ type AttendanceDayRow = {
   source: string | null;
 };
 
+type AttendanceDayDetail = AttendanceDayRow & {
+  check_in_at: string | null;
+  check_out_at: string | null;
+  notes: string | null;
+  work_minutes: number | null;
+  late_minutes: number | null;
+  early_leave_minutes: number | null;
+  ot_minutes: number | null;
+  day_fraction: number | null;
+  shift_id: string | null;
+  erp_hr_shifts?: { code?: string | null; name?: string | null } | null;
+};
+
 type AttendancePeriod = {
   status: "open" | "frozen";
   frozen_at: string | null;
@@ -69,6 +82,17 @@ export default function HrAttendancePage() {
   const [attendanceRows, setAttendanceRows] = useState<AttendanceDayRow[]>([]);
   const [periodStatus, setPeriodStatus] = useState<AttendancePeriod | null>(null);
   const [monthValue, setMonthValue] = useState(() => new Date().toISOString().slice(0, 7));
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorEmployee, setEditorEmployee] = useState<EmployeeRow | null>(null);
+  const [editorDay, setEditorDay] = useState<string | null>(null);
+  const [editorRow, setEditorRow] = useState<AttendanceDayDetail | null>(null);
+  const [editorForm, setEditorForm] = useState({
+    checkInAt: "",
+    checkOutAt: "",
+    notes: "",
+    statusOverride: "unmarked",
+  });
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -283,6 +307,76 @@ export default function HrAttendancePage() {
       setToast({ type: "error", message: "Only HR/admin users can edit attendance." });
       return;
     }
+    const employee = employees.find((item) => item.id === employeeId) || null;
+    setEditorEmployee(employee);
+    setEditorDay(day);
+    setEditorOpen(true);
+    await loadAttendanceDetail(employeeId, day);
+  }
+
+  async function loadAttendanceDetail(employeeId: string, day: string) {
+    setEditorLoading(true);
+    const { data, error } = await supabase
+      .from("erp_hr_attendance_days")
+      .select(
+        "employee_id, day, status, source, check_in_at, check_out_at, notes, work_minutes, late_minutes, early_leave_minutes, ot_minutes, day_fraction, shift_id, erp_hr_shifts(code, name)"
+      )
+      .eq("employee_id", employeeId)
+      .eq("day", day)
+      .maybeSingle();
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setEditorLoading(false);
+      return;
+    }
+
+    const detail: AttendanceDayDetail = data
+      ? {
+          employee_id: data.employee_id,
+          day: data.day,
+          status: data.status,
+          source: data.source,
+          check_in_at: data.check_in_at,
+          check_out_at: data.check_out_at,
+          notes: data.notes,
+          work_minutes: data.work_minutes,
+          late_minutes: data.late_minutes,
+          early_leave_minutes: data.early_leave_minutes,
+          ot_minutes: data.ot_minutes,
+          day_fraction: data.day_fraction,
+          shift_id: data.shift_id,
+          erp_hr_shifts: data.erp_hr_shifts,
+        }
+      : {
+          employee_id: employeeId,
+          day,
+          status: "unmarked",
+          source: null,
+          check_in_at: null,
+          check_out_at: null,
+          notes: null,
+          work_minutes: null,
+          late_minutes: null,
+          early_leave_minutes: null,
+          ot_minutes: null,
+          day_fraction: null,
+          shift_id: null,
+          erp_hr_shifts: null,
+        };
+
+    setEditorRow(detail);
+    setEditorForm({
+      checkInAt: toLocalInputValue(detail.check_in_at),
+      checkOutAt: toLocalInputValue(detail.check_out_at),
+      notes: detail.notes || "",
+      statusOverride: EDITABLE_STATUSES.includes(detail.status) ? detail.status : "unmarked",
+    });
+    setEditorLoading(false);
+  }
+
+  async function handleSaveEditor() {
+    if (!editorEmployee || !editorDay || !monthMeta) return;
     if (periodStatus?.status !== "open") {
       setToast({
         type: "error",
@@ -291,23 +385,14 @@ export default function HrAttendancePage() {
       return;
     }
 
-    const row = attendanceMap[`${employeeId}-${day}`];
-    if (row?.status === "leave" || row?.source === "leave") {
-      setToast({ type: "error", message: "Leave entries cannot be edited." });
-      return;
-    }
-
-    const currentStatus = row?.status || "unmarked";
-    const nextStatus = nextEditableStatus(currentStatus);
-
-    setActionLoading("cell");
-    const { error } = await supabase.rpc("erp_hr_attendance_set_day", {
-      p_employee_id: employeeId,
-      p_day: day,
-      p_status: nextStatus,
-      p_check_in: null,
-      p_check_out: null,
-      p_notes: null,
+    setActionLoading("save");
+    const { error } = await supabase.rpc("erp_attendance_upsert_check_times", {
+      p_employee_id: editorEmployee.id,
+      p_day: editorDay,
+      p_check_in_at: toIsoFromLocal(editorForm.checkInAt),
+      p_check_out_at: toIsoFromLocal(editorForm.checkOutAt),
+      p_source: "manual",
+      p_note: editorForm.notes || null,
     });
 
     if (error) {
@@ -316,29 +401,72 @@ export default function HrAttendancePage() {
       return;
     }
 
-    setAttendanceRows((prev) => {
-      const next = [...prev];
-      const index = next.findIndex(
-        (item) => item.employee_id === employeeId && item.day === day
-      );
-      if (index >= 0) {
-        next[index] = {
-          ...next[index],
-          status: nextStatus,
+    const isLeaveRow = editorRow?.status === "leave" || editorRow?.source === "leave";
+    if (!isLeaveRow) {
+      const { error: statusError } = await supabase
+        .from("erp_hr_attendance_days")
+        .update({
+          status: editorForm.statusOverride,
           source: "manual",
-        };
-      } else {
-        next.push({
-          employee_id: employeeId,
-          day,
-          status: nextStatus,
-          source: "manual",
-        });
+        })
+        .eq("employee_id", editorEmployee.id)
+        .eq("day", editorDay);
+
+      if (statusError) {
+        setToast({ type: "error", message: statusError.message });
+        setActionLoading(null);
+        return;
       }
-      return next;
+    }
+
+    setToast({ type: "success", message: "Attendance updated." });
+    await loadAttendanceMonth(monthMeta);
+    await loadAttendanceDetail(editorEmployee.id, editorDay);
+    setActionLoading(null);
+  }
+
+  async function handleRecomputeMonth() {
+    if (!monthMeta) return;
+    setActionLoading("recompute-month");
+    const { error } = await supabase.rpc("erp_attendance_recompute_month", {
+      p_month: monthMeta.monthStart,
+      p_employee_ids: null,
     });
 
+    if (error) {
+      setToast({ type: "error", message: error.message });
+    } else {
+      setToast({ type: "success", message: "Attendance metrics recomputed for the month." });
+      await loadAttendanceMonth(monthMeta);
+    }
     setActionLoading(null);
+  }
+
+  async function handleRecomputeDay() {
+    if (!monthMeta || !editorEmployee) return;
+    setActionLoading("recompute-day");
+    const { error } = await supabase.rpc("erp_attendance_recompute_month", {
+      p_month: monthMeta.monthStart,
+      p_employee_ids: [editorEmployee.id],
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+    } else {
+      setToast({ type: "success", message: "Attendance metrics recomputed." });
+      await loadAttendanceMonth(monthMeta);
+      if (editorDay) {
+        await loadAttendanceDetail(editorEmployee.id, editorDay);
+      }
+    }
+    setActionLoading(null);
+  }
+
+  function closeEditor() {
+    setEditorOpen(false);
+    setEditorEmployee(null);
+    setEditorDay(null);
+    setEditorRow(null);
   }
 
   const handleSignOut = async () => {
@@ -456,6 +584,14 @@ export default function HrAttendancePage() {
           >
             {actionLoading === "mark_weekdays" ? "Marking..." : "Mark Weekdays Present"}
           </button>
+          <button
+            type="button"
+            onClick={handleRecomputeMonth}
+            style={secondaryButtonStyle}
+            disabled={actionLoading === "recompute-month"}
+          >
+            {actionLoading === "recompute-month" ? "Recomputing..." : "Recompute Metrics"}
+          </button>
         </div>
 
         <div style={legendStyle}>
@@ -519,11 +655,11 @@ export default function HrAttendancePage() {
                               ...(status === "unmarked" ? unmarkedCellStyle : null),
                               ...(isLocked ? lockedCellStyle : null),
                             }}
-                            disabled={isLocked || actionLoading === "cell"}
+                            disabled={actionLoading === "save" || actionLoading === "recompute-day"}
                             title={
                               isLocked
                                 ? "Locked"
-                                : `Click to set ${STATUS_LABELS[nextEditableStatus(status)]}`
+                                : "Click to edit attendance details"
                             }
                           >
                             {statusCode}
@@ -538,6 +674,158 @@ export default function HrAttendancePage() {
           </table>
         </div>
       </section>
+
+      {editorOpen ? (
+        <div style={modalOverlayStyle} role="dialog" aria-modal="true">
+          <div style={modalCardStyle}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <h2 style={{ margin: 0 }}>Edit Attendance</h2>
+                <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+                  {editorEmployee?.full_name || "Employee"} · {editorDay}
+                </p>
+              </div>
+              <button type="button" onClick={closeEditor} style={buttonStyle}>
+                Close
+              </button>
+            </div>
+
+            {periodStatus?.status !== "open" ? (
+              <div style={warningBoxStyle}>
+                Attendance period is frozen. Editing is disabled.
+              </div>
+            ) : null}
+
+            {editorLoading ? (
+              <div style={{ padding: "16px 0" }}>Loading details…</div>
+            ) : (
+              <div style={modalBodyStyle}>
+                <div style={modalFormStyle}>
+                  <label style={modalLabelStyle}>
+                    Check-in
+                    <input
+                      type="datetime-local"
+                      value={editorForm.checkInAt}
+                      onChange={(e) =>
+                        setEditorForm((prev) => ({ ...prev, checkInAt: e.target.value }))
+                      }
+                      style={inputStyle}
+                      disabled={periodStatus?.status !== "open"}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Check-out
+                    <input
+                      type="datetime-local"
+                      value={editorForm.checkOutAt}
+                      onChange={(e) =>
+                        setEditorForm((prev) => ({ ...prev, checkOutAt: e.target.value }))
+                      }
+                      style={inputStyle}
+                      disabled={periodStatus?.status !== "open"}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Notes
+                    <textarea
+                      value={editorForm.notes}
+                      onChange={(e) => setEditorForm((prev) => ({ ...prev, notes: e.target.value }))}
+                      style={textareaStyle}
+                      rows={3}
+                      disabled={periodStatus?.status !== "open"}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Status override
+                    <select
+                      value={editorForm.statusOverride}
+                      onChange={(e) =>
+                        setEditorForm((prev) => ({ ...prev, statusOverride: e.target.value }))
+                      }
+                      style={inputStyle}
+                      disabled={
+                        periodStatus?.status !== "open" ||
+                        editorRow?.status === "leave" ||
+                        editorRow?.source === "leave"
+                      }
+                    >
+                      <option value="present">Present</option>
+                      <option value="absent">Absent</option>
+                      <option value="unmarked">Unmarked</option>
+                    </select>
+                    {editorRow?.status === "leave" || editorRow?.source === "leave" ? (
+                      <span style={{ color: "#b91c1c", fontSize: 12 }}>
+                        Leave entries cannot be overridden by default.
+                      </span>
+                    ) : null}
+                  </label>
+                </div>
+
+                <div style={metricsCardStyle}>
+                  <h3 style={{ marginTop: 0 }}>Computed Metrics</h3>
+                  <div style={metricsGridStyle}>
+                    <div>
+                      <div style={metricsLabelStyle}>Work minutes</div>
+                      <div style={metricsValueStyle}>
+                        {formatMetric(editorRow?.work_minutes)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Late minutes</div>
+                      <div style={metricsValueStyle}>
+                        {formatMetric(editorRow?.late_minutes)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Early leave minutes</div>
+                      <div style={metricsValueStyle}>
+                        {formatMetric(editorRow?.early_leave_minutes)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>OT minutes</div>
+                      <div style={metricsValueStyle}>
+                        {formatMetric(editorRow?.ot_minutes)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Day fraction</div>
+                      <div style={metricsValueStyle}>
+                        {editorRow?.day_fraction ?? "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Shift used</div>
+                      <div style={metricsValueStyle}>
+                        {formatShift(editorRow)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={modalFooterStyle}>
+              <button
+                type="button"
+                onClick={handleRecomputeDay}
+                style={secondaryButtonStyle}
+                disabled={actionLoading === "recompute-day"}
+              >
+                {actionLoading === "recompute-day" ? "Recomputing..." : "Recompute"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditor}
+                style={primaryButtonStyle}
+                disabled={actionLoading === "save" || periodStatus?.status !== "open"}
+              >
+                {actionLoading === "save" ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -568,11 +856,37 @@ function buildMonthMeta(value: string): MonthMeta | null {
   };
 }
 
-function nextEditableStatus(current: string) {
-  const normalized = current || "unmarked";
-  const index = EDITABLE_STATUSES.indexOf(normalized);
-  const nextIndex = index >= 0 ? (index + 1) % EDITABLE_STATUSES.length : 0;
-  return EDITABLE_STATUSES[nextIndex];
+function toLocalInputValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function toIsoFromLocal(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function formatMetric(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return String(value);
+}
+
+function formatShift(row: AttendanceDayDetail | null) {
+  if (!row) return "—";
+  const shift = row.erp_hr_shifts;
+  if (shift?.code || shift?.name) {
+    return `${shift?.code || "Shift"}${shift?.name ? ` · ${shift?.name}` : ""}`;
+  }
+  return row.shift_id || "—";
 }
 
 const containerStyle: CSSProperties = {
@@ -811,4 +1125,102 @@ const successBoxStyle: CSSProperties = {
   border: "1px solid #a7f3d0",
   color: "#047857",
   marginBottom: 16,
+};
+
+const warningBoxStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 8,
+  backgroundColor: "#fff7ed",
+  border: "1px solid #fed7aa",
+  color: "#9a3412",
+  marginBottom: 16,
+};
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  zIndex: 50,
+};
+
+const modalCardStyle: CSSProperties = {
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  width: "100%",
+  maxWidth: 880,
+  padding: 24,
+  boxShadow: "0 18px 40px rgba(15, 23, 42, 0.2)",
+};
+
+const modalHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 16,
+  marginBottom: 16,
+};
+
+const modalBodyStyle: CSSProperties = {
+  display: "flex",
+  gap: 24,
+  flexWrap: "wrap",
+};
+
+const modalFormStyle: CSSProperties = {
+  flex: "1 1 320px",
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+};
+
+const modalLabelStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const textareaStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1px solid #d1d5db",
+  minHeight: 80,
+  resize: "vertical",
+};
+
+const metricsCardStyle: CSSProperties = {
+  flex: "1 1 280px",
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  backgroundColor: "#f9fafb",
+  padding: 16,
+};
+
+const metricsGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 12,
+};
+
+const metricsLabelStyle: CSSProperties = {
+  color: "#6b7280",
+  fontSize: 12,
+};
+
+const metricsValueStyle: CSSProperties = {
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const modalFooterStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 12,
+  marginTop: 20,
+  flexWrap: "wrap",
 };
