@@ -5,7 +5,7 @@ type DesignationRow = {
   id: string;
   code: string;
   name: string;
-  department: string | null;
+  description: string | null;
   is_active: boolean;
 };
 
@@ -40,7 +40,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_list_designations");
+    const { data, error } = await userClient.rpc("erp_hr_designations_list", {
+      p_include_inactive: false,
+    });
     if (error) {
       return res.status(500).json({
         ok: false,

@@ -62,6 +62,7 @@ export default function EmployeeProfilePage() {
     manager_employee_id: "",
     lifecycle_status: "preboarding",
     exit_date: "",
+    effective_from: "",
   });
   const [docForm, setDocForm] = useState({ doc_type: "other", notes: "" });
   const [uploadFile, setUploadFile] = useState(null);
@@ -343,9 +344,13 @@ export default function EmployeeProfilePage() {
       setError("Only owner/admin/hr can update job info.");
       return;
     }
+    const effectiveFrom =
+      jobForm.effective_from ||
+      currentJob?.effective_from ||
+      employee?.joining_date ||
+      new Date().toISOString().slice(0, 10);
     setSaving(true);
     setError("");
-    const effectiveFrom = currentJob?.effective_from || employee?.joining_date || null;
     const payload = {
       employee_id: employeeId,
       department_id: jobForm.department_id || null,
@@ -568,6 +573,7 @@ export default function EmployeeProfilePage() {
       manager_employee_id: currentJob?.manager_employee_id || employee.manager_employee_id || "",
       lifecycle_status: employee.lifecycle_status || "preboarding",
       exit_date: employee.exit_date ? employee.exit_date.split("T")[0] : "",
+      effective_from: currentJob?.effective_from ? currentJob.effective_from.split("T")[0] : "",
     });
   }, [employee, currentJob]);
 
@@ -668,6 +674,17 @@ export default function EmployeeProfilePage() {
             {!canManage ? <span style={{ color: "#6b7280" }}>Read-only</span> : null}
           </div>
           <form onSubmit={handleSaveJob} style={formGridStyle}>
+            <label style={labelStyle}>
+              Effective From
+              <input
+                type="date"
+                value={jobForm.effective_from || ""}
+                onChange={(e) => setJobForm({ ...jobForm, effective_from: e.target.value })}
+                style={inputStyle}
+                disabled={!canManage}
+              />
+              <span style={helperTextStyle}>Defaults to today if left empty.</span>
+            </label>
             <label style={labelStyle}>
               Department
               <select

@@ -156,6 +156,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { userClient } = await ensureAuthenticatedClient(req);
 
     if (req.method === "GET") {
+      if (masterType === "designations") {
+        const { data, error } = await userClient.rpc("erp_hr_designations_list", {
+          p_include_inactive: true,
+        });
+        if (error) {
+          return res.status(400).json({
+            ok: false,
+            error: error.message || "Failed to load records",
+            details: error.details || error.hint || error.code,
+          });
+        }
+        return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
+      }
       const { data, error } = await userClient
         .from(config.table)
         .select(config.select)
@@ -171,6 +184,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (req.method === "POST") {
+      if (masterType === "designations") {
+        const payload = config.buildPayload((req.body ?? {}) as Record<string, unknown>);
+        const { data: designationId, error: upsertError } = await userClient.rpc(
+          "erp_hr_designation_upsert",
+          {
+            p_id: (payload.id as string) ?? null,
+            p_code: (payload.code as string) ?? null,
+            p_name: (payload.name as string) ?? null,
+            p_description: (payload.description as string) ?? null,
+            p_is_active: payload.is_active as boolean | null,
+          }
+        );
+        if (upsertError) {
+          return res.status(400).json({
+            ok: false,
+            error: upsertError.message || "Failed to save record",
+            details: upsertError.details || upsertError.hint || upsertError.code,
+          });
+        }
+        const { data, error } = await userClient
+          .from(config.table)
+          .select(config.select)
+          .eq("id", designationId as string)
+          .single();
+        if (error) {
+          return res.status(400).json({
+            ok: false,
+            error: error.message || "Failed to load record",
+            details: error.details || error.hint || error.code,
+          });
+        }
+        return res.status(200).json({ ok: true, row: data as unknown });
+      }
       const payload = config.buildPayload((req.body ?? {}) as Record<string, unknown>);
       const { data, error } = await userClient
         .from(config.table)

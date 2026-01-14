@@ -38,16 +38,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_hr_employee_job_upsert", {
+    const { data, error } = await userClient.rpc("erp_employee_job_upsert", {
       p_employee_id: employeeId,
+      p_effective_from: (body.effective_from as string) ?? null,
       p_department_id: (body.department_id as string) ?? null,
       p_designation_id: (body.designation_id as string) ?? null,
-      p_location_id: (body.location_id as string) ?? null,
       p_manager_employee_id: (body.manager_employee_id as string) ?? null,
+      p_location_id: (body.location_id as string) ?? null,
       p_grade_id: (body.grade_id as string) ?? null,
       p_cost_center_id: (body.cost_center_id as string) ?? null,
       p_notes: (body.notes as string) ?? null,
-      p_effective_from: (body.effective_from as string) ?? null,
     });
 
     if (error) {
