@@ -56,8 +56,9 @@ export default function CompanyUsersPage() {
       if (!active) return;
 
       setAccess({
-        ...accessState,
-        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
+        isAuthenticated: accessState.isAuthenticated,
+        isManager: accessState.isManager,
+        roleKey: accessState.roleKey ?? undefined,
       });
       setCtx(context);
       if (!context.companyId) {
