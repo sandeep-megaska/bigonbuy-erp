@@ -16,7 +16,8 @@ create table if not exists public.erp_hr_attendance_periods (
 );
 
 create index if not exists erp_hr_attendance_periods_company_month_idx
-  on public.erp_hr_attendance_periods (company_id, month_start);
+  on public.erp_hr_attendance_periods (company_id, month);
+
 
 drop trigger if exists erp_hr_attendance_periods_set_updated_at on public.erp_hr_attendance_periods;
 create trigger erp_hr_attendance_periods_set_updated_at
