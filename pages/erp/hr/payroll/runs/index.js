@@ -8,6 +8,7 @@ export default function PayrollRunsPage() {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [toast, setToast] = useState(null);
   const [runs, setRuns] = useState([]);
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [month, setMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, "0"));
@@ -54,8 +55,16 @@ export default function PayrollRunsPage() {
   async function createRun(e) {
     e.preventDefault();
     if (!ctx?.companyId) return;
+    setErr("");
     if (!canWrite) {
       setErr("Only HR/admin/owner/payroll can create payroll runs.");
+      return;
+    }
+    const monthValue = Number(month);
+    if (!Number.isInteger(monthValue) || monthValue < 1 || monthValue > 12) {
+      const message = "Month must be between 1 and 12.";
+      setErr(message);
+      showToast(message, "error");
       return;
     }
     const response = await fetch("/api/erp/payroll/runs/create", {
@@ -63,7 +72,7 @@ export default function PayrollRunsPage() {
       headers: getAuthHeaders(),
       body: JSON.stringify({
         year: Number(year),
-        month: Number(month),
+        month: monthValue,
       }),
     });
     const payload = await response.json();
@@ -87,6 +96,11 @@ export default function PayrollRunsPage() {
     return token
       ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
       : { "Content-Type": "application/json" };
+  }
+
+  function showToast(message, type = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2500);
   }
 
   if (loading) return <div style={{ padding: 24 }}>Loading payroll runs…</div>;
@@ -117,6 +131,12 @@ export default function PayrollRunsPage() {
         </div>
       </div>
 
+      {toast ? (
+        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: toast.type === "error" ? "#fef2f2" : "#ecfdf5", color: toast.type === "error" ? "#991b1b" : "#065f46", border: `1px solid ${toast.type === "error" ? "#fecaca" : "#a7f3d0"}` }}>
+          {toast.message}
+        </div>
+      ) : null}
+
       {err ? (
         <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
           {err}
@@ -130,7 +150,7 @@ export default function PayrollRunsPage() {
         ) : (
           <form onSubmit={createRun} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
             <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="Year" style={inputStyle} />
-            <input value={month} onChange={(e) => setMonth(e.target.value)} placeholder="Month" style={inputStyle} />
+            <input type="number" min="1" max="12" value={month} onChange={(e) => setMonth(e.target.value)} placeholder="Month" style={inputStyle} />
             <div style={{ gridColumn: "1 / -1" }}>
               <button style={buttonStyle}>Create Run</button>
             </div>
