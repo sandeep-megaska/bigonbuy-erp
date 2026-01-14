@@ -3,7 +3,14 @@ import { useRouter } from "next/router";
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
-const emptyStructureForm = { name: "", notes: "", isActive: true };
+const emptyStructureForm = {
+  name: "",
+  notes: "",
+  isActive: true,
+  basicPct: "50",
+  hraPctOfBasic: "40",
+  allowancesMode: "remainder",
+};
 const emptyComponentForm = {
   code: "",
   name: "",
@@ -77,7 +84,7 @@ export default function HrSalaryPage() {
   async function loadStructures(companyId, isActive = true) {
     const { data, error } = await supabase
       .from("erp_salary_structures")
-      .select("id, name, notes, is_active")
+      .select("id, name, notes, is_active, basic_pct, hra_pct_of_basic, allowances_mode")
       .eq("company_id", companyId)
       .order("name", { ascending: true });
     if (error) {
@@ -93,6 +100,9 @@ export default function HrSalaryPage() {
           name: first.name ?? "",
           notes: first.notes ?? "",
           isActive: first.is_active ?? true,
+          basicPct: first.basic_pct?.toString() ?? "50",
+          hraPctOfBasic: first.hra_pct_of_basic?.toString() ?? "40",
+          allowancesMode: first.allowances_mode ?? "remainder",
         });
       }
     }
@@ -148,6 +158,9 @@ export default function HrSalaryPage() {
       p_name: structureForm.name.trim(),
       p_is_active: structureForm.isActive,
       p_notes: structureForm.notes.trim() || null,
+      p_basic_pct: structureForm.basicPct ? Number(structureForm.basicPct) : 50,
+      p_hra_pct_of_basic: structureForm.hraPctOfBasic ? Number(structureForm.hraPctOfBasic) : 40,
+      p_allowances_mode: structureForm.allowancesMode || "remainder",
       p_id: selectedStructureId || null,
     };
 
@@ -233,6 +246,9 @@ export default function HrSalaryPage() {
         name: structure.name ?? "",
         notes: structure.notes ?? "",
         isActive: structure.is_active ?? true,
+        basicPct: structure.basic_pct?.toString() ?? "50",
+        hraPctOfBasic: structure.hra_pct_of_basic?.toString() ?? "40",
+        allowancesMode: structure.allowances_mode ?? "remainder",
       });
     }
   }
@@ -356,6 +372,41 @@ export default function HrSalaryPage() {
                 />
                 Active
               </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                <label style={labelStyle}>
+                  Basic % of CTC
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={structureForm.basicPct}
+                    onChange={(e) => setStructureForm({ ...structureForm, basicPct: e.target.value })}
+                    style={inputStyle}
+                    disabled={!canWrite}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  HRA % of Basic
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={structureForm.hraPctOfBasic}
+                    onChange={(e) => setStructureForm({ ...structureForm, hraPctOfBasic: e.target.value })}
+                    style={inputStyle}
+                    disabled={!canWrite}
+                  />
+                </label>
+                <label style={labelStyle}>
+                  Allowances Mode
+                  <input
+                    value={structureForm.allowancesMode}
+                    style={inputStyle}
+                    readOnly
+                    disabled
+                  />
+                </label>
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={buttonStyle} disabled={!canWrite || !structureForm.name.trim()}>
                   {selectedStructureId ? "Save Changes" : "Create Structure"}

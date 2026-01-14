@@ -43,6 +43,7 @@ export default function EmployeeProfilePage() {
   const [salaryForm, setSalaryForm] = useState({
     structureId: "",
     effectiveFrom: "",
+    ctcMonthly: "",
     notes: "",
   });
   const [salaryLoading, setSalaryLoading] = useState(false);
@@ -181,7 +182,7 @@ export default function EmployeeProfilePage() {
       if (canEditSalary) {
         const { data: structuresData, error: structuresError } = await supabase
           .from("erp_salary_structures")
-          .select("id, name, is_active")
+          .select("id, name, is_active, basic_pct, hra_pct_of_basic, allowances_mode")
           .eq("company_id", ctx.companyId)
           .eq("is_active", true)
           .order("name", { ascending: true });
@@ -203,6 +204,11 @@ export default function EmployeeProfilePage() {
       setSalaryError("Select a salary structure.");
       return;
     }
+    const ctcMonthly = Number(salaryForm.ctcMonthly);
+    if (!ctcMonthly || ctcMonthly <= 0) {
+      setSalaryError("Monthly CTC must be greater than 0.");
+      return;
+    }
     const effectiveFrom = salaryForm.effectiveFrom || new Date().toISOString().slice(0, 10);
     setSalaryLoading(true);
     setSalaryError("");
@@ -211,10 +217,11 @@ export default function EmployeeProfilePage() {
         p_employee_id: employeeId,
         p_salary_structure_id: salaryForm.structureId,
         p_effective_from: effectiveFrom,
+        p_ctc_monthly: ctcMonthly,
         p_notes: salaryForm.notes.trim() || null,
       });
       if (error) throw error;
-      setSalaryForm({ structureId: "", effectiveFrom: "", notes: "" });
+      setSalaryForm({ structureId: "", effectiveFrom: "", ctcMonthly: "", notes: "" });
       showToast("Salary structure assigned");
       await loadSalaryData();
     } catch (e) {
@@ -922,8 +929,16 @@ export default function EmployeeProfilePage() {
                 <div style={{ display: "grid", gap: 4 }}>
                   <div style={{ fontWeight: 600 }}>{salaryCurrent.structure_name}</div>
                   <div style={{ fontSize: 13, color: "#6b7280" }}>
+                    Monthly CTC: {formatCurrency(salaryCurrent.ctc_monthly)}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
                     Effective from: {formatDate(salaryCurrent.effective_from)}
                   </div>
+                  {renderBreakupPreview(
+                    salaryCurrent.ctc_monthly,
+                    salaryCurrent.basic_pct,
+                    salaryCurrent.hra_pct_of_basic
+                  )}
                 </div>
               ) : (
                 <div style={{ color: "#6b7280" }}>No active salary structure assigned.</div>
@@ -950,6 +965,19 @@ export default function EmployeeProfilePage() {
                   </select>
                 </label>
                 <label style={labelStyle}>
+                  Monthly CTC
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={salaryForm.ctcMonthly}
+                    onChange={(e) => setSalaryForm({ ...salaryForm, ctcMonthly: e.target.value })}
+                    style={inputStyle}
+                    placeholder="e.g., 45000"
+                    disabled={salaryLoading}
+                  />
+                </label>
+                <label style={labelStyle}>
                   Effective From
                   <input
                     type="date"
@@ -959,6 +987,11 @@ export default function EmployeeProfilePage() {
                     disabled={salaryLoading}
                   />
                 </label>
+                {renderBreakupPreview(
+                  salaryForm.ctcMonthly,
+                  salaryStructures.find((structure) => structure.id === salaryForm.structureId)?.basic_pct,
+                  salaryStructures.find((structure) => structure.id === salaryForm.structureId)?.hra_pct_of_basic
+                )}
                 <label style={labelStyle}>
                   Notes
                   <input
@@ -988,6 +1021,7 @@ export default function EmployeeProfilePage() {
                   <thead>
                     <tr>
                       <th style={thStyle}>Structure</th>
+                      <th style={thStyle}>CTC (Monthly)</th>
                       <th style={thStyle}>Effective From</th>
                       <th style={thStyle}>Effective To</th>
                       <th style={thStyle}>Notes</th>
@@ -997,6 +1031,7 @@ export default function EmployeeProfilePage() {
                     {salaryHistory.map((row) => (
                       <tr key={row.id}>
                         <td style={tdStyle}>{row.structure_name || row.salary_structure_id}</td>
+                        <td style={tdStyle}>{formatCurrency(row.ctc_monthly)}</td>
                         <td style={tdStyle}>{formatDate(row.effective_from)}</td>
                         <td style={tdStyle}>{formatDate(row.effective_to)}</td>
                         <td style={tdStyle}>{row.notes || "—"}</td>
@@ -1004,7 +1039,7 @@ export default function EmployeeProfilePage() {
                     ))}
                     {!salaryHistory.length ? (
                       <tr>
-                        <td style={tdStyle} colSpan={4}>
+                        <td style={tdStyle} colSpan={5}>
                           <div style={{ color: "#6b7280" }}>No salary history available.</div>
                         </td>
                       </tr>
@@ -1034,6 +1069,45 @@ function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString();
+}
+
+function formatCurrency(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function computeBreakup(ctcMonthly, basicPct, hraPctOfBasic) {
+  const ctc = Number(ctcMonthly);
+  const basicPercent = Number(basicPct);
+  const hraPercent = Number(hraPctOfBasic);
+  if (!Number.isFinite(ctc) || ctc <= 0 || !Number.isFinite(basicPercent) || !Number.isFinite(hraPercent)) {
+    return null;
+  }
+  const basic = roundCurrency((ctc * basicPercent) / 100);
+  const hra = roundCurrency((basic * hraPercent) / 100);
+  const allowances = roundCurrency(Math.max(ctc - basic - hra, 0));
+  return { basic, hra, allowances };
+}
+
+function roundCurrency(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function renderBreakupPreview(ctcMonthly, basicPct, hraPctOfBasic) {
+  const breakup = computeBreakup(ctcMonthly, basicPct, hraPctOfBasic);
+  if (!breakup) return null;
+  return (
+    <div style={{ marginTop: 6, fontSize: 12, color: "#4b5563" }}>
+      Breakup: Basic {formatCurrency(breakup.basic)} · HRA {formatCurrency(breakup.hra)} · Allowances{" "}
+      {formatCurrency(breakup.allowances)}
+    </div>
+  );
 }
 
 const containerStyle = {
