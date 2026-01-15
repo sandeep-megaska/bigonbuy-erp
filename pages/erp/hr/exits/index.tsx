@@ -131,27 +131,28 @@ export default function EmployeeExitsPage() {
     loadExits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, monthFilter]);
+async function loadExits() {
+  try {
+    let query = supabase
+      .from("erp_hr_employee_exits")
+      .select(
+        `
+        id, status, initiated_on, last_working_day,
+        notice_period_days, notice_waived, notes, created_at,
 
-  async function loadExits() {
-   const { data: rowsData, error: rowsError } = await supabase
-  .from("erp_hr_employee_exits")
-  .select(`
-    id, status, initiated_on, last_working_day,
-    notice_period_days, notice_waived, notes,
+        employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
+          id, full_name, employee_code
+        ),
 
-    employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
-      id, full_name, employee_code
-    ),
+        manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
+          id, full_name, employee_code
+        ),
 
-    manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
-      id, full_name, employee_code
-    ),
-
-    exit_type:erp_hr_employee_exit_types ( id, name ),
-    exit_reason:erp_hr_employee_exit_reasons ( id, name )
-  `)
-  .order("created_at", { ascending: false });
-
+        exit_type:erp_hr_employee_exit_types ( id, name ),
+        exit_reason:erp_hr_employee_exit_reasons ( id, name )
+      `
+      )
+      .order("created_at", { ascending: false });
 
     if (statusFilter) {
       query = query.eq("status", statusFilter);
@@ -159,30 +160,36 @@ export default function EmployeeExitsPage() {
 
     if (monthFilter) {
       const startDate = `${monthFilter}-01`;
-      const [year, month] = monthFilter.split("-").map((item) => Number(item));
-      const nextMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
-      query = query.gte("last_working_day", startDate).lt("last_working_day", `${nextMonth}-01`);
+      const [year, month] = monthFilter.split("-").map((n) => Number(n));
+      const nextMonth =
+        month === 12
+          ? `${year + 1}-01`
+          : `${year}-${String(month + 1).padStart(2, "0")}`;
+
+      query = query
+        .gte("last_working_day", startDate)
+        .lt("last_working_day", `${nextMonth}-01`);
     }
 
-    const { data, error } = await query;
+    const { data: rowsData, error: rowsError } = await query;
 
-    if (error) {
-      setToast({ type: "error", message: error.message || "Unable to load exit requests." });
+    if (rowsError) {
+      setToast({
+        type: "error",
+        message: rowsError.message || "Unable to load exit requests.",
+      });
       return;
     }
 
-    const raw = (data ?? []) as ExitRowRaw[];
-
-const normalized: ExitRow[] = raw.map((r) => ({
-  ...r,
-  employee: r.employee?.[0] ?? null,
-  exit_type: r.exit_type?.[0] ?? null,
-  exit_reason: r.exit_reason?.[0] ?? null,
-}));
-
-setRows(normalized);
-
+    // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
+    setRows((rowsData ?? []) as ExitRow[]);
+  } catch (e: any) {
+    setToast({
+      type: "error",
+      message: e?.message || "Unable to load exit requests.",
+    });
   }
+}
 
   function showToast(message: string, type: "success" | "error" = "success") {
     setToast({ type, message });
