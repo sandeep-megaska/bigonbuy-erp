@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
-import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
 import { supabase } from "../../../lib/supabaseClient";
 
@@ -16,8 +16,11 @@ export default function HrHomePage() {
     isManager: false,
     roleKey: undefined,
   });
-  const canManage = useMemo(() => access.isManager || isHr(ctx?.roleKey), [access.isManager, ctx]);
-  const navItems = useMemo(() => buildNavItems(canManage), [canManage]);
+  const canGovern = useMemo(
+    () => isAdmin(ctx?.roleKey || access.roleKey),
+    [access.roleKey, ctx?.roleKey]
+  );
+  const navItems = useMemo(() => buildNavItems(canGovern), [canGovern]);
 
   useEffect(() => {
     let active = true;
@@ -345,7 +348,7 @@ function ModuleCard({ item }) {
   );
 }
 
-function buildNavItems(canManage) {
+function buildNavItems(canGovern) {
   const sections = [
     {
       title: "HR Masters",
@@ -353,13 +356,12 @@ function buildNavItems(canManage) {
       meta: "Foundation",
       items: [
         {
-          title: "HR Masters",
-          description:
-            "Manage departments, designations, grades, locations, and cost centers in one place.",
+          title: "Designations",
+          description: "Standardize job titles and grading levels.",
           href: "/erp/hr/masters",
-          icon: "📚",
+          icon: "🏷️",
           status: "Active",
-          ctaLabel: "Open",
+          ctaLabel: "Manage",
         },
         {
           title: "Departments",
@@ -368,14 +370,6 @@ function buildNavItems(canManage) {
           icon: "🏢",
           status: "Coming Soon",
           disabled: true,
-        },
-        {
-          title: "Designations",
-          description: "Standardize job titles and grading levels.",
-          href: "/erp/hr/masters",
-          icon: "🏷️",
-          status: "Active",
-          ctaLabel: "Manage",
         },
         {
           title: "Grades",
@@ -400,6 +394,22 @@ function buildNavItems(canManage) {
           icon: "🧾",
           status: "Coming Soon",
           disabled: true,
+        },
+        {
+          title: "Leave Types",
+          description: "Configure paid and unpaid leave categories.",
+          href: "/erp/hr/leaves/types",
+          icon: "🌴",
+          status: "Active",
+          ctaLabel: "Configure",
+        },
+        {
+          title: "Weekly Off Rules",
+          description: "Define weekly off patterns by location and employee overrides.",
+          href: "/erp/hr/weekly-off",
+          icon: "📆",
+          status: "Active",
+          ctaLabel: "Configure",
         },
       ],
     },
@@ -433,14 +443,6 @@ function buildNavItems(canManage) {
           ctaLabel: "Run payroll",
         },
         {
-          title: "Leave Types",
-          description: "Configure paid and unpaid leave categories.",
-          href: "/erp/hr/leaves/types",
-          icon: "🌴",
-          status: "Active",
-          ctaLabel: "Configure",
-        },
-        {
           title: "Leave Requests",
           description: "Review and approve employee leave requests.",
           href: "/erp/hr/leaves/requests",
@@ -464,45 +466,6 @@ function buildNavItems(canManage) {
           status: "Active",
           ctaLabel: "Manage",
         },
-        {
-          title: "Weekly Off Rules",
-          description: "Define weekly off patterns by location and employee overrides.",
-          href: "/erp/hr/weekly-off",
-          icon: "📆",
-          status: "Active",
-          ctaLabel: "Configure",
-        },
-      ],
-    },
-    {
-      title: "Reports",
-      description: "Read-only HR reports that align attendance with payroll.",
-      meta: "Insights",
-      items: [
-        {
-          title: "Attendance → Payroll Summary",
-          description: "Compare attendance totals with payroll run payouts.",
-          href: "/erp/hr/reports/attendance-payroll-summary",
-          icon: "📊",
-          status: "Active",
-          ctaLabel: "View",
-        },
-        {
-          title: "Attendance Exceptions",
-          description: "Identify missing attendance, mismatches, and overages.",
-          href: "/erp/hr/reports/attendance-exceptions",
-          icon: "🚩",
-          status: "Active",
-          ctaLabel: "Review",
-        },
-        {
-          title: "Attendance Register",
-          description: "Print-friendly daily attendance log for audits.",
-          href: "/erp/hr/reports/attendance-register",
-          icon: "🗂️",
-          status: "Active",
-          ctaLabel: "Open",
-        },
       ],
     },
     {
@@ -511,34 +474,27 @@ function buildNavItems(canManage) {
       meta: "Administration",
       items: [
         {
-          title: "Roles",
+          title: "Company Users",
+          description: "Invite employees and manage role-based access.",
+          href: "/erp/admin/company-users",
+          icon: "🛂",
+          status: "Active",
+          ctaLabel: "Manage",
+        },
+        {
+          title: "Roles & Permissions",
           description: "Define HR roles and permission sets.",
           href: "/erp/hr/roles",
           icon: "🛡️",
           status: "Active",
           ctaLabel: "Assign",
         },
-        {
-          title: "Employee Logins",
-          description: "Provision employee logins and identity mapping.",
-          href: "/erp/hr/employee-logins",
-          icon: "🔗",
-          status: "Active",
-          ctaLabel: "Connect",
-        },
       ],
     },
   ];
 
-  if (canManage) {
-    sections[2].items.push({
-      title: "Company Users & Access",
-      description: "Invite employees and manage role-based access.",
-      href: "/erp/admin/company-users",
-      icon: "🛂",
-      status: "Active",
-      ctaLabel: "Manage",
-    });
+  if (!canGovern) {
+    sections.pop();
   }
 
   return sections;

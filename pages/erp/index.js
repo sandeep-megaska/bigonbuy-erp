@@ -2,8 +2,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import ErpNavBar from "../../components/erp/ErpNavBar";
-import { getCompanyContext, requireAuthRedirectHome } from "../../lib/erpContext";
-import { ERP_NAV, getCurrentErpAccess, isNavItemAllowed } from "../../lib/erp/nav";
+import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../lib/erpContext";
+import { getCurrentErpAccess } from "../../lib/erp/nav";
 import { supabase } from "../../lib/supabaseClient";
 
 export default function ErpHomePage() {
@@ -17,17 +17,95 @@ export default function ErpHomePage() {
     roleKey: undefined,
   });
 
-  const navItemsBySection = useMemo(() => {
-    const allowedItems = ERP_NAV.filter((item) => isNavItemAllowed(item, access)).filter(
-      (item) => item.id !== "erp-home" && item.description
-    );
+  const sections = useMemo(() => {
+    const canAdmin = isAdmin(ctx?.roleKey || access.roleKey);
+    const canManage = access.isManager;
 
-    return allowedItems.reduce((acc, item) => {
-      acc[item.section] = acc[item.section] || [];
-      acc[item.section].push(item);
-      return acc;
-    }, {});
-  }, [access]);
+    const baseSections = [
+      {
+        title: "Workspace",
+        description: "Core catalog and stock workflows.",
+        items: [
+          {
+            title: "Products",
+            description: "Create and manage your product catalog.",
+            href: "/erp/products",
+            status: "Active",
+            cta: "Manage",
+          },
+          {
+            title: "Variants",
+            description: "Organize options and product variations.",
+            href: "/erp/variants",
+            status: "Active",
+            cta: "Review",
+          },
+          {
+            title: "Inventory",
+            description: "Track stock levels across variants.",
+            href: "/erp/inventory",
+            status: "Active",
+            cta: "Open",
+          },
+        ],
+      },
+      {
+        title: "HR",
+        description: "Employees, salary, leave, and payroll operations.",
+        items: [
+          {
+            title: "Human Resources",
+            description: "Payroll, attendance, and HR masters.",
+            href: "/erp/hr",
+            status: "Active",
+            cta: "Open",
+          },
+        ],
+      },
+      {
+        title: "Finance",
+        description: "Expense tracking and financial reporting.",
+        items: [
+          {
+            title: "Finance",
+            description: "Track spend, invoices, and budgets.",
+            href: "/erp/finance",
+            status: "Coming Soon",
+            disabled: true,
+          },
+        ],
+      },
+    ];
+
+    if (canAdmin) {
+      baseSections.push({
+        title: "Admin",
+        description: "Company access and governance controls.",
+        items: [
+          {
+            title: "Company Users",
+            description: "Invite staff and manage access.",
+            href: "/erp/admin/company-users",
+            status: "Active",
+            cta: "Manage",
+          },
+          {
+            title: "Company Settings",
+            description: "Configure branding and organization details.",
+            href: "/erp/admin/company-settings",
+            status: "Active",
+            cta: "Configure",
+          },
+        ],
+      });
+    }
+
+    if (!canManage) {
+      return baseSections.filter((section) => section.title !== "HR");
+    }
+
+    return baseSections;
+  }, [access.isManager, access.roleKey, ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -103,30 +181,77 @@ export default function ErpHomePage() {
         </div>
       </header>
 
-      <section style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        {Object.entries(navItemsBySection).map(([section, items]) => (
-          <div key={section} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <section style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+        {sections.map((section) => (
+          <div key={section.title} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <p style={sectionLabelStyle}>{section}</p>
+              <p style={sectionLabelStyle}>{section.title}</p>
               <div style={sectionDividerStyle} />
             </div>
+            <p style={sectionDescriptionStyle}>{section.description}</p>
             <div style={cardGridStyle}>
-              {items.map((item) => (
-                <Link key={item.href} href={item.href} style={cardStyle}>
-                  <div style={cardIconStyle}>{item.label.slice(0, 2)}</div>
-                  <div style={{ flex: 1 }}>
-                    <h2 style={cardTitleStyle}>{item.label}</h2>
-                    <p style={cardDescriptionStyle}>{item.description}</p>
-                    <div style={{ marginTop: 10 }}>
-                      <span style={cardCtaStyle}>Open →</span>
+              {section.items.map((item) => {
+                const content = (
+                  <>
+                    <div style={cardIconStyle}>{item.title.slice(0, 2)}</div>
+                    <div style={{ flex: 1 }}>
+                      <h2 style={cardTitleStyle}>{item.title}</h2>
+                      <p style={cardDescriptionStyle}>{item.description}</p>
+                      <div style={cardMetaStyle}>
+                        <span
+                          style={{
+                            ...statusBadgeStyle,
+                            ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : {}),
+                          }}
+                        >
+                          {item.status}
+                        </span>
+                        {item.cta ? <span style={cardCtaStyle}>{item.cta} →</span> : null}
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </>
+                );
+
+                if (item.disabled) {
+                  return (
+                    <div
+                      key={item.title}
+                      style={{ ...cardStyle, ...disabledCardStyle }}
+                      className="module-card disabled"
+                    >
+                      {content}
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link key={item.href} href={item.href} style={cardStyle} className="module-card">
+                    {content}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         ))}
       </section>
+      <style jsx>{`
+        .module-card {
+          transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+        }
+        .module-card:hover {
+          transform: translateY(-2px);
+          border-color: #c7d2fe;
+          box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
+        }
+        .module-card.disabled {
+          cursor: not-allowed;
+        }
+        .module-card.disabled:hover {
+          transform: none;
+          border-color: #e5e7eb;
+          box-shadow: none;
+        }
+      `}</style>
     </div>
   );
 }
@@ -227,18 +352,47 @@ const cardDescriptionStyle = {
   fontSize: 14,
 };
 
+const cardMetaStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginTop: 12,
+  gap: 12,
+};
+
 const cardCtaStyle = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  padding: "8px 12px",
-  borderRadius: 8,
-  background: "#111827",
-  color: "#fff",
+  color: "#1d4ed8",
   fontWeight: 700,
   textDecoration: "none",
-  fontSize: 14,
+  fontSize: 13,
 };
+
+const statusBadgeStyle = {
+  padding: "4px 10px",
+  borderRadius: 999,
+  backgroundColor: "#ecfeff",
+  color: "#0e7490",
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const disabledStatusBadgeStyle = {
+  backgroundColor: "#fef3c7",
+  color: "#92400e",
+};
+
+const disabledCardStyle = {
+  backgroundColor: "#f8fafc",
+  color: "#9ca3af",
+  borderColor: "#e5e7eb",
+  boxShadow: "none",
+};
+
 const sectionLabelStyle = {
   margin: 0,
   fontSize: 12,
@@ -251,4 +405,10 @@ const sectionDividerStyle = {
   flex: 1,
   height: 1,
   background: "#e5e7eb",
+};
+
+const sectionDescriptionStyle = {
+  margin: 0,
+  color: "#6b7280",
+  fontSize: 14,
 };

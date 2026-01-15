@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
+import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
 import { downloadCsv, type CsvColumn } from "../../../../lib/erp/exportCsv";
 import {
   getAttendanceExceptions,
@@ -201,6 +202,7 @@ export default function AttendanceExceptionsReportPage() {
           </p>
         </div>
       </header>
+      <ReportBrandHeader companyId={ctx.companyId} />
 
       <section style={cardStyle}>
         <div style={filterGridStyle}>
