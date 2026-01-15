@@ -2,8 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
+import ErpShell from "../../../../components/erp/ErpShell";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
+import {
+  cardStyle as sharedCardStyle,
+  eyebrowStyle,
+  h1Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+} from "../../../../components/erp/uiStyles";
 import { downloadCsv, type CsvColumn } from "../../../../lib/erp/exportCsv";
 import {
   getAttendanceExceptions,
@@ -21,19 +30,17 @@ type PayrollRunOption = {
 };
 
 
-const tableCellStyle = {
+const tableCellStyle: CSSProperties = {
   padding: "10px 12px",
   borderBottom: "1px solid #f1f5f9",
   verticalAlign: "top",
   fontSize: 13,
 };
-const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
-const buttonStyle = {
-  padding: "10px 14px",
+const inputStyle: CSSProperties = {
+  padding: 10,
   borderRadius: 8,
-  border: "1px solid #ddd",
-  cursor: "pointer",
-  background: "#fff",
+  border: "1px solid #d1d5db",
+  width: "100%",
 };
 
 function getMonthBounds(date: Date) {
@@ -175,31 +182,37 @@ export default function AttendanceExceptionsReportPage() {
   }
 
   if (loading) {
-    return <div style={pageStyle}>Loading attendance exceptions…</div>;
+    return (
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>Loading attendance exceptions…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={pageStyle}>
-        <h1 style={{ marginTop: 0 }}>Attendance Exceptions</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
-      </div>
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>Attendance Exceptions</h1>
+          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={pageStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-      <header style={headerStyle}>
-        <div>
-          <p style={eyebrowStyle}>HR Reports</p>
-          <h1 style={{ margin: "6px 0 8px" }}>Attendance Exceptions</h1>
-          <p style={{ margin: 0, color: "#4b5563" }}>
-            Highlight attendance gaps, overages, and payroll mismatches.
-          </p>
-        </div>
-      </header>
-      <ReportBrandHeader companyId={ctx.companyId} />
+    <ErpShell activeModule="hr">
+      <div style={pageContainerStyle}>
+        <header style={headerStyle}>
+          <div>
+            <p style={eyebrowStyle}>HR Reports</p>
+            <h1 style={h1Style}>Attendance Exceptions</h1>
+            <p style={subtitleStyle}>
+              Highlight attendance gaps, overages, and payroll mismatches.
+            </p>
+          </div>
+        </header>
+        <ReportBrandHeader />
 
       <section style={cardStyle}>
         <div style={filterGridStyle}>
@@ -237,7 +250,12 @@ export default function AttendanceExceptionsReportPage() {
             </select>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end" }}>
-            <button type="button" style={buttonStyle} onClick={handleExport} disabled={!rows.length}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={handleExport}
+              disabled={!rows.length}
+            >
               Export CSV
             </button>
           </div>
@@ -258,7 +276,11 @@ export default function AttendanceExceptionsReportPage() {
                   {issueRows.length} affected employee{issueRows.length === 1 ? "" : "s"}
                 </p>
               </div>
-              <button type="button" style={buttonStyle} onClick={() => toggleIssue(issueKey)}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => toggleIssue(issueKey)}
+              >
                 {expandedIssues[issueKey] ? "Hide" : "View"} details
               </button>
             </div>
@@ -288,23 +310,14 @@ export default function AttendanceExceptionsReportPage() {
           </div>
         ))}
       </section>
-    </div>
+      </div>
+    </ErpShell>
   );
 }
 
-const pageStyle = {
-  maxWidth: 1200,
-  margin: "72px auto",
-  padding: "32px 40px 56px",
-  fontFamily: "Arial, sans-serif",
-};
-
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 24,
-  marginBottom: 24,
+const headerStyle: CSSProperties = {
+  ...pageHeaderStyle,
+  marginBottom: 20,
 };
 const tableHeaderStyle: CSSProperties = {
   textAlign: "left",
@@ -313,31 +326,18 @@ const tableHeaderStyle: CSSProperties = {
   fontSize: 13,
 };
 
-const eyebrowStyle = {
-  textTransform: "uppercase" as const,
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
+const cardStyle: CSSProperties = {
+  ...sharedCardStyle,
 };
 
-const cardStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 20,
-  marginBottom: 20,
-  background: "#fff",
-  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-};
-
-const filterGridStyle = {
+const filterGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
   gap: 16,
   alignItems: "end",
 };
 
-const labelStyle = {
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: 6,
   fontSize: 13,
@@ -345,7 +345,7 @@ const labelStyle = {
   color: "#374151",
 };
 
-const issueCardStyle = {
+const issueCardStyle: CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: 12,
   padding: 16,
@@ -353,7 +353,7 @@ const issueCardStyle = {
   background: "#f8fafc",
 };
 
-const issueHeaderStyle = {
+const issueHeaderStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",

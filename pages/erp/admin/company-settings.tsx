@@ -2,7 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
+import ErpShell from "../../../components/erp/ErpShell";
+import {
+  cardStyle as sharedCardStyle,
+  eyebrowStyle,
+  h1Style,
+  h2Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+} from "../../../components/erp/uiStyles";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../lib/erp/nav";
 import { supabase } from "../../../lib/supabaseClient";
@@ -216,36 +227,43 @@ export default function CompanySettingsPage() {
   ];
 
   if (loading) {
-    return <div style={pageStyle}>Loading company settings…</div>;
+    return (
+      <ErpShell activeModule="admin">
+        <div style={pageContainerStyle}>Loading company settings…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={pageStyle}>
-        <h1 style={{ marginTop: 0 }}>Company Settings</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
-      </div>
+      <ErpShell activeModule="admin">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>Company Settings</h1>
+          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+        </div>
+      </ErpShell>
     );
   }
 
   if (!canEdit) {
     return (
-      <div style={pageStyle}>
-        <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-        <h1 style={{ marginTop: 0 }}>Company Settings</h1>
-        <p style={{ color: "#b91c1c" }}>Only owner/admin users can access this page.</p>
-      </div>
+      <ErpShell activeModule="admin">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>Company Settings</h1>
+          <p style={{ color: "#b91c1c" }}>Only owner/admin users can access this page.</p>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={pageStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-      <header style={headerStyle}>
+    <ErpShell activeModule="admin">
+      <div style={pageContainerStyle}>
+        <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>Admin</p>
-          <h1 style={{ margin: "6px 0 8px" }}>Company Settings</h1>
-          <p style={{ margin: 0, color: "#4b5563" }}>
+          <h1 style={h1Style}>Company Settings</h1>
+          <p style={subtitleStyle}>
             Configure organization details, brand logos, and go-live readiness.
           </p>
         </div>
@@ -254,7 +272,7 @@ export default function CompanySettingsPage() {
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 
       <section style={cardStyle}>
-        <h2 style={sectionTitleStyle}>Organization Details</h2>
+        <h2 style={h2Style}>Organization Details</h2>
         <div style={gridStyle}>
           <div>
             <label style={labelStyle}>Legal Name</label>
@@ -307,7 +325,7 @@ export default function CompanySettingsPage() {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={sectionTitleStyle}>Logos</h2>
+        <h2 style={h2Style}>Logos</h2>
         <div style={logoGridStyle}>
           <div style={logoCardStyle}>
             <div>
@@ -373,7 +391,7 @@ export default function CompanySettingsPage() {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={sectionTitleStyle}>Setup Checklist</h2>
+        <h2 style={h2Style}>Setup Checklist</h2>
         <div style={checklistStyle}>
           {checklist.map((item) => (
             <div key={item.label} style={checklistItemStyle}>
@@ -400,70 +418,32 @@ export default function CompanySettingsPage() {
             style={primaryButtonStyle}
             onClick={handleMarkSetupComplete}
             disabled={saving || Boolean(settings?.setup_completed)}
-
           >
             {settings?.setup_completed ? "Setup Completed" : "Mark Setup Complete"}
           </button>
         </div>
       </section>
-    </div>
+      </div>
+    </ErpShell>
   );
 }
 
-const pageStyle = {
-  maxWidth: 1040,
-  margin: "80px auto",
-  padding: "48px 56px",
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  fontFamily: "Arial, sans-serif",
-  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
-  backgroundColor: "#fff",
-};
-
-
 const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  flexWrap: "wrap",
-  borderBottom: "1px solid #eee",
-  paddingBottom: 12,
-  marginBottom: 16,
+  ...pageHeaderStyle,
 };
 
-const eyebrowStyle = {
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
+const cardStyle: CSSProperties = {
+  ...sharedCardStyle,
 };
 
-const cardStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 24,
-  marginBottom: 24,
-  backgroundColor: "#f8fafc",
-  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)",
-};
-
-const sectionTitleStyle = {
-  margin: "0 0 16px",
-  fontSize: 20,
-  color: "#111827",
-};
-
-const gridStyle = {
+const gridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 16,
   marginBottom: 16,
 };
 
-const labelStyle = {
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: 8,
   color: "#374151",
@@ -471,40 +451,20 @@ const labelStyle = {
   fontWeight: 600,
 };
 
-const inputStyle = {
+const inputStyle: CSSProperties = {
   width: "100%",
   padding: 10,
   borderRadius: 8,
   border: "1px solid #d1d5db",
 };
 
-const primaryButtonStyle = {
-  padding: "10px 16px",
-  backgroundColor: "#111827",
-  color: "#fff",
-  borderRadius: 8,
-  border: "none",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const secondaryButtonStyle = {
-  padding: "8px 14px",
-  backgroundColor: "#fff",
-  color: "#111827",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const logoGridStyle = {
+const logoGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
   gap: 20,
 };
 
-const logoCardStyle = {
+const logoCardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column" as const,
   gap: 12,
@@ -514,7 +474,7 @@ const logoCardStyle = {
   backgroundColor: "#fff",
 };
 
-const logoPreviewStyle = {
+const logoPreviewStyle: CSSProperties = {
   border: "1px dashed #cbd5f5",
   borderRadius: 10,
   padding: 16,
@@ -525,37 +485,37 @@ const logoPreviewStyle = {
   backgroundColor: "#f8fafc",
 };
 
-const logoImageStyle = {
+const logoImageStyle: CSSProperties = {
   maxHeight: 80,
   maxWidth: "100%",
   objectFit: "contain" as const,
 };
 
-const logoLabelStyle = {
+const logoLabelStyle: CSSProperties = {
   margin: 0,
   fontWeight: 700,
   color: "#111827",
 };
 
-const logoHintStyle = {
+const logoHintStyle: CSSProperties = {
   margin: "4px 0 0",
   fontSize: 13,
   color: "#6b7280",
 };
 
-const logoFallbackTextStyle = {
+const logoFallbackTextStyle: CSSProperties = {
   color: "#9ca3af",
   fontSize: 13,
 };
 
-const checklistStyle = {
+const checklistStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column" as const,
   gap: 10,
   marginBottom: 16,
 };
 
-const checklistItemStyle = {
+const checklistItemStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
@@ -563,7 +523,7 @@ const checklistItemStyle = {
   color: "#111827",
 };
 
-const checklistDoneStyle = {
+const checklistDoneStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -575,7 +535,7 @@ const checklistDoneStyle = {
   fontWeight: 700,
 };
 
-const checklistPendingStyle = {
+const checklistPendingStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -587,7 +547,7 @@ const checklistPendingStyle = {
   fontWeight: 700,
 };
 
-const setupFooterStyle = {
+const setupFooterStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
