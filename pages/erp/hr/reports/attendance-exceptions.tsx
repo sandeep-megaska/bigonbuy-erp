@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
@@ -308,6 +310,12 @@ const headerStyle = {
   alignItems: "flex-start",
   gap: 24,
   marginBottom: 24,
+};
+const tableHeaderStyle: CSSProperties = {
+  textAlign: "left",
+  padding: "10px 12px",
+  borderBottom: "1px solid #e5e7eb",
+  fontSize: 13,
 };
 
 const eyebrowStyle = {
