@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+const tableHeaderStyle: CSSProperties = { ... }
+
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
@@ -18,12 +20,13 @@ type PayrollRunOption = {
   status: string | null;
 };
 
-const tableHeaderStyle = {
+const tableHeaderStyle: CSSProperties = {
   textAlign: "left",
   padding: "10px 12px",
   borderBottom: "1px solid #e5e7eb",
   fontSize: 13,
 };
+
 const tableCellStyle = {
   padding: "10px 12px",
   borderBottom: "1px solid #f1f5f9",
