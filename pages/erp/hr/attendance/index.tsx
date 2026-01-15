@@ -346,7 +346,10 @@ export default function HrAttendancePage() {
           ot_minutes: data.ot_minutes,
           day_fraction: data.day_fraction,
           shift_id: data.shift_id,
-          erp_hr_shifts: data.erp_hr_shifts,
+          erp_hr_shifts: Array.isArray((data as any).erp_hr_shifts)
+  ? (data as any).erp_hr_shifts[0] ?? null
+  : (data as any).erp_hr_shifts ?? null,
+
         }
       : {
           employee_id: employeeId,
