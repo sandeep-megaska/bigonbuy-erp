@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import ErpShell from "../../../components/erp/ErpShell";
+import ErpPageHeader from "../../../components/erp/ErpPageHeader";
+import {
+  cardStyle,
+  pageContainerStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+} from "../../../components/erp/uiStyles";
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
@@ -38,101 +46,75 @@ export default function FinanceHomePage() {
   };
 
   if (loading) {
-    return <div style={containerStyle}>Loading Finance…</div>;
+    return (
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>Loading Finance…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={containerStyle}>
-        <h1 style={{ marginTop: 0 }}>Finance</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
-        <p style={{ color: "#555" }}>You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your account.</p>
-        <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-      </div>
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>
+          <ErpPageHeader
+            eyebrow="Finance"
+            title="Finance"
+            description="Review spend and company totals."
+            rightActions={
+              <button type="button" onClick={handleSignOut} style={dangerButtonStyle}>
+                Sign Out
+              </button>
+            }
+          />
+          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+          <p style={subtitleStyle}>
+            You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your
+            account.
+          </p>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={containerStyle}>
-      <header style={headerStyle}>
-        <div>
-          <p style={eyebrowStyle}>Finance</p>
-          <h1 style={titleStyle}>Finance & Expenses</h1>
-          <p style={subtitleStyle}>Track spend, categories, and simple month totals.</p>
-          <p style={{ margin: "8px 0 0", color: "#4b5563" }}>Signed in as <strong>{ctx.email}</strong> · Role: <strong>{ctx.roleKey || "member"}</strong></p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <Link href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to ERP Home</Link>
-          <button type="button" onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-        </div>
-      </header>
+    <ErpShell activeModule="finance">
+      <div style={pageContainerStyle}>
+        <ErpPageHeader
+          eyebrow="Finance"
+          title="Finance & Expenses"
+          description="Track spend, categories, and simple month totals."
+          rightActions={
+            <>
+              <Link href="/erp" style={linkButtonStyle}>
+                Back to ERP Home
+              </Link>
+              <button type="button" onClick={handleSignOut} style={secondaryButtonStyle}>
+                Sign Out
+              </button>
+            </>
+          }
+        />
 
-      <section style={cardGridStyle}>
-        {navItems.map((item) => (
-          <Link key={item.href} href={item.href} style={cardStyle}>
-            <div style={cardIconStyle}>{item.icon}</div>
-            <div>
-              <h2 style={cardTitleStyle}>{item.title}</h2>
-              <p style={cardDescriptionStyle}>{item.description}</p>
-            </div>
-          </Link>
-        ))}
-      </section>
-    </div>
+        <p style={{ margin: 0, color: "#4b5563" }}>
+          Signed in as <strong>{ctx.email}</strong> · Role: <strong>{ctx.roleKey || "member"}</strong>
+        </p>
+
+        <section style={cardGridStyle}>
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href} style={{ ...cardStyle, ...cardLinkStyle }}>
+              <div style={cardIconStyle}>{item.icon}</div>
+              <div>
+                <h2 style={cardTitleStyle}>{item.title}</h2>
+                <p style={cardDescriptionStyle}>{item.description}</p>
+              </div>
+            </Link>
+          ))}
+        </section>
+      </div>
+    </ErpShell>
   );
 }
-
-const containerStyle = {
-  maxWidth: 960,
-  margin: "80px auto",
-  padding: "48px 56px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  fontFamily: "Arial, sans-serif",
-  boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-  backgroundColor: "#fff",
-};
-
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 24,
-  flexWrap: "wrap",
-  borderBottom: "1px solid #f1f3f5",
-  paddingBottom: 24,
-  marginBottom: 32,
-};
-
-const buttonStyle = {
-  padding: "12px 16px",
-  backgroundColor: "#dc2626",
-  border: "none",
-  color: "#fff",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 15,
-};
-
-const eyebrowStyle = {
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
-};
-
-const titleStyle = {
-  margin: "6px 0 8px",
-  fontSize: 32,
-  color: "#111827",
-};
-
-const subtitleStyle = {
-  margin: 0,
-  color: "#4b5563",
-  fontSize: 16,
-};
 
 const cardGridStyle = {
   display: "grid",
@@ -140,18 +122,13 @@ const cardGridStyle = {
   gap: 16,
 };
 
-const cardStyle = {
+const cardLinkStyle = {
   display: "flex",
   gap: 14,
   alignItems: "flex-start",
-  border: "1px solid #e5e7eb",
-  borderRadius: 10,
-  padding: 18,
-  backgroundColor: "#f9fafb",
   textAlign: "left",
   textDecoration: "none",
   color: "#111827",
-  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
 };
 
 const cardIconStyle = {
@@ -176,6 +153,19 @@ const cardDescriptionStyle = {
   margin: 0,
   color: "#4b5563",
   fontSize: 14,
+};
+
+const dangerButtonStyle = {
+  ...secondaryButtonStyle,
+  borderColor: "#dc2626",
+  color: "#dc2626",
+};
+
+const linkButtonStyle = {
+  ...secondaryButtonStyle,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
 };
 
 const navItems = [

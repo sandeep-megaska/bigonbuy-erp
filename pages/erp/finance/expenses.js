@@ -1,5 +1,18 @@
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import ErpShell from "../../../components/erp/ErpShell";
+import ErpPageHeader from "../../../components/erp/ErpPageHeader";
+import {
+  cardStyle,
+  inputStyle,
+  pageContainerStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  tableCellStyle,
+  tableHeaderCellStyle,
+  tableStyle,
+} from "../../../components/erp/uiStyles";
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
 
@@ -94,7 +107,7 @@ export default function FinanceExpensesPage() {
     return data || [];
   }
 
-function monthRange(value) {
+  function monthRange(value) {
     const safeValue = value || currentMonthValue();
     const [y, m] = safeValue.split("-").map((v) => Number(v));
     const start = new Date(y, m - 1, 1);
@@ -108,7 +121,9 @@ function monthRange(value) {
     const { startStr, endStr } = monthRange(monthValue);
     const { data, error } = await supabase
       .from("erp_expenses")
-      .select("id, expense_date, category_id, vendor, amount, payment_mode, reference, notes, created_at")
+      .select(
+        "id, expense_date, category_id, vendor, amount, payment_mode, reference, notes, created_at"
+      )
       .eq("company_id", companyId)
       .gte("expense_date", startStr)
       .lt("expense_date", endStr)
@@ -208,178 +223,359 @@ function monthRange(value) {
     router.replace("/");
   }
 
-  if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
+  if (loading) {
+    return (
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>Loading…</div>
+      </ErpShell>
+    );
+  }
 
   if (!ctx?.companyId) {
     return (
-      <div style={{ padding: 24, fontFamily: "system-ui" }}>
-        <h1>Finance / Expenses</h1>
-        <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
-        <button onClick={handleSignOut} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" }}>
-          Sign Out
-        </button>
-      </div>
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>
+          <ErpPageHeader
+            eyebrow="Finance"
+            title="Finance / Expenses"
+            description="Record expenses and manage categories."
+            rightActions={
+              <button type="button" onClick={handleSignOut} style={dangerButtonStyle}>
+                Sign Out
+              </button>
+            }
+          />
+          <p style={{ color: "#b91c1c" }}>{err || "No company is linked to this account."}</p>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Finance · Expenses</h1>
-          <p style={{ marginTop: 6, color: "#555" }}>Record expenses, manage categories, and view monthly totals.</p>
-          <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
-            Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey || "member"}</b> · {canWrite ? "Write access" : "Read-only"}
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <a href="/erp/finance">← Finance Home</a>
-          <a href="/erp">ERP Home</a>
-        </div>
-      </div>
+    <ErpShell activeModule="finance">
+      <div style={pageContainerStyle}>
+        <ErpPageHeader
+          eyebrow="Finance"
+          title="Finance · Expenses"
+          description="Record expenses, manage categories, and view monthly totals."
+          rightActions={
+            <>
+              <Link href="/erp/finance" style={linkButtonStyle}>
+                Finance Home
+              </Link>
+              <Link href="/erp" style={linkButtonStyle}>
+                ERP Home
+              </Link>
+            </>
+          }
+        />
 
-      {err ? (
-        <div style={{ marginTop: 12, padding: 12, background: "#fff3f3", border: "1px solid #ffd3d3", borderRadius: 8 }}>
-          {err}
-        </div>
-      ) : null}
+        <p style={{ margin: 0, color: "#6b7280" }}>
+          Signed in as <strong>{ctx?.email}</strong> · Role: <strong>{ctx?.roleKey || "member"}</strong>
+          · {canWrite ? "Write access" : "Read-only"}
+        </p>
 
-      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-          <h3 style={{ marginTop: 0 }}>Add Expense</h3>
-          {!canWrite ? (
-            <p style={{ color: "#777", marginTop: 6, marginBottom: 12 }}>Read-only mode — only owner/admin can add expenses.</p>
-          ) : null}
-          <form onSubmit={createExpense} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <label style={labelStyle}>
-              <span style={labelText}>Date</span>
-              <input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} disabled={!canWrite} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Category</span>
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!canWrite || categories.length === 0} style={inputStyle}>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Vendor</span>
-              <input type="text" value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor or payee" disabled={!canWrite} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Amount</span>
-              <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" disabled={!canWrite} style={inputStyle} />
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Payment Mode</span>
-              <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} disabled={!canWrite} style={inputStyle}>
-                <option value="cash">Cash</option>
-                <option value="bank">Bank</option>
-                <option value="card">Card</option>
-                <option value="upi">UPI</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label style={labelStyle}>
-              <span style={labelText}>Reference</span>
-              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Receipt # or transaction ref" disabled={!canWrite} style={inputStyle} />
-            </label>
-            <label style={{ ...labelStyle, gridColumn: "1 / span 2" }}>
-              <span style={labelText}>Notes</span>
-              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" disabled={!canWrite} style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} />
-            </label>
-            <div style={{ gridColumn: "1 / span 2", display: "flex", justifyContent: "flex-end" }}>
-              <button type="submit" disabled={!canWrite} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: canWrite ? "#2563eb" : "#9ca3af", color: "#fff", cursor: canWrite ? "pointer" : "not-allowed" }}>
-                Save Expense
-              </button>
-            </div>
-          </form>
-        </div>
+        {err ? <div style={errorCardStyle}>{err}</div> : null}
 
-        <div style={{ padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff", display: "grid", gap: 14 }}>
-          <div>
-            <h3 style={{ margin: "0 0 8px" }}>Categories</h3>
-            {!canWrite ? <p style={{ color: "#777", marginTop: 0 }}>Read-only — categories can be added by owner/admin.</p> : null}
-            <form onSubmit={addCategory} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-              <input type="text" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="New category name" disabled={!canWrite} style={{ flex: 1, ...inputStyle }} />
-              <button type="submit" disabled={!canWrite} style={{ padding: "10px 12px", borderRadius: 8, border: "none", background: canWrite ? "#059669" : "#9ca3af", color: "#fff", cursor: canWrite ? "pointer" : "not-allowed" }}>
-                Add
-              </button>
+        <div style={twoColumnGridStyle}>
+          <div style={cardStyle}>
+            <h3 style={sectionTitleStyle}>Add Expense</h3>
+            {!canWrite ? (
+              <p style={helperTextStyle}>Read-only mode — only owner/admin can add expenses.</p>
+            ) : null}
+            <form onSubmit={createExpense} style={expenseFormStyle}>
+              <label style={labelStyle}>
+                <span style={labelText}>Date</span>
+                <input
+                  type="date"
+                  value={expenseDate}
+                  onChange={(e) => setExpenseDate(e.target.value)}
+                  disabled={!canWrite}
+                  style={fullWidthInputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                <span style={labelText}>Category</span>
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  disabled={!canWrite || categories.length === 0}
+                  style={fullWidthInputStyle}
+                >
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                <span style={labelText}>Vendor</span>
+                <input
+                  type="text"
+                  value={vendor}
+                  onChange={(e) => setVendor(e.target.value)}
+                  placeholder="Vendor or payee"
+                  disabled={!canWrite}
+                  style={fullWidthInputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                <span style={labelText}>Amount</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  disabled={!canWrite}
+                  style={fullWidthInputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                <span style={labelText}>Payment Mode</span>
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                  disabled={!canWrite}
+                  style={fullWidthInputStyle}
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank</option>
+                  <option value="card">Card</option>
+                  <option value="upi">UPI</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label style={labelStyle}>
+                <span style={labelText}>Reference</span>
+                <input
+                  type="text"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder="Receipt # or transaction ref"
+                  disabled={!canWrite}
+                  style={fullWidthInputStyle}
+                />
+              </label>
+              <label style={{ ...labelStyle, gridColumn: "1 / span 2" }}>
+                <span style={labelText}>Notes</span>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional notes"
+                  disabled={!canWrite}
+                  style={{ ...fullWidthInputStyle, minHeight: 80, resize: "vertical" }}
+                />
+              </label>
+              <div style={formActionsStyle}>
+                <button type="submit" disabled={!canWrite} style={actionButtonStyle(canWrite)}>
+                  Save Expense
+                </button>
+              </div>
             </form>
-            <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", maxHeight: 180, overflowY: "auto" }}>
-              {categories.length === 0 ? <li style={{ color: "#777" }}>No categories yet.</li> : null}
-              {categories.map((c) => (
-                <li key={c.id} style={{ padding: "8px 10px", border: "1px solid #eee", borderRadius: 8, marginBottom: 6, background: "#f9fafb" }}>
-                  {c.name}
-                </li>
-              ))}
-            </ul>
           </div>
 
-          <div>
-            <h3 style={{ margin: "0 0 8px" }}>Month Filter</h3>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value || currentMonthValue())}
-                style={{ ...inputStyle, width: "180px" }}
-              />
-              <div style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb", color: "#111" }}>
-                Total: <strong>${monthTotal.toFixed(2)}</strong>
+          <div style={{ ...cardStyle, display: "grid", gap: 14 }}>
+            <div>
+              <h3 style={sectionTitleStyle}>Categories</h3>
+              {!canWrite ? (
+                <p style={helperTextStyle}>Read-only — categories can be added by owner/admin.</p>
+              ) : null}
+              <form onSubmit={addCategory} style={categoryFormStyle}>
+                <input
+                  type="text"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="New category name"
+                  disabled={!canWrite}
+                  style={{ ...fullWidthInputStyle, flex: 1 }}
+                />
+                <button type="submit" disabled={!canWrite} style={actionButtonStyle(canWrite)}>
+                  Add
+                </button>
+              </form>
+              <ul style={categoryListStyle}>
+                {categories.length === 0 ? <li style={helperTextStyle}>No categories yet.</li> : null}
+                {categories.map((c) => (
+                  <li key={c.id} style={categoryItemStyle}>
+                    {c.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 style={sectionTitleStyle}>Month Filter</h3>
+              <div style={monthFilterStyle}>
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value || currentMonthValue())}
+                  style={{ ...fullWidthInputStyle, width: 180 }}
+                />
+                <div style={monthTotalStyle}>
+                  Total: <strong>${monthTotal.toFixed(2)}</strong>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>Expenses for {selectedMonth}</h3>
-          <span style={{ color: "#555" }}>{expenses.length} record(s)</span>
-        </div>
-        <div style={{ marginTop: 10, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Date</th>
-                <th style={thStyle}>Category</th>
-                <th style={thStyle}>Vendor</th>
-                <th style={thStyle}>Payment</th>
-                <th style={thStyle}>Amount</th>
-                <th style={thStyle}>Reference</th>
-                <th style={thStyle}>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.length === 0 ? (
+        <div style={cardStyle}>
+          <div style={sectionHeaderRowStyle}>
+            <h3 style={{ margin: 0 }}>Expenses for {selectedMonth}</h3>
+            <span style={helperTextStyle}>{expenses.length} record(s)</span>
+          </div>
+          <div style={{ marginTop: 10, overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
                 <tr>
-                  <td colSpan={7} style={{ padding: 12, textAlign: "center", color: "#777" }}>No expenses for this month.</td>
+                  <th style={tableHeaderCellStyle}>Date</th>
+                  <th style={tableHeaderCellStyle}>Category</th>
+                  <th style={tableHeaderCellStyle}>Vendor</th>
+                  <th style={tableHeaderCellStyle}>Payment</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                  <th style={tableHeaderCellStyle}>Reference</th>
+                  <th style={tableHeaderCellStyle}>Notes</th>
                 </tr>
-              ) : (
-                expenses.map((ex) => (
-                  <tr key={ex.id} style={{ borderTop: "1px solid #f1f5f9" }}>
-                    <td style={tdStyle}>{ex.expense_date}</td>
-                    <td style={tdStyle}>{ex.category_name}</td>
-                    <td style={tdStyle}>{ex.vendor || "—"}</td>
-                    <td style={tdStyle}>{ex.payment_mode || "—"}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>${Number(ex.amount || 0).toFixed(2)}</td>
-                    <td style={tdStyle}>{ex.reference || "—"}</td>
-                    <td style={tdStyle}>{ex.notes || "—"}</td>
+              </thead>
+              <tbody>
+                {expenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                      No expenses for this month.
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  expenses.map((ex) => (
+                    <tr key={ex.id}>
+                      <td style={tableCellStyle}>{ex.expense_date}</td>
+                      <td style={tableCellStyle}>{ex.category_name}</td>
+                      <td style={tableCellStyle}>{ex.vendor || "—"}</td>
+                      <td style={tableCellStyle}>{ex.payment_mode || "—"}</td>
+                      <td style={{ ...tableCellStyle, fontWeight: 600 }}>
+                        ${Number(ex.amount || 0).toFixed(2)}
+                      </td>
+                      <td style={tableCellStyle}>{ex.reference || "—"}</td>
+                      <td style={tableCellStyle}>{ex.notes || "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    </ErpShell>
   );
 }
 
 const labelStyle = { display: "flex", flexDirection: "column", gap: 6 };
-const labelText = { fontSize: 13, color: "#555" };
-const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
-const thStyle = { textAlign: "left", padding: "10px 8px", fontSize: 13, color: "#555", borderBottom: "1px solid #e5e7eb" };
-const tdStyle = { padding: "10px 8px", fontSize: 14, color: "#111" };
+const labelText = { fontSize: 13, color: "#4b5563" };
+const fullWidthInputStyle = { ...inputStyle, width: "100%" };
+
+const expenseFormStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
+};
+
+const formActionsStyle = {
+  gridColumn: "1 / span 2",
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const categoryFormStyle = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  marginTop: 8,
+};
+
+const categoryListStyle = {
+  listStyle: "none",
+  padding: 0,
+  margin: "12px 0 0",
+  maxHeight: 180,
+  overflowY: "auto",
+};
+
+const categoryItemStyle = {
+  padding: "8px 10px",
+  border: "1px solid #e5e7eb",
+  borderRadius: 8,
+  marginBottom: 6,
+  background: "#f9fafb",
+};
+
+const twoColumnGridStyle = {
+  marginTop: 18,
+  display: "grid",
+  gridTemplateColumns: "1.1fr 1fr",
+  gap: 16,
+  alignItems: "flex-start",
+};
+
+const sectionTitleStyle = {
+  marginTop: 0,
+  marginBottom: 8,
+};
+
+const helperTextStyle = {
+  color: "#6b7280",
+  marginTop: 6,
+  marginBottom: 12,
+  fontSize: 13,
+};
+
+const sectionHeaderRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const monthFilterStyle = {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+};
+
+const monthTotalStyle = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  color: "#111",
+};
+
+const errorCardStyle = {
+  ...cardStyle,
+  borderColor: "#fecaca",
+  backgroundColor: "#fff1f2",
+  color: "#b91c1c",
+};
+
+const dangerButtonStyle = {
+  ...secondaryButtonStyle,
+  borderColor: "#dc2626",
+  color: "#dc2626",
+};
+
+const linkButtonStyle = {
+  ...secondaryButtonStyle,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+const actionButtonStyle = (enabled) => ({
+  ...primaryButtonStyle,
+  backgroundColor: enabled ? "#2563eb" : "#9ca3af",
+  borderColor: enabled ? "#2563eb" : "#9ca3af",
+  cursor: enabled ? "pointer" : "not-allowed",
+});

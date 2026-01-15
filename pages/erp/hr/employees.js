@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import {
   assignManager,
@@ -437,7 +436,6 @@ export default function HrEmployeesPage() {
 
   return (
     <div style={pageStyle}>
-      <ErpNavBar roleKey={ctx?.roleKey} />
       <header style={headerStyle}>
         <div>
           <h1 style={{ margin: 0 }}>Employees</h1>

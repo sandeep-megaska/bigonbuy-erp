@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
 import {
@@ -331,7 +330,6 @@ export default function HrMastersPage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
       <div style={headerStyle}>
         <div>
           <nav style={breadcrumbStyle}>
@@ -615,7 +613,7 @@ function formatDate(value) {
 
 const containerStyle = {
   maxWidth: 1100,
-  margin: "60px auto",
+  margin: "0 auto",
   padding: "32px 36px",
   borderRadius: 10,
   border: "1px solid #e5e7eb",

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import { getEmployeeContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../../lib/erp/nav";
 import { supabase } from "../../../../lib/supabaseClient";
@@ -83,7 +82,6 @@ export default function MyPayslipsPage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={access.roleKey} />
 
       <header style={headerStyle}>
         <div>
@@ -165,7 +163,7 @@ function formatAmount(value) {
 
 const containerStyle = {
   maxWidth: 960,
-  margin: "80px auto",
+  margin: "0 auto",
   padding: "48px 56px",
   borderRadius: 10,
   border: "1px solid #e5e7eb",

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties, FormEvent } from "react";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
 import { listEmployees, type HrEmployee } from "../../../../lib/hrEmployeesApi";
@@ -334,7 +333,6 @@ export default function HrWeeklyOffRulesPage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
 
       <header style={headerStyle}>
         <div>
@@ -712,7 +710,7 @@ export default function HrWeeklyOffRulesPage() {
 
 const containerStyle: CSSProperties = {
   maxWidth: 1100,
-  margin: "60px auto",
+  margin: "0 auto",
   padding: "32px 36px",
   borderRadius: 12,
   border: "1px solid #e5e7eb",
