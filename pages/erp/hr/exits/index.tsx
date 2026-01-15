@@ -133,7 +133,7 @@ export default function EmployeeExitsPage() {
   }, [statusFilter, monthFilter]);
 
   async function loadExits() {
-    const { data, error } = await supabase
+   const { data: rowsData, error: rowsError } = await supabase
   .from("erp_hr_employee_exits")
   .select(`
     id, status, initiated_on, last_working_day,
