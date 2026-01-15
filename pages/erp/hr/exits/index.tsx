@@ -31,7 +31,18 @@ const statusOptions = [
   { value: "completed", label: "Completed" },
   { value: "withdrawn", label: "Withdrawn" },
 ];
-
+type ExitRowRaw = {
+  id: string;
+  status: string;
+  initiated_on: string | null;
+  last_working_day: string;
+  notice_period_days: number | null;
+  notice_waived: boolean;
+  notes: string | null;
+  employee: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+  exit_type: { id: string; name: string | null }[] | null;
+  exit_reason: { id: string; name: string | null }[] | null;
+};
 type ExitRow = {
   id: string;
   status: string;
@@ -153,7 +164,17 @@ export default function EmployeeExitsPage() {
       return;
     }
 
-    setRows((data as ExitRow[]) || []);
+    const raw = (data ?? []) as ExitRowRaw[];
+
+const normalized: ExitRow[] = raw.map((r) => ({
+  ...r,
+  employee: r.employee?.[0] ?? null,
+  exit_type: r.exit_type?.[0] ?? null,
+  exit_reason: r.exit_reason?.[0] ?? null,
+}));
+
+setRows(normalized);
+
   }
 
   function showToast(message: string, type: "success" | "error" = "success") {
