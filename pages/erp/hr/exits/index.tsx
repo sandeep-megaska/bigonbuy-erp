@@ -39,7 +39,11 @@ type ExitRowRaw = {
   notice_period_days: number | null;
   notice_waived: boolean;
   notes: string | null;
+  created_at: string | null;
+
   employee: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+  manager: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+
   exit_type: { id: string; name: string | null }[] | null;
   exit_reason: { id: string; name: string | null }[] | null;
 };
@@ -51,6 +55,7 @@ type ExitRow = {
   notice_period_days: number | null;
   notice_waived: boolean;
   notes: string | null;
+  created_at: string | null;
 
   employee: { id: string; full_name: string | null; employee_code: string | null } | null;
   manager: { id: string; full_name: string | null; employee_code: string | null } | null;
@@ -182,7 +187,26 @@ async function loadExits() {
     }
 
     // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
-    setRows((rowsData ?? []) as ExitRow[]);
+  const raw = (rowsData ?? []) as ExitRowRaw[];
+
+const normalized: ExitRow[] = raw.map((r) => ({
+  id: r.id,
+  status: r.status,
+  initiated_on: r.initiated_on,
+  last_working_day: r.last_working_day,
+  notice_period_days: r.notice_period_days,
+  notice_waived: r.notice_waived,
+  notes: r.notes,
+  created_at: r.created_at ?? null,
+
+  employee: r.employee?.[0] ?? null,
+  manager: r.manager?.[0] ?? null,
+  exit_type: r.exit_type?.[0] ?? null,
+  exit_reason: r.exit_reason?.[0] ?? null,
+}));
+
+setRows(normalized);
+
   } catch (e: any) {
     setToast({
       type: "error",
