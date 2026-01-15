@@ -13,9 +13,7 @@ export type CompanyLogoKind = "bigonbuy" | "megaska";
 
 async function getCurrentCompanyId() {
   const { data, error } = await supabase.rpc("erp_current_company_id");
-  if (error) {
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
   return data as string;
 }
 
@@ -25,10 +23,7 @@ export async function getCompanySettings() {
     .select("company_id, bigonbuy_logo_path, megaska_logo_path, setup_completed, setup_completed_at")
     .maybeSingle();
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
+  if (error) throw new Error(error.message);
   return data as CompanySettings | null;
 }
 
@@ -41,10 +36,7 @@ export async function updateCompanySettings(payload: Partial<CompanySettings>) {
     .select("company_id, bigonbuy_logo_path, megaska_logo_path, setup_completed, setup_completed_at")
     .maybeSingle();
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
+  if (error) throw new Error(error.message);
   return data as CompanySettings | null;
 }
 
@@ -57,10 +49,7 @@ export async function uploadCompanyLogo(kind: CompanyLogoKind, file: File) {
     .from("erp-assets")
     .upload(path, file, { upsert: true, contentType: file.type || "application/octet-stream" });
 
-  if (error) {
-    throw new Error(error.message);
-  }
-
+  if (error) throw new Error(error.message);
   return path;
 }
 
@@ -70,10 +59,12 @@ export async function getCompanyLogosSignedUrlsIfNeeded() {
 
   async function resolveUrl(path?: string | null) {
     if (!path) return null;
+
+    // Prefer signed URL (private bucket safe)
     const { data: signed, error } = await storage.createSignedUrl(path, 3600);
-    if (!error && signed?.signedUrl) {
-      return signed.signedUrl;
-    }
+    if (!error && signed?.signedUrl) return signed.signedUrl;
+
+    // Fallback to public URL (in case bucket is public)
     const { data } = storage.getPublicUrl(path);
     return data?.publicUrl ?? null;
   }
@@ -83,11 +74,5 @@ export async function getCompanyLogosSignedUrlsIfNeeded() {
     resolveUrl(settings?.megaska_logo_path ?? null),
   ]);
 
-  return {
-    settings,
-    bigonbuyUrl,
-    megaskaUrl,
-  };
+  return { settings, bigonbuyUrl, megaskaUrl };
 }
-
-
