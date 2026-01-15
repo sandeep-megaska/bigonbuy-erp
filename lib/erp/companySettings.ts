@@ -89,3 +89,78 @@ export async function getCompanyLogosSignedUrlsIfNeeded() {
     megaskaUrl,
   };
 }
+import { useEffect, useState } from "react";
+import { getCompanyLogosSignedUrlsIfNeeded, getCompanySettings } from "./companySettings";
+
+type BrandingState = {
+  bigonbuyLogoUrl: string | null;
+  megaskaLogoUrl: string | null;
+  loaded: boolean;
+};
+
+export function useCompanyBranding() {
+  const [branding, setBranding] = useState<BrandingState>({
+    bigonbuyLogoUrl: null,
+    megaskaLogoUrl: null,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        const [logos] = await Promise.all([
+          getCompanyLogosSignedUrlsIfNeeded(),
+          getCompanySettings(), // keeps future extensibility
+        ]);
+
+        if (!active) return;
+
+        setBranding({
+          bigonbuyLogoUrl: logos.bigonbuyUrl ?? null,
+          megaskaLogoUrl: logos.megaskaUrl ?? null,
+          loaded: true,
+        });
+      } catch {
+        if (!active) return;
+        setBranding((prev) => ({ ...prev, loaded: true }));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return branding;
+}
+import type { CSSProperties } from "react";
+
+const brandWrapStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+};
+
+const bigonbuyLogoStyle: CSSProperties = {
+  height: 36,          // primary, prominent
+  maxWidth: 140,
+  objectFit: "contain",
+};
+
+const megaskaLogoStyle: CSSProperties = {
+  height: 22,          // secondary, subtle
+  opacity: 0.85,
+  objectFit: "contain",
+};
+
+const bigonbuyFallbackStyle: CSSProperties = {
+  fontWeight: 800,
+  fontSize: 14,
+  padding: "6px 12px",
+  borderRadius: 8,
+  background: "#111827",
+  color: "#fff",
+  letterSpacing: "0.06em",
+};
