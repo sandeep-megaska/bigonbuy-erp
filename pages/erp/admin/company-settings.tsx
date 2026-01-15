@@ -399,7 +399,8 @@ export default function CompanySettingsPage() {
             type="button"
             style={primaryButtonStyle}
             onClick={handleMarkSetupComplete}
-            disabled={saving || settings?.setup_completed}
+            disabled={saving || Boolean(settings?.setup_completed)}
+
           >
             {settings?.setup_completed ? "Setup Completed" : "Mark Setup Complete"}
           </button>
