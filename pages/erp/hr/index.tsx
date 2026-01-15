@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 import ErpShell from "../../../components/erp/ErpShell";
@@ -7,28 +7,35 @@ import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
   h1Style,
+  h2Style,
   pageContainerStyle,
   pageHeaderStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
   subtitleStyle,
 } from "../../../components/erp/uiStyles";
-import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
+import { useCompanyBranding } from "../../../lib/erp/useCompanyBranding";
+import { supabase } from "../../../lib/supabaseClient";
 
 export default function HrHomePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [employeeCount, setEmployeeCount] = useState("—");
+  const [attendanceMarkedDays, setAttendanceMarkedDays] = useState("Not available yet");
+  const [latestPayrollRun, setLatestPayrollRun] = useState<{
+    label: string;
+    status: string;
+  } | null>(null);
   const [access, setAccess] = useState({
     isAuthenticated: false,
     isManager: false,
     roleKey: undefined as string | undefined,
   });
-  const canGovern = useMemo(
-    () => isAdmin(ctx?.roleKey || access.roleKey),
-    [access.roleKey, ctx?.roleKey]
-  );
-  const navItems = useMemo(() => buildNavItems(canGovern), [canGovern]);
+  const branding = useCompanyBranding();
 
   useEffect(() => {
     let active = true;
@@ -59,6 +66,64 @@ export default function HrHomePage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    let active = true;
+
+    if (!ctx?.companyId) {
+      return () => {
+        active = false;
+      };
+    }
+
+    (async () => {
+      const [employeeRes, attendanceRes, payrollRes] = await Promise.all([
+        supabase.from("erp_employees").select("id", { count: "exact", head: true }),
+        loadAttendanceSnapshot(),
+        supabase
+          .from("erp_payroll_runs")
+          .select("id, year, month, status")
+          .order("year", { ascending: false })
+          .order("month", { ascending: false })
+          .limit(1),
+      ]);
+
+      if (!active) return;
+
+      if (employeeRes.error) {
+        setEmployeeCount("—");
+      } else {
+        setEmployeeCount(String(employeeRes.count ?? 0));
+      }
+
+      if (attendanceRes.error) {
+        setAttendanceMarkedDays("—");
+      } else if (attendanceRes.data && attendanceRes.data.length > 0) {
+        const markedDays = new Set(
+          attendanceRes.data
+            .filter((row) => row.status && row.status !== "unmarked")
+            .map((row) => row.day)
+        );
+        setAttendanceMarkedDays(`${markedDays.size} days`);
+      } else {
+        setAttendanceMarkedDays("Not available yet");
+      }
+
+      if (payrollRes.error || !payrollRes.data || payrollRes.data.length === 0) {
+        setLatestPayrollRun(null);
+      } else {
+        const latest = payrollRes.data[0];
+        setLatestPayrollRun({
+          label: `${latest.year}-${String(latest.month).padStart(2, "0")}`,
+          status: latest.status,
+        });
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [ctx?.companyId]);
+
   if (loading) {
     return (
       <ErpShell activeModule="hr">
@@ -83,6 +148,31 @@ export default function HrHomePage() {
     );
   }
 
+  const roleLabel = ctx.roleKey || access.roleKey || "member";
+  const companyName = branding?.companyName || "—";
+  const setupIncomplete = !branding?.companyName;
+  const quickActions = [
+    { label: "Add employee", href: "/erp/hr/employees", variant: "primary" },
+    { label: "Mark attendance (month)", href: "/erp/hr/attendance", variant: "secondary" },
+    { label: "Run payroll", href: "/erp/hr/payroll/runs", variant: "secondary" },
+    {
+      label: "Attendance → Payroll Summary",
+      href: "/erp/hr/reports/attendance-payroll-summary",
+      variant: "secondary",
+    },
+  ];
+  const statusCards = [
+    { label: "Employees", value: employeeCount },
+    { label: "Attendance marked (month)", value: attendanceMarkedDays },
+  ];
+
+  if (latestPayrollRun) {
+    statusCards.push({
+      label: `Latest payroll run (${latestPayrollRun.label})`,
+      value: latestPayrollRun.status,
+    });
+  }
+
   return (
     <ErpShell activeModule="hr">
       <div style={pageContainerStyle}>
@@ -93,10 +183,6 @@ export default function HrHomePage() {
             <p style={subtitleStyle}>
               Enterprise-ready HR and payroll operations for your India workforce.
             </p>
-            <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
-              Signed in as <strong>{ctx.email}</strong> · Role:{" "}
-              <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
-            </p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
             <Link href="/erp" style={linkStyle}>
@@ -106,22 +192,78 @@ export default function HrHomePage() {
         </header>
 
         <div style={sectionStackStyle}>
-          {navItems.map((section) => (
-            <section key={section.title} style={sectionStyle}>
-              <div style={sectionHeaderStyle}>
-                <div>
-                  <h2 style={sectionTitleStyle}>{section.title}</h2>
-                  <p style={sectionDescriptionStyle}>{section.description}</p>
+          <section style={dashboardCardStyle}>
+            <div style={welcomeHeaderStyle}>
+              <div>
+                <p style={eyebrowStyle}>Welcome</p>
+                <h2 style={h2Style}>Welcome, {ctx.email}</h2>
+              </div>
+              <div style={welcomeMetaStyle}>
+                <p style={{ margin: 0, color: "#374151" }}>
+                  Role: <strong>{roleLabel}</strong>
+                </p>
+                <p style={{ margin: "4px 0 0", color: "#4b5563" }}>
+                  Company: <strong>{companyName}</strong>
+                </p>
+              </div>
+            </div>
+            {setupIncomplete ? (
+              <div style={alertStyle}>
+                <span>Company setup is incomplete. Add brand and legal details to proceed.</span>
+                <Link href="/erp/admin/company-settings" style={alertLinkStyle}>
+                  Go to Company Settings
+                </Link>
+              </div>
+            ) : null}
+          </section>
+
+          <section style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Quick actions</h2>
+              <p style={sectionDescriptionStyle}>Shortcuts to the most common HR workflows.</p>
+            </div>
+            <div style={actionRowStyle}>
+              {quickActions.map((action) => (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  style={{
+                    ...(action.variant === "primary" ? primaryButtonStyle : secondaryButtonStyle),
+                    textDecoration: "none",
+                  }}
+                >
+                  {action.label}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Status</h2>
+              <p style={sectionDescriptionStyle}>Track key HR metrics at a glance.</p>
+            </div>
+            <div style={statGridStyle}>
+              {statusCards.map((card) => (
+                <div key={card.label} style={statCardStyle}>
+                  <p style={statLabelStyle}>{card.label}</p>
+                  <p style={statValueStyle}>{card.value}</p>
                 </div>
-                <span style={sectionMetaStyle}>{section.meta}</span>
-              </div>
-              <div style={cardGridStyle}>
-                {section.items.map((item) => (
-                  <ModuleCard key={item.title} item={item} />
-                ))}
-              </div>
-            </section>
-          ))}
+              ))}
+            </div>
+          </section>
+
+          <section style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Tips &amp; getting started</h2>
+              <p style={sectionDescriptionStyle}>Suggested next steps for HR onboarding.</p>
+            </div>
+            <ul style={tipsListStyle}>
+              <li>Start with Designations, Leave Types, and Weekly Off Rules setup.</li>
+              <li>Keep attendance calendars updated before each payroll run.</li>
+              <li>Overtime (OT) is manual by design in payroll.</li>
+            </ul>
+          </section>
         </div>
       </div>
     </ErpShell>
@@ -136,314 +278,124 @@ const sectionStackStyle: CSSProperties = {
   gap: 28,
 };
 
-const sectionStyle: CSSProperties = {
+const dashboardCardStyle: CSSProperties = {
+  ...sharedCardStyle,
   display: "flex",
   flexDirection: "column",
   gap: 16,
 };
 
+const welcomeHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  gap: 16,
+};
+
+const welcomeMetaStyle: CSSProperties = {
+  textAlign: "right",
+  minWidth: 220,
+};
+
+const alertStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  padding: "12px 16px",
+  borderRadius: 10,
+  backgroundColor: "#fef3c7",
+  color: "#92400e",
+  fontSize: 14,
+  fontWeight: 600,
+};
+
+const alertLinkStyle: CSSProperties = {
+  color: "#2563eb",
+  textDecoration: "none",
+  fontWeight: 700,
+};
+
 const sectionHeaderStyle: CSSProperties = {
   display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  flexWrap: "wrap",
-  gap: 12,
+  flexDirection: "column",
+  gap: 4,
 };
 
 const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 20,
+  fontSize: 18,
   color: "#111827",
 };
 
 const sectionDescriptionStyle: CSSProperties = {
-  margin: "6px 0 0",
+  margin: 0,
   color: "#6b7280",
   fontSize: 14,
 };
 
-const sectionMetaStyle: CSSProperties = {
-  padding: "6px 12px",
-  borderRadius: 8,
-  backgroundColor: "#eef2ff",
-  color: "#3730a3",
-  fontSize: 12,
-  fontWeight: 700,
-};
-
-const cardGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 18,
-};
-
-const cardStyle: CSSProperties = {
-  ...sharedCardStyle,
+const actionRowStyle: CSSProperties = {
   display: "flex",
-  gap: 14,
-  alignItems: "flex-start",
-  textAlign: "left",
-  textDecoration: "none",
-  color: "#111827",
-};
-
-const cardIconStyle: CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 10,
-  display: "grid",
-  placeItems: "center",
-  backgroundColor: "#eef2ff",
-  color: "#4338ca",
-  fontWeight: "bold",
-  fontSize: 18,
-};
-
-const cardTitleStyle: CSSProperties = {
-  margin: "2px 0 6px",
-  fontSize: 17,
-  color: "#111827",
-};
-
-const cardDescriptionStyle: CSSProperties = {
-  margin: 0,
-  color: "#4b5563",
-  fontSize: 14,
-  lineHeight: 1.5,
-};
-
-const cardMetaStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  marginTop: 12,
+  flexWrap: "wrap",
   gap: 12,
 };
 
-const statusBadgeStyle: CSSProperties = {
-  padding: "4px 10px",
-  borderRadius: 8,
-  backgroundColor: "#ecfeff",
-  color: "#0e7490",
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
+const statGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gap: 16,
 };
 
-const disabledStatusBadgeStyle: CSSProperties = {
-  backgroundColor: "#fef3c7",
-  color: "#92400e",
-};
-
-const cardCtaStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  color: "#2563eb",
-  fontWeight: 700,
-  textDecoration: "none",
-  fontSize: 13,
-};
-
-const disabledCardStyle: CSSProperties = {
+const statCardStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 10,
   backgroundColor: "#f8fafc",
-  color: "#9ca3af",
-  borderColor: "#e5e7eb",
-  boxShadow: "none",
+  border: "1px solid #e5e7eb",
 };
 
-type ModuleItem = {
-  title: string;
-  description: string;
-  href: string;
-  icon: string;
-  status: string;
-  ctaLabel?: string;
-  disabled?: boolean;
+const statLabelStyle: CSSProperties = {
+  margin: 0,
+  color: "#6b7280",
+  fontSize: 13,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
 };
 
-function ModuleCard({ item }: { item: ModuleItem }) {
-  const content = (
-    <div style={{ display: "flex", gap: 14 }}>
-      <div style={cardIconStyle}>{item.icon}</div>
-      <div style={{ flex: 1 }}>
-        <h3 style={cardTitleStyle}>{item.title}</h3>
-        <p style={cardDescriptionStyle}>{item.description}</p>
-        <div style={cardMetaStyle}>
-          <span
-            style={{
-              ...statusBadgeStyle,
-              ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : null),
-            }}
-          >
-            {item.status}
-          </span>
-          {item.ctaLabel ? <span style={cardCtaStyle}>{item.ctaLabel} →</span> : null}
-        </div>
-      </div>
-    </div>
-  );
+const statValueStyle: CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: 20,
+  fontWeight: 700,
+  color: "#111827",
+};
 
-  if (item.disabled) {
-    return <div style={{ ...cardStyle, ...disabledCardStyle }}>{content}</div>;
-  }
+const tipsListStyle: CSSProperties = {
+  margin: 0,
+  paddingLeft: 18,
+  color: "#4b5563",
+  lineHeight: 1.7,
+};
 
-  return (
-    <Link href={item.href} style={cardStyle}>
-      {content}
-    </Link>
-  );
-}
+type AttendanceRow = {
+  day: string;
+  status: string | null;
+};
 
-function buildNavItems(canGovern: boolean) {
-  const sections = [
-    {
-      title: "HR Masters",
-      description: "Create foundations for departments, grades, locations, and cost centers.",
-      meta: "Foundation",
-      items: [
-        {
-          title: "Designations",
-          description: "Standardize job titles and grading levels.",
-          href: "/erp/hr/masters",
-          icon: "🏷️",
-          status: "Active",
-          ctaLabel: "Manage",
-        },
-        {
-          title: "Departments",
-          description: "Organize business units and reporting structures.",
-          href: "/erp/hr/masters",
-          icon: "🏢",
-          status: "Coming Soon",
-          disabled: true,
-        },
-        {
-          title: "Grades",
-          description: "Define compensation grades and bands.",
-          href: "/erp/hr/masters",
-          icon: "📈",
-          status: "Coming Soon",
-          disabled: true,
-        },
-        {
-          title: "Locations",
-          description: "Maintain branches and statutory locations.",
-          href: "/erp/hr/masters",
-          icon: "📍",
-          status: "Coming Soon",
-          disabled: true,
-        },
-        {
-          title: "Cost Centers",
-          description: "Align payroll and HR costs to centers.",
-          href: "/erp/hr/masters",
-          icon: "🧾",
-          status: "Coming Soon",
-          disabled: true,
-        },
-        {
-          title: "Leave Types",
-          description: "Configure paid and unpaid leave categories.",
-          href: "/erp/hr/leaves/types",
-          icon: "🌴",
-          status: "Active",
-          ctaLabel: "Configure",
-        },
-        {
-          title: "Weekly Off Rules",
-          description: "Define weekly off patterns by location and employee overrides.",
-          href: "/erp/hr/weekly-off",
-          icon: "📆",
-          status: "Active",
-          ctaLabel: "Configure",
-        },
-      ],
-    },
-    {
-      title: "HR Operations",
-      description: "Run day-to-day HR, payroll, and employee lifecycle workflows.",
-      meta: "Operations",
-      items: [
-        {
-          title: "Employees",
-          description: "Maintain employee profiles, lifecycle, and compliance details.",
-          href: "/erp/hr/employees",
-          icon: "🧑‍💼",
-          status: "Active",
-          ctaLabel: "Manage",
-        },
-        {
-          title: "Salary Structures",
-          description: "Maintain salary structures and payroll components.",
-          href: "/erp/hr/salary",
-          icon: "💰",
-          status: "Active",
-          ctaLabel: "Review",
-        },
-        {
-          title: "Payroll",
-          description: "Run payroll cycles, approvals, and payouts.",
-          href: "/erp/hr/payroll/runs",
-          icon: "📄",
-          status: "Active",
-          ctaLabel: "Run payroll",
-        },
-        {
-          title: "Leave Requests",
-          description: "Review and approve employee leave requests.",
-          href: "/erp/hr/leaves/requests",
-          icon: "📝",
-          status: "Active",
-          ctaLabel: "Review",
-        },
-        {
-          title: "Attendance",
-          description: "Mark attendance days and manage daily status.",
-          href: "/erp/hr/attendance",
-          icon: "🗓️",
-          status: "Active",
-          ctaLabel: "Mark days",
-        },
-        {
-          title: "Calendars",
-          description: "Manage attendance calendars, holidays, and work location mappings.",
-          href: "/erp/hr/calendars",
-          icon: "📅",
-          status: "Active",
-          ctaLabel: "Manage",
-        },
-      ],
-    },
-    {
-      title: "Access & Governance",
-      description: "Control HR roles, permissions, and employee logins.",
-      meta: "Administration",
-      items: [
-        {
-          title: "Company Users",
-          description: "Invite employees and manage role-based access.",
-          href: "/erp/admin/company-users",
-          icon: "🛂",
-          status: "Active",
-          ctaLabel: "Manage",
-        },
-        {
-          title: "Roles & Permissions",
-          description: "Define HR roles and permission sets.",
-          href: "/erp/hr/roles",
-          icon: "🛡️",
-          status: "Active",
-          ctaLabel: "Assign",
-        },
-      ],
-    },
-  ];
+async function loadAttendanceSnapshot() {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const start = monthStart.toISOString().slice(0, 10);
+  const end = monthEnd.toISOString().slice(0, 10);
 
-  if (!canGovern) {
-    sections.pop();
-  }
+  const { data, error } = await supabase
+    .from("erp_hr_attendance_days")
+    .select("day, status")
+    .gte("day", start)
+    .lte("day", end);
 
-  return sections;
+  return {
+    data: (data as AttendanceRow[]) ?? null,
+    error,
+  };
 }
