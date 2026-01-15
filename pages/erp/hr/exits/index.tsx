@@ -46,25 +46,19 @@ type ExitRowRaw = {
 type ExitRow = {
   id: string;
   status: string;
-  initiated_on: string | null; 
+  initiated_on: string | null;
   last_working_day: string;
   notice_period_days: number | null;
   notice_waived: boolean;
   notes: string | null;
-  employee?: {
-    id: string;
-    full_name: string | null;
-    employee_code: string | null;
-  } | null;
-  exit_type?: {
-    id: string;
-    name: string | null;
-  } | null;
-  exit_reason?: {
-    id: string;
-    name: string | null;
-  } | null;
+
+  employee: { id: string; full_name: string | null; employee_code: string | null } | null;
+  manager: { id: string; full_name: string | null; employee_code: string | null } | null;
+
+  exit_type: { id: string; name: string | null } | null;
+  exit_reason: { id: string; name: string | null } | null;
 };
+
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
@@ -139,12 +133,25 @@ export default function EmployeeExitsPage() {
   }, [statusFilter, monthFilter]);
 
   async function loadExits() {
-    let query = supabase
-      .from("erp_hr_employee_exits")
-      .select(
-        "id, status, initiated_on, last_working_day, notice_period_days, notice_waived, notes, employee:erp_employees(id, full_name, employee_code), exit_type:erp_hr_employee_exit_types(id, name), exit_reason:erp_hr_employee_exit_reasons(id, name)"
-      )
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase
+  .from("erp_hr_employee_exits")
+  .select(`
+    id, status, initiated_on, last_working_day,
+    notice_period_days, notice_waived, notes,
+
+    employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
+      id, full_name, employee_code
+    ),
+
+    manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
+      id, full_name, employee_code
+    ),
+
+    exit_type:erp_hr_employee_exit_types ( id, name ),
+    exit_reason:erp_hr_employee_exit_reasons ( id, name )
+  `)
+  .order("created_at", { ascending: false });
+
 
     if (statusFilter) {
       query = query.eq("status", statusFilter);
