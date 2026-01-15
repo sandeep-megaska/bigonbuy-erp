@@ -20,12 +20,7 @@ type PayrollRunOption = {
   status: string | null;
 };
 
-const tableHeaderStyle = {
-  textAlign: "left",
-  padding: "10px 12px",
-  borderBottom: "1px solid #e5e7eb",
-  fontSize: 13,
-};
+
 const tableCellStyle = {
   padding: "10px 12px",
   borderBottom: "1px solid #f1f5f9",
