@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 import ErpShell from "../../../../components/erp/ErpShell";
+import { supabase } from "../../../../lib/supabaseClient";
+
 import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
