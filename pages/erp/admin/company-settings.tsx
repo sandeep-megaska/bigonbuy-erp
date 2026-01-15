@@ -430,6 +430,16 @@ const headerStyle = {
   paddingBottom: 20,
   marginBottom: 24,
 };
+const headerStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  borderBottom: "1px solid #eee",
+  paddingBottom: 12,
+  marginBottom: 16,
+};
 
 const eyebrowStyle = {
   textTransform: "uppercase",
