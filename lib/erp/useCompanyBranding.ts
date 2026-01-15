@@ -31,7 +31,8 @@ async function fetchBranding(): Promise<CompanyBranding> {
 
     const { data, error } = await supabase
       .from("erp_companies")
-      .select("legal_name, brand_name, name")
+     .select("legal_name, brand_name")
+
       .eq("id", companyId)
       .maybeSingle();
 
@@ -40,7 +41,8 @@ async function fetchBranding(): Promise<CompanyBranding> {
     }
 
     return {
-      companyName: data?.brand_name || data?.legal_name || data?.name || "",
+      companyName: data?.brand_name || data?.legal_name || "",
+
       bigonbuyLogoUrl: logoRes.bigonbuyUrl ?? null,
       megaskaLogoUrl: logoRes.megaskaUrl ?? null,
     };
