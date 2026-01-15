@@ -1,19 +1,23 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import ErpShell from "../../components/erp/ErpShell";
 import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
   h1Style,
+  h2Style,
   pageContainerStyle,
   pageHeaderStyle,
+  primaryButtonStyle,
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../components/erp/uiStyles";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../lib/erpContext";
 import { getCurrentErpAccess } from "../../lib/erp/nav";
+import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
+import { supabase } from "../../lib/supabaseClient";
 
 const buttonStyle: CSSProperties = {
   ...secondaryButtonStyle,
@@ -21,121 +25,19 @@ const buttonStyle: CSSProperties = {
   color: "#dc2626",
 };
 
-type ModuleItem = {
-  title: string;
-  description: string;
-  href: string;
-  status: string;
-  cta?: string;
-  disabled?: boolean;
-};
-
-type ModuleSection = {
-  title: string;
-  description: string;
-  items: ModuleItem[];
-};
-
 export default function ErpHomePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [employeeCount, setEmployeeCount] = useState("—");
+  const [designationCount, setDesignationCount] = useState("—");
   const [access, setAccess] = useState({
     isAuthenticated: false,
     isManager: false,
     roleKey: undefined as string | undefined,
   });
-
-  const sections = useMemo<ModuleSection[]>(() => {
-    const canAdmin = isAdmin(ctx?.roleKey || access.roleKey);
-    const canManage = access.isManager;
-
-    const baseSections: ModuleSection[] = [
-      {
-        title: "Workspace",
-        description: "Core catalog and stock workflows.",
-        items: [
-          {
-            title: "Products",
-            description: "Create and manage your product catalog.",
-            href: "/erp/products",
-            status: "Active",
-            cta: "Manage",
-          },
-          {
-            title: "Variants",
-            description: "Organize options and product variations.",
-            href: "/erp/variants",
-            status: "Active",
-            cta: "Review",
-          },
-          {
-            title: "Inventory",
-            description: "Track stock levels across variants.",
-            href: "/erp/inventory",
-            status: "Active",
-            cta: "Open",
-          },
-        ],
-      },
-      {
-        title: "HR",
-        description: "Employees, salary, leave, and payroll operations.",
-        items: [
-          {
-            title: "Human Resources",
-            description: "Payroll, attendance, and HR masters.",
-            href: "/erp/hr",
-            status: "Active",
-            cta: "Open",
-          },
-        ],
-      },
-      {
-        title: "Finance",
-        description: "Expense tracking and financial reporting.",
-        items: [
-          {
-            title: "Finance",
-            description: "Track spend, invoices, and budgets.",
-            href: "/erp/finance",
-            status: "Coming Soon",
-            disabled: true,
-          },
-        ],
-      },
-    ];
-
-    if (canAdmin) {
-      baseSections.push({
-        title: "Admin",
-        description: "Company access and governance controls.",
-        items: [
-          {
-            title: "Company Users",
-            description: "Invite staff and manage access.",
-            href: "/erp/admin/company-users",
-            status: "Active",
-            cta: "Manage",
-          },
-          {
-            title: "Company Settings",
-            description: "Configure branding and organization details.",
-            href: "/erp/admin/company-settings",
-            status: "Active",
-            cta: "Configure",
-          },
-        ],
-      });
-    }
-
-    if (!canManage) {
-      return baseSections.filter((section) => section.title !== "HR");
-    }
-
-    return baseSections;
-  }, [access.isManager, access.roleKey, ctx?.roleKey]);
+  const branding = useCompanyBranding();
 
   useEffect(() => {
     let active = true;
@@ -165,6 +67,46 @@ export default function ErpHomePage() {
       active = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!ctx?.companyId || !access.isManager) {
+      return () => {
+        active = false;
+      };
+    }
+
+    (async () => {
+      const { count: employeeTotal, error: employeeError } = await supabase
+        .from("erp_employees")
+        .select("id", { count: "exact", head: true });
+
+      if (!active) return;
+
+      if (employeeError) {
+        setEmployeeCount("—");
+      } else {
+        setEmployeeCount(String(employeeTotal ?? 0));
+      }
+
+      const { count: designationTotal, error: designationError } = await supabase
+        .from("erp_designations")
+        .select("id", { count: "exact", head: true });
+
+      if (!active) return;
+
+      if (designationError) {
+        setDesignationCount("—");
+      } else {
+        setDesignationCount(String(designationTotal ?? 0));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [access.isManager, ctx?.companyId]);
 
   if (loading) {
     return (
@@ -197,178 +139,237 @@ export default function ErpHomePage() {
     );
   }
 
+  const roleLabel = ctx.roleKey || access.roleKey || "member";
+  const companyName = branding?.companyName || "—";
+  const setupIncomplete = !branding?.companyName;
+  const canAdmin = isAdmin(roleLabel);
+  const quickActions = [
+    { label: "Open Products", href: "/erp/products", variant: "primary" },
+    { label: "Review Inventory", href: "/erp/inventory", variant: "secondary" },
+    { label: "Manage Variants", href: "/erp/variants", variant: "secondary" },
+  ];
+
+  if (access.isManager) {
+    quickActions.push({ label: "Open HR", href: "/erp/hr", variant: "secondary" });
+  }
+
+  if (canAdmin) {
+    quickActions.push({
+      label: "Company Settings",
+      href: "/erp/admin/company-settings",
+      variant: "secondary",
+    });
+  }
+
+  const statusCards = access.isManager
+    ? [
+        { label: "Employees", value: employeeCount },
+        { label: "Designations", value: designationCount },
+        { label: "Company setup", value: setupIncomplete ? "Needs setup" : "Complete" },
+      ]
+    : [
+        { label: "Role", value: roleLabel },
+        { label: "Modules", value: "Workspace, Inventory" },
+        { label: "Company setup", value: setupIncomplete ? "Needs setup" : "Complete" },
+      ];
+
   return (
     <ErpShell activeModule="workspace">
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>ERP Home</p>
-            <h1 style={h1Style}>Welcome to Bigonbuy ERP</h1>
+            <h1 style={h1Style}>ERP Home</h1>
             <p style={subtitleStyle}>
-              Manage your catalog, variants, and inventory from a single place.
+              Track core operations and jump into the modules you need.
             </p>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <p style={{ margin: 0, color: "#374151" }}>
-              Signed in as <strong>{ctx.email}</strong>
-            </p>
-            <p style={{ margin: "4px 0 0", color: "#4b5563" }}>
-              Role: <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
-            </p>
-          </div>
+          <div style={{ textAlign: "right" }} />
         </header>
 
-        <section style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-          {sections.map((section) => (
-            <div key={section.title} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <p style={sectionLabelStyle}>{section.title}</p>
-                <div style={sectionDividerStyle} />
+        <section style={sectionStackStyle}>
+          <div style={dashboardCardStyle}>
+            <div style={welcomeHeaderStyle}>
+              <div>
+                <p style={eyebrowStyle}>Welcome</p>
+                <h2 style={h2Style}>Welcome, {ctx.email}</h2>
               </div>
-              <p style={sectionDescriptionStyle}>{section.description}</p>
-              <div style={cardGridStyle}>
-                {section.items.map((item) => {
-                  const content = (
-                    <>
-                      <div style={cardIconStyle}>{item.title.slice(0, 2)}</div>
-                      <div style={{ flex: 1 }}>
-                        <h2 style={cardTitleStyle}>{item.title}</h2>
-                        <p style={cardDescriptionStyle}>{item.description}</p>
-                        <div style={cardMetaStyle}>
-                          <span
-                            style={{
-                              ...statusBadgeStyle,
-                              ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : null),
-                            }}
-                          >
-                            {item.status}
-                          </span>
-                          {item.cta ? <span style={cardCtaStyle}>{item.cta} →</span> : null}
-                        </div>
-                      </div>
-                    </>
-                  );
-
-                  if (item.disabled) {
-                    return (
-                      <div key={item.title} style={{ ...cardStyle, ...disabledCardStyle }}>
-                        {content}
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <Link key={item.href} href={item.href} style={cardStyle}>
-                      {content}
-                    </Link>
-                  );
-                })}
+              <div style={welcomeMetaStyle}>
+                <p style={{ margin: 0, color: "#374151" }}>
+                  Role: <strong>{roleLabel}</strong>
+                </p>
+                <p style={{ margin: "4px 0 0", color: "#4b5563" }}>
+                  Company: <strong>{companyName}</strong>
+                </p>
               </div>
             </div>
-          ))}
+            {setupIncomplete ? (
+              <div style={alertStyle}>
+                <span>
+                  Company setup is incomplete. Add your legal or brand name to finish onboarding.
+                </span>
+                <Link href="/erp/admin/company-settings" style={alertLinkStyle}>
+                  Go to Company Settings
+                </Link>
+              </div>
+            ) : null}
+          </div>
+
+          <div style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Quick actions</h2>
+              <p style={sectionDescriptionStyle}>Jump back into your daily workflows.</p>
+            </div>
+            <div style={actionRowStyle}>
+              {quickActions.map((action) => (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  style={{
+                    ...(action.variant === "primary" ? primaryButtonStyle : secondaryButtonStyle),
+                    textDecoration: "none",
+                  }}
+                >
+                  {action.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Status</h2>
+              <p style={sectionDescriptionStyle}>A quick snapshot of your workspace.</p>
+            </div>
+            <div style={statGridStyle}>
+              {statusCards.map((card) => (
+                <div key={card.label} style={statCardStyle}>
+                  <p style={statLabelStyle}>{card.label}</p>
+                  <p style={statValueStyle}>{card.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={dashboardCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <h2 style={sectionTitleStyle}>Getting started tips</h2>
+              <p style={sectionDescriptionStyle}>
+                Keep these next steps handy as you expand usage.
+              </p>
+            </div>
+            <ul style={tipsListStyle}>
+              <li>Confirm your catalog structure before bulk imports.</li>
+              <li>Review inventory thresholds for fast-moving SKUs.</li>
+              <li>HR and payroll workflows live under the HR module in the sidebar.</li>
+            </ul>
+          </div>
         </section>
       </div>
     </ErpShell>
   );
 }
 
-const cardGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+const sectionStackStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 24,
+};
+
+const dashboardCardStyle: CSSProperties = {
+  ...sharedCardStyle,
+  display: "flex",
+  flexDirection: "column",
   gap: 16,
 };
 
-const cardStyle: CSSProperties = {
-  ...sharedCardStyle,
+const welcomeHeaderStyle: CSSProperties = {
   display: "flex",
-  gap: 14,
-  alignItems: "flex-start",
-  textAlign: "left",
-  textDecoration: "none",
-  color: "#111827",
-};
-
-const cardIconStyle: CSSProperties = {
-  width: 42,
-  height: 42,
-  borderRadius: 10,
-  display: "grid",
-  placeItems: "center",
-  backgroundColor: "#eff6ff",
-  color: "#2563eb",
-  fontWeight: "bold",
-  fontSize: 16,
-};
-
-const cardTitleStyle: CSSProperties = {
-  margin: "2px 0 6px",
-  fontSize: 17,
-  color: "#111827",
-};
-
-const cardDescriptionStyle: CSSProperties = {
-  margin: 0,
-  color: "#4b5563",
-  fontSize: 14,
-};
-
-const cardMetaStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
   justifyContent: "space-between",
-  marginTop: 12,
-  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  gap: 16,
 };
 
-const cardCtaStyle: CSSProperties = {
-  display: "inline-flex",
+const welcomeMetaStyle: CSSProperties = {
+  textAlign: "right",
+  minWidth: 220,
+};
+
+const alertStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
   alignItems: "center",
-  gap: 6,
-  color: "#2563eb",
-  fontWeight: 700,
-  textDecoration: "none",
-  fontSize: 13,
-};
-
-const statusBadgeStyle: CSSProperties = {
-  padding: "4px 10px",
-  borderRadius: 8,
-  backgroundColor: "#ecfeff",
-  color: "#0e7490",
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-};
-
-const disabledStatusBadgeStyle: CSSProperties = {
+  gap: 12,
+  padding: "12px 16px",
+  borderRadius: 10,
   backgroundColor: "#fef3c7",
   color: "#92400e",
+  fontSize: 14,
+  fontWeight: 600,
 };
 
-const disabledCardStyle: CSSProperties = {
-  backgroundColor: "#f8fafc",
-  color: "#9ca3af",
-  borderColor: "#e5e7eb",
-  boxShadow: "none",
+const alertLinkStyle: CSSProperties = {
+  color: "#2563eb",
+  textDecoration: "none",
+  fontWeight: 700,
 };
 
-const sectionLabelStyle: CSSProperties = {
+const sectionHeaderStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+const sectionTitleStyle: CSSProperties = {
   margin: 0,
-  fontSize: 12,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  color: "#6b7280",
-};
-
-const sectionDividerStyle: CSSProperties = {
-  flex: 1,
-  height: 1,
-  background: "#e5e7eb",
+  fontSize: 18,
+  color: "#111827",
 };
 
 const sectionDescriptionStyle: CSSProperties = {
   margin: 0,
   color: "#6b7280",
   fontSize: 14,
+};
+
+const actionRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+};
+
+const statGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gap: 16,
+};
+
+const statCardStyle: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 10,
+  backgroundColor: "#f8fafc",
+  border: "1px solid #e5e7eb",
+};
+
+const statLabelStyle: CSSProperties = {
+  margin: 0,
+  color: "#6b7280",
+  fontSize: 13,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+};
+
+const statValueStyle: CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: 20,
+  fontWeight: 700,
+  color: "#111827",
+};
+
+const tipsListStyle: CSSProperties = {
+  margin: 0,
+  paddingLeft: 18,
+  color: "#4b5563",
+  lineHeight: 1.7,
 };
