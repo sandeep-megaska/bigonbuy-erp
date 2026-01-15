@@ -475,6 +475,37 @@ function buildNavItems(canManage) {
       ],
     },
     {
+      title: "Reports",
+      description: "Read-only HR reports that align attendance with payroll.",
+      meta: "Insights",
+      items: [
+        {
+          title: "Attendance → Payroll Summary",
+          description: "Compare attendance totals with payroll run payouts.",
+          href: "/erp/hr/reports/attendance-payroll-summary",
+          icon: "📊",
+          status: "Active",
+          ctaLabel: "View",
+        },
+        {
+          title: "Attendance Exceptions",
+          description: "Identify missing attendance, mismatches, and overages.",
+          href: "/erp/hr/reports/attendance-exceptions",
+          icon: "🚩",
+          status: "Active",
+          ctaLabel: "Review",
+        },
+        {
+          title: "Attendance Register",
+          description: "Print-friendly daily attendance log for audits.",
+          href: "/erp/hr/reports/attendance-register",
+          icon: "🗂️",
+          status: "Active",
+          ctaLabel: "Open",
+        },
+      ],
+    },
+    {
       title: "Access & Governance",
       description: "Control HR roles, permissions, and employee logins.",
       meta: "Administration",
