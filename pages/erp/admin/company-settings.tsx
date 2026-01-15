@@ -420,16 +420,7 @@ const pageStyle = {
   backgroundColor: "#fff",
 };
 
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 24,
-  flexWrap: "wrap",
-  borderBottom: "1px solid #f1f5f9",
-  paddingBottom: 20,
-  marginBottom: 24,
-};
+
 const headerStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
