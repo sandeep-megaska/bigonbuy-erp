@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
