@@ -1,86 +1,37 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../supabaseClient";
 import { getCompanyLogosSignedUrlsIfNeeded } from "./companySettings";
 
-export type CompanyBranding = {
-  companyName: string;
+type BrandingState = {
   bigonbuyLogoUrl: string | null;
   megaskaLogoUrl: string | null;
+  loaded: boolean;
 };
 
-let cachedBranding: CompanyBranding | null = null;
-let brandingPromise: Promise<CompanyBranding> | null = null;
-
-async function fetchBranding(): Promise<CompanyBranding> {
-  const fallback: CompanyBranding = {
-    companyName: "",
+export function useCompanyBranding() {
+  const [branding, setBranding] = useState<BrandingState>({
     bigonbuyLogoUrl: null,
     megaskaLogoUrl: null,
-  };
-
-  try {
-    const logoRes = await getCompanyLogosSignedUrlsIfNeeded();
-    const companyId = logoRes.settings?.company_id;
-    if (!companyId) {
-      return {
-        companyName: "",
-        bigonbuyLogoUrl: logoRes.bigonbuyUrl ?? null,
-        megaskaLogoUrl: logoRes.megaskaUrl ?? null,
-      };
-    }
-
-    const { data, error } = await supabase
-      .from("erp_companies")
-     .select("legal_name, brand_name")
-
-      .eq("id", companyId)
-      .maybeSingle();
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return {
-      companyName: data?.brand_name || data?.legal_name || "",
-
-      bigonbuyLogoUrl: logoRes.bigonbuyUrl ?? null,
-      megaskaLogoUrl: logoRes.megaskaUrl ?? null,
-    };
-  } catch (err) {
-    console.error("Failed to load company branding", err);
-    return fallback;
-  }
-}
-
-export function useCompanyBranding() {
-  const [branding, setBranding] = useState<CompanyBranding | null>(cachedBranding);
+    loaded: false,
+  });
 
   useEffect(() => {
     let active = true;
 
-    if (cachedBranding) {
-      setBranding(cachedBranding);
-      return;
-    }
+    (async () => {
+      try {
+        const logos = await getCompanyLogosSignedUrlsIfNeeded();
+        if (!active) return;
 
-    if (!brandingPromise) {
-      brandingPromise = fetchBranding().finally(() => {
-        brandingPromise = null;
-      });
-    }
-
-    brandingPromise
-      ?.then((result) => {
-        cachedBranding = result;
-        if (active) {
-          setBranding(result);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setBranding(null);
-        }
-      });
+        setBranding({
+          bigonbuyLogoUrl: logos.bigonbuyUrl ?? null,
+          megaskaLogoUrl: logos.megaskaUrl ?? null,
+          loaded: true,
+        });
+      } catch {
+        if (!active) return;
+        setBranding((prev) => ({ ...prev, loaded: true }));
+      }
+    })();
 
     return () => {
       active = false;
