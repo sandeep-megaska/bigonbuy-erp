@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
-import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
+  
 
 export type ErpModuleKey = "workspace" | "hr" | "employee" | "finance" | "admin";
 
