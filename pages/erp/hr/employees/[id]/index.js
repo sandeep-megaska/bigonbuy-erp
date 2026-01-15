@@ -52,6 +52,8 @@ export default function EmployeeProfilePage() {
     designations: [],
     locations: [],
     employmentTypes: [],
+    employeeTitles: [],
+    employeeGenders: [],
   });
   const [jobForm, setJobForm] = useState({
     department_id: "",
@@ -262,6 +264,8 @@ export default function EmployeeProfilePage() {
       ["designations", "designations"],
       ["locations", "locations"],
       ["employmentTypes", "employment-types"],
+      ["employeeTitles", "employee-titles"],
+      ["employeeGenders", "employee-genders"],
     ];
     const results = await Promise.all(
       types.map(([stateKey, apiType]) =>
@@ -499,6 +503,14 @@ export default function EmployeeProfilePage() {
     () => new Map(masters.locations.map((location) => [location.id, location.name])),
     [masters.locations]
   );
+  const titleNames = useMemo(
+    () => new Map(masters.employeeTitles.map((title) => [title.id, title.name])),
+    [masters.employeeTitles]
+  );
+  const genderNames = useMemo(
+    () => new Map(masters.employeeGenders.map((gender) => [gender.id, gender.name])),
+    [masters.employeeGenders]
+  );
   const managerNames = useMemo(
     () => new Map(employeeList.map((emp) => [emp.id, emp.full_name || emp.employee_code || "—"])),
     [employeeList]
@@ -561,6 +573,20 @@ export default function EmployeeProfilePage() {
     }
     return employee?.employment_type || "—";
   }, [employee, masters.employmentTypes]);
+
+  const overviewTitle = useMemo(() => {
+    if (employee?.title_id) {
+      return titleNames.get(employee.title_id) || "—";
+    }
+    return "—";
+  }, [employee, titleNames]);
+
+  const overviewGender = useMemo(() => {
+    if (employee?.gender_id) {
+      return genderNames.get(employee.gender_id) || "—";
+    }
+    return "—";
+  }, [employee, genderNames]);
 
   useEffect(() => {
     if (!employee) return;
@@ -655,6 +681,8 @@ export default function EmployeeProfilePage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
             <OverviewItem label="Email" value={headerEmail || "—"} />
             <OverviewItem label="Phone" value={headerPhone || "—"} />
+            <OverviewItem label="Title" value={overviewTitle} />
+            <OverviewItem label="Gender" value={overviewGender} />
             <OverviewItem label="Department" value={overviewDepartment} />
             <OverviewItem label="Job Title" value={overviewDesignation} />
             <OverviewItem label="Location" value={overviewLocation} />

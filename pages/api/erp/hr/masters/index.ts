@@ -7,7 +7,9 @@ type MasterType =
   | "grades"
   | "locations"
   | "cost-centers"
-  | "employment-types";
+  | "employment-types"
+  | "employee-titles"
+  | "employee-genders";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessListResponse = { ok: true; rows: unknown[] };
@@ -21,12 +23,14 @@ const MASTER_CONFIG: Record<
   {
     table: string;
     select: string;
+    order?: { column: string; ascending: boolean }[];
     buildPayload: (body: Record<string, unknown>) => Record<string, unknown>;
   }
 > = {
   departments: {
     table: "erp_hr_departments",
     select: COMMON_SELECT,
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       ...buildBasePayload(body),
     }),
@@ -34,6 +38,7 @@ const MASTER_CONFIG: Record<
   designations: {
     table: "erp_hr_designations",
     select: COMMON_SELECT,
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       ...buildBasePayload(body),
     }),
@@ -41,6 +46,7 @@ const MASTER_CONFIG: Record<
   grades: {
     table: "erp_hr_grades",
     select: COMMON_SELECT,
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       ...buildBasePayload(body),
     }),
@@ -48,6 +54,7 @@ const MASTER_CONFIG: Record<
   locations: {
     table: "erp_hr_locations",
     select: `${COMMON_SELECT}, country, state, city`,
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       ...buildBasePayload(body),
       country: (body.country as string) ?? null,
@@ -58,6 +65,7 @@ const MASTER_CONFIG: Record<
   "employment-types": {
     table: "erp_hr_employment_types",
     select: "id, key, name, is_active, created_at, updated_at",
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       key: (body.key as string) ?? null,
       name: (body.name as string) ?? null,
@@ -68,8 +76,39 @@ const MASTER_CONFIG: Record<
   "cost-centers": {
     table: "erp_hr_cost_centers",
     select: COMMON_SELECT,
+    order: [{ column: "name", ascending: true }],
     buildPayload: (body) => ({
       ...buildBasePayload(body),
+    }),
+  },
+  "employee-titles": {
+    table: "erp_hr_employee_titles",
+    select: "id, code, name, sort_order, is_active, created_at, updated_at",
+    order: [
+      { column: "sort_order", ascending: true },
+      { column: "name", ascending: true },
+    ],
+    buildPayload: (body) => ({
+      code: (body.code as string) ?? null,
+      name: (body.name as string) ?? null,
+      sort_order: Number(body.sort_order) || 0,
+      is_active: resolveIsActive(body.is_active),
+      ...(typeof body.id === "string" && body.id.trim() ? { id: body.id } : {}),
+    }),
+  },
+  "employee-genders": {
+    table: "erp_hr_employee_genders",
+    select: "id, code, name, sort_order, is_active, created_at, updated_at",
+    order: [
+      { column: "sort_order", ascending: true },
+      { column: "name", ascending: true },
+    ],
+    buildPayload: (body) => ({
+      code: (body.code as string) ?? null,
+      name: (body.name as string) ?? null,
+      sort_order: Number(body.sort_order) || 0,
+      is_active: resolveIsActive(body.is_active),
+      ...(typeof body.id === "string" && body.id.trim() ? { id: body.id } : {}),
     }),
   },
 };
@@ -115,6 +154,20 @@ function resolveMasterType(value: string | string[] | undefined): MasterType | n
     normalized === "costCenters"
   ) {
     return "cost-centers";
+  }
+  if (
+    normalized === "employee-titles" ||
+    normalized === "employee_titles" ||
+    normalized === "employeeTitles"
+  ) {
+    return "employee-titles";
+  }
+  if (
+    normalized === "employee-genders" ||
+    normalized === "employee_genders" ||
+    normalized === "employeeGenders"
+  ) {
+    return "employee-genders";
   }
   return null;
 }
@@ -169,10 +222,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         }
         return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
       }
-      const { data, error } = await userClient
-        .from(config.table)
-        .select(config.select)
-        .order("name", { ascending: true });
+      let query = userClient.from(config.table).select(config.select);
+      if (config.order?.length) {
+        config.order.forEach((order) => {
+          query = query.order(order.column, { ascending: order.ascending });
+        });
+      } else {
+        query = query.order("name", { ascending: true });
+      }
+      const { data, error } = await query;
       if (error) {
         return res.status(400).json({
           ok: false,
