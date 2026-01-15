@@ -24,11 +24,7 @@ const ROLE_OPTIONS = [
   { label: "Employee", value: "employee" },
 ];
 
-const EMPLOYMENT_TYPE_OPTIONS = [
-  { label: "Permanent", value: "Permanent" },
-  { label: "Contract", value: "Contract" },
-  { label: "Intern", value: "Intern" },
-];
+
 
 function Banner({ tone = "info", title, children, onDismiss }) {
   const theme =
@@ -145,6 +141,14 @@ export default function HrEmployeesPage() {
         .some((value) => String(value).toLowerCase().includes(term));
     });
   }, [employees, search]);
+useEffect(() => {
+  if (!employeeModalOpen) return;
+  const prev = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  return () => {
+    document.body.style.overflow = prev;
+  };
+}, [employeeModalOpen]);
 
   useEffect(() => {
     let active = true;
@@ -643,11 +647,14 @@ export default function HrEmployeesPage() {
                   style={inputStyle}
                 >
                   <option value="">Select employment type</option>
-                  {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+                  {masters.employmentTypes
+  .filter((type) => type.is_active !== false)
+  .map((type) => (
+    <option key={type.id} value={type.key || type.name}>
+      {type.name}
+    </option>
+  ))}
+
                 </select>
               </label>
             </div>
@@ -944,17 +951,22 @@ const modalOverlayStyle = {
   position: "fixed",
   inset: 0,
   background: "rgba(15,23,42,0.4)",
-  display: "grid",
-  placeItems: "center",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "flex-start",
   zIndex: 50,
-  padding: 16,
+  padding: 24,
+  overflowY: "auto", // ✅ allow overlay scroll
 };
+
 const modalStyle = {
   background: "#fff",
   borderRadius: 16,
   padding: 24,
   maxWidth: 640,
   width: "100%",
+  maxHeight: "calc(100vh - 48px)", // ✅ constrain height
+  overflowY: "auto",               // ✅ modal scroll
   boxShadow: "0 24px 40px rgba(15,23,42,0.2)",
 };
 
