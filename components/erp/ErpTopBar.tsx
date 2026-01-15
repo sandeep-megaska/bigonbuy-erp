@@ -13,6 +13,10 @@ type ModuleLink = {
   label: string;
   href: string;
 };
+const branding = useCompanyBranding();
+const companyName = branding?.companyName || "Company";
+const bigonbuyLogoUrl = branding?.bigonbuyLogoUrl ?? null;
+const megaskaLogoUrl = branding?.megaskaLogoUrl ?? null;
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
