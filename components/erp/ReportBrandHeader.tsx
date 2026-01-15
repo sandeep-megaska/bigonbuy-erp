@@ -3,6 +3,10 @@ import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
 
 export default function ReportBrandHeader() {
   const branding = useCompanyBranding();
+const branding = useCompanyBranding();
+const companyName = branding?.companyName || "Company";
+const bigonbuyLogoUrl = branding?.bigonbuyLogoUrl ?? null;
+const megaskaLogoUrl = branding?.megaskaLogoUrl ?? null;
 
   return (
     <div style={brandRowStyle}>
