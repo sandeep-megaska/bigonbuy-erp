@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import { downloadCsv, type CsvColumn } from "../../../../lib/erp/exportCsv";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
@@ -238,7 +237,6 @@ export default function AttendancePayrollReportPage() {
 
   return (
     <div style={{ fontFamily: "system-ui", background: "#f8fafc", minHeight: "100vh" }}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
       <div style={{ padding: "24px 24px 60px", maxWidth: 1200, margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>

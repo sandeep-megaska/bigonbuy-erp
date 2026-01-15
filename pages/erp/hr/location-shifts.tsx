@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../lib/erp/nav";
 import { listLocations, type LocationRow } from "../../../lib/hrMastersApi";
@@ -296,7 +295,6 @@ export default function HrLocationShiftsPage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
 
       <header style={headerStyle}>
         <div>
@@ -474,7 +472,7 @@ export default function HrLocationShiftsPage() {
 
 const containerStyle: CSSProperties = {
   maxWidth: 1100,
-  margin: "60px auto",
+  margin: "0 auto",
   padding: "32px 36px",
   borderRadius: 12,
   border: "1px solid #e5e7eb",

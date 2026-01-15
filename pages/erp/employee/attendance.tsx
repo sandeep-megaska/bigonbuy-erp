@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
+import ErpShell from "../../../components/erp/ErpShell";
+import ErpPageHeader from "../../../components/erp/ErpPageHeader";
+import { pageContainerStyle, secondaryButtonStyle } from "../../../components/erp/uiStyles";
 import { getEmployeeContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../lib/erp/nav";
 import { supabase } from "../../../lib/supabaseClient";
@@ -114,36 +117,53 @@ export default function EmployeeAttendancePage() {
   };
 
   if (loading) {
-    return <div style={containerStyle}>Loading attendance…</div>;
+    return (
+      <ErpShell activeModule="employee">
+        <div style={pageContainerStyle}>Loading attendance…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId || !ctx?.employeeId) {
     return (
-      <div style={containerStyle}>
-        <h1 style={{ marginTop: 0 }}>My Attendance</h1>
-        <p style={{ color: "#b91c1c" }}>
-          {ctx?.membershipError || "No employee profile is linked to this account."}
-        </p>
-        <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-      </div>
+      <ErpShell activeModule="employee">
+        <div style={pageContainerStyle}>
+          <ErpPageHeader
+            eyebrow="Employee"
+            title="My Attendance"
+            description="Review your attendance records by month."
+            rightActions={
+              <button type="button" onClick={handleSignOut} style={secondaryButtonStyle}>
+                Sign Out
+              </button>
+            }
+          />
+          <p style={{ color: "#b91c1c" }}>
+            {ctx?.membershipError || "No employee profile is linked to this account."}
+          </p>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={access.roleKey} />
-
-      <header style={headerStyle}>
-        <div>
-          <p style={eyebrowStyle}>Employee · Attendance</p>
-          <h1 style={titleStyle}>My Attendance</h1>
-          <p style={subtitleStyle}>Review your attendance records by month.</p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <a href="/erp" style={linkStyle}>← Back to ERP Home</a>
-          <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-        </div>
-      </header>
+    <ErpShell activeModule="employee">
+      <div style={pageContainerStyle}>
+        <ErpPageHeader
+          eyebrow="Employee"
+          title="My Attendance"
+          description="Review your attendance records by month."
+          rightActions={
+            <>
+              <Link href="/erp" style={linkButtonStyle}>
+                Back to ERP Home
+              </Link>
+              <button type="button" onClick={handleSignOut} style={secondaryButtonStyle}>
+                Sign Out
+              </button>
+            </>
+          }
+        />
 
       {toast ? (
         <div style={toast.type === "success" ? successBoxStyle : errorBoxStyle}>{toast.message}</div>
@@ -196,7 +216,8 @@ export default function EmployeeAttendancePage() {
           </table>
         </div>
       </section>
-    </div>
+      </div>
+    </ErpShell>
   );
 }
 
@@ -214,41 +235,12 @@ function formatTime(value?: string | null) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-const containerStyle: CSSProperties = {
-  maxWidth: 1100,
-  margin: "60px auto",
-  padding: "32px 36px",
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  fontFamily: "Arial, sans-serif",
-  backgroundColor: "#fff",
-  boxShadow: "0 12px 28px rgba(15, 23, 42, 0.08)",
+const linkButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
 };
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 24,
-  flexWrap: "wrap",
-  alignItems: "flex-start",
-  borderBottom: "1px solid #eef1f6",
-  paddingBottom: 20,
-  marginBottom: 20,
-};
-
-const eyebrowStyle: CSSProperties = {
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
-};
-
-const titleStyle: CSSProperties = { margin: "6px 0 8px", fontSize: 30, color: "#111827" };
-
-const subtitleStyle: CSSProperties = { margin: 0, color: "#4b5563", fontSize: 15 };
-
-const linkStyle: CSSProperties = { color: "#2563eb", textDecoration: "none" };
 
 const sectionStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: 18 };
 
@@ -298,14 +290,6 @@ const tdStyle: CSSProperties = {
   padding: "12px 14px",
   borderTop: "1px solid #e5e7eb",
   verticalAlign: "top",
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  backgroundColor: "#fff",
-  cursor: "pointer",
 };
 
 const errorBoxStyle: CSSProperties = {

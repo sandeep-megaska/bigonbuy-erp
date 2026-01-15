@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../../../components/erp/ErpNavBar";
 import ContactsTab from "../../../../../components/erp/hr/employee-tabs/ContactsTab";
 import AddressTab from "../../../../../components/erp/hr/employee-tabs/AddressTab";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../../lib/erpContext";
@@ -595,7 +594,6 @@ export default function EmployeeProfilePage() {
 
   return (
     <div style={containerStyle}>
-      <ErpNavBar access={ctx?.access} roleKey={ctx?.roleKey} />
 
       <div style={headerStyle}>
         <div>
@@ -1138,7 +1136,7 @@ function renderBreakupPreview(ctcMonthly, basicPct, hraPctOfBasic) {
 
 const containerStyle = {
   maxWidth: 1100,
-  margin: "60px auto",
+  margin: "0 auto",
   padding: "32px 36px",
   borderRadius: 10,
   border: "1px solid #e5e7eb",
