@@ -37,6 +37,7 @@ const hrSidebarGroups: SidebarGroup[] = [
     label: "Operations",
     items: [
       { label: "Employees", href: "/erp/hr/employees", icon: "EM" },
+      { label: "Employee Exits", href: "/erp/hr/exits", icon: "EX" },
       { label: "Attendance", href: "/erp/hr/attendance", icon: "AT" },
       { label: "Leave Requests", href: "/erp/hr/leaves/requests", icon: "LR" },
       { label: "Calendars", href: "/erp/hr/calendars", icon: "CA" },

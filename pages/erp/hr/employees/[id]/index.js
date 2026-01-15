@@ -55,6 +55,21 @@ export default function EmployeeProfilePage() {
     employeeTitles: [],
     employeeGenders: [],
   });
+  const [exitTypes, setExitTypes] = useState([]);
+  const [exitReasons, setExitReasons] = useState([]);
+  const [exitRequest, setExitRequest] = useState(null);
+  const [exitForm, setExitForm] = useState({
+    exit_type_id: "",
+    exit_reason_id: "",
+    last_working_day: "",
+    notice_period_days: "",
+    notice_waived: false,
+    notes: "",
+  });
+  const [exitLoading, setExitLoading] = useState(false);
+  const [exitError, setExitError] = useState("");
+  const [exitSaving, setExitSaving] = useState(false);
+  const [exitSubmitting, setExitSubmitting] = useState(false);
   const [jobForm, setJobForm] = useState({
     department_id: "",
     designation_id: "",
@@ -96,11 +111,15 @@ export default function EmployeeProfilePage() {
     () => ["owner", "admin", "hr", "payroll"].includes(salaryRoleKey),
     [salaryRoleKey]
   );
+  const exitLocked = useMemo(() => {
+    if (!exitRequest?.status) return false;
+    return !["completed", "withdrawn", "rejected"].includes(exitRequest.status);
+  }, [exitRequest]);
 
   useEffect(() => {
     if (!router.isReady) return;
     const tabParam = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    const allowedTabs = ["overview", "job", "contacts", "addresses", "documents", "salary"];
+    const allowedTabs = ["overview", "job", "contacts", "addresses", "documents", "exit", "salary"];
     if (tabParam && allowedTabs.includes(tabParam)) {
       setTab(tabParam);
     }
@@ -155,6 +174,12 @@ export default function EmployeeProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, ctx?.companyId, canEditSalary]);
 
+  useEffect(() => {
+    if (!employeeId || !ctx?.companyId) return;
+    loadExitData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId, ctx?.companyId]);
+
   function showToast(message, type = "success") {
     setToast({ type, message });
     setTimeout(() => setToast(null), 2500);
@@ -207,6 +232,48 @@ export default function EmployeeProfilePage() {
     }
   }
 
+  async function loadExitData() {
+    if (!employeeId || !ctx?.companyId) return;
+    setExitLoading(true);
+    setExitError("");
+    try {
+      const [typesRes, reasonsRes, exitRes] = await Promise.all([
+        supabase
+          .from("erp_hr_employee_exit_types")
+          .select("id, code, name, sort_order")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true }),
+        supabase
+          .from("erp_hr_employee_exit_reasons")
+          .select("id, code, name, sort_order")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true }),
+        supabase
+          .from("erp_hr_employee_exits")
+          .select(
+            "id, status, initiated_on, last_working_day, notice_period_days, notice_waived, notes, exit_type:erp_hr_employee_exit_types(id, name), exit_reason:erp_hr_employee_exit_reasons(id, name)"
+          )
+          .eq("employee_id", employeeId)
+          .order("created_at", { ascending: false })
+          .limit(1),
+      ]);
+
+      if (typesRes.error) throw typesRes.error;
+      if (reasonsRes.error) throw reasonsRes.error;
+      if (exitRes.error) throw exitRes.error;
+
+      setExitTypes(typesRes.data || []);
+      setExitReasons(reasonsRes.data || []);
+      setExitRequest(exitRes.data?.[0] || null);
+    } catch (err) {
+      setExitError(err?.message || "Unable to load exit details.");
+    } finally {
+      setExitLoading(false);
+    }
+  }
+
   async function handleSalaryAssign(e) {
     e.preventDefault();
     if (!employeeId) return;
@@ -256,6 +323,75 @@ export default function EmployeeProfilePage() {
     setToast({ type: "success", message: "Employee activated successfully." });
     setActivating(false);
     await loadEmployee();
+  }
+
+  async function handleExitCreate(event) {
+    event.preventDefault();
+    if (!employeeId) return;
+    if (!canManage) {
+      setExitError("Only owner/admin/hr can create exit requests.");
+      return;
+    }
+    if (!exitForm.exit_type_id) {
+      setExitError("Select an exit type.");
+      return;
+    }
+    if (!exitForm.last_working_day) {
+      setExitError("Last working day is required.");
+      return;
+    }
+    const noticeDays = exitForm.notice_period_days.trim();
+    const noticePeriodDays = noticeDays ? Number.parseInt(noticeDays, 10) : null;
+    if (noticeDays && Number.isNaN(noticePeriodDays)) {
+      setExitError("Notice period must be a number.");
+      return;
+    }
+    setExitSaving(true);
+    setExitError("");
+    const { error } = await supabase.rpc("erp_hr_employee_exit_create", {
+      p_employee_id: employeeId,
+      p_exit_type_id: exitForm.exit_type_id,
+      p_exit_reason_id: exitForm.exit_reason_id || null,
+      p_last_working_day: exitForm.last_working_day,
+      p_notice_period_days: noticePeriodDays,
+      p_notice_waived: exitForm.notice_waived,
+      p_notes: exitForm.notes.trim() || null,
+    });
+    if (error) {
+      setExitError(error.message || "Unable to create exit request.");
+      setExitSaving(false);
+      return;
+    }
+    setExitForm({
+      exit_type_id: "",
+      exit_reason_id: "",
+      last_working_day: "",
+      notice_period_days: "",
+      notice_waived: false,
+      notes: "",
+    });
+    setExitSaving(false);
+    showToast("Exit request drafted successfully.");
+    await loadExitData();
+  }
+
+  async function handleExitSubmit(exitId) {
+    if (!exitId) return;
+    if (!canManage) {
+      setExitError("Only owner/admin/hr can submit exit requests.");
+      return;
+    }
+    setExitSubmitting(true);
+    setExitError("");
+    const { error } = await supabase.rpc("erp_hr_employee_exit_submit", { p_exit_id: exitId });
+    if (error) {
+      setExitError(error.message || "Unable to submit exit request.");
+      setExitSubmitting(false);
+      return;
+    }
+    setExitSubmitting(false);
+    showToast("Exit request submitted for approval.");
+    await loadExitData();
   }
 
   async function loadMasters(token = accessToken) {
@@ -663,6 +799,7 @@ export default function EmployeeProfilePage() {
           ["contacts", "Contacts"],
           ["addresses", "Addresses"],
           ["documents", "Documents"],
+          ["exit", "Exit"],
           ["salary", "Salary"],
         ].map(([key, label]) => (
           <button
@@ -968,6 +1105,149 @@ export default function EmployeeProfilePage() {
         </div>
       ) : null}
 
+      {tab === "exit" ? (
+        <div style={panelStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>Exit</h3>
+            {!canManage ? <span style={{ color: "#6b7280" }}>Read-only</span> : null}
+          </div>
+
+          {exitLoading ? <p style={{ color: "#6b7280" }}>Loading exit details…</p> : null}
+          {exitError ? <div style={errorBoxStyle}>{exitError}</div> : null}
+
+          {exitRequest ? (
+            <div style={{ display: "grid", gap: 12, marginBottom: 18 }}>
+              <div style={{ padding: 12, border: "1px solid #e5e7eb", borderRadius: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>Current Exit Request</div>
+                    <div style={{ color: "#6b7280", fontSize: 13 }}>
+                      Initiated on {formatIsoDate(exitRequest.initiated_on)}
+                    </div>
+                  </div>
+                  <span style={badgeStyle}>{exitRequest.status}</span>
+                </div>
+                <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+                  <div><strong>Exit Type:</strong> {exitRequest.exit_type?.name || "—"}</div>
+                  <div><strong>Reason:</strong> {exitRequest.exit_reason?.name || "—"}</div>
+                  <div><strong>Last Working Day:</strong> {formatIsoDate(exitRequest.last_working_day)}</div>
+                  <div>
+                    <strong>Notice Period:</strong>{" "}
+                    {exitRequest.notice_period_days ? `${exitRequest.notice_period_days} days` : "—"}
+                    {exitRequest.notice_waived ? " (waived)" : ""}
+                  </div>
+                  <div><strong>Notes:</strong> {exitRequest.notes || "—"}</div>
+                </div>
+                {exitRequest.status === "draft" && canManage ? (
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      type="button"
+                      style={primaryButtonStyle}
+                      onClick={() => handleExitSubmit(exitRequest.id)}
+                      disabled={exitSubmitting}
+                    >
+                      {exitSubmitting ? "Submitting…" : "Submit for Approval"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {exitLocked ? (
+                <div style={{ color: "#6b7280", fontSize: 13 }}>
+                  An exit request is in progress. Complete or resolve it before creating a new one.
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div style={{ marginBottom: 18, color: "#6b7280" }}>
+              No exit request found for this employee.
+            </div>
+          )}
+
+          {canManage ? (
+            <form onSubmit={handleExitCreate} style={formGridStyle}>
+              <label style={labelStyle}>
+                Exit Type
+                <select
+                  value={exitForm.exit_type_id}
+                  onChange={(e) => setExitForm({ ...exitForm, exit_type_id: e.target.value })}
+                  style={inputStyle}
+                  disabled={exitLocked}
+                >
+                  <option value="">Select exit type</option>
+                  {exitTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Exit Reason
+                <select
+                  value={exitForm.exit_reason_id}
+                  onChange={(e) => setExitForm({ ...exitForm, exit_reason_id: e.target.value })}
+                  style={inputStyle}
+                  disabled={exitLocked}
+                >
+                  <option value="">Select reason</option>
+                  {exitReasons.map((reason) => (
+                    <option key={reason.id} value={reason.id}>
+                      {reason.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Last Working Day
+                <input
+                  type="date"
+                  value={exitForm.last_working_day}
+                  onChange={(e) => setExitForm({ ...exitForm, last_working_day: e.target.value })}
+                  style={inputStyle}
+                  disabled={exitLocked}
+                />
+              </label>
+              <label style={labelStyle}>
+                Notice Period Days
+                <input
+                  type="number"
+                  min="0"
+                  value={exitForm.notice_period_days}
+                  onChange={(e) => setExitForm({ ...exitForm, notice_period_days: e.target.value })}
+                  style={inputStyle}
+                  disabled={exitLocked}
+                />
+              </label>
+              <label style={{ ...labelStyle, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={exitForm.notice_waived}
+                  onChange={(e) => setExitForm({ ...exitForm, notice_waived: e.target.checked })}
+                  disabled={exitLocked}
+                />
+                Notice waived
+              </label>
+              <label style={labelStyle}>
+                Notes
+                <input
+                  type="text"
+                  value={exitForm.notes}
+                  onChange={(e) => setExitForm({ ...exitForm, notes: e.target.value })}
+                  style={inputStyle}
+                  placeholder="Optional notes"
+                  disabled={exitLocked}
+                />
+              </label>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <button type="submit" style={primaryButtonStyle} disabled={exitSaving || exitLocked}>
+                  {exitSaving ? "Saving…" : "Create Draft Exit"}
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </div>
+      ) : null}
+
       {tab === "salary" ? (
         <div style={panelStyle}>
           <h3 style={{ marginTop: 0 }}>Salary</h3>
@@ -1114,6 +1394,14 @@ function OverviewItem({ label, value }) {
       <p style={{ margin: 0, color: "#111827", fontWeight: 600 }}>{value}</p>
     </div>
   );
+}
+
+function formatIsoDate(value) {
+  if (!value) return "—";
+  if (typeof value === "string") return value.slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toISOString().slice(0, 10);
 }
 
 function formatDate(value) {
