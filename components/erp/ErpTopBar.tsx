@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
-  
 
 export type ErpModuleKey = "workspace" | "hr" | "employee" | "finance" | "admin";
 
@@ -13,10 +12,6 @@ type ModuleLink = {
   label: string;
   href: string;
 };
-const branding = useCompanyBranding();
-const companyName = branding?.companyName || "Company";
-const bigonbuyLogoUrl = branding?.bigonbuyLogoUrl ?? null;
-const megaskaLogoUrl = branding?.megaskaLogoUrl ?? null;
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
@@ -34,17 +29,14 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   useEffect(() => {
     let active = true;
     supabase.auth.getUser().then(({ data }) => {
-      if (active) {
-        setUserEmail(data.user?.email ?? null);
-      }
+      if (active) setUserEmail(data.user?.email ?? null);
     });
     return () => {
       active = false;
     };
   }, []);
 
-  const companyName = "Company";
-
+  const companyName = branding?.companyName || "Company";
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -76,10 +68,15 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
         ) : (
           <div style={logoFallbackStyle}>BIGONBUY</div>
         )}
+
         <div>
           <div style={brandNameStyle}>BIGONBUY ERP</div>
           <div style={companyNameStyle}>{companyName}</div>
         </div>
+
+        {branding?.megaskaLogoUrl ? (
+          <img src={branding.megaskaLogoUrl} alt="Megaska logo" style={megaskaLogoStyle} />
+        ) : null}
       </div>
 
       <nav style={navStyle}>{navLinks}</nav>
@@ -114,13 +111,20 @@ const brandBlockStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 12,
-  minWidth: 220,
+  minWidth: 260,
 };
 
 const logoStyle: CSSProperties = {
   height: 32,
   width: "auto",
   objectFit: "contain",
+};
+
+const megaskaLogoStyle: CSSProperties = {
+  height: 20,
+  width: "auto",
+  objectFit: "contain",
+  opacity: 0.9,
 };
 
 const logoFallbackStyle: CSSProperties = {
