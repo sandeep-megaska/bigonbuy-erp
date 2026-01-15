@@ -39,7 +39,8 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
     };
   }, []);
 
-  const companyName = branding?.companyName || "Company";
+  const companyName = "Company";
+
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
