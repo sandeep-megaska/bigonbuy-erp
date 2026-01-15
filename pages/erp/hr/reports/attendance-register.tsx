@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
@@ -11,12 +13,13 @@ import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../li
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
 import { supabase } from "../../../../lib/supabaseClient";
 
-const tableHeaderStyle = {
+const tableHeaderStyle: CSSProperties = {
   textAlign: "left",
   padding: "10px 12px",
   borderBottom: "1px solid #e5e7eb",
   fontSize: 13,
 };
+
 const tableCellStyle = {
   padding: "10px 12px",
   borderBottom: "1px solid #f1f5f9",
