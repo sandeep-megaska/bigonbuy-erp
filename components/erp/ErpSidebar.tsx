@@ -26,6 +26,8 @@ const hrSidebarGroups: SidebarGroup[] = [
       { label: "Departments", href: "/erp/hr/masters", icon: "DP" },
       { label: "Grades", href: "/erp/hr/masters", icon: "GR" },
       { label: "Leave Types", href: "/erp/hr/leaves/types", icon: "LV" },
+      { label: "Employee Titles", href: "/erp/hr/masters/employee-titles", icon: "ET" },
+      { label: "Employee Genders", href: "/erp/hr/masters/employee-genders", icon: "EG" },
       { label: "Locations", href: "/erp/hr/masters", icon: "LO" },
       { label: "Cost Centers", href: "/erp/hr/masters", icon: "CC" },
       { label: "Weekly Off Rules", href: "/erp/hr/weekly-off", icon: "WO" },

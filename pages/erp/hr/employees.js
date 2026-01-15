@@ -12,6 +12,8 @@ import {
 import {
   listDepartments,
   listDesignations,
+  listEmployeeGenders,
+  listEmployeeTitles,
   listEmploymentTypes,
   listLocations,
 } from "../../../lib/hrMastersApi";
@@ -105,6 +107,8 @@ export default function HrEmployeesPage() {
     designations: [],
     locations: [],
     employmentTypes: [],
+    employeeTitles: [],
+    employeeGenders: [],
   });
 
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
@@ -115,6 +119,8 @@ export default function HrEmployeesPage() {
     is_active: true,
     join_date: "",
     employment_type: "",
+    title_id: "",
+    gender_id: "",
     department_id: "",
     designation_id: "",
     location_id: "",
@@ -199,17 +205,28 @@ useEffect(() => {
 
   async function loadMasters() {
     try {
-      const [departments, designations, locations, employmentTypes] = await Promise.all([
+      const [
+        departments,
+        designations,
+        locations,
+        employmentTypes,
+        employeeTitles,
+        employeeGenders,
+      ] = await Promise.all([
         listDepartments(),
         listDesignations(),
         listLocations(),
         listEmploymentTypes(),
+        listEmployeeTitles(),
+        listEmployeeGenders(),
       ]);
       setMasters({
         departments,
         designations,
         locations,
         employmentTypes,
+        employeeTitles,
+        employeeGenders,
       });
     } catch (err) {
       setError((prev) => prev || err?.message || "Unable to load HR masters.");
@@ -224,6 +241,8 @@ useEffect(() => {
       is_active: true,
       join_date: "",
       employment_type: "",
+      title_id: "",
+      gender_id: "",
       department_id: "",
       designation_id: "",
       location_id: "",
@@ -232,7 +251,7 @@ useEffect(() => {
     setEmployeeModalOpen(true);
   }
 
-  function openEditModal(employee) {
+  async function openEditModal(employee) {
     setEmployeeForm({
       id: employee.id,
       full_name: employee.full_name || "",
@@ -240,11 +259,30 @@ useEffect(() => {
       is_active: employee.is_active ?? true,
       join_date: employee.joining_date ? employee.joining_date.split("T")[0] : "",
       employment_type: employee.employment_type || "",
+      title_id: employee.title_id || "",
+      gender_id: employee.gender_id || "",
       department_id: employee.department_id || "",
       designation_id: employee.designation_id || "",
       location_id: employee.location_id || "",
       manager_employee_id: employee.manager_employee_id || "",
     });
+    try {
+      const { data, error } = await supabase
+        .from("erp_employees")
+        .select("joining_date, employment_type, title_id, gender_id")
+        .eq("id", employee.id)
+        .single();
+      if (error || !data) return;
+      setEmployeeForm((prev) => ({
+        ...prev,
+        join_date: data.joining_date ? data.joining_date.split("T")[0] : prev.join_date,
+        employment_type: data.employment_type || prev.employment_type,
+        title_id: data.title_id || "",
+        gender_id: data.gender_id || "",
+      }));
+    } catch (err) {
+      setError((prev) => prev || err?.message || "Unable to load employee details.");
+    }
     setEmployeeModalOpen(true);
   }
 
@@ -291,10 +329,14 @@ useEffect(() => {
     if (employeeId) {
       const { error: joinDateError } = await supabase
         .from("erp_employees")
-        .update({ joining_date: employeeForm.join_date })
+        .update({
+          joining_date: employeeForm.join_date || null,
+          title_id: employeeForm.title_id || null,
+          gender_id: employeeForm.gender_id || null,
+        })
         .eq("id", employeeId);
       if (joinDateError) {
-        setError(joinDateError.message || "Employee saved, but joining date update failed.");
+        setError(joinDateError.message || "Employee saved, but profile update failed.");
       }
     }
     if (employeeId && accessToken) {
@@ -648,13 +690,50 @@ useEffect(() => {
                 >
                   <option value="">Select employment type</option>
                   {masters.employmentTypes
-  .filter((type) => type.is_active !== false)
-  .map((type) => (
-    <option key={type.id} value={type.key || type.name}>
-      {type.name}
-    </option>
-  ))}
-
+                    .filter((type) => type.is_active !== false)
+                    .map((type) => (
+                      <option key={type.id} value={type.key || type.name}>
+                        {type.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Title
+                <select
+                  value={employeeForm.title_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, title_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Select title</option>
+                  {masters.employeeTitles
+                    .filter((title) => title.is_active !== false)
+                    .map((title) => (
+                      <option key={title.id} value={title.id}>
+                        {title.name || title.code || title.id}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label style={labelStyle}>
+                Gender
+                <select
+                  value={employeeForm.gender_id}
+                  onChange={(event) =>
+                    setEmployeeForm({ ...employeeForm, gender_id: event.target.value })
+                  }
+                  style={inputStyle}
+                >
+                  <option value="">Select gender</option>
+                  {masters.employeeGenders
+                    .filter((gender) => gender.is_active !== false)
+                    .map((gender) => (
+                      <option key={gender.id} value={gender.id}>
+                        {gender.name || gender.code || gender.id}
+                      </option>
+                    ))}
                 </select>
               </label>
             </div>

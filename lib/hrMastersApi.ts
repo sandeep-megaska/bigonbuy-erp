@@ -53,6 +53,26 @@ export type DesignationRow = {
   updated_at?: string;
 };
 
+export type EmployeeTitleRow = {
+  id?: string;
+  code?: string;
+  name?: string;
+  is_active?: boolean;
+  sort_order?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type EmployeeGenderRow = {
+  id?: string;
+  code?: string;
+  name?: string;
+  is_active?: boolean;
+  sort_order?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type UpsertDepartmentInput = {
   id?: string | null;
   name?: string | null;
@@ -126,6 +146,26 @@ export async function listDesignations(): Promise<DesignationRow[]> {
   });
   if (error) throw normalizeError(error, "Failed to load designations");
   return Array.isArray(data) ? (data as DesignationRow[]) : [];
+}
+
+export async function listEmployeeTitles(): Promise<EmployeeTitleRow[]> {
+  const { data, error } = await supabase
+    .from("erp_hr_employee_titles")
+    .select("id, code, name, is_active, sort_order, created_at, updated_at")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw normalizeError(error, "Failed to load employee titles");
+  return Array.isArray(data) ? (data as EmployeeTitleRow[]) : [];
+}
+
+export async function listEmployeeGenders(): Promise<EmployeeGenderRow[]> {
+  const { data, error } = await supabase
+    .from("erp_hr_employee_genders")
+    .select("id, code, name, is_active, sort_order, created_at, updated_at")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw normalizeError(error, "Failed to load employee genders");
+  return Array.isArray(data) ? (data as EmployeeGenderRow[]) : [];
 }
 
 export async function upsertDepartment(input: UpsertDepartmentInput): Promise<{ id: string }> {
