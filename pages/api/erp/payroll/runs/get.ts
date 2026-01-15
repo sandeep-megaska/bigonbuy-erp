@@ -9,6 +9,8 @@ type PayrollRun = {
   finalized_at: string | null;
   finalized_by?: string | null;
   notes?: string | null;
+  attendance_period_status?: string | null;
+  attendance_snapshot_at?: string | null;
 };
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
@@ -50,7 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data, error } = await userClient
       .from("erp_payroll_runs")
-      .select("id, year, month, status, finalized_at, finalized_by, notes")
+      .select("id, year, month, status, finalized_at, finalized_by, notes, attendance_period_status, attendance_snapshot_at")
       .eq("id", runId)
       .maybeSingle();
 

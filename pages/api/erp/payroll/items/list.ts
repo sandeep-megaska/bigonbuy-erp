@@ -9,6 +9,10 @@ type PayrollItem = {
   net_pay: number | null;
   notes: string | null;
   payslip_no: string | null;
+  payable_days?: number | null;
+  lop_days?: number | null;
+  payable_days_override?: number | null;
+  lop_days_override?: number | null;
   salary_basic?: number | null;
   salary_hra?: number | null;
   salary_allowances?: number | null;
@@ -57,7 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data, error } = await userClient
       .from("erp_payroll_items")
       .select(
-        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, salary_basic, salary_hra, salary_allowances, basic, hra, allowances"
+        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, payable_days, lop_days, payable_days_override, lop_days_override, salary_basic, salary_hra, salary_allowances, basic, hra, allowances"
       )
       .eq("payroll_run_id", payrollRunId)
       .order("created_at", { ascending: false });

@@ -19,6 +19,9 @@ export default function PayrollRunDetailPage() {
   const [toast, setToast] = useState(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [overrideDrafts, setOverrideDrafts] = useState({});
+  const [overrideSaving, setOverrideSaving] = useState({});
 
   const [otOpen, setOtOpen] = useState(false);
   const [otLoading, setOtLoading] = useState(false);
@@ -52,6 +55,26 @@ export default function PayrollRunDetailPage() {
   }, [payslips]);
 
   const isRunFinalized = run?.status === "finalized";
+  const attendanceStatus = run?.attendance_period_status || "not_generated";
+  const attendanceLabel = attendanceStatus === "not_generated" ? "not generated" : attendanceStatus;
+  const isAttendanceFrozen = attendanceStatus === "frozen";
+
+  useEffect(() => {
+    if (!items?.length) {
+      setOverrideDrafts({});
+      return;
+    }
+    const nextDrafts = {};
+    items.forEach((item) => {
+      nextDrafts[item.id] = {
+        payable: item.payable_days_override !== null && item.payable_days_override !== undefined
+          ? item.payable_days_override.toString()
+          : "",
+        lop: item.lop_days_override !== null && item.lop_days_override !== undefined ? item.lop_days_override.toString() : "",
+      };
+    });
+    setOverrideDrafts(nextDrafts);
+  }, [items]);
 
   useEffect(() => {
     let active = true;
@@ -300,6 +323,87 @@ export default function PayrollRunDetailPage() {
     setItemStatuses(statusData || []);
   }
 
+  async function syncAttendance() {
+    if (!ctx?.companyId || !runId) return;
+    if (!canWrite) {
+      setErr("Only HR/admin/owner/payroll can sync attendance.");
+      return;
+    }
+    if (isRunFinalized) {
+      setErr("This payroll run is already finalized.");
+      return;
+    }
+    setIsSyncing(true);
+    setErr("");
+    try {
+      const { error } = await supabase.rpc("erp_payroll_run_attach_attendance", {
+        p_run_id: runId,
+      });
+      if (error) throw error;
+      await refreshRun();
+      await refreshItems();
+      showToast("Attendance synced");
+    } catch (e) {
+      setErr(e.message || "Failed to sync attendance.");
+      showToast(e.message || "Failed to sync attendance.", "error");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  function updateOverrideDraft(itemId, key, value) {
+    setOverrideDrafts((prev) => {
+      const current = prev[itemId] || { payable: "", lop: "" };
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          [key]: value,
+        },
+      };
+    });
+  }
+
+  async function saveOverrides(item) {
+    if (!item?.id) return;
+    if (!canWrite) {
+      showToast("Read-only access", "error");
+      return;
+    }
+    if (isRunFinalized) {
+      showToast("Payroll run is finalized; edits are locked", "error");
+      return;
+    }
+    const draft = overrideDrafts[item.id] || { payable: "", lop: "" };
+    const payableValue = draft.payable === "" ? null : Number(draft.payable);
+    const lopValue = draft.lop === "" ? null : Number(draft.lop);
+    if (draft.payable !== "" && !Number.isFinite(payableValue)) {
+      showToast("Enter a valid payable override", "error");
+      return;
+    }
+    if (draft.lop !== "" && !Number.isFinite(lopValue)) {
+      showToast("Enter a valid LOP override", "error");
+      return;
+    }
+    setOverrideSaving((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      const { error } = await supabase
+        .from("erp_payroll_items")
+        .update({
+          payable_days_override: payableValue,
+          lop_days_override: lopValue,
+        })
+        .eq("id", item.id);
+      if (error) throw error;
+      await refreshItems();
+      showToast("Overrides saved");
+    } catch (e) {
+      showToast(e.message || "Failed to save overrides", "error");
+    } finally {
+      setOverrideSaving((prev) => ({ ...prev, [item.id]: false }));
+    }
+  }
+
   async function refreshPayslips() {
     if (!ctx?.companyId || !runId) return;
     const { data, error } = await supabase.rpc("erp_payroll_run_payslips", {
@@ -379,9 +483,10 @@ export default function PayrollRunDetailPage() {
       setErr("This payroll run is already finalized.");
       return;
     }
-    const confirmed = window.confirm(
-      "Finalize this payroll run? Finalizing will lock OT edits and payroll changes."
-    );
+    const confirmMessage = isAttendanceFrozen
+      ? "Finalize this payroll run? Finalizing will lock OT edits and payroll changes."
+      : "Attendance not frozen; figures may change. Finalize this payroll run anyway? Finalizing will lock OT edits and payroll changes.";
+    const confirmed = window.confirm(confirmMessage);
     if (!confirmed) return;
     setIsFinalizing(true);
     setErr("");
@@ -479,7 +584,19 @@ export default function PayrollRunDetailPage() {
 
       <div style={{ marginTop: 18, padding: 16, border: "1px solid #eee", borderRadius: 12, background: "#fff" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>Payroll Items ({items.length})</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <h3 style={{ margin: 0 }}>Payroll Items ({items.length})</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ ...badgeStyle, ...attendanceBadgeStyles[attendanceStatus] || attendanceBadgeStyles.not_generated }}>
+                Attendance: {attendanceLabel}
+              </span>
+              {!isAttendanceFrozen ? (
+                <span style={{ fontSize: 12, color: "#b45309" }}>
+                  Attendance not frozen; figures may change.
+                </span>
+              ) : null}
+            </div>
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {canWrite ? (
               <button
@@ -488,6 +605,15 @@ export default function PayrollRunDetailPage() {
                 disabled={isRunFinalized || isGenerating}
               >
                 {isGenerating ? "Generating…" : "Generate Items"}
+              </button>
+            ) : null}
+            {canWrite ? (
+              <button
+                style={{ ...smallButtonStyle, opacity: isRunFinalized || isSyncing ? 0.7 : 1 }}
+                onClick={syncAttendance}
+                disabled={isRunFinalized || isSyncing}
+              >
+                {isSyncing ? "Syncing…" : "Sync Attendance"}
               </button>
             ) : null}
             {canWrite ? (
@@ -510,6 +636,9 @@ export default function PayrollRunDetailPage() {
               <thead>
                 <tr style={{ textAlign: "left" }}>
                   <th style={thStyle}>Employee</th>
+                  <th style={thStyle}>Payable Days (Suggested)</th>
+                  <th style={thStyle}>LOP Days (Suggested)</th>
+                  <th style={thStyle}>Overrides</th>
                   <th style={thStyle}>Basic</th>
                   <th style={thStyle}>HRA</th>
                   <th style={thStyle}>Allowances</th>
@@ -532,6 +661,8 @@ export default function PayrollRunDetailPage() {
                   const salaryStatusCopy = getSalaryStatusCopy(status);
                   const assignLink = `/erp/hr/employees/${item.employee_id}?tab=salary`;
                   const payslip = payslipMap.get(item.employee_id);
+                  const overrideDraft = overrideDrafts[item.id] || { payable: "", lop: "" };
+                  const isOverrideSaving = overrideSaving[item.id];
                   return (
                     <tr key={item.id}>
                       <td style={tdStyle}>
@@ -550,6 +681,46 @@ export default function PayrollRunDetailPage() {
                             {salaryStatusCopy}
                           </div>
                         ) : null}
+                      </td>
+                      <td style={tdStyle}>{item.payable_days ?? "—"}</td>
+                      <td style={tdStyle}>{item.lop_days ?? "—"}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span style={{ fontSize: 12, color: "#6b7280" }}>Payable override</span>
+                            <input
+                              value={overrideDraft.payable}
+                              onChange={(e) => updateOverrideDraft(item.id, "payable", e.target.value)}
+                              style={smallInputStyle}
+                              placeholder="e.g. 28"
+                              disabled={!canWrite || isRunFinalized}
+                            />
+                            {overrideDraft.payable === "" ? (
+                              <span style={{ fontSize: 11, color: "#9ca3af" }}>Using suggested</span>
+                            ) : null}
+                          </div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span style={{ fontSize: 12, color: "#6b7280" }}>LOP override</span>
+                            <input
+                              value={overrideDraft.lop}
+                              onChange={(e) => updateOverrideDraft(item.id, "lop", e.target.value)}
+                              style={smallInputStyle}
+                              placeholder="e.g. 2"
+                              disabled={!canWrite || isRunFinalized}
+                            />
+                            {overrideDraft.lop === "" ? (
+                              <span style={{ fontSize: 11, color: "#9ca3af" }}>Using suggested</span>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            style={{ ...smallButtonStyle, opacity: !canWrite || isRunFinalized || isOverrideSaving ? 0.6 : 1 }}
+                            onClick={() => saveOverrides(item)}
+                            disabled={!canWrite || isRunFinalized || isOverrideSaving}
+                          >
+                            {isOverrideSaving ? "Saving…" : "Save"}
+                          </button>
+                        </div>
                       </td>
                       <td style={tdStyle}>{basic ?? "—"}</td>
                       <td style={tdStyle}>{hra ?? "—"}</td>
@@ -690,6 +861,7 @@ export default function PayrollRunDetailPage() {
 }
 
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
+const smallInputStyle = { padding: "6px 8px", borderRadius: 8, border: "1px solid #ddd", width: "100%" };
 const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
 const smallButtonStyle = { padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer" };
 const badgeStyle = {
@@ -721,6 +893,11 @@ const statusBadgeStyles = {
   draft: { background: "#f3f4f6", color: "#374151" },
   generated: { background: "#dbeafe", color: "#1d4ed8" },
   finalized: { background: "#fee2e2", color: "#b91c1c" },
+};
+const attendanceBadgeStyles = {
+  frozen: { background: "#ecfdf5", color: "#047857" },
+  open: { background: "#fef3c7", color: "#92400e" },
+  not_generated: { background: "#f3f4f6", color: "#4b5563" },
 };
 const thStyle = { padding: 12, borderBottom: "1px solid #eee" };
 const tdStyle = { padding: 12, borderBottom: "1px solid #f1f1f1", verticalAlign: "top" };
