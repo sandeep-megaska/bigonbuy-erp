@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import { downloadCsv, type CsvColumn } from "../../../../lib/erp/exportCsv";
@@ -42,7 +44,13 @@ type ReportRow = {
   attendance_unfrozen_warning: boolean | null;
 };
 
-const tableHeaderStyle = { textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #e5e7eb", fontSize: 13 };
+const tableHeaderStyle: CSSProperties = {
+  textAlign: "left",
+  padding: "10px 12px",
+  borderBottom: "1px solid #e5e7eb",
+  fontSize: 13,
+};
+
 const tableCellStyle = { padding: "10px 12px", borderBottom: "1px solid #f1f5f9", verticalAlign: "top", fontSize: 13 };
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
 const buttonStyle = { padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer", background: "#fff" };
