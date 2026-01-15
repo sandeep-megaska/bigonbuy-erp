@@ -156,6 +156,14 @@ export const ERP_NAV: NavItem[] = [
     description: "Invite staff, assign roles, and manage access.",
     access: "adminHR",
   },
+  {
+    id: "company-settings",
+    label: "Company Settings",
+    href: "/erp/admin/company-settings",
+    section: "Admin",
+    description: "Branding, organization details, and setup checklist.",
+    access: "adminHR",
+  },
 ];
 
 export function isNavItemAllowed(item: NavItem, access: ErpAccessState): boolean {
