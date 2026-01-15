@@ -4,7 +4,8 @@ import type { CSSProperties } from "react";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
-import { supabase } from "../../../../lib/supabaseClient";
+import { supabase } from "../../../lib/supabaseClient";
+
 
 const STATUS_CODES: Record<string, string> = {
   present: "P",
