@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
+import ErpShell from "../../../../components/erp/ErpShell";
+import {
+  cardStyle as sharedCardStyle,
+  eyebrowStyle,
+  h1Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+} from "../../../../components/erp/uiStyles";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
-import { supabase } from "../../../../lib/supabaseClient";
 
 const STATUS_CODES: Record<string, string> = {
   present: "P",
@@ -472,55 +481,51 @@ export default function HrAttendancePage() {
     setEditorRow(null);
   }
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.replace("/");
-  };
-
   if (loading) {
-    return <div style={containerStyle}>Loading attendance…</div>;
+    return (
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>Loading attendance…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={containerStyle}>
-        <h1 style={{ marginTop: 0 }}>Attendance</h1>
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>Attendance</h1>
         <p style={{ color: "#b91c1c" }}>
           {ctx?.membershipError || "No active company membership found for this user."}
         </p>
-        <button onClick={handleSignOut} style={buttonStyle}>
-          Sign Out
-        </button>
-      </div>
+        </div>
+      </ErpShell>
     );
   }
 
   if (!canManage) {
     return (
-      <div style={containerStyle}>
-        <p style={eyebrowStyle}>HR · Attendance</p>
-        <h1 style={titleStyle}>Attendance Month View</h1>
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>
+          <p style={eyebrowStyle}>HR · Attendance</p>
+          <h1 style={h1Style}>Attendance Month View</h1>
         <div style={errorBoxStyle}>Not authorized. HR access is required.</div>
         <div style={{ display: "flex", gap: 12 }}>
           <a href="/erp/hr" style={linkStyle}>
             Back to HR Home
           </a>
-          <button onClick={handleSignOut} style={buttonStyle}>
-            Sign Out
-          </button>
         </div>
-      </div>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-
-      <header style={headerStyle}>
+    <ErpShell activeModule="hr">
+      <div style={pageContainerStyle}>
+        <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR · Attendance</p>
-          <h1 style={titleStyle}>Attendance Month Grid</h1>
+          <h1 style={h1Style}>Attendance Month Grid</h1>
           <p style={subtitleStyle}>Review and update attendance across the month.</p>
           <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
             Signed in as <strong>{ctx?.email}</strong> · Role: {" "}
@@ -688,7 +693,7 @@ export default function HrAttendancePage() {
                   {editorEmployee?.full_name || "Employee"} · {editorDay}
                 </p>
               </div>
-              <button type="button" onClick={closeEditor} style={buttonStyle}>
+              <button type="button" onClick={closeEditor} style={ghostButtonStyle}>
                 Close
               </button>
             </div>
@@ -829,7 +834,8 @@ export default function HrAttendancePage() {
           </div>
         </div>
       ) : null}
-    </div>
+      </div>
+    </ErpShell>
   );
 }
 
@@ -892,43 +898,19 @@ function formatShift(row: AttendanceDayDetail | null) {
   return row.shift_id || "—";
 }
 
-const containerStyle: CSSProperties = {
-  maxWidth: 1200,
-  margin: "60px auto",
-  padding: "32px 36px",
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  fontFamily: "Arial, sans-serif",
-  backgroundColor: "#fff",
-  boxShadow: "0 12px 28px rgba(15, 23, 42, 0.08)",
-};
-
 const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 24,
-  flexWrap: "wrap",
-  alignItems: "flex-start",
-  borderBottom: "1px solid #eef1f6",
-  paddingBottom: 20,
+  ...pageHeaderStyle,
   marginBottom: 20,
 };
 
-const eyebrowStyle: CSSProperties = {
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
-};
-
-const titleStyle: CSSProperties = { margin: "6px 0 8px", fontSize: 30, color: "#111827" };
-
-const subtitleStyle: CSSProperties = { margin: 0, color: "#4b5563", fontSize: 15 };
-
 const linkStyle: CSSProperties = { color: "#2563eb", textDecoration: "none" };
 
-const sectionStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: 16 };
+const sectionStyle: CSSProperties = {
+  ...sharedCardStyle,
+  display: "flex",
+  flexDirection: "column",
+  gap: 16,
+};
 
 const toolbarStyle: CSSProperties = {
   display: "flex",
@@ -1048,33 +1030,16 @@ const unmarkedCellStyle: CSSProperties = { backgroundColor: "#f3f4f6", borderCol
 
 const lockedCellStyle: CSSProperties = { cursor: "not-allowed", opacity: 0.65 };
 
-const buttonStyle: CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  backgroundColor: "#fff",
-  cursor: "pointer",
-};
-
-const primaryButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  backgroundColor: "#2563eb",
-  borderColor: "#2563eb",
-  color: "#fff",
-};
-
 const warningButtonStyle: CSSProperties = {
-  ...buttonStyle,
+  ...primaryButtonStyle,
   backgroundColor: "#f97316",
   borderColor: "#f97316",
-  color: "#fff",
 };
 
-const secondaryButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  backgroundColor: "#111827",
-  borderColor: "#111827",
-  color: "#fff",
+const ghostButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  backgroundColor: "#fff",
+  color: "#111827",
 };
 
 const legendStyle: CSSProperties = {

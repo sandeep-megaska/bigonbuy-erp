@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
-
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../../components/erp/ErpNavBar";
+import ErpShell from "../../../../components/erp/ErpShell";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
+import {
+  cardStyle as sharedCardStyle,
+  eyebrowStyle,
+  h1Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+} from "../../../../components/erp/uiStyles";
 import { downloadCsv, type CsvColumn } from "../../../../lib/erp/exportCsv";
 import {
   getAttendancePayrollSummary,
@@ -28,19 +36,17 @@ const tableHeaderStyle: CSSProperties = {
   fontSize: 13,
 };
 
-const tableCellStyle = {
+const tableCellStyle: CSSProperties = {
   padding: "10px 12px",
   borderBottom: "1px solid #f1f5f9",
   verticalAlign: "top",
   fontSize: 13,
 };
-const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
-const buttonStyle = {
-  padding: "10px 14px",
+const inputStyle: CSSProperties = {
+  padding: 10,
   borderRadius: 8,
-  border: "1px solid #ddd",
-  cursor: "pointer",
-  background: "#fff",
+  border: "1px solid #d1d5db",
+  width: "100%",
 };
 
 export default function AttendancePayrollSummaryReportPage() {
@@ -206,31 +212,37 @@ export default function AttendancePayrollSummaryReportPage() {
   }
 
   if (loading) {
-    return <div style={pageStyle}>Loading attendance payroll summary…</div>;
+    return (
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>Loading attendance payroll summary…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={pageStyle}>
-        <h1 style={{ marginTop: 0 }}>Attendance → Payroll Summary</h1>
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>Attendance → Payroll Summary</h1>
         <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
-      </div>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={pageStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-      <header style={headerStyle}>
+    <ErpShell activeModule="hr">
+      <div style={pageContainerStyle}>
+        <header style={headerStyle}>
         <div>
           <p style={eyebrowStyle}>HR Reports</p>
-          <h1 style={{ margin: "6px 0 8px" }}>Attendance → Payroll Summary</h1>
-          <p style={{ margin: 0, color: "#4b5563" }}>
+          <h1 style={h1Style}>Attendance → Payroll Summary</h1>
+          <p style={subtitleStyle}>
             Compare payroll run items with attendance totals. Overtime stays manual in payroll.
           </p>
         </div>
       </header>
-      <ReportBrandHeader companyId={ctx.companyId} />
+      <ReportBrandHeader />
 
       <section style={cardStyle}>
         <div style={filterGridStyle}>
@@ -250,7 +262,12 @@ export default function AttendancePayrollSummaryReportPage() {
             </select>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
-            <button type="button" style={buttonStyle} onClick={handleExport} disabled={!rows.length}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={handleExport}
+              disabled={!rows.length}
+            >
               Export CSV
             </button>
           </div>
@@ -321,50 +338,28 @@ export default function AttendancePayrollSummaryReportPage() {
           </div>
         ) : null}
       </section>
-    </div>
+      </div>
+    </ErpShell>
   );
 }
 
-const pageStyle = {
-  maxWidth: 1200,
-  margin: "72px auto",
-  padding: "32px 40px 56px",
-  fontFamily: "Arial, sans-serif",
-};
-
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 24,
-  marginBottom: 24,
-};
-
-const eyebrowStyle = {
-  textTransform: "uppercase" as const,
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
-};
-
-const cardStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 20,
+const headerStyle: CSSProperties = {
+  ...pageHeaderStyle,
   marginBottom: 20,
-  background: "#fff",
-  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
 };
 
-const filterGridStyle = {
+const cardStyle: CSSProperties = {
+  ...sharedCardStyle,
+};
+
+const filterGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(240px, 1fr) auto",
   gap: 16,
   alignItems: "end",
 };
 
-const labelStyle = {
+const labelStyle: CSSProperties = {
   display: "block",
   marginBottom: 6,
   fontSize: 13,

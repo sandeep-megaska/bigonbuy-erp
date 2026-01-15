@@ -1,20 +1,28 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpNavBar from "../../../components/erp/ErpNavBar";
+import type { CSSProperties } from "react";
+import ErpShell from "../../../components/erp/ErpShell";
+import {
+  cardStyle as sharedCardStyle,
+  eyebrowStyle,
+  h1Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  subtitleStyle,
+} from "../../../components/erp/uiStyles";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
-import { supabase } from "../../../lib/supabaseClient";
 
 export default function HrHomePage() {
   const router = useRouter();
-  const [ctx, setCtx] = useState(null);
+  const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [access, setAccess] = useState({
     isAuthenticated: false,
     isManager: false,
-    roleKey: undefined,
+    roleKey: undefined as string | undefined,
   });
   const canGovern = useMemo(
     () => isAdmin(ctx?.roleKey || access.roleKey),
@@ -51,152 +59,90 @@ export default function HrHomePage() {
     };
   }, [router]);
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.replace("/");
-  };
-
   if (loading) {
-    return <div style={containerStyle}>Loading HR…</div>;
+    return (
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>Loading HR…</div>
+      </ErpShell>
+    );
   }
 
   if (!ctx?.companyId) {
     return (
-      <div style={containerStyle}>
-        <h1 style={{ marginTop: 0 }}>HR</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
-        <p style={{ color: "#555" }}>You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your account.</p>
-        <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-      </div>
+      <ErpShell activeModule="hr">
+        <div style={pageContainerStyle}>
+          <h1 style={{ ...h1Style, marginTop: 0 }}>HR</h1>
+          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+          <p style={{ color: "#555" }}>
+            You are signed in as {ctx?.email || "unknown user"}, but no company is linked to your
+            account.
+          </p>
+          <Link href="/" style={linkStyle}>Return to sign in</Link>
+        </div>
+      </ErpShell>
     );
   }
 
   return (
-    <div style={containerStyle}>
-      <ErpNavBar access={access} roleKey={ctx?.roleKey} />
-      <header style={headerStyle}>
-        <div>
-          <p style={eyebrowStyle}>HR</p>
-          <h1 style={titleStyle}>Human Resources</h1>
-          <p style={subtitleStyle}>Enterprise-ready HR and payroll operations for your India workforce.</p>
-          <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
-            Signed in as <strong>{ctx.email}</strong> · Role:{" "}
-            <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
-          </p>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <Link href="/erp" style={{ color: "#2563eb", textDecoration: "none" }}>← Back to ERP Home</Link>
-          <button type="button" onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
-        </div>
-      </header>
+    <ErpShell activeModule="hr">
+      <div style={pageContainerStyle}>
+        <header style={pageHeaderStyle}>
+          <div>
+            <p style={eyebrowStyle}>HR</p>
+            <h1 style={h1Style}>Human Resources</h1>
+            <p style={subtitleStyle}>
+              Enterprise-ready HR and payroll operations for your India workforce.
+            </p>
+            <p style={{ margin: "8px 0 0", color: "#4b5563" }}>
+              Signed in as <strong>{ctx.email}</strong> · Role:{" "}
+              <strong>{ctx.roleKey || access.roleKey || "member"}</strong>
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+            <Link href="/erp" style={linkStyle}>
+              ← Back to ERP Home
+            </Link>
+          </div>
+        </header>
 
-      <div style={sectionStackStyle}>
-        {navItems.map((section) => (
-          <section key={section.title} style={sectionStyle}>
-            <div style={sectionHeaderStyle}>
-              <div>
-                <h2 style={sectionTitleStyle}>{section.title}</h2>
-                <p style={sectionDescriptionStyle}>{section.description}</p>
+        <div style={sectionStackStyle}>
+          {navItems.map((section) => (
+            <section key={section.title} style={sectionStyle}>
+              <div style={sectionHeaderStyle}>
+                <div>
+                  <h2 style={sectionTitleStyle}>{section.title}</h2>
+                  <p style={sectionDescriptionStyle}>{section.description}</p>
+                </div>
+                <span style={sectionMetaStyle}>{section.meta}</span>
               </div>
-              <span style={sectionMetaStyle}>{section.meta}</span>
-            </div>
-            <div style={cardGridStyle}>
-              {section.items.map((item) => (
-                <ModuleCard key={item.title} item={item} />
-              ))}
-            </div>
-          </section>
-        ))}
+              <div style={cardGridStyle}>
+                {section.items.map((item) => (
+                  <ModuleCard key={item.title} item={item} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       </div>
-      <style jsx>{`
-        .module-card {
-          transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
-        }
-        .module-card:hover {
-          transform: translateY(-2px);
-          border-color: #c7d2fe;
-          box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
-        }
-        .module-card.disabled {
-          cursor: not-allowed;
-        }
-        .module-card.disabled:hover {
-          transform: none;
-          border-color: #e5e7eb;
-          box-shadow: none;
-        }
-      `}</style>
-    </div>
+    </ErpShell>
   );
 }
 
-const containerStyle = {
-  maxWidth: 1120,
-  margin: "72px auto",
-  padding: "48px 56px 56px",
-  borderRadius: 12,
-  border: "1px solid #e7eaf0",
-  fontFamily: "Arial, sans-serif",
-  boxShadow: "0 14px 32px rgba(15, 23, 42, 0.08)",
-  backgroundColor: "#fff",
-};
+const linkStyle: CSSProperties = { color: "#2563eb", textDecoration: "none", fontWeight: 600 };
 
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 24,
-  flexWrap: "wrap",
-  borderBottom: "1px solid #eef1f6",
-  paddingBottom: 24,
-  marginBottom: 28,
-};
-
-const buttonStyle = {
-  padding: "10px 16px",
-  backgroundColor: "#dc2626",
-  border: "none",
-  color: "#fff",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 15,
-};
-
-const eyebrowStyle = {
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  fontSize: 12,
-  color: "#6b7280",
-  margin: 0,
-};
-
-const titleStyle = {
-  margin: "6px 0 8px",
-  fontSize: 34,
-  color: "#111827",
-};
-
-const subtitleStyle = {
-  margin: 0,
-  color: "#4b5563",
-  fontSize: 16,
-  maxWidth: 540,
-  lineHeight: 1.5,
-};
-
-const sectionStackStyle = {
+const sectionStackStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 28,
 };
 
-const sectionStyle = {
+const sectionStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 16,
 };
 
-const sectionHeaderStyle = {
+const sectionHeaderStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -204,51 +150,47 @@ const sectionHeaderStyle = {
   gap: 12,
 };
 
-const sectionTitleStyle = {
+const sectionTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: 20,
   color: "#111827",
 };
 
-const sectionDescriptionStyle = {
+const sectionDescriptionStyle: CSSProperties = {
   margin: "6px 0 0",
   color: "#6b7280",
   fontSize: 14,
 };
 
-const sectionMetaStyle = {
+const sectionMetaStyle: CSSProperties = {
   padding: "6px 12px",
-  borderRadius: 999,
+  borderRadius: 8,
   backgroundColor: "#eef2ff",
   color: "#3730a3",
   fontSize: 12,
   fontWeight: 700,
 };
 
-const cardGridStyle = {
+const cardGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: 18,
 };
 
-const cardStyle = {
+const cardStyle: CSSProperties = {
+  ...sharedCardStyle,
   display: "flex",
   gap: 14,
   alignItems: "flex-start",
-  border: "1px solid #e6e9ef",
-  borderRadius: 12,
-  padding: 18,
-  backgroundColor: "#fbfcff",
   textAlign: "left",
   textDecoration: "none",
   color: "#111827",
-  boxShadow: "0 6px 16px rgba(15, 23, 42, 0.06)",
 };
 
-const cardIconStyle = {
+const cardIconStyle: CSSProperties = {
   width: 42,
   height: 42,
-  borderRadius: 12,
+  borderRadius: 10,
   display: "grid",
   placeItems: "center",
   backgroundColor: "#eef2ff",
@@ -257,20 +199,20 @@ const cardIconStyle = {
   fontSize: 18,
 };
 
-const cardTitleStyle = {
+const cardTitleStyle: CSSProperties = {
   margin: "2px 0 6px",
   fontSize: 17,
   color: "#111827",
 };
 
-const cardDescriptionStyle = {
+const cardDescriptionStyle: CSSProperties = {
   margin: 0,
   color: "#4b5563",
   fontSize: 14,
   lineHeight: 1.5,
 };
 
-const cardMetaStyle = {
+const cardMetaStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -278,9 +220,9 @@ const cardMetaStyle = {
   gap: 12,
 };
 
-const statusBadgeStyle = {
+const statusBadgeStyle: CSSProperties = {
   padding: "4px 10px",
-  borderRadius: 999,
+  borderRadius: 8,
   backgroundColor: "#ecfeff",
   color: "#0e7490",
   fontSize: 11,
@@ -289,29 +231,39 @@ const statusBadgeStyle = {
   letterSpacing: "0.04em",
 };
 
-const disabledStatusBadgeStyle = {
+const disabledStatusBadgeStyle: CSSProperties = {
   backgroundColor: "#fef3c7",
   color: "#92400e",
 };
 
-const cardCtaStyle = {
+const cardCtaStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  color: "#1d4ed8",
+  color: "#2563eb",
   fontWeight: 700,
   textDecoration: "none",
   fontSize: 13,
 };
 
-const disabledCardStyle = {
+const disabledCardStyle: CSSProperties = {
   backgroundColor: "#f8fafc",
   color: "#9ca3af",
   borderColor: "#e5e7eb",
   boxShadow: "none",
 };
 
-function ModuleCard({ item }) {
+type ModuleItem = {
+  title: string;
+  description: string;
+  href: string;
+  icon: string;
+  status: string;
+  ctaLabel?: string;
+  disabled?: boolean;
+};
+
+function ModuleCard({ item }: { item: ModuleItem }) {
   const content = (
     <div style={{ display: "flex", gap: 14 }}>
       <div style={cardIconStyle}>{item.icon}</div>
@@ -322,7 +274,7 @@ function ModuleCard({ item }) {
           <span
             style={{
               ...statusBadgeStyle,
-              ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : {}),
+              ...(item.status === "Coming Soon" ? disabledStatusBadgeStyle : null),
             }}
           >
             {item.status}
@@ -334,21 +286,17 @@ function ModuleCard({ item }) {
   );
 
   if (item.disabled) {
-    return (
-      <div className="module-card disabled" style={{ ...cardStyle, ...disabledCardStyle }}>
-        {content}
-      </div>
-    );
+    return <div style={{ ...cardStyle, ...disabledCardStyle }}>{content}</div>;
   }
 
   return (
-    <Link className="module-card" href={item.href} style={cardStyle}>
+    <Link href={item.href} style={cardStyle}>
       {content}
     </Link>
   );
 }
 
-function buildNavItems(canGovern) {
+function buildNavItems(canGovern: boolean) {
   const sections = [
     {
       title: "HR Masters",
