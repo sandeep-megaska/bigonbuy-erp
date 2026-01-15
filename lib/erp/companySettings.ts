@@ -89,12 +89,5 @@ export async function getCompanyLogosSignedUrlsIfNeeded() {
     megaskaUrl,
   };
 }
-import { useEffect, useState } from "react";
-import { getCompanyLogosSignedUrlsIfNeeded, getCompanySettings } from "./companySettings";
 
-type BrandingState = {
-  bigonbuyLogoUrl: string | null;
-  megaskaLogoUrl: string | null;
-  loaded: boolean;
-};
 
