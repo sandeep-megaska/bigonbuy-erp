@@ -46,7 +46,7 @@ type ExitRowRaw = {
 type ExitRow = {
   id: string;
   status: string;
-  initiated_on: string;
+  initiated_on: string | null; 
   last_working_day: string;
   notice_period_days: number | null;
   notice_waived: boolean;
