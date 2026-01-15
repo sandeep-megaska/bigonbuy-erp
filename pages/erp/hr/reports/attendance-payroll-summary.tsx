@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-const tableHeaderStyle: CSSProperties = { ... }
+import type { CSSProperties } from "react";
+
 
 import { useRouter } from "next/router";
 import ErpNavBar from "../../../../components/erp/ErpNavBar";
