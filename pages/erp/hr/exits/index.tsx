@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -67,6 +67,11 @@ type ExitRow = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
+function getCurrentMonthString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function EmployeeExitsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -77,11 +82,12 @@ export default function EmployeeExitsPage() {
   });
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ExitRow[]>([]);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [monthFilter, setMonthFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("draft");
+  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthString());
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
+  const filtersInitialized = useRef(false);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -132,88 +138,103 @@ export default function EmployeeExitsPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!router.isReady || filtersInitialized.current) return;
+    const hasStatus = Object.prototype.hasOwnProperty.call(router.query, "status");
+    const hasMonth = Object.prototype.hasOwnProperty.call(router.query, "month");
+    const hasEmployee = Object.prototype.hasOwnProperty.call(router.query, "employee");
+
+    const statusParam = typeof router.query.status === "string" ? router.query.status : "";
+    const monthParam = typeof router.query.month === "string" ? router.query.month : "";
+    const employeeParam = typeof router.query.employee === "string" ? router.query.employee : "";
+
+    setStatusFilter(hasStatus ? statusParam : "draft");
+    setMonthFilter(hasMonth ? monthParam : getCurrentMonthString());
+    setEmployeeFilter(hasEmployee ? employeeParam : "");
+    filtersInitialized.current = true;
+  }, [router.isReady, router.query]);
+
+  useEffect(() => {
     if (!ctx?.companyId) return;
     loadExits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, monthFilter]);
-async function loadExits() {
-  try {
-    let query = supabase
-      .from("erp_hr_employee_exits")
-      .select(
+  async function loadExits() {
+    try {
+      let query = supabase
+        .from("erp_hr_employee_exits")
+        .select(
+          `
+          id, status, initiated_on, last_working_day,
+          notice_period_days, notice_waived, notes, created_at,
+
+          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
+            id, full_name, employee_code
+          ),
+
+          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
+            id, full_name, employee_code
+          ),
+
+          exit_type:erp_hr_employee_exit_types ( id, name ),
+          exit_reason:erp_hr_employee_exit_reasons ( id, name )
         `
-        id, status, initiated_on, last_working_day,
-        notice_period_days, notice_waived, notes, created_at,
+        )
+        .order("created_at", { ascending: false });
 
-        employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
-          id, full_name, employee_code
-        ),
+      if (statusFilter) {
+        query = query.eq("status", statusFilter);
+      }
 
-        manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
-          id, full_name, employee_code
-        ),
+      if (monthFilter) {
+        const startDate = `${monthFilter}-01`;
+        const [year, month] = monthFilter.split("-").map((n) => Number(n));
+        const nextMonth =
+          month === 12
+            ? `${year + 1}-01`
+            : `${year}-${String(month + 1).padStart(2, "0")}`;
 
-        exit_type:erp_hr_employee_exit_types ( id, name ),
-        exit_reason:erp_hr_employee_exit_reasons ( id, name )
-      `
-      )
-      .order("created_at", { ascending: false });
+        query = query
+          .gte("last_working_day", startDate)
+          .lt("last_working_day", `${nextMonth}-01`);
+      }
 
-    if (statusFilter) {
-      query = query.eq("status", statusFilter);
-    }
+      const { data: rowsData, error: rowsError } = await query;
 
-    if (monthFilter) {
-      const startDate = `${monthFilter}-01`;
-      const [year, month] = monthFilter.split("-").map((n) => Number(n));
-      const nextMonth =
-        month === 12
-          ? `${year + 1}-01`
-          : `${year}-${String(month + 1).padStart(2, "0")}`;
+      if (rowsError) {
+        setToast({
+          type: "error",
+          message: rowsError.message || "Unable to load exit requests.",
+        });
+        return;
+      }
 
-      query = query
-        .gte("last_working_day", startDate)
-        .lt("last_working_day", `${nextMonth}-01`);
-    }
+      // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
+      const raw = (rowsData ?? []) as ExitRowRaw[];
 
-    const { data: rowsData, error: rowsError } = await query;
+      const normalized: ExitRow[] = raw.map((r) => ({
+        id: r.id,
+        status: r.status,
+        initiated_on: r.initiated_on,
+        last_working_day: r.last_working_day,
+        notice_period_days: r.notice_period_days,
+        notice_waived: r.notice_waived,
+        notes: r.notes,
+        created_at: r.created_at ?? null,
 
-    if (rowsError) {
+        employee: r.employee?.[0] ?? null,
+        manager: r.manager?.[0] ?? null,
+        exit_type: r.exit_type?.[0] ?? null,
+        exit_reason: r.exit_reason?.[0] ?? null,
+      }));
+
+      setRows(normalized);
+    } catch (e: any) {
       setToast({
         type: "error",
-        message: rowsError.message || "Unable to load exit requests.",
+        message: e?.message || "Unable to load exit requests.",
       });
-      return;
     }
-
-    // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
-  const raw = (rowsData ?? []) as ExitRowRaw[];
-
-const normalized: ExitRow[] = raw.map((r) => ({
-  id: r.id,
-  status: r.status,
-  initiated_on: r.initiated_on,
-  last_working_day: r.last_working_day,
-  notice_period_days: r.notice_period_days,
-  notice_waived: r.notice_waived,
-  notes: r.notes,
-  created_at: r.created_at ?? null,
-
-  employee: r.employee?.[0] ?? null,
-  manager: r.manager?.[0] ?? null,
-  exit_type: r.exit_type?.[0] ?? null,
-  exit_reason: r.exit_reason?.[0] ?? null,
-}));
-
-setRows(normalized);
-
-  } catch (e: any) {
-    setToast({
-      type: "error",
-      message: e?.message || "Unable to load exit requests.",
-    });
   }
-}
 
   function showToast(message: string, type: "success" | "error" = "success") {
     setToast({ type, message });
@@ -340,12 +361,22 @@ setRows(normalized);
             </label>
             <label style={labelStyle}>
               Last working month
-              <input
-                type="month"
-                value={monthFilter}
-                onChange={(event) => setMonthFilter(event.target.value)}
-                style={inputStyle}
-              />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="month"
+                  value={monthFilter}
+                  onChange={(event) => setMonthFilter(event.target.value)}
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  disabled={!monthFilter}
+                  onClick={() => setMonthFilter("")}
+                >
+                  All months
+                </button>
+              </div>
             </label>
             <label style={labelStyle}>
               Employee search
@@ -362,8 +393,8 @@ setRows(normalized);
                 type="button"
                 style={secondaryButtonStyle}
                 onClick={() => {
-                  setStatusFilter("");
-                  setMonthFilter("");
+                  setStatusFilter("draft");
+                  setMonthFilter(getCurrentMonthString());
                   setEmployeeFilter("");
                 }}
               >
@@ -374,6 +405,19 @@ setRows(normalized);
         </section>
 
         <section style={cardStyle}>
+          {!filteredRows.length && (statusFilter || monthFilter || employeeFilter) ? (
+            <div
+              style={{
+                ...cardStyle,
+                marginBottom: 16,
+                borderColor: "#bae6fd",
+                backgroundColor: "#eff6ff",
+                color: "#1e3a8a",
+              }}
+            >
+              No exits match the current filters. Try clearing filters.
+            </div>
+          ) : null}
           {!filteredRows.length ? (
             <p style={{ margin: 0, color: "#6b7280" }}>No exit requests found.</p>
           ) : (
