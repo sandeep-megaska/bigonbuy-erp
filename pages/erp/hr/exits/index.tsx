@@ -25,11 +25,9 @@ import { supabase } from "../../../../lib/supabaseClient";
 const statusOptions = [
   { value: "", label: "All statuses" },
   { value: "draft", label: "Draft" },
-  { value: "submitted", label: "Submitted" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
   { value: "completed", label: "Completed" },
-  { value: "withdrawn", label: "Withdrawn" },
 ];
 type ExitRowRaw = {
   id: string;
@@ -96,6 +94,7 @@ export default function EmployeeExitsPage() {
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
+  const [rejectModal, setRejectModal] = useState<{ exitId: string; reason: string } | null>(null);
   const filtersInitialized = useRef(false);
 
   const canManage = useMemo(
@@ -250,28 +249,33 @@ export default function EmployeeExitsPage() {
     setTimeout(() => setToast(null), 2500);
   }
 
-  async function handleAction(action: "submit" | "approve" | "reject" | "complete", exitId: string) {
+  async function handleAction(action: "approve" | "reject" | "complete", exitId: string) {
     if (!canManage) {
       showToast("You do not have permission to update exit requests.", "error");
       return;
     }
 
-    let reason: string | null = null;
     if (action === "reject") {
-      reason = window.prompt("Rejection reason (optional)") || "";
+      setRejectModal({ exitId, reason: "" });
+      return;
     }
 
+    await submitStatusChange(exitId, action);
+  }
+
+  async function submitStatusChange(
+    exitId: string,
+    status: "approve" | "reject" | "complete" | "approved" | "rejected" | "completed",
+    reason?: string
+  ) {
+    const normalized =
+      status === "approve" ? "approved" : status === "reject" ? "rejected" : status === "complete" ? "completed" : status;
     setActionLoading(exitId);
-    const rpcName =
-      action === "submit"
-        ? "erp_hr_employee_exit_submit"
-        : action === "approve"
-          ? "erp_hr_employee_exit_approve"
-          : action === "reject"
-            ? "erp_hr_employee_exit_reject"
-            : "erp_hr_employee_exit_complete";
-    const payload = action === "reject" ? { p_exit_id: exitId, p_reason: reason } : { p_exit_id: exitId };
-    const { error } = await supabase.rpc(rpcName, payload);
+    const { error } = await supabase.rpc("erp_hr_exit_set_status", {
+      p_exit_id: exitId,
+      p_status: normalized,
+      p_rejection_reason: reason ?? null,
+    });
 
     if (error) {
       showToast(error.message || "Unable to update exit request.", "error");
@@ -279,7 +283,7 @@ export default function EmployeeExitsPage() {
       return;
     }
 
-    showToast(`Exit request ${action}d successfully.`);
+    showToast(`Exit request ${normalized} successfully.`);
     await loadExits();
     setActionLoading(null);
   }
@@ -288,11 +292,9 @@ export default function EmployeeExitsPage() {
     const normalized = status?.toLowerCase() || "draft";
     const colors: Record<string, CSSProperties> = {
       draft: { backgroundColor: "#e0f2fe", color: "#0369a1" },
-      submitted: { backgroundColor: "#fef3c7", color: "#b45309" },
       approved: { backgroundColor: "#dcfce7", color: "#166534" },
       rejected: { backgroundColor: "#fee2e2", color: "#b91c1c" },
       completed: { backgroundColor: "#e5e7eb", color: "#1f2937" },
-      withdrawn: { backgroundColor: "#e5e7eb", color: "#1f2937" },
     };
     return (
       <span style={{ ...badgeStyle, ...colors[normalized] }}>{status}</span>
@@ -349,6 +351,47 @@ export default function EmployeeExitsPage() {
             }}
           >
             {toast.message}
+          </div>
+        ) : null}
+        {rejectModal ? (
+          <div style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Reject Exit Request</h3>
+              <p style={{ color: "#6b7280", marginTop: 4 }}>
+                Add an optional rejection reason to share with HR and the manager.
+              </p>
+              <textarea
+                value={rejectModal.reason}
+                onChange={(event) =>
+                  setRejectModal((prev) => (prev ? { ...prev, reason: event.target.value } : prev))
+                }
+                rows={4}
+                style={{ ...inputStyle, width: "100%", resize: "vertical" }}
+                placeholder="Optional rejection reason"
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setRejectModal(null)}
+                  disabled={actionLoading === rejectModal.exitId}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  disabled={actionLoading === rejectModal.exitId}
+                  onClick={async () => {
+                    const payload = rejectModal;
+                    setRejectModal(null);
+                    await submitStatusChange(payload.exitId, "rejected", payload.reason);
+                  }}
+                >
+                  {actionLoading === rejectModal.exitId ? "Rejecting…" : "Reject"}
+                </button>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -461,19 +504,9 @@ export default function EmployeeExitsPage() {
                             href={`/erp/hr/exits/${row.id}`}
                             style={{ ...secondaryButtonStyle, textDecoration: "none", display: "inline-flex" }}
                           >
-                            View
+                            View / Manage
                           </Link>
                           {row.status === "draft" ? (
-                            <button
-                              type="button"
-                              style={primaryButtonStyle}
-                              disabled={actionLoading === row.id || !canManage}
-                              onClick={() => handleAction("submit", row.id)}
-                            >
-                              {actionLoading === row.id ? "Submitting…" : "Submit"}
-                            </button>
-                          ) : null}
-                          {row.status === "submitted" ? (
                             <>
                               <button
                                 type="button"
@@ -530,4 +563,26 @@ const labelStyle: CSSProperties = {
   fontSize: 13,
   color: "#111827",
   fontWeight: 600,
+};
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.35)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 50,
+};
+
+const modalCardStyle: CSSProperties = {
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  padding: 20,
+  width: "100%",
+  maxWidth: 520,
+  boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.25)",
+  display: "grid",
+  gap: 12,
 };
