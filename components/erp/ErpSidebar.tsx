@@ -28,6 +28,8 @@ const hrSidebarGroups: SidebarGroup[] = [
       { label: "Leave Types", href: "/erp/hr/leaves/types", icon: "LV" },
       { label: "Employee Titles", href: "/erp/hr/masters/employee-titles", icon: "ET" },
       { label: "Employee Genders", href: "/erp/hr/masters/employee-genders", icon: "EG" },
+      { label: "Exit Types", href: "/erp/hr/masters/employee-exit-types", icon: "XT" },
+      { label: "Exit Reasons", href: "/erp/hr/masters/employee-exit-reasons", icon: "XR" },
       { label: "Locations", href: "/erp/hr/masters", icon: "LO" },
       { label: "Cost Centers", href: "/erp/hr/masters", icon: "CC" },
       { label: "Weekly Off Rules", href: "/erp/hr/weekly-off", icon: "WO" },
