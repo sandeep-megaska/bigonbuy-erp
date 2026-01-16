@@ -91,10 +91,11 @@ export default function EmployeeProfilePage() {
   const [uploading, setUploading] = useState(false);
   const [activating, setActivating] = useState(false);
 
-  const canManage = useMemo(
-    () => access.isManager || isHr(ctx?.roleKey),
-    [access.isManager, ctx?.roleKey]
-  );
+  const canManage = useMemo(() => {
+  const rk = (ctx?.roleKey ?? access.roleKey ?? "").toLowerCase();
+  return access.isManager || ["owner", "admin", "hr", "payroll"].includes(rk) || isHr(rk);
+}, [access.isManager, ctx?.roleKey, access.roleKey]);
+
   const headerEmail = useMemo(() => {
     const workEmail = contacts.find((contact) => contact.contact_type === "work_email" && contact.email);
     if (workEmail?.email) return workEmail.email;
@@ -336,52 +337,70 @@ export default function EmployeeProfilePage() {
     await loadEmployee();
   }
 
-  async function handleExitCreate(event) {
-    event.preventDefault();
-    if (!employeeId) return;
-    if (!canManage) {
-      setExitError("Only owner/admin/hr can create exit requests.");
-      return;
-    }
-    if (!exitForm.exit_type_id) {
-      setExitError("Select an exit type.");
-      return;
-    }
-    if (!exitForm.last_working_day) {
-      setExitError("Last working day is required.");
-      return;
-    }
-    const noticeDays = exitForm.notice_period_days.trim();
-    const noticePeriodDays = noticeDays ? Number.parseInt(noticeDays, 10) : null;
-    if (noticeDays && Number.isNaN(noticePeriodDays)) {
-      setExitError("Notice period must be a number.");
-      return;
-    }
-    setExitSaving(true);
-    setExitError("");
-    const { data: exitId, error } = await supabase.rpc("erp_hr_exit_create_draft", {
-  p_employee_id: employeeId,
-  p_exit_type_id: form.exit_type_id,
-  p_last_working_day: form.last_working_day,          // 'YYYY-MM-DD'
-  p_exit_reason_id: form.exit_reason_id ?? null,
-  p_notice_period_days: form.notice_period_days ? Number(form.notice_period_days) : null,
-  p_notice_waived: !!form.notice_waived,
-  p_notes: form.notes?.trim() || null,
-  p_initiated_on: form.initiated_on || null,          // optional (history backfill)
-  p_manager_employee_id: form.manager_employee_id ?? null, // ✅ REQUIRED now (ok to pass null)
-});
+ async function handleExitCreate(event) {
+  event.preventDefault();
+  if (!employeeId) return;
 
-    if (error) {
-      const message = error.message || "Unable to create exit request.";
-      if (message.toLowerCase().includes("active exit")) {
-        setExitError("An active exit already exists for this employee. Open it from the Exits list.");
-      } else {
-        setExitError(message);
-      }
-      setExitSaving(false);
-      return;
+  if (!canManage) {
+    setExitError("Only owner/admin can create exit requests.");
+    return;
+  }
+
+  if (!exitForm.exit_type_id) {
+    setExitError("Select an exit type.");
+    return;
+  }
+
+  if (!exitForm.last_working_day) {
+    setExitError("Last working day is required.");
+    return;
+  }
+
+  const noticeDays = (exitForm.notice_period_days || "").trim();
+  const noticePeriodDays = noticeDays ? Number.parseInt(noticeDays, 10) : null;
+  if (noticeDays && Number.isNaN(noticePeriodDays)) {
+    setExitError("Notice period must be a number.");
+    return;
+  }
+
+  setExitSaving(true);
+  setExitError("");
+
+  try {
+    const payload = {
+      p_employee_id: employeeId,
+      p_exit_type_id: exitForm.exit_type_id,
+      p_last_working_day: exitForm.last_working_day, // YYYY-MM-DD
+      p_exit_reason_id: exitForm.exit_reason_id || null,
+      p_notice_period_days: noticePeriodDays,
+      p_notice_waived: !!exitForm.notice_waived,
+      p_notes: (exitForm.notes || "").trim() || null,
+      p_initiated_on: exitForm.initiated_on || null, // optional backfill
+      p_manager_employee_id: exitForm.manager_employee_id || null, // required by signature; ok null
+    };
+
+    const { data: exitId, error } = await supabase.rpc("erp_hr_exit_create_draft", payload);
+    if (error) throw error;
+
+    showToast("Exit draft created.");
+
+    // Reload exit state + redirect to exits list with LWD month
+    await loadExitData();
+
+    const lwdMonth = exitForm.last_working_day.slice(0, 7); // YYYY-MM
+    router.push(`/erp/hr/exits?status=draft&month=${encodeURIComponent(lwdMonth)}&employee=${encodeURIComponent(employee?.employee_code || "")}`);
+  } catch (err) {
+    const message = err?.message || "Unable to create exit request.";
+    if (message.toLowerCase().includes("active exit")) {
+      setExitError("An active exit already exists for this employee. Open it from the Exits list.");
+    } else {
+      setExitError(message);
     }
-    setExitForm({
+  } finally {
+    setExitSaving(false);
+  }
+}
+   setExitForm({
       exit_type_id: "",
       exit_reason_id: "",
       last_working_day: "",
