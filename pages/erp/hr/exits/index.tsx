@@ -215,7 +215,21 @@ export default function EmployeeExitsPage() {
 
     if (error) throw error;
 
-    setRows(data ?? []);
+   type ExitRowRaw = any;
+
+const raw: ExitRowRaw[] = (data ?? []) as any[];
+
+const normalized: ExitRow[] = raw.map((r) => ({
+  ...r,
+  // handle both shapes: array or object
+  employee: Array.isArray(r.employee) ? (r.employee[0] ?? null) : (r.employee ?? null),
+  manager: Array.isArray(r.manager) ? (r.manager[0] ?? null) : (r.manager ?? null),
+  exit_type: Array.isArray(r.exit_type) ? (r.exit_type[0] ?? null) : (r.exit_type ?? null),
+  exit_reason: Array.isArray(r.exit_reason) ? (r.exit_reason[0] ?? null) : (r.exit_reason ?? null),
+}));
+
+setRows(normalized);
+
   } catch (e: any) {
     setToast({
       type: "error",
