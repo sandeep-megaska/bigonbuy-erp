@@ -359,16 +359,18 @@ export default function EmployeeProfilePage() {
     }
     setExitSaving(true);
     setExitError("");
-    const { error } = await supabase.rpc("erp_hr_exit_create_draft", {
-      p_employee_id: employeeId,
-      p_exit_type_id: exitForm.exit_type_id,
-      p_exit_reason_id: exitForm.exit_reason_id || null,
-      p_last_working_day: exitForm.last_working_day,
-      p_notice_period_days: noticePeriodDays,
-      p_notice_waived: exitForm.notice_waived,
-      p_notes: exitForm.notes.trim() || null,
-      p_initiated_on: new Date().toISOString().slice(0, 10),
-    });
+    const { data: exitId, error } = await supabase.rpc("erp_hr_exit_create_draft", {
+  p_employee_id: employeeId,
+  p_exit_type_id: form.exit_type_id,
+  p_last_working_day: form.last_working_day,          // 'YYYY-MM-DD'
+  p_exit_reason_id: form.exit_reason_id ?? null,
+  p_notice_period_days: form.notice_period_days ? Number(form.notice_period_days) : null,
+  p_notice_waived: !!form.notice_waived,
+  p_notes: form.notes?.trim() || null,
+  p_initiated_on: form.initiated_on || null,          // optional (history backfill)
+  p_manager_employee_id: form.manager_employee_id ?? null, // ✅ REQUIRED now (ok to pass null)
+});
+
     if (error) {
       const message = error.message || "Unable to create exit request.";
       if (message.toLowerCase().includes("active exit")) {
