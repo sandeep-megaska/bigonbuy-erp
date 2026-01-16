@@ -72,6 +72,15 @@ function getCurrentMonthString() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function normalizeSearchTerm(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function isAllMonths(value: string) {
+  const normalized = normalizeSearchTerm(value);
+  return !normalized || normalized === "all" || normalized === "all months" || normalized === "all_months";
+}
+
 export default function EmployeeExitsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -95,11 +104,11 @@ export default function EmployeeExitsPage() {
   );
 
   const filteredRows = useMemo(() => {
-    const query = employeeFilter.trim().toLowerCase();
+    const query = normalizeSearchTerm(employeeFilter);
     if (!query) return rows;
     return rows.filter((row) => {
-      const name = row.employee?.full_name?.toLowerCase() || "";
-      const code = row.employee?.employee_code?.toLowerCase() || "";
+      const name = normalizeSearchTerm(row.employee?.full_name);
+      const code = normalizeSearchTerm(row.employee?.employee_code);
       return name.includes(query) || code.includes(query);
     });
   }, [rows, employeeFilter]);
@@ -185,7 +194,7 @@ export default function EmployeeExitsPage() {
         query = query.eq("status", statusFilter);
       }
 
-      if (monthFilter) {
+      if (!isAllMonths(monthFilter)) {
         const startDate = `${monthFilter}-01`;
         const [year, month] = monthFilter.split("-").map((n) => Number(n));
         const nextMonth =
