@@ -138,16 +138,28 @@ export default function HrEmployeeExitTypesPage() {
     setSaving(true);
     setFormError("");
 
-    const payload = {
-      code: form.code.trim(),
-      name: form.name.trim(),
-      sort_order: Number(form.sort_order) || 0,
-      is_active: form.is_active,
-    };
+    if (!ctx?.companyId) {
+  setFormError("Company context not loaded. Please refresh and try again.");
+  setSaving(false);
+  return;
+}
 
-    const { error } = form.id
-      ? await supabase.from("erp_hr_employee_exit_types").update(payload).eq("id", form.id)
-      : await supabase.from("erp_hr_employee_exit_types").insert(payload);
+const payload = {
+  code: form.code.trim(),
+  name: form.name.trim(),
+  sort_order: Number(form.sort_order) || 0,
+  is_active: form.is_active,
+};
+
+const insertPayload = {
+  company_id: ctx.companyId,
+  ...payload,
+};
+
+const { error } = form.id
+  ? await supabase.from("erp_hr_employee_exit_types").update(payload).eq("id", form.id)
+  : await supabase.from("erp_hr_employee_exit_types").insert(insertPayload);
+
 
     if (error) {
       if (error.code === "23505") {
