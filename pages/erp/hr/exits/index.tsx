@@ -167,53 +167,63 @@ export default function EmployeeExitsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, monthFilter]);
   async function loadExits() {
-    try {
-      let query = supabase
-        .from("erp_hr_employee_exits")
-        .select(
-          `
-          id, status, initiated_on, last_working_day,
-          notice_period_days, notice_waived, notes, created_at,
+  try {
+    let query = supabase
+      .from("erp_hr_employee_exits")
+      .select(`
+        id,
+        status,
+        initiated_on,
+        last_working_day,
+        notice_period_days,
+        notice_waived,
+        notes,
+        created_at,
 
-          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
-            id, full_name, employee_code
-          ),
+        employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
+          id, full_name, employee_code
+        ),
 
-          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
-            id, full_name, employee_code
-          ),
+        manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
+          id, full_name, employee_code
+        ),
 
-          exit_type:erp_hr_employee_exit_types ( id, name ),
-          exit_reason:erp_hr_employee_exit_reasons ( id, name )
-        `
-        )
-        .order("created_at", { ascending: false });
+        exit_type:erp_hr_employee_exit_types ( id, name ),
+        exit_reason:erp_hr_employee_exit_reasons ( id, name )
+      `)
+      .eq("company_id", ctx.companyId)          // ✅ REQUIRED
+      .order("created_at", { ascending: false });
 
-      if (statusFilter) {
-        query = query.eq("status", statusFilter);
-      }
+    if (statusFilter) {
+      query = query.eq("status", statusFilter);
+    }
 
-      if (!isAllMonths(monthFilter)) {
-        const startDate = `${monthFilter}-01`;
-        const [year, month] = monthFilter.split("-").map((n) => Number(n));
-        const nextMonth =
-          month === 12
-            ? `${year + 1}-01`
-            : `${year}-${String(month + 1).padStart(2, "0")}`;
+    if (!isAllMonths(monthFilter)) {
+      const startDate = `${monthFilter}-01`;
+      const [year, month] = monthFilter.split("-").map(Number);
+      const nextMonth =
+        month === 12
+          ? `${year + 1}-01`
+          : `${year}-${String(month + 1).padStart(2, "0")}`;
 
-        query = query
-          .gte("last_working_day", startDate)
-          .lt("last_working_day", `${nextMonth}-01`);
-      }
+      query = query
+        .gte("last_working_day", startDate)
+        .lt("last_working_day", `${nextMonth}-01`);
+    }
 
-      const { data: rowsData, error: rowsError } = await query;
+    const { data, error } = await query;
 
-      if (rowsError) {
-        setToast({
-          type: "error",
-          message: rowsError.message || "Unable to load exit requests.",
-        });
-        return;
+    if (error) throw error;
+
+    setRows(data ?? []);
+  } catch (e: any) {
+    setToast({
+      type: "error",
+      message: e.message || "Unable to load exit requests",
+    });
+  }
+}
+          return;
       }
 
       // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
