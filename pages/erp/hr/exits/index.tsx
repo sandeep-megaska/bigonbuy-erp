@@ -448,6 +448,12 @@ export default function EmployeeExitsPage() {
                       <td style={tableCellStyle}>{renderStatusBadge(row.status)}</td>
                       <td style={tableCellStyle}>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <Link
+                            href={`/erp/hr/exits/${row.id}`}
+                            style={{ ...secondaryButtonStyle, textDecoration: "none", display: "inline-flex" }}
+                          >
+                            View
+                          </Link>
                           {row.status === "draft" ? (
                             <button
                               type="button"
