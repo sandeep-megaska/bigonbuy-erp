@@ -140,6 +140,7 @@ export default function HrEmployeeExitReasonsPage() {
 
     const payload = {
       code: form.code.trim(),
+      company_id: ctx.companyId, 
       name: form.name.trim(),
       sort_order: Number(form.sort_order) || 0,
       is_active: form.is_active,
