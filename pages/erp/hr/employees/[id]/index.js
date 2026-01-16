@@ -400,28 +400,6 @@ export default function EmployeeProfilePage() {
     setExitSaving(false);
   }
 }
-   setExitForm({
-      exit_type_id: "",
-      exit_reason_id: "",
-      last_working_day: "",
-      notice_period_days: "",
-      notice_waived: false,
-      notes: "",
-    });
-    setExitSaving(false);
-    showToast("Exit request drafted successfully.");
-    const params = new URLSearchParams();
-    params.set("status", "draft");
-    const exitMonth = exitForm.last_working_day?.slice(0, 7);
-    if (exitMonth) {
-      params.set("month", exitMonth);
-    }
-    const employeeQueryValue = employee?.employee_code || employee?.id || employeeId;
-    if (employeeQueryValue) {
-      params.set("employee", employeeQueryValue);
-    }
-    router.push(`/erp/hr/exits?${params.toString()}`);
-  }
 
   async function handleExitStatus(exitId, status) {
     if (!exitId) return;
