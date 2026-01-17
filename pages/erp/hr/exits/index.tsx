@@ -469,10 +469,16 @@ export default function EmployeeExitsPage() {
                     : "Create a draft exit from an employee profile to get started."}
                 </div>
                 {!showHelperBanner ? (
-                  <div style={{ marginTop: 12 }}>
-                    <Link href="/erp/hr/employees" style={{ color: "#2563eb", fontWeight: 600 }}>
+                  <div style={{ marginTop: 14, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <Link
+                      href="/erp/hr/employees"
+                      style={{ ...secondaryButtonStyle, display: "inline-flex", alignItems: "center" }}
+                    >
                       Go to employees
                     </Link>
+                    <span style={{ fontSize: 12, color: "#6b7280", alignSelf: "center" }}>
+                      Open an employee profile to create the first exit request.
+                    </span>
                   </div>
                 ) : null}
               </div>
