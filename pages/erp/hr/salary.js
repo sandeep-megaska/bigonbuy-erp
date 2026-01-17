@@ -287,6 +287,9 @@ export default function HrSalaryPage() {
         <div>
           <h1 style={{ margin: 0 }}>Salary Structures</h1>
           <p style={{ marginTop: 6, color: "#555" }}>Define salary structures, components, and OT rules.</p>
+          <p style={{ marginTop: 4, color: "#6b7280", fontSize: 13 }}>
+            CTC is assigned per employee (Employee → Salary tab).
+          </p>
           <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
             Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
           </p>
