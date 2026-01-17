@@ -12,6 +12,7 @@ import {
   inputStyle,
   pageContainerStyle,
   pageHeaderStyle,
+  primaryButtonStyle,
   secondaryButtonStyle,
   subtitleStyle,
   tableCellStyle,
@@ -26,17 +27,15 @@ import { supabase } from "../../../../lib/supabaseClient";
 const statusOptions = [
   { value: "", label: "All statuses" },
   { value: "draft", label: "Draft" },
-  { value: "submitted", label: "Submitted" },
   { value: "approved", label: "Approved" },
   { value: "completed", label: "Completed" },
   { value: "rejected", label: "Rejected" },
-  { value: "cancelled", label: "Cancelled" },
 ];
 
 type EmployeeEmbed = { id: string; full_name: string | null; employee_code: string | null };
 type ExitMetaEmbed = { id: string; name: string | null };
 
-type ExitRowRaw = {
+type ExitRowBase = {
   id: string;
   status: string;
   initiated_on: string | null;
@@ -45,12 +44,10 @@ type ExitRowRaw = {
   notice_waived: boolean;
   notes: string | null;
   created_at: string | null;
-
-  employee: EmployeeEmbed | EmployeeEmbed[] | null;
-  manager: EmployeeEmbed | EmployeeEmbed[] | null;
-
-  exit_type: ExitMetaEmbed | ExitMetaEmbed[] | null;
-  exit_reason: ExitMetaEmbed | ExitMetaEmbed[] | null;
+  employee_id: string | null;
+  manager_employee_id: string | null;
+  exit_type_id: string | null;
+  exit_reason_id: string | null;
 };
 
 type ExitRow = {
@@ -74,12 +71,6 @@ type ToastState = { type: "success" | "error"; message: string } | null;
 
 function normalizeSearchTerm(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function normalizeEmbed<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
 }
 
 function formatDate(value: string | null) {
@@ -193,17 +184,10 @@ export default function EmployeeExitsPage() {
           notice_waived,
           notes,
           created_at,
-
-          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
-            id, full_name, employee_code
-          ),
-
-          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey (
-            id, full_name, employee_code
-          ),
-
-          exit_type:erp_hr_employee_exit_types ( id, name ),
-          exit_reason:erp_hr_employee_exit_reasons ( id, name )
+          employee_id,
+          manager_employee_id,
+          exit_type_id,
+          exit_reason_id
         `
         )
         .eq("company_id", companyId)
@@ -212,7 +196,52 @@ export default function EmployeeExitsPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const raw = (data ?? []) as ExitRowRaw[];
+      const raw = (data ?? []) as ExitRowBase[];
+      const peopleIds = Array.from(
+        new Set(raw.flatMap((row) => [row.employee_id, row.manager_employee_id]).filter(Boolean))
+      ) as string[];
+      const exitTypeIds = Array.from(
+        new Set(raw.map((row) => row.exit_type_id).filter(Boolean))
+      ) as string[];
+      const exitReasonIds = Array.from(
+        new Set(raw.map((row) => row.exit_reason_id).filter(Boolean))
+      ) as string[];
+
+      const [peopleRes, typeRes, reasonRes] = await Promise.all([
+        peopleIds.length
+          ? supabase
+              .from("erp_employees")
+              .select("id, full_name, employee_code")
+              .in("id", peopleIds)
+          : Promise.resolve({ data: [], error: null }),
+        exitTypeIds.length
+          ? supabase
+              .from("erp_hr_employee_exit_types")
+              .select("id, name")
+              .in("id", exitTypeIds)
+          : Promise.resolve({ data: [], error: null }),
+        exitReasonIds.length
+          ? supabase
+              .from("erp_hr_employee_exit_reasons")
+              .select("id, name")
+              .in("id", exitReasonIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      if (peopleRes.error) throw peopleRes.error;
+      if (typeRes.error) throw typeRes.error;
+      if (reasonRes.error) throw reasonRes.error;
+
+      const peopleMap = new Map(
+        (peopleRes.data as EmployeeEmbed[]).map((person) => [person.id, person])
+      );
+      const exitTypeMap = new Map(
+        (typeRes.data as ExitMetaEmbed[]).map((type) => [type.id, type])
+      );
+      const exitReasonMap = new Map(
+        (reasonRes.data as ExitMetaEmbed[]).map((reason) => [reason.id, reason])
+      );
+
       const normalized: ExitRow[] = raw.map((r) => ({
         id: r.id,
         status: r.status,
@@ -222,12 +251,10 @@ export default function EmployeeExitsPage() {
         notice_waived: r.notice_waived,
         notes: r.notes,
         created_at: r.created_at,
-
-        employee: normalizeEmbed(r.employee),
-        manager: normalizeEmbed(r.manager),
-
-        exit_type: normalizeEmbed(r.exit_type),
-        exit_reason: normalizeEmbed(r.exit_reason),
+        employee: r.employee_id ? peopleMap.get(r.employee_id) ?? null : null,
+        manager: r.manager_employee_id ? peopleMap.get(r.manager_employee_id) ?? null : null,
+        exit_type: r.exit_type_id ? exitTypeMap.get(r.exit_type_id) ?? null : null,
+        exit_reason: r.exit_reason_id ? exitReasonMap.get(r.exit_reason_id) ?? null : null,
       }));
 
       setRows(normalized);
@@ -264,6 +291,39 @@ export default function EmployeeExitsPage() {
     }
 
     setToast({ type: "success", message: "Exit completed successfully." });
+    setActionLoading(null);
+    if (ctx?.companyId) {
+      await loadExits(ctx.companyId);
+    }
+  }
+
+  async function handleStatusChange(exitId: string, status: "approved" | "rejected") {
+    if (!canManage) {
+      setToast({ type: "error", message: "You do not have permission to update exits." });
+      return;
+    }
+
+    let rejectionReason = null;
+    if (status === "rejected") {
+      rejectionReason = window.prompt("Optional rejection reason:", "") ?? null;
+      if (rejectionReason === null) return;
+    }
+
+    setActionLoading(exitId);
+    const { error } = await supabase.rpc("erp_hr_exit_set_status", {
+      p_exit_id: exitId,
+      p_status: status,
+      p_rejection_reason: rejectionReason || null,
+      p_payment_notes: null,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message || "Unable to update exit request." });
+      setActionLoading(null);
+      return;
+    }
+
+    setToast({ type: "success", message: `Exit ${status} successfully.` });
     setActionLoading(null);
     if (ctx?.companyId) {
       await loadExits(ctx.companyId);
@@ -376,6 +436,26 @@ export default function EmployeeExitsPage() {
                           <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
                             View
                           </Link>
+                          {canManage && r.status === "draft" ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(r.id, "approved")}
+                                disabled={actionLoading === r.id}
+                                style={primaryButtonStyle}
+                              >
+                                {actionLoading === r.id ? "Updating…" : "Approve"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(r.id, "rejected")}
+                                disabled={actionLoading === r.id}
+                                style={secondaryButtonStyle}
+                              >
+                                {actionLoading === r.id ? "Updating…" : "Reject"}
+                              </button>
+                            </>
+                          ) : null}
                           {canComplete && r.status === "approved" ? (
                             <button
                               type="button"
