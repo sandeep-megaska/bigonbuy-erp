@@ -12,7 +12,6 @@ import {
   inputStyle,
   pageContainerStyle,
   pageHeaderStyle,
-  primaryButtonStyle,
   secondaryButtonStyle,
   subtitleStyle,
   tableCellStyle,
@@ -20,135 +19,86 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 
-import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
-import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
-const statusOptions = [
-  { value: "", label: "All statuses" },
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
   { value: "draft", label: "Draft" },
+  { value: "submitted", label: "Submitted" },
   { value: "approved", label: "Approved" },
-  { value: "completed", label: "Completed" },
   { value: "rejected", label: "Rejected" },
+  { value: "completed", label: "Completed" },
+  { value: "withdrawn", label: "Withdrawn" },
 ];
 
-type EmployeeEmbed = { id: string; full_name: string | null; employee_code: string | null };
-type ExitMetaEmbed = { id: string; name: string | null };
+const STATUS_STYLES: Record<string, CSSProperties> = {
+  draft: { backgroundColor: "#e0f2fe", color: "#0369a1" },
+  submitted: { backgroundColor: "#fef3c7", color: "#92400e" },
+  approved: { backgroundColor: "#dcfce7", color: "#166534" },
+  rejected: { backgroundColor: "#fee2e2", color: "#b91c1c" },
+  completed: { backgroundColor: "#e5e7eb", color: "#1f2937" },
+  withdrawn: { backgroundColor: "#f3f4f6", color: "#374151" },
+};
 
-type ExitRowBase = {
-  id: string;
-  status: string;
-  initiated_on: string | null;
-  last_working_day: string;
-  notice_period_days: number | null;
-  notice_waived: boolean;
-  notes: string | null;
-  created_at: string | null;
+const bannerStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#fef2f2",
+  border: "1px solid #fecaca",
+  color: "#991b1b",
+  fontSize: 13,
 };
 
 type ExitRow = {
   id: string;
+  employee_id: string;
   status: string;
-  initiated_on: string | null;
   last_working_day: string;
-  notice_period_days: number | null;
-  notice_waived: boolean;
-  notes: string | null;
   created_at: string | null;
-
-  employee: EmployeeEmbed | null;
-  manager: EmployeeEmbed | null;
-
-  exit_type: ExitMetaEmbed | null;
-  exit_reason: ExitMetaEmbed | null;
 };
 
-type ToastState = { type: "success" | "error"; message: string } | null;
-
-type EmbeddedValue<T> = T | T[] | null;
-
-function normalizeSearchTerm(value: string | null | undefined) {
-  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function normalizeEmbed<T>(value: EmbeddedValue<T>) {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
+type EmployeeRow = {
+  id: string;
+  full_name: string | null;
+  employee_code: string | null;
+};
 
 function formatDate(value: string | null) {
-  if (!value) return "";
+  if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString();
 }
 
-function isRlsError(error: { message?: string } | null | undefined) {
-  if (!error?.message) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("row level security") ||
-    message.includes("rls") ||
-    message.includes("permission denied")
-  );
+function normalizeTerm(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-const bannerStyle: CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "#fffbeb",
-  border: "1px solid #f59e0b",
-  color: "#92400e",
-  fontSize: 13,
-  marginTop: 12,
-};
-
-export default function EmployeeExitsPage() {
+export default function HrExitIndexPage() {
   const router = useRouter();
 
   const [ctx, setCtx] = useState<any>(null);
-  const [access, setAccess] = useState<ErpAccessState>({
-    isAuthenticated: false,
-    isManager: false,
-    roleKey: undefined,
-  });
-
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ExitRow[]>([]);
-
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [employeeFilter, setEmployeeFilter] = useState<string>("");
-
-  const [toast, setToast] = useState<ToastState>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [rlsWarning, setRlsWarning] = useState<string>("");
-
-  const roleKey = useMemo(
-    () => (access.roleKey ?? ctx?.roleKey ?? "").toString(),
-    [access.roleKey, ctx?.roleKey]
-  );
-
-  const canManage = useMemo(() => access.isManager || isHr(roleKey), [access.isManager, roleKey]);
-  const canComplete = useMemo(() => isHr(roleKey), [roleKey]);
+  const [employeeMap, setEmployeeMap] = useState<Record<string, EmployeeRow>>({});
+  const [statusFilter, setStatusFilter] = useState<string>("draft");
+  const [search, setSearch] = useState<string>("");
+  const [error, setError] = useState<string>("");
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [rawRowCount, setRawRowCount] = useState(0);
 
   const filteredRows = useMemo(() => {
-    const q = normalizeSearchTerm(employeeFilter);
+    const term = normalizeTerm(search);
+    if (!term) return rows;
     return rows.filter((row) => {
-      const matchesStatus = statusFilter ? row.status === statusFilter : true;
-      if (!matchesStatus) return false;
-      if (!q) return true;
-      const name = normalizeSearchTerm(row.employee?.full_name);
-      const code = normalizeSearchTerm(row.employee?.employee_code);
-      return name.includes(q) || code.includes(q);
+      const employee = employeeMap[row.employee_id];
+      const values = [employee?.full_name, employee?.employee_code]
+        .filter(Boolean)
+        .join(" ");
+      return normalizeTerm(values).includes(term);
     });
-  }, [rows, employeeFilter, statusFilter]);
-
-  const showHelperBanner = useMemo(() => {
-    const hasStatus = !!normalizeSearchTerm(statusFilter);
-    const hasEmployee = !!normalizeSearchTerm(employeeFilter);
-    const hasActiveFilters = hasStatus || hasEmployee;
-    return hasActiveFilters && !loading && filteredRows.length === 0;
-  }, [statusFilter, employeeFilter, loading, filteredRows.length]);
+  }, [rows, employeeMap, search]);
 
   useEffect(() => {
     let active = true;
@@ -157,27 +107,20 @@ export default function EmployeeExitsPage() {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
-      const [accessState, context] = await Promise.all([
-        getCurrentErpAccess(session),
-        getCompanyContext(session),
-      ]);
+      const context = await getCompanyContext(session);
       if (!active) return;
-
-      setAccess({
-        ...accessState,
-        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
-      });
       setCtx(context);
 
-      if (!context.companyId && active) {
+      if (!context.companyId) {
+        setError(context.membershipError || "No active company membership found for this user.");
         setLoading(false);
+        return;
       }
     })();
 
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
@@ -186,10 +129,7 @@ export default function EmployeeExitsPage() {
 
     (async () => {
       setLoading(true);
-      await loadExits(ctx.companyId, {
-        statusFilter,
-        searchText: employeeFilter,
-      });
+      await loadExits(ctx.companyId);
       if (active) setLoading(false);
     })();
 
@@ -198,340 +138,186 @@ export default function EmployeeExitsPage() {
     };
   }, [ctx?.companyId, statusFilter]);
 
-  async function loadExits(
-    companyId: string,
-    options: { statusFilter: string; searchText: string }
-  ) {
-    const { statusFilter: statusValue, searchText } = options;
-    if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.log("[exits] ctx", {
-        companyId: ctx?.companyId,
-        userId: ctx?.userId,
-        roleKey: ctx?.roleKey,
-      });
-      // eslint-disable-next-line no-console
-      console.log("[exits] query params", {
-        statusFilter: statusValue,
-        searchText,
-      });
-    }
+  async function loadExits(companyId: string) {
+    setError("");
+    setQueryError(null);
+    const baseQuery = supabase
+      .from("erp_hr_employee_exits")
+      .select("id, employee_id, status, last_working_day, created_at")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false });
 
-    try {
-      let query = supabase
-        .from("erp_hr_employee_exits")
-        .select(
-          `
-          id,
-          status,
-          initiated_on,
-          last_working_day,
-          notice_period_days,
-          notice_waived,
-          notes,
-          created_at,
-          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey(
-            id,
-            full_name,
-            employee_code
-          ),
-          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey(
-            id,
-            full_name,
-            employee_code
-          ),
-          exit_type:erp_hr_employee_exit_types(
-            id,
-            name
-          ),
-          exit_reason:erp_hr_employee_exit_reasons(
-            id,
-            name
-          )
-        `
-        )
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false });
+    const { data, error: exitError } =
+      statusFilter === "all" ? await baseQuery : await baseQuery.eq("status", statusFilter);
 
-      if (statusValue) {
-        query = query.eq("status", statusValue);
-      }
+    setQueryError(exitError?.message ?? null);
 
-      const { data, error } = await query;
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.log("[exits] rowsError", error);
-      }
-      if (error) {
-        if (isRlsError(error)) {
-          setRlsWarning(`You don’t have access to view exits. (${error.message})`);
-        }
-        throw error;
-      }
-
-      setRlsWarning("");
-      const raw = (data ?? []) as (ExitRowBase & {
-        employee?: EmbeddedValue<EmployeeEmbed>;
-        manager?: EmbeddedValue<EmployeeEmbed>;
-        exit_type?: EmbeddedValue<ExitMetaEmbed>;
-        exit_reason?: EmbeddedValue<ExitMetaEmbed>;
-      })[];
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.log("[exits] rows before normalize", raw.length);
-      }
-      const normalized: ExitRow[] = raw.map((r) => ({
-        id: r.id,
-        status: r.status,
-        initiated_on: r.initiated_on,
-        last_working_day: r.last_working_day,
-        notice_period_days: r.notice_period_days,
-        notice_waived: r.notice_waived,
-        notes: r.notes,
-        created_at: r.created_at,
-        employee: normalizeEmbed(r.employee),
-        manager: normalizeEmbed(r.manager),
-        exit_type: normalizeEmbed(r.exit_type),
-        exit_reason: normalizeEmbed(r.exit_reason),
-      }));
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.log("[exits] rows after normalize", normalized.length);
-      }
-
-      setRows(normalized);
-    } catch (e: any) {
-      setToast({ type: "error", message: e?.message || "Unable to load exit requests." });
+    if (exitError) {
       setRows([]);
-    }
-  }
-
-  function clearFilters() {
-    setStatusFilter("");
-    setEmployeeFilter("");
-    router.replace("/erp/hr/exits", undefined, { shallow: true });
-  }
-
-  async function handleComplete(exitId: string) {
-    if (!canComplete) {
-      setToast({ type: "error", message: "You do not have permission to complete exits." });
+      setEmployeeMap({});
+      setRawRowCount(0);
+      setError(exitError.message || "Unable to load exit requests.");
       return;
     }
 
-    setActionLoading(exitId);
-    const { error } = await supabase.rpc("erp_hr_exit_set_status", {
-      p_exit_id: exitId,
-      p_status: "completed",
-      p_rejection_reason: null,
-      p_payment_notes: null,
-    });
+    const exitRows = data ?? [];
+    setRows(exitRows);
+    setRawRowCount(exitRows.length);
 
-    if (error) {
-      setToast({ type: "error", message: error.message || "Unable to complete exit request." });
-      setActionLoading(null);
+    const employeeIds = Array.from(
+      new Set(exitRows.map((row) => row.employee_id).filter(Boolean))
+    );
+
+    if (!employeeIds.length) {
+      setEmployeeMap({});
       return;
     }
 
-    setToast({ type: "success", message: "Exit completed successfully." });
-    setActionLoading(null);
-    if (ctx?.companyId) {
-      await loadExits(ctx.companyId, {
-        statusFilter,
-        searchText: employeeFilter,
-      });
+    const { data: employees, error: employeeError } = await supabase
+      .from("erp_employees")
+      .select("id, full_name, employee_code")
+      .in("id", employeeIds);
+
+    if (employeeError) {
+      setEmployeeMap({});
+      setError((prev) => prev || employeeError.message || "Unable to load employees.");
+      return;
     }
+
+    const map = (employees || []).reduce<Record<string, EmployeeRow>>((acc, employee) => {
+      acc[employee.id] = employee;
+      return acc;
+    }, {});
+    setEmployeeMap(map);
   }
 
-  async function handleStatusChange(exitId: string, status: "approved" | "rejected") {
-    if (!canManage) {
-      setToast({ type: "error", message: "You do not have permission to update exits." });
-      return;
-    }
-
-    let rejectionReason = null;
-    if (status === "rejected") {
-      rejectionReason = window.prompt("Optional rejection reason:", "") ?? null;
-      if (rejectionReason === null) return;
-    }
-
-    setActionLoading(exitId);
-    const { error } = await supabase.rpc("erp_hr_exit_set_status", {
-      p_exit_id: exitId,
-      p_status: status,
-      p_rejection_reason: rejectionReason || null,
-      p_payment_notes: null,
-    });
-
-    if (error) {
-      setToast({ type: "error", message: error.message || "Unable to update exit request." });
-      setActionLoading(null);
-      return;
-    }
-
-    setToast({ type: "success", message: `Exit ${status} successfully.` });
-    setActionLoading(null);
-    if (ctx?.companyId) {
-      await loadExits(ctx.companyId, {
-        statusFilter,
-        searchText: employeeFilter,
-      });
-    }
-  }
+  const showEmptyState = !loading && filteredRows.length === 0;
+  const showDebug = process.env.NODE_ENV !== "production" && rawRowCount === 0;
 
   return (
-    <ErpShell activeModule="hr">
-
+    <ErpShell>
       <div style={pageContainerStyle}>
-        <div style={pageHeaderStyle}>
+        <header style={pageHeaderStyle}>
           <div>
-            <div style={eyebrowStyle}>HR</div>
-            <div style={h1Style}>Employee Exits</div>
-            <div style={subtitleStyle}>Track resignations, terminations, and exit approvals.</div>
+            <p style={eyebrowStyle}>HR</p>
+            <h1 style={h1Style}>Employee Exits</h1>
+            <p style={subtitleStyle}>Track exit requests and their current status.</p>
           </div>
-        </div>
-
-        {toast && (
-          <div style={{ ...bannerStyle, background: toast.type === "error" ? "#fef2f2" : "#ecfdf5", borderColor: toast.type === "error" ? "#ef4444" : "#10b981", color: toast.type === "error" ? "#991b1b" : "#065f46" }}>
-            {toast.message}
+          <div>
+            <div style={{ fontWeight: 600 }}>Total exits: {rows.length}</div>
+            {filteredRows.length !== rows.length ? (
+              <div style={{ color: "#6b7280", fontSize: 13 }}>
+                Showing {filteredRows.length}
+              </div>
+            ) : null}
           </div>
-        )}
-        {rlsWarning && (
-          <div style={bannerStyle}>{rlsWarning}</div>
-        )}
+        </header>
 
-        <div style={{ ...cardStyle, marginTop: 16 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "220px 1fr 160px",
-              gap: 12,
-              alignItems: "end",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Status</div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={inputStyle}
-              >
-                {statusOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+        {error ? <div style={bannerStyle}>{error}</div> : null}
 
-            <div>
-              <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Employee search</div>
-              <input
-                value={employeeFilter}
-                onChange={(e) => setEmployeeFilter(e.target.value)}
-                placeholder="Search by name or code…"
-                style={inputStyle}
-              />
-            </div>
+        <section style={{ ...cardStyle, display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>Status</span>
+            <select
+              style={{ ...inputStyle, minWidth: 180 }}
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+            <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>
+              Search employee
+            </span>
+            <input
+              style={{ ...inputStyle, minWidth: 220 }}
+              placeholder="Search by name or code"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+        </section>
 
-            <button onClick={clearFilters} style={secondaryButtonStyle}>
-              Clear
-            </button>
-          </div>
-
-          {showHelperBanner && (
-            <div style={bannerStyle}>No exits match the current filters. Try clearing filters.</div>
-          )}
-
-          <div style={{ marginTop: 14, overflowX: "auto" }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={tableHeaderCellStyle}>Employee</th>
-                  <th style={tableHeaderCellStyle}>Status</th>
-                  <th style={tableHeaderCellStyle}>LWD</th>
-                  <th style={tableHeaderCellStyle}>Initiated On</th>
-                  <th style={tableHeaderCellStyle}>Type</th>
-                  <th style={tableHeaderCellStyle}>Reason</th>
-                  <th style={tableHeaderCellStyle}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td style={tableCellStyle} colSpan={7}>
-                      Loading…
+        {loading ? (
+          <div style={cardStyle}>Loading exits…</div>
+        ) : (
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeaderCellStyle}>Created</th>
+                <th style={tableHeaderCellStyle}>Employee</th>
+                <th style={tableHeaderCellStyle}>Last Working Day</th>
+                <th style={tableHeaderCellStyle}>Status</th>
+                <th style={tableHeaderCellStyle}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => {
+                const employee = employeeMap[row.employee_id];
+                return (
+                  <tr key={row.id}>
+                    <td style={tableCellStyle}>{formatDate(row.created_at)}</td>
+                    <td style={tableCellStyle}>
+                      <div style={{ fontWeight: 600 }}>{employee?.full_name || "Employee"}</div>
+                      <div style={{ color: "#6b7280", fontSize: 12 }}>
+                        {employee?.employee_code || row.employee_id}
+                      </div>
+                    </td>
+                    <td style={tableCellStyle}>{formatDate(row.last_working_day)}</td>
+                    <td style={tableCellStyle}>
+                      <span
+                        style={{
+                          ...badgeStyle,
+                          ...(STATUS_STYLES[row.status?.toLowerCase()] || STATUS_STYLES.draft),
+                        }}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td style={tableCellStyle}>
+                      <Link href={`/erp/hr/exits/${row.id}`} style={secondaryButtonStyle}>
+                        View
+                      </Link>
                     </td>
                   </tr>
-                ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td style={tableCellStyle} colSpan={7}>
-                      No exit requests found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRows.map((r) => (
-                    <tr key={r.id}>
-                      <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{r.employee?.full_name || "—"}</div>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>{r.employee?.employee_code || ""}</div>
-                      </td>
-                      <td style={tableCellStyle}>
-                        <span style={{ ...badgeStyle }}>{r.status}</span>
-                      </td>
-                      <td style={tableCellStyle}>{formatDate(r.last_working_day)}</td>
-                      <td style={tableCellStyle}>{formatDate(r.initiated_on)}</td>
-                      <td style={tableCellStyle}>{r.exit_type?.name || "—"}</td>
-                      <td style={tableCellStyle}>{r.exit_reason?.name || "—"}</td>
-                      <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                          <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
-                            View
-                          </Link>
-                          {canManage && r.status === "draft" ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleStatusChange(r.id, "approved")}
-                                disabled={actionLoading === r.id}
-                                style={primaryButtonStyle}
-                              >
-                                {actionLoading === r.id ? "Updating…" : "Approve"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleStatusChange(r.id, "rejected")}
-                                disabled={actionLoading === r.id}
-                                style={secondaryButtonStyle}
-                              >
-                                {actionLoading === r.id ? "Updating…" : "Reject"}
-                              </button>
-                            </>
-                          ) : null}
-                          {canComplete && r.status === "approved" ? (
-                            <button
-                              type="button"
-                              onClick={() => handleComplete(r.id)}
-                              disabled={actionLoading === r.id}
-                              style={secondaryButtonStyle}
-                            >
-                              {actionLoading === r.id ? "Completing…" : "Complete"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
 
-          {!canManage && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-              Note: Only Owner/Admin/HR can approve/complete exits.
+        {showEmptyState ? (
+          <div style={cardStyle}>
+            {rows.length === 0
+              ? "No exit requests have been created yet."
+              : "No exit requests match the current filters."}
+          </div>
+        ) : null}
+
+        {showDebug ? (
+          <details style={{ ...cardStyle, fontSize: 12, maxWidth: 420 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Debug</summary>
+            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+              <div>
+                <strong>companyId:</strong> {ctx?.companyId || "—"}
+              </div>
+              <div>
+                <strong>filters:</strong> {JSON.stringify({ statusFilter, search })}
+              </div>
+              <div>
+                <strong>supabase error:</strong> {queryError || "none"}
+              </div>
+              <div>
+                <strong>raw row count:</strong> {rawRowCount}
+              </div>
             </div>
-          )}
-        </div>
+          </details>
+        ) : null}
       </div>
     </ErpShell>
   );
