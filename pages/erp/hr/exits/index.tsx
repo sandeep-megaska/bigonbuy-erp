@@ -1,61 +1,201 @@
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/router";
 import Link from "next/link";
-import { supabase } from "../../../../lib/supabaseClient";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
+import type { CSSProperties } from "react";
 
-type ExitRow = {
+import ErpShell from "../../../../components/erp/ErpShell";
+import {
+  badgeStyle,
+  cardStyle,
+  eyebrowStyle,
+  h1Style,
+  inputStyle,
+  pageContainerStyle,
+  pageHeaderStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+  tableCellStyle,
+  tableHeaderCellStyle,
+  tableStyle,
+} from "../../../../components/erp/uiStyles";
+
+import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { getCurrentErpAccess, type ErpAccessState } from "../../../../lib/erp/nav";
+import { supabase } from "../../../../lib/supabaseClient";
+
+const statusOptions = [
+  { value: "", label: "All statuses" },
+  { value: "draft", label: "Draft" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "completed", label: "Completed" },
+];
+
+type ExitRowRaw = {
   id: string;
   status: string;
-  initiated_on: string;
+  initiated_on: string | null;
   last_working_day: string;
   notice_period_days: number | null;
   notice_waived: boolean;
   notes: string | null;
-  created_at: string;
+  created_at: string | null;
+
+  employee: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+  manager: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+
+  exit_type: { id: string; name: string | null }[] | null;
+  exit_reason: { id: string; name: string | null }[] | null;
+};
+
+type ExitRow = {
+  id: string;
+  status: string;
+  initiated_on: string | null;
+  last_working_day: string;
+  notice_period_days: number | null;
+  notice_waived: boolean;
+  notes: string | null;
+  created_at: string | null;
 
   employee: { id: string; full_name: string | null; employee_code: string | null } | null;
   manager: { id: string; full_name: string | null; employee_code: string | null } | null;
+
   exit_type: { id: string; name: string | null } | null;
   exit_reason: { id: string; name: string | null } | null;
 };
 
+type ToastState = { type: "success" | "error"; message: string } | null;
+
+function normalizeSearchTerm(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function formatDate(value: string | null) {
+  if (!value) return "";
+  return value;
+}
+
+const bannerStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#fffbeb",
+  border: "1px solid #f59e0b",
+  color: "#92400e",
+  fontSize: 13,
+  marginTop: 12,
+};
+
 export default function EmployeeExitsPage() {
   const router = useRouter();
-  const { ctx, loading: ctxLoading } = getCompanyContext();
 
+  const [ctx, setCtx] = useState<any>(null);
+  const [access, setAccess] = useState<ErpAccessState>({
+    isAuthenticated: false,
+    isManager: false,
+    roleKey: undefined,
+  });
+
+  const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ExitRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<{ type: "error" | "success"; message: string } | null>(null);
 
-  // Lean filters: no month filter
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("draft");
+  const [employeeFilter, setEmployeeFilter] = useState<string>("");
+
+  const [toast, setToast] = useState<ToastState>(null);
+  const filtersInitialized = useRef(false);
+
+  const canManage = useMemo(() => {
+    const roleKey = (access.roleKey ?? ctx?.roleKey ?? "").toString();
+    return access.isManager || isHr(roleKey) || roleKey === "owner" || roleKey === "admin";
+  }, [access.isManager, access.roleKey, ctx?.roleKey]);
+
+  const filteredRows = useMemo(() => {
+    const q = normalizeSearchTerm(employeeFilter);
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const name = normalizeSearchTerm(row.employee?.full_name);
+      const code = normalizeSearchTerm(row.employee?.employee_code);
+      return name.includes(q) || code.includes(q);
+    });
+  }, [rows, employeeFilter]);
+
+  const showHelperBanner = useMemo(() => {
+    const hasStatus = !!normalizeSearchTerm(statusFilter);
+    const hasEmployee = !!normalizeSearchTerm(employeeFilter);
+    const hasActiveFilters = hasStatus || hasEmployee;
+    return hasActiveFilters && !loading && filteredRows.length === 0;
+  }, [statusFilter, employeeFilter, loading, filteredRows.length]);
 
   useEffect(() => {
-    requireAuthRedirectHome(router);
+    let active = true;
+
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const [accessState, context] = await Promise.all([
+        getCurrentErpAccess(session),
+        getCompanyContext(session),
+      ]);
+      if (!active) return;
+
+      setAccess({
+        ...accessState,
+        roleKey: accessState.roleKey ?? context.roleKey ?? undefined,
+      });
+      setCtx(context);
+
+      if (!context.companyId) {
+        setLoading(false);
+        return;
+      }
+
+      await loadExits(context.companyId);
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   useEffect(() => {
-    if (ctxLoading) return;
+    if (!router.isReady || filtersInitialized.current) return;
+
+    const hasStatus = Object.prototype.hasOwnProperty.call(router.query, "status");
+    const hasEmployee = Object.prototype.hasOwnProperty.call(router.query, "employee");
+
+    const statusParam = typeof router.query.status === "string" ? router.query.status : "";
+    const employeeParam = typeof router.query.employee === "string" ? router.query.employee : "";
+
+    setStatusFilter(hasStatus ? statusParam : "draft");
+    setEmployeeFilter(hasEmployee ? employeeParam : "");
+
+    filtersInitialized.current = true;
+  }, [router.isReady, router.query]);
+
+  useEffect(() => {
     if (!ctx?.companyId) return;
-    loadExits();
+    loadExits(ctx.companyId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx?.companyId, statusFilter]);
 
-  async function loadExits() {
-    if (!ctx?.companyId) return;
-
-    setLoading(true);
-    setToast(null);
-
+  async function loadExits(companyId: string) {
     try {
       let query = supabase
         .from("erp_hr_employee_exits")
         .select(
           `
-          id, status, initiated_on, last_working_day,
-          notice_period_days, notice_waived, notes, created_at,
+          id,
+          status,
+          initiated_on,
+          last_working_day,
+          notice_period_days,
+          notice_waived,
+          notes,
+          created_at,
 
           employee:erp_employees!erp_hr_employee_exits_employee_id_fkey (
             id, full_name, employee_code
@@ -69,129 +209,159 @@ export default function EmployeeExitsPage() {
           exit_reason:erp_hr_employee_exit_reasons ( id, name )
         `
         )
-        .eq("company_id", ctx.companyId)
+        .eq("company_id", companyId)
         .order("created_at", { ascending: false });
 
-      // IMPORTANT: "all" means no filter
-      if (statusFilter && statusFilter !== "all") {
+      if (statusFilter) {
         query = query.eq("status", statusFilter);
       }
 
       const { data, error } = await query;
       if (error) throw error;
 
-      const raw = (data ?? []) as any[];
-
+      const raw = (data ?? []) as ExitRowRaw[];
       const normalized: ExitRow[] = raw.map((r) => ({
-        ...r,
-        employee: Array.isArray(r.employee) ? r.employee[0] ?? null : r.employee ?? null,
-        manager: Array.isArray(r.manager) ? r.manager[0] ?? null : r.manager ?? null,
-        exit_type: Array.isArray(r.exit_type) ? r.exit_type[0] ?? null : r.exit_type ?? null,
-        exit_reason: Array.isArray(r.exit_reason) ? r.exit_reason[0] ?? null : r.exit_reason ?? null,
+        id: r.id,
+        status: r.status,
+        initiated_on: r.initiated_on,
+        last_working_day: r.last_working_day,
+        notice_period_days: r.notice_period_days,
+        notice_waived: r.notice_waived,
+        notes: r.notes,
+        created_at: r.created_at,
+
+        employee: r.employee?.[0] ?? null,
+        manager: r.manager?.[0] ?? null,
+
+        exit_type: r.exit_type?.[0] ?? null,
+        exit_reason: r.exit_reason?.[0] ?? null,
       }));
 
       setRows(normalized);
     } catch (e: any) {
-      setToast({ type: "error", message: e?.message || "Unable to load employee exits." });
-    } finally {
-      setLoading(false);
+      setToast({ type: "error", message: e?.message || "Unable to load exit requests." });
+      setRows([]);
     }
   }
 
-  const filteredRows = useMemo(() => {
-    if (!employeeSearch.trim()) return rows;
-    const q = employeeSearch.toLowerCase();
-    return rows.filter(
-      (r) =>
-        r.employee?.full_name?.toLowerCase().includes(q) ||
-        r.employee?.employee_code?.toLowerCase().includes(q)
-    );
-  }, [rows, employeeSearch]);
+  function clearFilters() {
+    setStatusFilter("");
+    setEmployeeFilter("");
+    router.replace("/erp/hr/exits", undefined, { shallow: true });
+  }
 
   return (
-    <div className="erp-page">
-      <div className="erp-page-header">
-        <h1>Employee Exits</h1>
-        <p>Manage separations with approvals and completion.</p>
-        <div className="erp-page-links">
-          <Link href="/erp/hr">HR Home</Link> · <Link href="/erp/hr/employees">Employees</Link>
-        </div>
-      </div>
-
-      {toast && <div className={`erp-toast ${toast.type}`}>{toast.message}</div>}
-
-      <div className="erp-card">
-        <div className="erp-filters">
+    <ErpShell title="Employee Exits">
+      <div style={pageContainerStyle}>
+        <div style={pageHeaderStyle}>
           <div>
-            <label>Status</label>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="all">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="approved">Approved</option>
-              <option value="completed">Completed</option>
-              <option value="rejected">Rejected</option>
-            </select>
+            <div style={eyebrowStyle}>HR</div>
+            <div style={h1Style}>Employee Exits</div>
+            <div style={subtitleStyle}>Track resignations, terminations, and exit approvals.</div>
           </div>
-
-          <div>
-            <label>Employee search</label>
-            <input
-              placeholder="Name or code"
-              value={employeeSearch}
-              onChange={(e) => setEmployeeSearch(e.target.value)}
-            />
-          </div>
-
-          <button
-            className="btn-outline"
-            onClick={() => {
-              setStatusFilter("all");
-              setEmployeeSearch("");
-              router.replace("/erp/hr/exits", undefined, { shallow: true });
-            }}
-          >
-            Reset
-          </button>
         </div>
-      </div>
 
-      <div className="erp-card">
-        {loading && <p>Loading exits…</p>}
-
-        {!loading && filteredRows.length === 0 && <div className="erp-empty">No exit requests found.</div>}
-
-        {!loading && filteredRows.length > 0 && (
-          <table className="erp-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Status</th>
-                <th>Exit Type</th>
-                <th>Last Working Day</th>
-                <th>Initiated On</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    {r.employee?.full_name}
-                    <div className="muted">{r.employee?.employee_code}</div>
-                  </td>
-                  <td>{r.status}</td>
-                  <td>{r.exit_type?.name ?? "-"}</td>
-                  <td>{r.last_working_day}</td>
-                  <td>{r.initiated_on}</td>
-                  <td>
-                    <Link href={`/erp/hr/exits/${r.id}`}>View</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {toast && (
+          <div style={{ ...bannerStyle, background: toast.type === "error" ? "#fef2f2" : "#ecfdf5", borderColor: toast.type === "error" ? "#ef4444" : "#10b981", color: toast.type === "error" ? "#991b1b" : "#065f46" }}>
+            {toast.message}
+          </div>
         )}
+
+        <div style={{ ...cardStyle, marginTop: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 160px", gap: 12, alignItems: "end" }}>
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Status</div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                style={inputStyle}
+              >
+                {statusOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Employee search</div>
+              <input
+                value={employeeFilter}
+                onChange={(e) => setEmployeeFilter(e.target.value)}
+                placeholder="Search by name or code…"
+                style={inputStyle}
+              />
+            </div>
+
+            <button onClick={clearFilters} style={secondaryButtonStyle}>
+              Clear
+            </button>
+          </div>
+
+          {showHelperBanner && (
+            <div style={bannerStyle}>No exits match the current filters. Try clearing filters.</div>
+          )}
+
+          <div style={{ marginTop: 14, overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Employee</th>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>LWD</th>
+                  <th style={tableHeaderCellStyle}>Initiated</th>
+                  <th style={tableHeaderCellStyle}>Type</th>
+                  <th style={tableHeaderCellStyle}>Reason</th>
+                  <th style={tableHeaderCellStyle}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={7}>
+                      Loading…
+                    </td>
+                  </tr>
+                ) : filteredRows.length === 0 ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={7}>
+                      No exit requests found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRows.map((r) => (
+                    <tr key={r.id}>
+                      <td style={tableCellStyle}>
+                        <div style={{ fontWeight: 600 }}>{r.employee?.full_name || "—"}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>{r.employee?.employee_code || ""}</div>
+                      </td>
+                      <td style={tableCellStyle}>
+                        <span style={{ ...badgeStyle }}>{r.status}</span>
+                      </td>
+                      <td style={tableCellStyle}>{formatDate(r.last_working_day)}</td>
+                      <td style={tableCellStyle}>{formatDate(r.initiated_on)}</td>
+                      <td style={tableCellStyle}>{r.exit_type?.name || "—"}</td>
+                      <td style={tableCellStyle}>{r.exit_reason?.name || "—"}</td>
+                      <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                        <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
+                          Open
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {!canManage && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
+              Note: Only Owner/Admin/HR can approve/complete exits.
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </ErpShell>
   );
 }
