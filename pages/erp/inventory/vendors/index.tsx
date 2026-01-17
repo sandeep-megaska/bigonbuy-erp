@@ -28,6 +28,12 @@ type Vendor = {
   phone: string | null;
   email: string | null;
   address: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  country: string | null;
   payment_terms_days: number;
   notes: string | null;
   is_active: boolean;
@@ -49,6 +55,12 @@ export default function InventoryVendorsPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [city, setCity] = useState("");
+  const [stateValue, setStateValue] = useState("");
+  const [pincode, setPincode] = useState("");
+  const [country, setCountry] = useState("");
   const [paymentTermsDays, setPaymentTermsDays] = useState("0");
   const [notes, setNotes] = useState("");
   const [isActive, setIsActive] = useState(true);
@@ -86,7 +98,7 @@ export default function InventoryVendorsPage() {
     const { data, error: loadError } = await supabase
       .from("erp_vendors")
       .select(
-        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, payment_terms_days, notes, is_active, created_at"
+        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, created_at"
       )
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
@@ -107,6 +119,12 @@ export default function InventoryVendorsPage() {
     setPhone("");
     setEmail("");
     setAddress("");
+    setAddressLine1("");
+    setAddressLine2("");
+    setCity("");
+    setStateValue("");
+    setPincode("");
+    setCountry("");
     setPaymentTermsDays("0");
     setNotes("");
     setIsActive(true);
@@ -134,6 +152,12 @@ export default function InventoryVendorsPage() {
       phone: phone.trim() || null,
       email: email.trim() || null,
       address: address.trim() || null,
+      address_line1: addressLine1.trim() || null,
+      address_line2: addressLine2.trim() || null,
+      city: city.trim() || null,
+      state: stateValue.trim() || null,
+      pincode: pincode.trim() || null,
+      country: country.trim() || null,
       payment_terms_days: Number(paymentTermsDays) || 0,
       notes: notes.trim() || null,
       is_active: isActive,
@@ -171,6 +195,12 @@ export default function InventoryVendorsPage() {
     setPhone(vendor.phone || "");
     setEmail(vendor.email || "");
     setAddress(vendor.address || "");
+    setAddressLine1(vendor.address_line1 || "");
+    setAddressLine2(vendor.address_line2 || "");
+    setCity(vendor.city || "");
+    setStateValue(vendor.state || "");
+    setPincode(vendor.pincode || "");
+    setCountry(vendor.country || "");
     setPaymentTermsDays(String(vendor.payment_terms_days ?? 0));
     setNotes(vendor.notes || "");
     setIsActive(vendor.is_active);
@@ -218,6 +248,30 @@ export default function InventoryVendorsPage() {
                 <input style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} />
               </label>
               <label style={{ display: "grid", gap: 6 }}>
+                Address Line 1
+                <input style={inputStyle} value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                Address Line 2
+                <input style={inputStyle} value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                City
+                <input style={inputStyle} value={city} onChange={(e) => setCity(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                State
+                <input style={inputStyle} value={stateValue} onChange={(e) => setStateValue(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                Pincode
+                <input style={inputStyle} value={pincode} onChange={(e) => setPincode(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                Country
+                <input style={inputStyle} value={country} onChange={(e) => setCountry(e.target.value)} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
                 Payment Terms (days)
                 <input
                   style={inputStyle}
@@ -236,7 +290,7 @@ export default function InventoryVendorsPage() {
               </label>
             </div>
             <label style={{ display: "grid", gap: 6 }}>
-              Address
+              Address Notes
               <textarea
                 style={{ ...inputStyle, minHeight: 80 }}
                 value={address}

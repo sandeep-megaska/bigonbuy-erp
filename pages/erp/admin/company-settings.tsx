@@ -54,9 +54,17 @@ export default function CompanySettingsPage() {
   const [megaskaFile, setMegaskaFile] = useState<File | null>(null);
   const [bigonbuyPreview, setBigonbuyPreview] = useState<string | null>(null);
   const [megaskaPreview, setMegaskaPreview] = useState<string | null>(null);
-  const [footerAddressText, setFooterAddressText] = useState("");
+  const [poLegalName, setPoLegalName] = useState("");
+  const [poGstin, setPoGstin] = useState("");
+  const [poAddressText, setPoAddressText] = useState("");
+  const [poTermsText, setPoTermsText] = useState("");
 
   const canEdit = useMemo(() => isAdmin(ctx?.roleKey || access.roleKey), [access.roleKey, ctx?.roleKey]);
+  const gstinIsValid = useMemo(() => {
+    if (!poGstin.trim()) return true;
+    const normalized = poGstin.trim().toUpperCase();
+    return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(normalized);
+  }, [poGstin]);
 
   useEffect(() => {
     let active = true;
@@ -123,7 +131,10 @@ export default function CompanySettingsPage() {
       setDesignationCount(designationRes.count || 0);
       setBigonbuyPreview(logoRes.bigonbuyUrl);
       setMegaskaPreview(logoRes.megaskaUrl);
-      setFooterAddressText(settingsRes?.po_footer_address_text || "");
+      setPoLegalName(settingsRes?.legal_name || "");
+      setPoGstin(settingsRes?.gstin || "");
+      setPoAddressText(settingsRes?.address_text || settingsRes?.po_footer_address_text || "");
+      setPoTermsText(settingsRes?.po_terms_text || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load company settings.");
     }
@@ -213,18 +224,21 @@ export default function CompanySettingsPage() {
     }
   }
 
-  async function handleSaveFooterAddress() {
+  async function handleSavePoBranding() {
     setSaving(true);
     setError("");
 
     try {
       const updated = await updateCompanySettings({
-        po_footer_address_text: footerAddressText.trim() || null,
+        legal_name: poLegalName.trim() || null,
+        gstin: poGstin.trim() || null,
+        address_text: poAddressText.trim() || null,
+        po_terms_text: poTermsText.trim() || null,
         updated_by: ctx?.userId ?? null,
       });
       setSettings(updated || settings);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update footer address.");
+      setError(err instanceof Error ? err.message : "Failed to update purchase order branding.");
     } finally {
       setSaving(false);
     }
@@ -279,14 +293,14 @@ export default function CompanySettingsPage() {
     <ErpShell activeModule="admin">
       <div style={pageContainerStyle}>
         <header style={headerStyle}>
-        <div>
-          <p style={eyebrowStyle}>Admin</p>
-          <h1 style={h1Style}>Company Settings</h1>
-          <p style={subtitleStyle}>
-            Configure organization details, brand logos, and go-live readiness.
-          </p>
-        </div>
-      </header>
+          <div>
+            <p style={eyebrowStyle}>Admin</p>
+            <h1 style={h1Style}>Company Settings</h1>
+            <p style={subtitleStyle}>
+              Configure organization details, brand logos, and go-live readiness.
+            </p>
+          </div>
+        </header>
 
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 
@@ -410,19 +424,61 @@ export default function CompanySettingsPage() {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={h2Style}>Purchase Order Footer</h2>
+        <h2 style={h2Style}>Purchase Order Branding</h2>
         <p style={{ marginTop: 4, color: "#6b7280" }}>
-          This address will appear in the footer of printed purchase orders.
+          These details appear on vendor-facing purchase orders and PDFs.
         </p>
-        <label style={labelStyle}>Footer Address Text</label>
+        <div style={gridStyle}>
+          <div>
+            <label style={labelStyle}>Legal Name (for PO header)</label>
+            <input
+              style={inputStyle}
+              value={poLegalName}
+              onChange={(event) => setPoLegalName(event.target.value)}
+              placeholder="Bigonbuy Trading Private Limited"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>GSTIN</label>
+            <input
+              style={inputStyle}
+              value={poGstin}
+              onChange={(event) => setPoGstin(event.target.value)}
+              placeholder="22AAAAA0000A1Z5"
+            />
+            {!gstinIsValid ? (
+              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#b91c1c" }}>
+                GSTIN format looks unusual. Please double-check.
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <label style={labelStyle}>Address (multiline)</label>
         <textarea
           style={{ ...inputStyle, minHeight: 100 }}
-          value={footerAddressText}
-          onChange={(event) => setFooterAddressText(event.target.value)}
-          placeholder="123 Warehouse Lane, Mumbai, India"
+          value={poAddressText}
+          onChange={(event) => setPoAddressText(event.target.value)}
+          placeholder="123 Warehouse Lane&#10;Mumbai, Maharashtra 400001&#10;India"
         />
-        <button type="button" style={primaryButtonStyle} onClick={handleSaveFooterAddress} disabled={saving}>
-          {saving ? "Saving…" : "Save Footer Address"}
+        <label style={labelStyle}>Default PO Terms</label>
+        <textarea
+          style={{ ...inputStyle, minHeight: 100 }}
+          value={poTermsText}
+          onChange={(event) => setPoTermsText(event.target.value)}
+          placeholder="• Deliver within 10 business days\n• Payment due in 30 days\n• Inspect goods upon receipt"
+        />
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: "#f8fafc" }}>
+          <p style={{ margin: "0 0 6px", fontWeight: 600, color: "#111827" }}>Preview</p>
+          <p style={{ margin: 0, color: "#111827", fontWeight: 600 }}>{poLegalName || "Legal name"}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>
+            GSTIN: {poGstin || "—"}
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280", whiteSpace: "pre-line" }}>
+            {poAddressText || "Address line 1\nCity, State ZIP\nCountry"}
+          </p>
+        </div>
+        <button type="button" style={primaryButtonStyle} onClick={handleSavePoBranding} disabled={saving}>
+          {saving ? "Saving…" : "Save Purchase Order Branding"}
         </button>
       </section>
 
