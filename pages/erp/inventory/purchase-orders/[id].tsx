@@ -394,11 +394,7 @@ export default function PurchaseOrderDetailPage() {
               style={secondaryButtonStyle}
               onClick={() => {
                 if (typeof window !== "undefined" && po?.id) {
-                  window.open(
-                    `/erp/inventory/purchase-orders/${po.id}/print`,
-                    "_blank",
-                    "noopener,noreferrer"
-                  );
+                  window.open(`/erp/inventory/purchase-orders/${po.id}/print`, "_blank");
                 }
               }}
             >
