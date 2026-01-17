@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import {
@@ -16,14 +16,18 @@ import {
   tableStyle,
   inputStyle,
 } from "../../../../components/erp/uiStyles";
+import { resolveErpAssetUrl, uploadErpAsset } from "../../../../lib/erp/assetImages";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
 type Product = {
   id: string;
   title: string;
+  style_code: string | null;
   status: string;
   created_at: string;
+  image_url: string | null;
+  image_preview?: string | null;
 };
 
 export default function InventoryProductsPage() {
@@ -33,8 +37,11 @@ export default function InventoryProductsPage() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Product[]>([]);
   const [title, setTitle] = useState("");
+  const [styleCode, setStyleCode] = useState("");
   const [status, setStatus] = useState("draft");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -68,7 +75,7 @@ export default function InventoryProductsPage() {
     setError("");
     const { data, error: loadError } = await supabase
       .from("erp_products")
-      .select("id, title, status, created_at")
+      .select("id, title, style_code, status, created_at, image_url")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
@@ -76,7 +83,16 @@ export default function InventoryProductsPage() {
       if (isActive) setError(loadError.message);
       return;
     }
-    if (isActive) setItems((data || []) as Product[]);
+    if (isActive) {
+      const rows = (data || []) as Product[];
+      const withImages = await Promise.all(
+        rows.map(async (product) => ({
+          ...product,
+          image_preview: await resolveErpAssetUrl(product.image_url),
+        }))
+      );
+      setItems(withImages);
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -86,50 +102,124 @@ export default function InventoryProductsPage() {
       setError("Please provide a product title.");
       return;
     }
+    if (!styleCode.trim()) {
+      setError("Please provide a style code.");
+      return;
+    }
     if (!canWrite) {
       setError("Only owner/admin can create or edit products.");
       return;
     }
 
     setError("");
+    const trimmedStyleCode = styleCode.trim();
+    const { data: existingStyle, error: styleError } = await supabase
+      .from("erp_products")
+      .select("id")
+      .eq("company_id", ctx.companyId)
+      .ilike("style_code", trimmedStyleCode)
+      .maybeSingle();
+    if (styleError && styleError.code !== "PGRST116") {
+      setError(styleError.message);
+      return;
+    }
+    if (existingStyle && existingStyle.id !== editingId) {
+      setError(`Style code "${trimmedStyleCode}" is already in use.`);
+      return;
+    }
+
     if (editingId) {
       const { error: updateError } = await supabase
         .from("erp_products")
-        .update({ title: title.trim(), status })
+        .update({ title: title.trim(), style_code: trimmedStyleCode, status })
         .eq("company_id", ctx.companyId)
         .eq("id", editingId);
       if (updateError) {
         setError(updateError.message);
         return;
       }
+      if (imageFile) {
+        const path = `company/${ctx.companyId}/products/${editingId}/${Date.now()}-${imageFile.name}`;
+        const { error: uploadError } = await uploadErpAsset(path, imageFile);
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+        const { error: imageError } = await supabase
+          .from("erp_products")
+          .update({ image_url: path })
+          .eq("company_id", ctx.companyId)
+          .eq("id", editingId);
+        if (imageError) {
+          setError(imageError.message);
+          return;
+        }
+      }
     } else {
-      const { error: insertError } = await supabase.from("erp_products").insert({
-        company_id: ctx.companyId,
-        title: title.trim(),
-        status,
-      });
+      const { data: newProduct, error: insertError } = await supabase
+        .from("erp_products")
+        .insert({
+          company_id: ctx.companyId,
+          title: title.trim(),
+          style_code: trimmedStyleCode,
+          status,
+        })
+        .select("id")
+        .single();
       if (insertError) {
         setError(insertError.message);
         return;
       }
+      if (imageFile && newProduct?.id) {
+        const path = `company/${ctx.companyId}/products/${newProduct.id}/${Date.now()}-${imageFile.name}`;
+        const { error: uploadError } = await uploadErpAsset(path, imageFile);
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+        const { error: imageError } = await supabase
+          .from("erp_products")
+          .update({ image_url: path })
+          .eq("company_id", ctx.companyId)
+          .eq("id", newProduct.id);
+        if (imageError) {
+          setError(imageError.message);
+          return;
+        }
+      }
     }
 
     setTitle("");
+    setStyleCode("");
     setStatus("draft");
     setEditingId(null);
+    setImageFile(null);
+    setImagePreview(null);
     await loadProducts(ctx.companyId);
   }
 
   function handleEdit(product: Product) {
     setTitle(product.title);
+    setStyleCode(product.style_code || "");
     setStatus(product.status);
     setEditingId(product.id);
+    setImageFile(null);
+    setImagePreview(product.image_preview || null);
   }
 
   function resetForm() {
     setTitle("");
+    setStyleCode("");
     setStatus("draft");
     setEditingId(null);
+    setImageFile(null);
+    setImagePreview(null);
+  }
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+    setImageFile(file);
+    setImagePreview(file ? URL.createObjectURL(file) : null);
   }
 
   if (loading) {
@@ -167,11 +257,26 @@ export default function InventoryProductsPage() {
                 placeholder="Product title (e.g., MBPS06 - One Piece Swimsuit)"
                 style={{ ...inputStyle, gridColumn: "1 / -1" }}
               />
+              <input
+                value={styleCode}
+                onChange={(event) => setStyleCode(event.target.value)}
+                placeholder="Style code (required)"
+                style={inputStyle}
+                required
+              />
               <select value={status} onChange={(event) => setStatus(event.target.value)} style={inputStyle}>
                 <option value="draft">draft</option>
                 <option value="active">active</option>
                 <option value="archived">archived</option>
               </select>
+              <div style={imageUploadStyle}>
+                {imagePreview ? <img src={imagePreview} alt="Product preview" style={imagePreviewStyle} /> : null}
+                <label style={imageUploadLabelStyle}>
+                  <input type="file" accept="image/*" onChange={handleImageChange} style={fileInputStyle} />
+                  {imagePreview ? "Replace image" : "Upload image"}
+                </label>
+                <span style={mutedStyle}>Optional. Stored in Supabase assets.</span>
+              </div>
               <div style={buttonRowStyle}>
                 <button type="submit" style={primaryButtonStyle}>
                   {editingId ? "Save Changes" : "Create Product"}
@@ -200,8 +305,18 @@ export default function InventoryProductsPage() {
               {items.map((product) => (
                 <tr key={product.id}>
                   <td style={tableCellStyle}>
-                    <div style={{ fontWeight: 600 }}>{product.title}</div>
-                    <div style={mutedStyle}>{product.id}</div>
+                    <div style={productCellStyle}>
+                      {product.image_preview ? (
+                        <img src={product.image_preview} alt={product.title} style={thumbnailStyle} />
+                      ) : (
+                        <div style={thumbnailPlaceholderStyle}>IMG</div>
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{product.title}</div>
+                        <div style={mutedStyle}>Style: {product.style_code || "—"}</div>
+                        <div style={mutedStyle}>{product.id}</div>
+                      </div>
+                    </div>
                   </td>
                   <td style={tableCellStyle}>{product.status}</td>
                   <td style={tableCellStyle}>{new Date(product.created_at).toLocaleString()}</td>
@@ -231,7 +346,7 @@ export default function InventoryProductsPage() {
 
 const formGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(240px, 1fr) minmax(160px, 220px)",
+  gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 220px)",
   gap: 12,
   alignItems: "center",
 };
@@ -250,6 +365,61 @@ const sectionTitleStyle: CSSProperties = {
 const mutedStyle: CSSProperties = {
   color: "#6b7280",
   fontSize: 13,
+};
+
+const imageUploadStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  gridColumn: "1 / -1",
+};
+
+const imageUploadLabelStyle: CSSProperties = {
+  padding: "8px 14px",
+  borderRadius: 8,
+  border: "1px dashed #cbd5f5",
+  cursor: "pointer",
+  fontWeight: 600,
+};
+
+const fileInputStyle: CSSProperties = {
+  display: "none",
+};
+
+const imagePreviewStyle: CSSProperties = {
+  width: 64,
+  height: 64,
+  borderRadius: 12,
+  objectFit: "cover",
+  border: "1px solid #e5e7eb",
+};
+
+const productCellStyle: CSSProperties = {
+  display: "flex",
+  gap: 12,
+  alignItems: "center",
+};
+
+const thumbnailStyle: CSSProperties = {
+  width: 48,
+  height: 48,
+  borderRadius: 10,
+  objectFit: "cover",
+  border: "1px solid #e5e7eb",
+};
+
+const thumbnailPlaceholderStyle: CSSProperties = {
+  width: 48,
+  height: 48,
+  borderRadius: 10,
+  border: "1px dashed #d1d5db",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#9ca3af",
+  fontSize: 11,
+  fontWeight: 600,
 };
 
 const errorStyle: CSSProperties = {
