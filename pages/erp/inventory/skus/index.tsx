@@ -16,6 +16,7 @@ import {
   tableStyle,
   inputStyle,
 } from "../../../../components/erp/uiStyles";
+import { resolveErpAssetUrl, uploadErpAsset } from "../../../../lib/erp/assetImages";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { parseCsv } from "../../../../lib/erp/parseCsv";
 import { supabase } from "../../../../lib/supabaseClient";
@@ -23,6 +24,9 @@ import { supabase } from "../../../../lib/supabaseClient";
 type ProductOption = {
   id: string;
   title: string;
+  style_code?: string | null;
+  image_url?: string | null;
+  image_preview?: string | null;
 };
 
 type VariantRow = {
@@ -34,6 +38,9 @@ type VariantRow = {
   product_id: string;
   product_title: string;
   created_at: string;
+  image_url: string | null;
+  image_preview?: string | null;
+  product_image_preview?: string | null;
 };
 
 type ImportRow = {
@@ -75,6 +82,8 @@ export default function InventorySkusPage() {
   const [color, setColor] = useState("");
   const [costPrice, setCostPrice] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [variantImageFile, setVariantImageFile] = useState<File | null>(null);
+  const [variantImagePreview, setVariantImagePreview] = useState<string | null>(null);
 
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importError, setImportError] = useState("");
@@ -116,30 +125,43 @@ export default function InventorySkusPage() {
 
     const { data: prodData, error: prodError } = await supabase
       .from("erp_products")
-      .select("id, title")
+      .select("id, title, style_code, image_url")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
     if (prodError && isActive) setError(prodError.message);
+    const list = (prodData || []) as ProductOption[];
+    const withImages = await Promise.all(
+      list.map(async (product) => ({
+        ...product,
+        image_preview: await resolveErpAssetUrl(product.image_url || null),
+      }))
+    );
     if (isActive) {
-      const list = (prodData || []) as ProductOption[];
-      setProducts(list);
-      setProductId((prev) => prev || list?.[0]?.id || "");
+      setProducts(withImages);
+      setProductId((prev) => prev || withImages?.[0]?.id || "");
     }
 
     const { data: varData, error: varError } = await supabase
       .from("erp_variants")
-      .select("id, sku, size, color, cost_price, created_at, product_id")
+      .select("id, sku, size, color, cost_price, created_at, product_id, image_url")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
     if (varError && isActive) setError(varError.message);
 
-    const productMap = new Map((prodData || []).map((prod) => [prod.id, prod.title]));
-    const withTitle = (varData || []).map((variant) => ({
-      ...(variant as any),
-      product_title: productMap.get((variant as any).product_id) || "",
-    })) as VariantRow[];
+    const productMap = new Map((withImages || []).map((prod) => [prod.id, prod]));
+    const withTitle = await Promise.all(
+      (varData || []).map(async (variant) => {
+        const product = productMap.get((variant as any).product_id) as ProductOption | undefined;
+        return {
+          ...(variant as any),
+          product_title: product?.title || "",
+          image_preview: await resolveErpAssetUrl((variant as any).image_url),
+          product_image_preview: product?.image_preview || null,
+        } as VariantRow;
+      })
+    );
 
     if (isActive) setItems(withTitle);
   }
@@ -181,11 +203,49 @@ export default function InventorySkusPage() {
         setError(updateError.message);
         return;
       }
+      if (variantImageFile) {
+        const path = `company/${ctx.companyId}/variants/${editingId}/${Date.now()}-${variantImageFile.name}`;
+        const { error: uploadError } = await uploadErpAsset(path, variantImageFile);
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+        const { error: imageError } = await supabase
+          .from("erp_variants")
+          .update({ image_url: path })
+          .eq("company_id", ctx.companyId)
+          .eq("id", editingId);
+        if (imageError) {
+          setError(imageError.message);
+          return;
+        }
+      }
     } else {
-      const { error: insertError } = await supabase.from("erp_variants").insert(payload);
+      const { data: newVariant, error: insertError } = await supabase
+        .from("erp_variants")
+        .insert(payload)
+        .select("id")
+        .single();
       if (insertError) {
         setError(insertError.message);
         return;
+      }
+      if (variantImageFile && newVariant?.id) {
+        const path = `company/${ctx.companyId}/variants/${newVariant.id}/${Date.now()}-${variantImageFile.name}`;
+        const { error: uploadError } = await uploadErpAsset(path, variantImageFile);
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+        const { error: imageError } = await supabase
+          .from("erp_variants")
+          .update({ image_url: path })
+          .eq("company_id", ctx.companyId)
+          .eq("id", newVariant.id);
+        if (imageError) {
+          setError(imageError.message);
+          return;
+        }
       }
     }
 
@@ -199,6 +259,8 @@ export default function InventorySkusPage() {
     setSize("");
     setColor("");
     setCostPrice("");
+    setVariantImageFile(null);
+    setVariantImagePreview(null);
   }
 
   function handleEdit(row: VariantRow) {
@@ -208,6 +270,14 @@ export default function InventorySkusPage() {
     setSize(row.size || "");
     setColor(row.color || "");
     setCostPrice(row.cost_price != null ? String(row.cost_price) : "");
+    setVariantImageFile(null);
+    setVariantImagePreview(row.image_preview || row.product_image_preview || null);
+  }
+
+  function handleVariantImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+    setVariantImageFile(file);
+    setVariantImagePreview(file ? URL.createObjectURL(file) : null);
   }
 
   function normalizeHeader(value: string) {
@@ -354,7 +424,7 @@ export default function InventorySkusPage() {
       for (const [key, value] of Array.from(titlesToCreate.entries())) {
         const { data, error: insertError } = await supabase
           .from("erp_products")
-          .insert({ company_id: ctx.companyId, title: value.title })
+          .insert({ company_id: ctx.companyId, title: value.title, style_code: value.title })
           .select("id, title")
           .single();
         if (insertError) {
@@ -447,7 +517,7 @@ export default function InventorySkusPage() {
                 <option value="">Select product</option>
                 {products.map((product) => (
                   <option key={product.id} value={product.id}>
-                    {product.title}
+                    {product.style_code ? `${product.title} (${product.style_code})` : product.title}
                   </option>
                 ))}
               </select>
@@ -475,6 +545,16 @@ export default function InventorySkusPage() {
                 placeholder="Cost price"
                 style={inputStyle}
               />
+              <div style={imageUploadStyle}>
+                {variantImagePreview ? (
+                  <img src={variantImagePreview} alt="SKU preview" style={imagePreviewStyle} />
+                ) : null}
+                <label style={imageUploadLabelStyle}>
+                  <input type="file" accept="image/*" onChange={handleVariantImageChange} style={fileInputStyle} />
+                  {variantImagePreview ? "Replace image" : "Upload image"}
+                </label>
+                <span style={mutedStyle}>Optional. SKU image overrides product image.</span>
+              </div>
               <div style={buttonRowStyle}>
                 <button type="submit" style={primaryButtonStyle}>
                   {editingId ? "Save Changes" : "Create SKU"}
@@ -580,6 +660,7 @@ export default function InventorySkusPage() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={tableHeaderCellStyle}>Image</th>
                 <th style={tableHeaderCellStyle}>SKU</th>
                 <th style={tableHeaderCellStyle}>Product</th>
                 <th style={tableHeaderCellStyle}>Size</th>
@@ -591,6 +672,17 @@ export default function InventorySkusPage() {
             <tbody>
               {items.map((row) => (
                 <tr key={row.id}>
+                  <td style={tableCellStyle}>
+                    {row.image_preview || row.product_image_preview ? (
+                      <img
+                        src={row.image_preview || row.product_image_preview || undefined}
+                        alt={`${row.sku} image`}
+                        style={thumbnailStyle}
+                      />
+                    ) : (
+                      <div style={thumbnailPlaceholderStyle}>IMG</div>
+                    )}
+                  </td>
                   <td style={{ ...tableCellStyle, fontWeight: 600 }}>{row.sku}</td>
                   <td style={tableCellStyle}>{row.product_title}</td>
                   <td style={tableCellStyle}>{row.size || "—"}</td>
@@ -607,7 +699,7 @@ export default function InventorySkusPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={emptyStateStyle}>
+                  <td colSpan={7} style={emptyStateStyle}>
                     No SKUs yet. Create one above or import from CSV.
                   </td>
                 </tr>
@@ -651,6 +743,51 @@ const fileLabelStyle: CSSProperties = {
 
 const fileInputStyle: CSSProperties = {
   display: "none",
+};
+
+const imageUploadStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  gridColumn: "1 / -1",
+};
+
+const imageUploadLabelStyle: CSSProperties = {
+  padding: "8px 14px",
+  borderRadius: 8,
+  border: "1px dashed #cbd5f5",
+  cursor: "pointer",
+  fontWeight: 600,
+};
+
+const imagePreviewStyle: CSSProperties = {
+  width: 56,
+  height: 56,
+  borderRadius: 12,
+  objectFit: "cover",
+  border: "1px solid #e5e7eb",
+};
+
+const thumbnailStyle: CSSProperties = {
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  objectFit: "cover",
+  border: "1px solid #e5e7eb",
+};
+
+const thumbnailPlaceholderStyle: CSSProperties = {
+  width: 40,
+  height: 40,
+  borderRadius: 10,
+  border: "1px dashed #d1d5db",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#9ca3af",
+  fontSize: 11,
+  fontWeight: 600,
 };
 
 const checkboxStyle: CSSProperties = {

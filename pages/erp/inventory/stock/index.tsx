@@ -14,6 +14,7 @@ import {
   tableStyle,
   inputStyle,
 } from "../../../../components/erp/uiStyles";
+import { resolveErpAssetUrl } from "../../../../lib/erp/assetImages";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -29,6 +30,9 @@ type VariantOption = {
   color: string | null;
   product_id: string;
   product_title: string;
+  image_url?: string | null;
+  image_preview?: string | null;
+  product_image_preview?: string | null;
 };
 
 type StockRow = {
@@ -86,11 +90,11 @@ export default function InventoryStockPage() {
         .order("name", { ascending: true }),
       supabase
         .from("erp_products")
-        .select("id, title")
+        .select("id, title, image_url")
         .eq("company_id", companyId),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, product_id")
+        .select("id, sku, size, color, product_id, image_url")
         .eq("company_id", companyId)
         .order("sku", { ascending: true }),
       supabase
@@ -113,11 +117,25 @@ export default function InventoryStockPage() {
     }
 
     if (isActive) {
-      const productMap = new Map((productRes.data || []).map((product) => [product.id, product.title]));
-      const variantList = (variantRes.data || []).map((variant) => ({
-        ...(variant as any),
-        product_title: productMap.get((variant as any).product_id) || "",
-      })) as VariantOption[];
+      const products = (productRes.data || []) as Array<{ id: string; title: string; image_url?: string | null }>;
+      const productWithImages = await Promise.all(
+        products.map(async (product) => ({
+          ...product,
+          image_preview: await resolveErpAssetUrl(product.image_url || null),
+        }))
+      );
+      const productMap = new Map(productWithImages.map((product) => [product.id, product]));
+      const variantList = await Promise.all(
+        (variantRes.data || []).map(async (variant) => {
+          const product = productMap.get((variant as any).product_id);
+          return {
+            ...(variant as any),
+            product_title: product?.title || "",
+            image_preview: await resolveErpAssetUrl((variant as any).image_url),
+            product_image_preview: product?.image_preview || null,
+          } as VariantOption;
+        })
+      );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
       setVariants(variantList);
       setStockRows((stockRes.data || []) as StockRow[]);
@@ -300,6 +318,7 @@ export default function InventoryStockPage() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={tableHeaderCellStyle}>Image</th>
                 <th style={tableHeaderCellStyle}>SKU</th>
                 <th style={tableHeaderCellStyle}>Product title</th>
                 <th style={tableHeaderCellStyle}>Size</th>
@@ -311,6 +330,17 @@ export default function InventoryStockPage() {
             <tbody>
               {filteredRows.map((row, index) => (
                 <tr key={`${row.warehouse_id}-${row.variant_id}-${index}`}>
+                  <td style={tableCellStyle}>
+                    {row.variant?.image_preview || row.variant?.product_image_preview ? (
+                      <img
+                        src={row.variant?.image_preview || row.variant?.product_image_preview || undefined}
+                        alt={`${row.sku} image`}
+                        style={thumbnailStyle}
+                      />
+                    ) : (
+                      <div style={thumbnailPlaceholderStyle}>IMG</div>
+                    )}
+                  </td>
                   <td style={{ ...tableCellStyle, fontWeight: 600 }}>{row.sku}</td>
                   <td style={tableCellStyle}>{row.productTitle || "—"}</td>
                   <td style={tableCellStyle}>{row.size || "—"}</td>
@@ -321,7 +351,7 @@ export default function InventoryStockPage() {
               ))}
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={emptyStateStyle}>
+                  <td colSpan={7} style={emptyStateStyle}>
                     No stock on hand found for the selected filters.
                   </td>
                 </tr>
@@ -359,4 +389,25 @@ const emptyStateStyle: CSSProperties = {
   ...tableCellStyle,
   textAlign: "center",
   color: "#6b7280",
+};
+
+const thumbnailStyle: CSSProperties = {
+  width: 36,
+  height: 36,
+  borderRadius: 8,
+  objectFit: "cover",
+  border: "1px solid #e5e7eb",
+};
+
+const thumbnailPlaceholderStyle: CSSProperties = {
+  width: 36,
+  height: 36,
+  borderRadius: 8,
+  border: "1px dashed #d1d5db",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#9ca3af",
+  fontSize: 10,
+  fontWeight: 600,
 };
