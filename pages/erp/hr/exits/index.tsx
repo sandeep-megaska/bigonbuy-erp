@@ -182,11 +182,11 @@ export default function EmployeeExitsPage() {
 
   useEffect(() => {
     let active = true;
-    if (!ctx?.companyId) return undefined;
+    if (!ctx) return undefined;
 
     (async () => {
       setLoading(true);
-      await loadExits(ctx.companyId, {
+      await loadExits({
         statusFilter,
         searchText: employeeFilter,
       });
@@ -196,12 +196,9 @@ export default function EmployeeExitsPage() {
     return () => {
       active = false;
     };
-  }, [ctx?.companyId, statusFilter]);
+  }, [ctx, statusFilter]);
 
-  async function loadExits(
-    companyId: string,
-    options: { statusFilter: string; searchText: string }
-  ) {
+  async function loadExits(options: { statusFilter: string; searchText: string }) {
     const { statusFilter: statusValue, searchText } = options;
     if (process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
@@ -250,7 +247,6 @@ export default function EmployeeExitsPage() {
           )
         `
         )
-        .eq("company_id", companyId)
         .order("created_at", { ascending: false });
 
       if (statusValue) {
@@ -334,12 +330,10 @@ export default function EmployeeExitsPage() {
 
     setToast({ type: "success", message: "Exit completed successfully." });
     setActionLoading(null);
-    if (ctx?.companyId) {
-      await loadExits(ctx.companyId, {
-        statusFilter,
-        searchText: employeeFilter,
-      });
-    }
+    await loadExits({
+      statusFilter,
+      searchText: employeeFilter,
+    });
   }
 
   async function handleStatusChange(exitId: string, status: "approved" | "rejected") {
@@ -370,12 +364,10 @@ export default function EmployeeExitsPage() {
 
     setToast({ type: "success", message: `Exit ${status} successfully.` });
     setActionLoading(null);
-    if (ctx?.companyId) {
-      await loadExits(ctx.companyId, {
-        statusFilter,
-        searchText: employeeFilter,
-      });
-    }
+    await loadExits({
+      statusFilter,
+      searchText: employeeFilter,
+    });
   }
 
   return (
