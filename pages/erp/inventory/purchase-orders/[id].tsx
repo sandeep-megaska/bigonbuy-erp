@@ -33,9 +33,17 @@ type PurchaseOrder = {
 type Vendor = {
   id: string;
   legal_name: string;
+  gstin: string | null;
   contact_person: string | null;
   phone: string | null;
   email: string | null;
+  address: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  country: string | null;
 };
 
 type PurchaseOrderLine = {
@@ -49,6 +57,9 @@ type PurchaseOrderLine = {
 type VariantOption = {
   id: string;
   sku: string;
+  size: string | null;
+  color: string | null;
+  productTitle: string;
 };
 
 type WarehouseOption = {
@@ -75,6 +86,8 @@ type ReceiptLineDraft = {
 export default function PurchaseOrderDetailPage() {
   const router = useRouter();
   const { id } = router.query;
+  const printParam = Array.isArray(router.query.print) ? router.query.print[0] : router.query.print;
+  const isPrintView = printParam === "1";
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -91,6 +104,7 @@ export default function PurchaseOrderDetailPage() {
   const branding = useCompanyBranding();
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
+  const currencyCode = branding?.currencyCode || "INR";
 
   useEffect(() => {
     if (!id) return;
@@ -119,6 +133,14 @@ export default function PurchaseOrderDetailPage() {
     };
   }, [router, id]);
 
+  useEffect(() => {
+    if (!isPrintView || loading || !po) return;
+    const timer = window.setTimeout(() => {
+      window.print();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [isPrintView, loading, po]);
+
   async function loadData(companyId: string, poId: string, isActiveFetch = true) {
     setError("");
     setNotice("");
@@ -137,9 +159,15 @@ export default function PurchaseOrderDetailPage() {
         .order("created_at", { ascending: true }),
       supabase
         .from("erp_vendors")
-        .select("id, legal_name, contact_person, phone, email")
+        .select(
+          "id, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country"
+        )
         .eq("company_id", companyId),
-      supabase.from("erp_variants").select("id, sku").eq("company_id", companyId).order("sku"),
+      supabase
+        .from("erp_variants")
+        .select("id, sku, size, color, erp_products(title)")
+        .eq("company_id", companyId)
+        .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
       supabase
         .from("erp_grns")
@@ -176,7 +204,22 @@ export default function PurchaseOrderDetailPage() {
       const vendorList = (vendorRes.data || []) as Vendor[];
       setVendor(vendorList.find((row) => row.id === poRes.data?.vendor_id) || null);
       setLines((lineRes.data || []) as PurchaseOrderLine[]);
-      setVariants((variantRes.data || []) as VariantOption[]);
+      const variantRows = (variantRes.data || []) as Array<{
+        id: string;
+        sku: string;
+        size: string | null;
+        color: string | null;
+        erp_products?: { title?: string | null } | null;
+      }>;
+      setVariants(
+        variantRows.map((row) => ({
+          id: row.id,
+          sku: row.sku,
+          size: row.size ?? null,
+          color: row.color ?? null,
+          productTitle: row.erp_products?.title || "",
+        }))
+      );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
       setGrns((grnRes.data || []) as Grn[]);
 
@@ -328,23 +371,242 @@ export default function PurchaseOrderDetailPage() {
     }
   }
 
-  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant.sku])), [variants]);
+  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
 
-  return (
-    <ErpShell activeModule="workspace">
-      <div style={pageContainerStyle}>
-        <div className="po-print-header" style={printHeaderStyle}>
+  const formatDate = (value: string | null | undefined) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString();
+  };
+
+  const formatMoney = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return "—";
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  const subtotal = lines.reduce((sum, line) => {
+    if (line.unit_cost === null) return sum;
+    return sum + line.unit_cost * line.ordered_qty;
+  }, 0);
+
+  const companyLegalName = branding?.legalName || branding?.companyName || "Company";
+  const companyAddressText = branding?.addressText || branding?.poFooterAddressText || "";
+  const companyAddressLines = companyAddressText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const vendorAddressLines = [
+    vendor?.address_line1 || vendor?.address || "",
+    vendor?.address_line2 || "",
+    [vendor?.city, vendor?.state, vendor?.pincode].filter(Boolean).join(", "),
+    vendor?.country || "",
+  ]
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const termsLines = (branding?.poTermsText || "")
+    .split("\n")
+    .map((line) => line.replace(/^[•*-]\s*/, "").trim())
+    .filter(Boolean);
+
+  const notesLines = (po?.notes || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const deliveryWarehouse = warehouses[0];
+
+  const printDocument = (
+    <div style={printPageStyle}>
+      <div style={printHeaderRowStyle}>
+        <div style={printBrandBlockStyle}>
           {branding?.bigonbuyLogoUrl ? (
             <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={printLogoStyle} />
           ) : (
             <div style={printLogoFallbackStyle}>BIGONBUY</div>
           )}
           <div>
-            <div style={printCompanyNameStyle}>{branding?.companyName || "Company"}</div>
-            <div style={printHeaderSubTitleStyle}>Purchase Order</div>
+            <div style={printCompanyNameStyle}>{companyLegalName}</div>
+            <div style={printCompanySubTextStyle}>GSTIN: {branding?.gstin || "—"}</div>
+            <div style={printCompanyAddressStyle}>
+              {companyAddressLines.length > 0 ? companyAddressLines.join("\n") : "—"}
+            </div>
+            <div style={printPoTitleStyle}>Purchase Order</div>
           </div>
         </div>
+        <div style={printMetaCardStyle}>
+          <div style={printMetaRowStyle}>
+            <span style={printMetaLabelStyle}>PO Number</span>
+            <span style={printMetaValueStyle}>{po?.po_no || "—"}</span>
+          </div>
+          <div style={printMetaRowStyle}>
+            <span style={printMetaLabelStyle}>PO Date</span>
+            <span style={printMetaValueStyle}>{formatDate(po?.order_date)}</span>
+          </div>
+          <div style={printMetaRowStyle}>
+            <span style={printMetaLabelStyle}>Expected Delivery</span>
+            <span style={printMetaValueStyle}>{formatDate(po?.expected_delivery_date)}</span>
+          </div>
+          <div style={printMetaRowStyle}>
+            <span style={printMetaLabelStyle}>Deliver To</span>
+            <span style={printMetaValueStyle}>{deliveryWarehouse?.name || "—"}</span>
+          </div>
+          <div style={printMetaRowStyle}>
+            <span style={printMetaLabelStyle}>Status</span>
+            <span style={printMetaValueStyle}>{po?.status || "—"}</span>
+          </div>
+        </div>
+      </div>
 
+      <section style={printSectionStyle}>
+        <div style={printSectionTitleStyle}>Vendor</div>
+        <div style={printVendorGridStyle}>
+          <div>
+            <div style={printVendorNameStyle}>{vendor?.legal_name || "—"}</div>
+            <div style={printDetailTextStyle}>GSTIN: {vendor?.gstin || "—"}</div>
+            <div style={printDetailTextStyle}>
+              {vendorAddressLines.length > 0 ? vendorAddressLines.join("\n") : "—"}
+            </div>
+          </div>
+          <div>
+            <div style={printDetailLabelStyle}>Contact</div>
+            <div style={printDetailTextStyle}>{vendor?.contact_person || "—"}</div>
+            <div style={printDetailTextStyle}>Phone: {vendor?.phone || "—"}</div>
+            <div style={printDetailTextStyle}>Email: {vendor?.email || "—"}</div>
+          </div>
+        </div>
+      </section>
+
+      <section style={printSectionStyle}>
+        <table style={printTableStyle} className="po-print-table">
+          <thead>
+            <tr>
+              <th style={printTableHeaderStyle}>Sl No</th>
+              <th style={printTableHeaderStyle}>SKU</th>
+              <th style={printTableHeaderStyle}>Item</th>
+              <th style={printTableHeaderStyle}>Variant</th>
+              <th style={printTableHeaderStyle}>Qty</th>
+              <th style={printTableHeaderStyle}>Unit Rate</th>
+              <th style={printTableHeaderStyle}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length === 0 ? (
+              <tr>
+                <td style={printTableCellStyle} colSpan={7}>
+                  No line items found.
+                </td>
+              </tr>
+            ) : (
+              lines.map((line, index) => {
+                const variant = variantMap.get(line.variant_id);
+                const variantLabel = [variant?.color, variant?.size].filter(Boolean).join(" / ") || "—";
+                const lineTotal = line.unit_cost !== null ? line.unit_cost * line.ordered_qty : null;
+                return (
+                  <tr key={line.id}>
+                    <td style={printTableCellStyle}>{index + 1}</td>
+                    <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
+                    <td style={printTableCellStyle}>{variant?.productTitle || "—"}</td>
+                    <td style={printTableCellStyle}>{variantLabel}</td>
+                    <td style={printTableCellStyle}>{line.ordered_qty}</td>
+                    <td style={printTableCellStyle}>{formatMoney(line.unit_cost)}</td>
+                    <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section style={printTotalsSectionStyle}>
+        <div style={printTotalsRowStyle}>
+          <span style={printMetaLabelStyle}>Subtotal</span>
+          <span style={printTotalsValueStyle}>{formatMoney(subtotal)}</span>
+        </div>
+        <div style={printTotalsRowStyle}>
+          <span style={printMetaLabelStyle}>Tax</span>
+          <span style={printTotalsValueStyle}>—</span>
+        </div>
+        <div style={{ ...printTotalsRowStyle, fontWeight: 700 }}>
+          <span>Total Amount ({currencyCode})</span>
+          <span style={printTotalsValueStyle}>{formatMoney(subtotal)}</span>
+        </div>
+      </section>
+
+      {(notesLines.length > 0 || termsLines.length > 0) && (
+        <section style={printSectionStyle}>
+          {notesLines.length > 0 ? (
+            <div style={printNotesBlockStyle}>
+              <div style={printSectionTitleStyle}>Notes</div>
+              <ul style={printBulletListStyle}>
+                {notesLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {termsLines.length > 0 ? (
+            <div style={printNotesBlockStyle}>
+              <div style={printSectionTitleStyle}>Terms &amp; Conditions</div>
+              <ul style={printBulletListStyle}>
+                {termsLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      )}
+
+      <section style={printSignatureRowStyle}>
+        <div style={printSignatureBlockStyle}>
+          <div style={printSignatureLineStyle} />
+          <div style={printSignatureLabelStyle}>Authorized Signatory</div>
+        </div>
+        <div style={printSignatureBlockStyle}>
+          <div style={printSignatureLineStyle} />
+          <div style={printSignatureLabelStyle}>Vendor Acceptance</div>
+        </div>
+      </section>
+
+      <footer style={printFooterStyle}>
+        <div style={printFooterTextStyle}>
+          {companyAddressLines.length > 0 ? companyAddressLines.join("\n") : "—"}
+        </div>
+        <div style={printFooterTextStyle}>GSTIN: {branding?.gstin || "—"}</div>
+      </footer>
+      <style jsx global>{`
+        @media print {
+          body {
+            background: #fff;
+          }
+
+          .po-print-table {
+            page-break-inside: auto;
+          }
+
+          .po-print-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+        }
+      `}</style>
+    </div>
+  );
+
+  if (isPrintView) {
+    return printDocument;
+  }
+
+  return (
+    <ErpShell activeModule="workspace">
+      <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
@@ -356,8 +618,8 @@ export default function PurchaseOrderDetailPage() {
               type="button"
               style={secondaryButtonStyle}
               onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.print();
+                if (typeof window !== "undefined" && po?.id) {
+                  window.open(`/erp/inventory/purchase-orders/${po.id}?print=1`, "_blank", "noopener,noreferrer");
                 }
               }}
             >
@@ -388,11 +650,11 @@ export default function PurchaseOrderDetailPage() {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Order Date</div>
-                <div style={{ fontWeight: 600 }}>{po.order_date}</div>
+                <div style={{ fontWeight: 600 }}>{formatDate(po.order_date)}</div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Expected Delivery</div>
-                <div style={{ fontWeight: 600 }}>{po.expected_delivery_date || "—"}</div>
+                <div style={{ fontWeight: 600 }}>{formatDate(po.expected_delivery_date)}</div>
               </div>
             </div>
           ) : (
@@ -422,13 +684,14 @@ export default function PurchaseOrderDetailPage() {
               ) : (
                 lines.map((line) => {
                   const remaining = Math.max(0, line.ordered_qty - line.received_qty);
+                  const variant = variantMap.get(line.variant_id);
                   return (
                     <tr key={line.id}>
-                      <td style={tableCellStyle}>{variantMap.get(line.variant_id) || line.variant_id}</td>
+                      <td style={tableCellStyle}>{variant?.sku || line.variant_id}</td>
                       <td style={tableCellStyle}>{line.ordered_qty}</td>
                       <td style={tableCellStyle}>{line.received_qty}</td>
                       <td style={tableCellStyle}>{remaining}</td>
-                      <td style={tableCellStyle}>{line.unit_cost ?? "—"}</td>
+                      <td style={tableCellStyle}>{formatMoney(line.unit_cost)}</td>
                     </tr>
                   );
                 })
@@ -446,7 +709,7 @@ export default function PurchaseOrderDetailPage() {
                   key={line.lineId}
                   style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr 1fr", alignItems: "end" }}
                 >
-                  <div style={{ fontWeight: 600 }}>{variantMap.get(line.variantId) || line.variantId}</div>
+                  <div style={{ fontWeight: 600 }}>{variantMap.get(line.variantId)?.sku || line.variantId}</div>
                   <label style={{ display: "grid", gap: 6 }}>
                     Remaining
                     <input style={inputStyle} value={line.remainingQty} readOnly />
@@ -542,55 +805,38 @@ export default function PurchaseOrderDetailPage() {
             </tbody>
           </table>
         </section>
-
-        <footer className="po-print-footer" style={printFooterStyle}>
-          <div style={printFooterTextStyle}>{branding?.poFooterAddressText || ""}</div>
-          {branding?.megaskaLogoUrl ? (
-            <img src={branding.megaskaLogoUrl} alt="Megaska logo" style={printFooterLogoStyle} />
-          ) : null}
-        </footer>
-        <style jsx global>{`
-          @media print {
-            [data-erp-topbar],
-            [data-erp-sidebar],
-            .no-print {
-              display: none !important;
-            }
-
-            main {
-              margin-left: 0 !important;
-              padding-top: 0 !important;
-            }
-
-            .po-print-header {
-              margin-bottom: 16px;
-            }
-
-            .po-print-footer {
-              margin-top: 32px;
-              border-top: 1px solid #e5e7eb;
-              padding-top: 12px;
-            }
-          }
-        `}</style>
       </div>
     </ErpShell>
   );
 }
 
-const printHeaderStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 16,
-  marginBottom: 24,
-  padding: "12px 16px",
-  borderRadius: 12,
+const printPageStyle = {
+  maxWidth: 980,
+  margin: "0 auto",
+  padding: "32px 24px",
   backgroundColor: "#ffffff",
-  boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+  color: "#111827",
+  fontFamily: "Inter, system-ui, sans-serif",
+};
+
+const printHeaderRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 24,
+  flexWrap: "wrap" as const,
+  marginBottom: 24,
+};
+
+const printBrandBlockStyle = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 16,
+  flex: "1 1 320px",
 };
 
 const printLogoStyle = {
-  height: 40,
+  height: 48,
   width: "auto",
   objectFit: "contain" as const,
 };
@@ -599,8 +845,8 @@ const printLogoFallbackStyle = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  height: 40,
-  padding: "0 12px",
+  height: 48,
+  padding: "0 14px",
   borderRadius: 10,
   backgroundColor: "#111827",
   color: "#fff",
@@ -610,37 +856,193 @@ const printLogoFallbackStyle = {
 };
 
 const printCompanyNameStyle = {
-  fontSize: 18,
+  fontSize: 20,
   fontWeight: 700,
   color: "#111827",
 };
 
-const printHeaderSubTitleStyle = {
-  fontSize: 13,
-  color: "#6b7280",
+const printCompanySubTextStyle = {
+  fontSize: 12,
+  color: "#4b5563",
   marginTop: 4,
 };
 
-const printFooterStyle = {
-  marginTop: 24,
+const printCompanyAddressStyle = {
+  marginTop: 6,
+  fontSize: 12,
+  color: "#4b5563",
+  whiteSpace: "pre-line" as const,
+};
+
+const printPoTitleStyle = {
+  marginTop: 10,
+  fontSize: 12,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.12em",
+  color: "#6b7280",
+  fontWeight: 700,
+};
+
+const printMetaCardStyle = {
+  minWidth: 240,
   padding: "12px 16px",
+  border: "1px solid #e5e7eb",
   borderRadius: 12,
-  backgroundColor: "#ffffff",
+  backgroundColor: "#f9fafb",
+};
+
+const printMetaRowStyle = {
   display: "flex",
-  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  fontSize: 12,
+  padding: "4px 0",
+};
+
+const printMetaLabelStyle = {
+  color: "#6b7280",
+};
+
+const printMetaValueStyle = {
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const printSectionStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  padding: "16px 18px",
+  marginBottom: 20,
+  backgroundColor: "#fff",
+};
+
+const printSectionTitleStyle = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#111827",
+  marginBottom: 8,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.08em",
+};
+
+const printVendorGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 16,
+};
+
+const printVendorNameStyle = {
+  fontSize: 15,
+  fontWeight: 700,
+  color: "#111827",
+  marginBottom: 4,
+};
+
+const printDetailLabelStyle = {
+  fontSize: 11,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.08em",
+  color: "#9ca3af",
+  marginBottom: 6,
+};
+
+const printDetailTextStyle = {
+  fontSize: 12,
+  color: "#4b5563",
+  whiteSpace: "pre-line" as const,
+};
+
+const printTableStyle = {
+  width: "100%",
+  borderCollapse: "collapse" as const,
+  fontSize: 12,
+};
+
+const printTableHeaderStyle = {
+  textAlign: "left" as const,
+  backgroundColor: "#f3f4f6",
+  padding: "8px 10px",
+  borderBottom: "1px solid #e5e7eb",
+  fontWeight: 600,
+};
+
+const printTableCellStyle = {
+  padding: "8px 10px",
+  borderBottom: "1px solid #e5e7eb",
+  verticalAlign: "top" as const,
+};
+
+const printTotalsSectionStyle = {
+  marginLeft: "auto",
+  maxWidth: 320,
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  padding: "12px 16px",
+  backgroundColor: "#f9fafb",
+  marginBottom: 20,
+};
+
+const printTotalsRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  padding: "4px 0",
+  fontSize: 13,
+};
+
+const printTotalsValueStyle = {
+  fontWeight: 600,
+};
+
+const printNotesBlockStyle = {
+  marginBottom: 12,
+};
+
+const printBulletListStyle = {
+  margin: "0 0 0 18px",
+  padding: 0,
+  fontSize: 12,
+  color: "#4b5563",
+};
+
+const printSignatureRowStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 24,
+  marginBottom: 24,
+};
+
+const printSignatureBlockStyle = {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: 8,
+};
+
+const printSignatureLineStyle = {
+  height: 1,
+  backgroundColor: "#111827",
+  opacity: 0.3,
+  marginTop: 24,
+};
+
+const printSignatureLabelStyle = {
+  fontSize: 12,
+  color: "#4b5563",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.08em",
+};
+
+const printFooterStyle = {
+  borderTop: "1px solid #e5e7eb",
+  paddingTop: 12,
+  display: "flex",
   justifyContent: "space-between",
   gap: 16,
   flexWrap: "wrap" as const,
 };
 
 const printFooterTextStyle = {
-  fontSize: 12,
-  color: "#374151",
+  fontSize: 11,
+  color: "#6b7280",
   whiteSpace: "pre-line" as const,
-};
-
-const printFooterLogoStyle = {
-  height: 24,
-  width: "auto",
-  objectFit: "contain" as const,
 };
