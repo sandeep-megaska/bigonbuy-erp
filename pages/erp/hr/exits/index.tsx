@@ -97,10 +97,10 @@ export default function EmployeeExitsPage() {
   const [rejectModal, setRejectModal] = useState<{ exitId: string; reason: string } | null>(null);
   const filtersInitialized = useRef(false);
 
-  const canManage = useMemo(
-    () => access.isManager || isHr(ctx?.roleKey),
-    [access.isManager, ctx?.roleKey]
-  );
+  const canManage = useMemo(() => {
+    const roleKey = (access.roleKey ?? ctx?.roleKey ?? "").toString();
+    return access.isManager || isHr(roleKey) || roleKey === "owner" || roleKey === "admin";
+  }, [access.isManager, access.roleKey, ctx?.roleKey]);
 
   const filteredRows = useMemo(() => {
     const query = normalizeSearchTerm(employeeFilter);
@@ -215,11 +215,10 @@ export default function EmployeeExitsPage() {
 
     if (error) throw error;
 
-   type ExitRowRaw = any;
 
-const raw: ExitRowRaw[] = (data ?? []) as any[];
+    const raw = (data ?? []) as any[];
 
-const normalized: ExitRow[] = raw.map((r) => ({
+    const normalized: ExitRow[] = raw.map((r) => ({
   ...r,
   // handle both shapes: array or object
   employee: Array.isArray(r.employee) ? (r.employee[0] ?? null) : (r.employee ?? null),
@@ -228,7 +227,7 @@ const normalized: ExitRow[] = raw.map((r) => ({
   exit_reason: Array.isArray(r.exit_reason) ? (r.exit_reason[0] ?? null) : (r.exit_reason ?? null),
 }));
 
-setRows(normalized);
+    setRows(normalized);
 
   } catch (e: any) {
     setToast({
@@ -237,36 +236,6 @@ setRows(normalized);
     });
   }
 }
-          return;
-      }
-
-      // With explicit FK embeds (!..._fkey), employee/manager/exit_type/exit_reason come back as objects (or null).
-      const raw = (rowsData ?? []) as ExitRowRaw[];
-
-      const normalized: ExitRow[] = raw.map((r) => ({
-        id: r.id,
-        status: r.status,
-        initiated_on: r.initiated_on,
-        last_working_day: r.last_working_day,
-        notice_period_days: r.notice_period_days,
-        notice_waived: r.notice_waived,
-        notes: r.notes,
-        created_at: r.created_at ?? null,
-
-        employee: r.employee?.[0] ?? null,
-        manager: r.manager?.[0] ?? null,
-        exit_type: r.exit_type?.[0] ?? null,
-        exit_reason: r.exit_reason?.[0] ?? null,
-      }));
-
-      setRows(normalized);
-    } catch (e: any) {
-      setToast({
-        type: "error",
-        message: e?.message || "Unable to load exit requests.",
-      });
-    }
-  }
 
   function showToast(message: string, type: "success" | "error" = "success") {
     setToast({ type, message });
