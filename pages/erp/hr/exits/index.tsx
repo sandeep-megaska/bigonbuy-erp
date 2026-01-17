@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { supabase } from "../../../lib/supabase";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { supabase } from "../../../../lib/supabaseClient";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type ExitRow = {
   id: string;
@@ -14,18 +14,8 @@ type ExitRow = {
   notes: string | null;
   created_at: string;
 
-  employee: {
-    id: string;
-    full_name: string | null;
-    employee_code: string | null;
-  } | null;
-
-  manager: {
-    id: string;
-    full_name: string | null;
-    employee_code: string | null;
-  } | null;
-
+  employee: { id: string; full_name: string | null; employee_code: string | null } | null;
+  manager: { id: string; full_name: string | null; employee_code: string | null } | null;
   exit_type: { id: string; name: string | null } | null;
   exit_reason: { id: string; name: string | null } | null;
 };
@@ -38,6 +28,7 @@ export default function EmployeeExitsPage() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "error" | "success"; message: string } | null>(null);
 
+  // Lean filters: no month filter
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [employeeSearch, setEmployeeSearch] = useState("");
 
@@ -81,6 +72,7 @@ export default function EmployeeExitsPage() {
         .eq("company_id", ctx.companyId)
         .order("created_at", { ascending: false });
 
+      // IMPORTANT: "all" means no filter
       if (statusFilter && statusFilter !== "all") {
         query = query.eq("status", statusFilter);
       }
@@ -120,7 +112,7 @@ export default function EmployeeExitsPage() {
     <div className="erp-page">
       <div className="erp-page-header">
         <h1>Employee Exits</h1>
-        <p>Manage separations with manager approvals and final completion.</p>
+        <p>Manage separations with approvals and completion.</p>
         <div className="erp-page-links">
           <Link href="/erp/hr">HR Home</Link> · <Link href="/erp/hr/employees">Employees</Link>
         </div>
@@ -158,7 +150,7 @@ export default function EmployeeExitsPage() {
               router.replace("/erp/hr/exits", undefined, { shallow: true });
             }}
           >
-            Reset filters
+            Reset
           </button>
         </div>
       </div>
