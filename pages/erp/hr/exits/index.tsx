@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 
@@ -26,10 +26,15 @@ import { supabase } from "../../../../lib/supabaseClient";
 const statusOptions = [
   { value: "", label: "All statuses" },
   { value: "draft", label: "Draft" },
+  { value: "submitted", label: "Submitted" },
   { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
   { value: "completed", label: "Completed" },
+  { value: "rejected", label: "Rejected" },
+  { value: "cancelled", label: "Cancelled" },
 ];
+
+type EmployeeEmbed = { id: string; full_name: string | null; employee_code: string | null };
+type ExitMetaEmbed = { id: string; name: string | null };
 
 type ExitRowRaw = {
   id: string;
@@ -41,11 +46,11 @@ type ExitRowRaw = {
   notes: string | null;
   created_at: string | null;
 
-  employee: { id: string; full_name: string | null; employee_code: string | null }[] | null;
-  manager: { id: string; full_name: string | null; employee_code: string | null }[] | null;
+  employee: EmployeeEmbed | EmployeeEmbed[] | null;
+  manager: EmployeeEmbed | EmployeeEmbed[] | null;
 
-  exit_type: { id: string; name: string | null }[] | null;
-  exit_reason: { id: string; name: string | null }[] | null;
+  exit_type: ExitMetaEmbed | ExitMetaEmbed[] | null;
+  exit_reason: ExitMetaEmbed | ExitMetaEmbed[] | null;
 };
 
 type ExitRow = {
@@ -58,11 +63,11 @@ type ExitRow = {
   notes: string | null;
   created_at: string | null;
 
-  employee: { id: string; full_name: string | null; employee_code: string | null } | null;
-  manager: { id: string; full_name: string | null; employee_code: string | null } | null;
+  employee: EmployeeEmbed | null;
+  manager: EmployeeEmbed | null;
 
-  exit_type: { id: string; name: string | null } | null;
-  exit_reason: { id: string; name: string | null } | null;
+  exit_type: ExitMetaEmbed | null;
+  exit_reason: ExitMetaEmbed | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
@@ -71,9 +76,17 @@ function normalizeSearchTerm(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function normalizeEmbed<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value;
+}
+
 function formatDate(value: string | null) {
   if (!value) return "";
-  return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
 }
 
 const bannerStyle: CSSProperties = {
@@ -99,26 +112,31 @@ export default function EmployeeExitsPage() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ExitRow[]>([]);
 
-  const [statusFilter, setStatusFilter] = useState<string>("draft");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const [employeeFilter, setEmployeeFilter] = useState<string>("");
 
   const [toast, setToast] = useState<ToastState>(null);
-  const filtersInitialized = useRef(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const canManage = useMemo(() => {
-    const roleKey = (access.roleKey ?? ctx?.roleKey ?? "").toString();
-    return access.isManager || isHr(roleKey) || roleKey === "owner" || roleKey === "admin";
-  }, [access.isManager, access.roleKey, ctx?.roleKey]);
+  const roleKey = useMemo(
+    () => (access.roleKey ?? ctx?.roleKey ?? "").toString(),
+    [access.roleKey, ctx?.roleKey]
+  );
+
+  const canManage = useMemo(() => access.isManager || isHr(roleKey), [access.isManager, roleKey]);
+  const canComplete = useMemo(() => isHr(roleKey), [roleKey]);
 
   const filteredRows = useMemo(() => {
     const q = normalizeSearchTerm(employeeFilter);
-    if (!q) return rows;
     return rows.filter((row) => {
+      const matchesStatus = statusFilter ? row.status === statusFilter : true;
+      if (!matchesStatus) return false;
+      if (!q) return true;
       const name = normalizeSearchTerm(row.employee?.full_name);
       const code = normalizeSearchTerm(row.employee?.employee_code);
       return name.includes(q) || code.includes(q);
     });
-  }, [rows, employeeFilter]);
+  }, [rows, employeeFilter, statusFilter]);
 
   const showHelperBanner = useMemo(() => {
     const hasStatus = !!normalizeSearchTerm(statusFilter);
@@ -161,27 +179,6 @@ export default function EmployeeExitsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  useEffect(() => {
-    if (!router.isReady || filtersInitialized.current) return;
-
-    const hasStatus = Object.prototype.hasOwnProperty.call(router.query, "status");
-    const hasEmployee = Object.prototype.hasOwnProperty.call(router.query, "employee");
-
-    const statusParam = typeof router.query.status === "string" ? router.query.status : "";
-    const employeeParam = typeof router.query.employee === "string" ? router.query.employee : "";
-
-    setStatusFilter(hasStatus ? statusParam : "draft");
-    setEmployeeFilter(hasEmployee ? employeeParam : "");
-
-    filtersInitialized.current = true;
-  }, [router.isReady, router.query]);
-
-  useEffect(() => {
-    if (!ctx?.companyId) return;
-    loadExits(ctx.companyId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx?.companyId, statusFilter]);
-
   async function loadExits(companyId: string) {
     try {
       let query = supabase
@@ -212,10 +209,6 @@ export default function EmployeeExitsPage() {
         .eq("company_id", companyId)
         .order("created_at", { ascending: false });
 
-      if (statusFilter) {
-        query = query.eq("status", statusFilter);
-      }
-
       const { data, error } = await query;
       if (error) throw error;
 
@@ -230,11 +223,11 @@ export default function EmployeeExitsPage() {
         notes: r.notes,
         created_at: r.created_at,
 
-        employee: r.employee?.[0] ?? null,
-        manager: r.manager?.[0] ?? null,
+        employee: normalizeEmbed(r.employee),
+        manager: normalizeEmbed(r.manager),
 
-        exit_type: r.exit_type?.[0] ?? null,
-        exit_reason: r.exit_reason?.[0] ?? null,
+        exit_type: normalizeEmbed(r.exit_type),
+        exit_reason: normalizeEmbed(r.exit_reason),
       }));
 
       setRows(normalized);
@@ -248,6 +241,33 @@ export default function EmployeeExitsPage() {
     setStatusFilter("");
     setEmployeeFilter("");
     router.replace("/erp/hr/exits", undefined, { shallow: true });
+  }
+
+  async function handleComplete(exitId: string) {
+    if (!canComplete) {
+      setToast({ type: "error", message: "You do not have permission to complete exits." });
+      return;
+    }
+
+    setActionLoading(exitId);
+    const { error } = await supabase.rpc("erp_hr_exit_set_status", {
+      p_exit_id: exitId,
+      p_status: "completed",
+      p_rejection_reason: null,
+      p_payment_notes: null,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message || "Unable to complete exit request." });
+      setActionLoading(null);
+      return;
+    }
+
+    setToast({ type: "success", message: "Exit completed successfully." });
+    setActionLoading(null);
+    if (ctx?.companyId) {
+      await loadExits(ctx.companyId);
+    }
   }
 
   return (
@@ -269,7 +289,14 @@ export default function EmployeeExitsPage() {
         )}
 
         <div style={{ ...cardStyle, marginTop: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 160px", gap: 12, alignItems: "end" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "220px 1fr 160px",
+              gap: 12,
+              alignItems: "end",
+            }}
+          >
             <div>
               <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Status</div>
               <select
@@ -311,10 +338,10 @@ export default function EmployeeExitsPage() {
                   <th style={tableHeaderCellStyle}>Employee</th>
                   <th style={tableHeaderCellStyle}>Status</th>
                   <th style={tableHeaderCellStyle}>LWD</th>
-                  <th style={tableHeaderCellStyle}>Initiated</th>
+                  <th style={tableHeaderCellStyle}>Initiated On</th>
                   <th style={tableHeaderCellStyle}>Type</th>
                   <th style={tableHeaderCellStyle}>Reason</th>
-                  <th style={tableHeaderCellStyle}></th>
+                  <th style={tableHeaderCellStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -345,9 +372,21 @@ export default function EmployeeExitsPage() {
                       <td style={tableCellStyle}>{r.exit_type?.name || "—"}</td>
                       <td style={tableCellStyle}>{r.exit_reason?.name || "—"}</td>
                       <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                        <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
-                          Open
-                        </Link>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                          <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
+                            View
+                          </Link>
+                          {canComplete && r.status === "approved" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleComplete(r.id)}
+                              disabled={actionLoading === r.id}
+                              style={secondaryButtonStyle}
+                            >
+                              {actionLoading === r.id ? "Completing…" : "Complete"}
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))
