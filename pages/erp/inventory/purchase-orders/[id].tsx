@@ -28,6 +28,7 @@ type PurchaseOrder = {
   order_date: string;
   expected_delivery_date: string | null;
   notes: string | null;
+  deliver_to_warehouse_id: string | null;
 };
 
 type Vendor = {
@@ -60,6 +61,7 @@ type VariantOption = {
   size: string | null;
   color: string | null;
   productTitle: string;
+  hsnCode: string | null;
 };
 
 type WarehouseOption = {
@@ -137,7 +139,7 @@ export default function PurchaseOrderDetailPage() {
     const [poRes, lineRes, vendorRes, variantRes, warehouseRes, grnRes] = await Promise.all([
       supabase
         .from("erp_purchase_orders")
-        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, notes")
+        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, notes, deliver_to_warehouse_id")
         .eq("company_id", companyId)
         .eq("id", poId)
         .single(),
@@ -155,7 +157,7 @@ export default function PurchaseOrderDetailPage() {
         .eq("company_id", companyId),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title)")
+        .select("id, sku, size, color, erp_products(title, hsn_code)")
         .eq("company_id", companyId)
         .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
@@ -199,7 +201,7 @@ export default function PurchaseOrderDetailPage() {
         sku: string;
         size: string | null;
         color: string | null;
-        erp_products?: { title?: string | null } | null;
+        erp_products?: { title?: string | null; hsn_code?: string | null } | null;
       }>;
       setVariants(
         variantRows.map((row) => ({
@@ -208,6 +210,7 @@ export default function PurchaseOrderDetailPage() {
           size: row.size ?? null,
           color: row.color ?? null,
           productTitle: row.erp_products?.title || "",
+          hsnCode: row.erp_products?.hsn_code ?? null,
         }))
       );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
@@ -443,6 +446,7 @@ export default function PurchaseOrderDetailPage() {
             <thead>
               <tr>
                 <th style={tableHeaderCellStyle}>SKU</th>
+                <th style={tableHeaderCellStyle}>HSN</th>
                 <th style={tableHeaderCellStyle}>Ordered</th>
                 <th style={tableHeaderCellStyle}>Received</th>
                 <th style={tableHeaderCellStyle}>Remaining</th>
@@ -452,7 +456,7 @@ export default function PurchaseOrderDetailPage() {
             <tbody>
               {lines.length === 0 ? (
                 <tr>
-                  <td style={tableCellStyle} colSpan={5}>
+                  <td style={tableCellStyle} colSpan={6}>
                     No line items found.
                   </td>
                 </tr>
@@ -463,6 +467,7 @@ export default function PurchaseOrderDetailPage() {
                   return (
                     <tr key={line.id}>
                       <td style={tableCellStyle}>{variant?.sku || line.variant_id}</td>
+                      <td style={tableCellStyle}>{variant?.hsnCode || "—"}</td>
                       <td style={tableCellStyle}>{line.ordered_qty}</td>
                       <td style={tableCellStyle}>{line.received_qty}</td>
                       <td style={tableCellStyle}>{remaining}</td>

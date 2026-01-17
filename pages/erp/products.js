@@ -11,6 +11,8 @@ export default function ErpProductsPage() {
 
   const [items, setItems] = useState([]);
   const [title, setTitle] = useState("");
+  const [styleCode, setStyleCode] = useState("");
+  const [hsnCode, setHsnCode] = useState("");
   const [status, setStatus] = useState("draft");
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
@@ -45,7 +47,7 @@ export default function ErpProductsPage() {
     setErr("");
     const { data, error } = await supabase
       .from("erp_products")
-      .select("id, title, status, created_at")
+      .select("id, title, style_code, hsn_code, status, created_at")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
@@ -59,7 +61,14 @@ export default function ErpProductsPage() {
   async function createProduct(e) {
     e.preventDefault();
     if (!ctx || !ctx.companyId) return;
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setErr("Product title is required.");
+      return;
+    }
+    if (!styleCode.trim()) {
+      setErr("Style code is required.");
+      return;
+    }
     if (!canWrite) {
       setErr("Only owner/admin can create products.");
       return;
@@ -69,6 +78,8 @@ export default function ErpProductsPage() {
     const { error } = await supabase.from("erp_products").insert({
       company_id: ctx.companyId,
       title: title.trim(),
+      style_code: styleCode.trim(),
+      hsn_code: hsnCode.trim() || null,
       status,
     });
 
@@ -77,6 +88,8 @@ export default function ErpProductsPage() {
       return;
     }
     setTitle("");
+    setStyleCode("");
+    setHsnCode("");
     setStatus("draft");
     await load(ctx.companyId);
   }
@@ -171,6 +184,18 @@ export default function ErpProductsPage() {
               placeholder="Product title (e.g., MBPS06 - One Piece Swimsuit)"
               style={{ flex: "1 1 360px", padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
             />
+            <input
+              value={styleCode}
+              onChange={(e) => setStyleCode(e.target.value)}
+              placeholder="Style code"
+              style={{ flex: "1 1 160px", padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+            />
+            <input
+              value={hsnCode}
+              onChange={(e) => setHsnCode(e.target.value)}
+              placeholder="HSN code"
+              style={{ flex: "1 1 160px", padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+            />
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -197,6 +222,8 @@ export default function ErpProductsPage() {
             <thead>
               <tr style={{ textAlign: "left", background: "#fff" }}>
                 <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Title</th>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Style Code</th>
+                <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>HSN Code</th>
                 <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Status</th>
                 <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Created</th>
                 <th style={{ padding: 12, borderBottom: "1px solid #eee" }}></th>
@@ -209,6 +236,8 @@ export default function ErpProductsPage() {
                     <div style={{ fontWeight: 600 }}>{p.title}</div>
                     <div style={{ fontSize: 12, color: "#777" }}>{p.id}</div>
                   </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1" }}>{p.style_code || "—"}</td>
+                  <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1" }}>{p.hsn_code || "—"}</td>
                   <td style={{ padding: 12, borderBottom: "1px solid #f1f1f1" }}>
                     {canWrite ? (
                       <select
@@ -241,7 +270,7 @@ export default function ErpProductsPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ padding: 16, color: "#777" }}>
+                  <td colSpan={6} style={{ padding: 16, color: "#777" }}>
                     No products yet.
                   </td>
                 </tr>

@@ -12,6 +12,10 @@ type PurchaseOrder = {
   order_date: string;
   expected_delivery_date: string | null;
   notes: string | null;
+  rfq_id: string | null;
+  vendor_quote_id: string | null;
+  quote_ref_no: string | null;
+  deliver_to_warehouse_id: string | null;
 };
 
 type Vendor = {
@@ -43,6 +47,7 @@ type VariantOption = {
   size: string | null;
   color: string | null;
   productTitle: string;
+  hsnCode: string | null;
 };
 
 type WarehouseOption = {
@@ -61,6 +66,8 @@ export default function PurchaseOrderPrintPage() {
   const [lines, setLines] = useState<PurchaseOrderLine[]>([]);
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [rfqNo, setRfqNo] = useState<string | null>(null);
+  const [quoteNo, setQuoteNo] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
   const [secondaryLogoLoaded, setSecondaryLogoLoaded] = useState(false);
 
@@ -114,13 +121,21 @@ export default function PurchaseOrderPrintPage() {
 
   async function loadData(companyId: string, poId: string, isActiveFetch = true) {
     setError("");
-    const [poRes, lineRes, vendorRes, variantRes, warehouseRes] = await Promise.all([
-      supabase
-        .from("erp_purchase_orders")
-        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, notes")
-        .eq("company_id", companyId)
-        .eq("id", poId)
-        .single(),
+    const poRes = await supabase
+      .from("erp_purchase_orders")
+      .select(
+        "id, po_no, vendor_id, status, order_date, expected_delivery_date, notes, rfq_id, vendor_quote_id, quote_ref_no, deliver_to_warehouse_id"
+      )
+      .eq("company_id", companyId)
+      .eq("id", poId)
+      .single();
+
+    if (poRes.error) {
+      if (isActiveFetch) setError(poRes.error.message);
+      return;
+    }
+
+    const [lineRes, vendorRes, variantRes, warehouseRes, rfqRes, quoteRes] = await Promise.all([
       supabase
         .from("erp_purchase_order_lines")
         .select("id, variant_id, ordered_qty, unit_cost")
@@ -135,20 +150,37 @@ export default function PurchaseOrderPrintPage() {
         .eq("company_id", companyId),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title)")
+        .select("id, sku, size, color, erp_products(title, hsn_code)")
         .eq("company_id", companyId)
         .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
+      poRes.data?.rfq_id
+        ? supabase
+            .from("erp_rfq")
+            .select("id, rfq_no")
+            .eq("company_id", companyId)
+            .eq("id", poRes.data.rfq_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      poRes.data?.vendor_quote_id
+        ? supabase
+            .from("erp_vendor_quotes")
+            .select("id, quote_no")
+            .eq("company_id", companyId)
+            .eq("id", poRes.data.vendor_quote_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
-    if (poRes.error || lineRes.error || vendorRes.error || variantRes.error || warehouseRes.error) {
+    if (lineRes.error || vendorRes.error || variantRes.error || warehouseRes.error || rfqRes.error || quoteRes.error) {
       if (isActiveFetch) {
         setError(
-          poRes.error?.message ||
-            lineRes.error?.message ||
+          lineRes.error?.message ||
             vendorRes.error?.message ||
             variantRes.error?.message ||
             warehouseRes.error?.message ||
+            rfqRes.error?.message ||
+            quoteRes.error?.message ||
             "Failed to load purchase order."
         );
       }
@@ -165,7 +197,7 @@ export default function PurchaseOrderPrintPage() {
         sku: string;
         size: string | null;
         color: string | null;
-        erp_products?: { title?: string | null } | null;
+        erp_products?: { title?: string | null; hsn_code?: string | null } | null;
       }>;
       setVariants(
         variantRows.map((row) => ({
@@ -174,9 +206,12 @@ export default function PurchaseOrderPrintPage() {
           size: row.size ?? null,
           color: row.color ?? null,
           productTitle: row.erp_products?.title || "",
+          hsnCode: row.erp_products?.hsn_code ?? null,
         }))
       );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
+      setRfqNo(rfqRes.data?.rfq_no ?? null);
+      setQuoteNo(quoteRes.data?.quote_no ?? null);
     }
   }
 
@@ -225,7 +260,13 @@ export default function PurchaseOrderPrintPage() {
     .map((line) => line.replace(/^[•*-]\s*/, "").trim())
     .filter(Boolean);
 
-  const deliveryWarehouse = warehouses[0];
+  const deliveryWarehouse =
+    warehouses.find((warehouse) => warehouse.id === po?.deliver_to_warehouse_id) || warehouses[0];
+
+  const referenceParts = [rfqNo].filter(Boolean);
+  const quoteReference = quoteNo || po?.quote_ref_no || null;
+  if (quoteReference) referenceParts.push(quoteReference);
+  const referenceText = referenceParts.length > 0 ? referenceParts.join(" / ") : null;
 
   return (
     <div style={printPageStyle} className="po-print-root">
@@ -275,6 +316,12 @@ export default function PurchaseOrderPrintPage() {
               <span style={{ ...printMetaValueStyle, color: "#6b7280", fontWeight: 500 }}>{po.status}</span>
             </div>
           ) : null}
+          {referenceText ? (
+            <div style={printMetaRowStyle}>
+              <span style={printMetaLabelStyle}>Reference</span>
+              <span style={printMetaValueStyle}>{referenceText}</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -304,6 +351,7 @@ export default function PurchaseOrderPrintPage() {
               <th style={printTableHeaderStyle}>Sl No</th>
               <th style={printTableHeaderStyle}>SKU</th>
               <th style={printTableHeaderStyle}>Item</th>
+              <th style={printTableHeaderStyle}>HSN</th>
               <th style={printTableHeaderStyle}>Variant</th>
               <th style={printTableHeaderStyle}>Qty</th>
               <th style={printTableHeaderStyle}>Unit Rate</th>
@@ -313,7 +361,7 @@ export default function PurchaseOrderPrintPage() {
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td style={printTableCellStyle} colSpan={7}>
+                <td style={printTableCellStyle} colSpan={8}>
                   No line items found.
                 </td>
               </tr>
@@ -327,6 +375,7 @@ export default function PurchaseOrderPrintPage() {
                     <td style={printTableCellStyle}>{index + 1}</td>
                     <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
                     <td style={printTableCellStyle}>{variant?.productTitle || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
                     <td style={printTableCellStyle}>{variantLabel}</td>
                     <td style={printTableCellStyle}>{line.ordered_qty}</td>
                     <td style={printTableCellStyle}>{formatMoney(line.unit_cost)}</td>
@@ -348,6 +397,7 @@ export default function PurchaseOrderPrintPage() {
           <span>Total Amount ({currencyCode})</span>
           <span style={printTotalsValueStyle}>{formatMoney(subtotal)}</span>
         </div>
+        <div style={printGstNoteStyle}>GST: As applicable / extra</div>
       </section>
 
       {termsLines.length > 0 ? (
@@ -628,6 +678,12 @@ const printTotalsRowStyle = {
 
 const printTotalsValueStyle = {
   fontWeight: 600,
+};
+
+const printGstNoteStyle = {
+  marginTop: 4,
+  fontSize: 12,
+  color: "#6b7280",
 };
 
 const printBulletListStyle = {
