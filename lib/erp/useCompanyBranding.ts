@@ -6,6 +6,7 @@ export type CompanyBranding = {
   companyName: string;
   bigonbuyLogoUrl: string | null;
   megaskaLogoUrl: string | null;
+  poFooterAddressText: string;
   loaded: boolean;
 };
 
@@ -17,6 +18,7 @@ async function fetchBranding(): Promise<CompanyBranding> {
     companyName: "",
     bigonbuyLogoUrl: null,
     megaskaLogoUrl: null,
+    poFooterAddressText: "",
     loaded: true,
   };
 
@@ -42,6 +44,7 @@ async function fetchBranding(): Promise<CompanyBranding> {
       companyName,
       bigonbuyLogoUrl: logoRes.bigonbuyUrl ?? null,
       megaskaLogoUrl: logoRes.megaskaUrl ?? null,
+      poFooterAddressText: logoRes.settings?.po_footer_address_text ?? "",
       loaded: true,
     };
   } catch (err) {

@@ -130,7 +130,7 @@ export default function ErpSidebar({
   const groups = useMemo(() => moduleSidebarMap[activeModule], [activeModule]);
 
   return (
-    <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }}>
+    <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }} data-erp-sidebar>
       <button type="button" onClick={onToggle} style={collapseButtonStyle}>
         {collapsed ? "→" : "←"}
       </button>

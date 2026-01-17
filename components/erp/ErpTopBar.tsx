@@ -61,7 +61,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   );
 
   return (
-    <header style={topBarStyle}>
+    <header style={topBarStyle} data-erp-topbar>
       <div style={brandBlockStyle}>
         {branding?.bigonbuyLogoUrl ? (
           <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={logoStyle} />

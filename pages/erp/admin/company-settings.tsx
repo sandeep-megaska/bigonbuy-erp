@@ -54,6 +54,7 @@ export default function CompanySettingsPage() {
   const [megaskaFile, setMegaskaFile] = useState<File | null>(null);
   const [bigonbuyPreview, setBigonbuyPreview] = useState<string | null>(null);
   const [megaskaPreview, setMegaskaPreview] = useState<string | null>(null);
+  const [footerAddressText, setFooterAddressText] = useState("");
 
   const canEdit = useMemo(() => isAdmin(ctx?.roleKey || access.roleKey), [access.roleKey, ctx?.roleKey]);
 
@@ -122,6 +123,7 @@ export default function CompanySettingsPage() {
       setDesignationCount(designationRes.count || 0);
       setBigonbuyPreview(logoRes.bigonbuyUrl);
       setMegaskaPreview(logoRes.megaskaUrl);
+      setFooterAddressText(settingsRes?.po_footer_address_text || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load company settings.");
     }
@@ -206,6 +208,23 @@ export default function CompanySettingsPage() {
       setSettings(updated || settings);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update setup completion.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveFooterAddress() {
+    setSaving(true);
+    setError("");
+
+    try {
+      const updated = await updateCompanySettings({
+        po_footer_address_text: footerAddressText.trim() || null,
+        updated_by: ctx?.userId ?? null,
+      });
+      setSettings(updated || settings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update footer address.");
     } finally {
       setSaving(false);
     }
@@ -388,6 +407,23 @@ export default function CompanySettingsPage() {
             </button>
           </div>
         </div>
+      </section>
+
+      <section style={cardStyle}>
+        <h2 style={h2Style}>Purchase Order Footer</h2>
+        <p style={{ marginTop: 4, color: "#6b7280" }}>
+          This address will appear in the footer of printed purchase orders.
+        </p>
+        <label style={labelStyle}>Footer Address Text</label>
+        <textarea
+          style={{ ...inputStyle, minHeight: 100 }}
+          value={footerAddressText}
+          onChange={(event) => setFooterAddressText(event.target.value)}
+          placeholder="123 Warehouse Lane, Mumbai, India"
+        />
+        <button type="button" style={primaryButtonStyle} onClick={handleSaveFooterAddress} disabled={saving}>
+          {saving ? "Saving…" : "Save Footer Address"}
+        </button>
       </section>
 
       <section style={cardStyle}>
