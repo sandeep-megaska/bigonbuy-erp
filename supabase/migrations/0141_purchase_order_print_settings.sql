@@ -4,6 +4,26 @@ alter table public.erp_company_settings
   add column if not exists gstin text,
   add column if not exists address_text text,
   add column if not exists po_terms_text text;
+-- Ensure updated_by is never NULL during migrations (auth.uid() is NULL here)
+create or replace function public.erp_set_updated_cols()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+  new.updated_by := coalesce(auth.uid(), new.updated_by, new.created_by);
+  return new;
+end;
+$$;
+
+drop trigger if exists erp_vendors_set_updated on public.erp_vendors;
+
+create trigger erp_vendors_set_updated
+before update on public.erp_vendors
+for each row
+execute function public.erp_set_updated_cols();
 
 update public.erp_company_settings
   set address_text = coalesce(address_text, po_footer_address_text)
