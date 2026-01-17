@@ -153,6 +153,19 @@ export default function EmployeeExitsPage() {
   const showEmptyState = !loading && filteredRows.length === 0;
 
   useEffect(() => {
+    if (!router.isReady) return;
+    const statusParam = Array.isArray(router.query.status)
+      ? router.query.status[0]
+      : router.query.status;
+    const employeeParam = Array.isArray(router.query.employee)
+      ? router.query.employee[0]
+      : router.query.employee;
+
+    setStatusFilter(typeof statusParam === "string" ? statusParam : "");
+    setEmployeeFilter(typeof employeeParam === "string" ? employeeParam : "");
+  }, [router.isReady, router.query.employee, router.query.status]);
+
+  useEffect(() => {
     let active = true;
 
     (async () => {
@@ -250,6 +263,10 @@ export default function EmployeeExitsPage() {
         `
         )
         .order("created_at", { ascending: false });
+
+      if (ctx?.companyId) {
+        query = query.eq("company_id", ctx.companyId);
+      }
 
       if (statusValue) {
         query = query.eq("status", statusValue);
