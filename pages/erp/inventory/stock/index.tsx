@@ -25,6 +25,10 @@ type WarehouseOption = {
 type VariantOption = {
   id: string;
   sku: string;
+  size: string | null;
+  color: string | null;
+  product_id: string;
+  product_title: string;
 };
 
 type StockRow = {
@@ -43,6 +47,8 @@ export default function InventoryStockPage() {
   const [stockRows, setStockRows] = useState<StockRow[]>([]);
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [skuQuery, setSkuQuery] = useState("");
+  const [serverFilteredRows, setServerFilteredRows] = useState<StockRow[] | null>(null);
+  const [serverSearchLoading, setServerSearchLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -72,15 +78,19 @@ export default function InventoryStockPage() {
 
   async function loadStock(companyId: string, isActive = true) {
     setError("");
-    const [warehouseRes, variantRes, stockRes] = await Promise.all([
+    const [warehouseRes, productRes, variantRes, stockRes] = await Promise.all([
       supabase
         .from("erp_warehouses")
         .select("id, name")
         .eq("company_id", companyId)
         .order("name", { ascending: true }),
       supabase
+        .from("erp_products")
+        .select("id, title")
+        .eq("company_id", companyId),
+      supabase
         .from("erp_variants")
-        .select("id, sku")
+        .select("id, sku, size, color, product_id")
         .eq("company_id", companyId)
         .order("sku", { ascending: true }),
       supabase
@@ -89,10 +99,11 @@ export default function InventoryStockPage() {
         .eq("company_id", companyId),
     ]);
 
-    if (warehouseRes.error || variantRes.error || stockRes.error) {
+    if (warehouseRes.error || productRes.error || variantRes.error || stockRes.error) {
       if (isActive) {
         setError(
           warehouseRes.error?.message ||
+            productRes.error?.message ||
             variantRes.error?.message ||
             stockRes.error?.message ||
             "Failed to load stock on hand."
@@ -102,26 +113,143 @@ export default function InventoryStockPage() {
     }
 
     if (isActive) {
+      const productMap = new Map((productRes.data || []).map((product) => [product.id, product.title]));
+      const variantList = (variantRes.data || []).map((variant) => ({
+        ...(variant as any),
+        product_title: productMap.get((variant as any).product_id) || "",
+      })) as VariantOption[];
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
-      setVariants((variantRes.data || []) as VariantOption[]);
+      setVariants(variantList);
       setStockRows((stockRes.data || []) as StockRow[]);
     }
   }
 
-  const variantMap = useMemo(() => new Map(variants.map((v) => [v.id, v.sku])), [variants]);
+  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
   const warehouseMap = useMemo(
     () => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.name])),
     [warehouses]
   );
 
-  const filteredRows = stockRows
+  useEffect(() => {
+    if (!ctx?.companyId) return;
+    const query = skuQuery.trim();
+    if (!query || stockRows.length <= LARGE_DATASET_THRESHOLD) {
+      setServerFilteredRows(null);
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      setServerSearchLoading(true);
+      const results = await searchStockRows(ctx.companyId, query, warehouseFilter, active);
+      if (!active) return;
+      setServerFilteredRows(results);
+      setServerSearchLoading(false);
+    })().catch((searchError) => {
+      if (active) {
+        setError(searchError?.message || "Failed to search stock on hand.");
+        setServerSearchLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [ctx?.companyId, skuQuery, warehouseFilter, stockRows.length]);
+
+  function variantMatchesSearch(variant: VariantOption, query: string) {
+    const normalized = query.toLowerCase();
+    return (
+      variant.sku.toLowerCase().includes(normalized) ||
+      (variant.product_title || "").toLowerCase().includes(normalized) ||
+      (variant.color || "").toLowerCase().includes(normalized) ||
+      (variant.size || "").toLowerCase().includes(normalized)
+    );
+  }
+
+  async function searchStockRows(
+    companyId: string,
+    query: string,
+    warehouseId: string,
+    isActive: boolean
+  ) {
+    setError("");
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    const { data: productMatches, error: productError } = await supabase
+      .from("erp_products")
+      .select("id")
+      .eq("company_id", companyId)
+      .ilike("title", `%${trimmed}%`);
+
+    if (productError) {
+      if (isActive) setError(productError.message);
+      return [];
+    }
+
+    const productIds = (productMatches || []).map((product) => product.id);
+    const likeQuery = `%${trimmed}%`;
+    const orFilters = [
+      `sku.ilike.${likeQuery}`,
+      `color.ilike.${likeQuery}`,
+      `size.ilike.${likeQuery}`,
+    ];
+    if (productIds.length) {
+      orFilters.push(`product_id.in.(${productIds.join(",")})`);
+    }
+
+    const { data: variantMatches, error: variantError } = await supabase
+      .from("erp_variants")
+      .select("id")
+      .eq("company_id", companyId)
+      .or(orFilters.join(","));
+
+    if (variantError) {
+      if (isActive) setError(variantError.message);
+      return [];
+    }
+
+    const variantIds = (variantMatches || []).map((variant) => variant.id);
+    if (variantIds.length === 0) return [];
+
+    let stockQuery = supabase
+      .from("erp_inventory_on_hand")
+      .select("warehouse_id, variant_id, qty_on_hand")
+      .eq("company_id", companyId)
+      .in("variant_id", variantIds);
+
+    if (warehouseId) {
+      stockQuery = stockQuery.eq("warehouse_id", warehouseId);
+    }
+
+    const { data: stockMatches, error: stockError } = await stockQuery;
+    if (stockError) {
+      if (isActive) setError(stockError.message);
+      return [];
+    }
+
+    return (stockMatches || []) as StockRow[];
+  }
+
+  const baseRows = serverFilteredRows ?? stockRows;
+
+  const filteredRows = baseRows
     .map((row) => ({
+      variant: variantMap.get(row.variant_id),
       ...row,
       warehouseName: warehouseMap.get(row.warehouse_id) || row.warehouse_id,
-      sku: variantMap.get(row.variant_id) || row.variant_id,
+      sku: variantMap.get(row.variant_id)?.sku || row.variant_id,
+      productTitle: variantMap.get(row.variant_id)?.product_title || "",
+      size: variantMap.get(row.variant_id)?.size || "",
+      color: variantMap.get(row.variant_id)?.color || "",
     }))
     .filter((row) => (warehouseFilter ? row.warehouse_id === warehouseFilter : true))
-    .filter((row) => (skuQuery ? row.sku.toLowerCase().includes(skuQuery.toLowerCase()) : true));
+    .filter((row) => {
+      if (!skuQuery || serverFilteredRows) return true;
+      if (!row.variant) return row.sku.toLowerCase().includes(skuQuery.toLowerCase());
+      return variantMatchesSearch(row.variant, skuQuery);
+    });
 
   if (loading) {
     return (
@@ -161,9 +289,10 @@ export default function InventoryStockPage() {
             <input
               value={skuQuery}
               onChange={(event) => setSkuQuery(event.target.value)}
-              placeholder="Search SKU"
+              placeholder="Search SKU / title / color / size"
               style={inputStyle}
             />
+            {serverSearchLoading ? <span style={mutedStyle}>Searching…</span> : null}
           </div>
         </section>
 
@@ -171,22 +300,28 @@ export default function InventoryStockPage() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={tableHeaderCellStyle}>Warehouse</th>
                 <th style={tableHeaderCellStyle}>SKU</th>
+                <th style={tableHeaderCellStyle}>Product title</th>
+                <th style={tableHeaderCellStyle}>Size</th>
+                <th style={tableHeaderCellStyle}>Color</th>
+                <th style={tableHeaderCellStyle}>Warehouse</th>
                 <th style={tableHeaderCellStyle}>Qty On Hand</th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map((row, index) => (
                 <tr key={`${row.warehouse_id}-${row.variant_id}-${index}`}>
-                  <td style={tableCellStyle}>{row.warehouseName}</td>
                   <td style={{ ...tableCellStyle, fontWeight: 600 }}>{row.sku}</td>
+                  <td style={tableCellStyle}>{row.productTitle || "—"}</td>
+                  <td style={tableCellStyle}>{row.size || "—"}</td>
+                  <td style={tableCellStyle}>{row.color || "—"}</td>
+                  <td style={tableCellStyle}>{row.warehouseName}</td>
                   <td style={tableCellStyle}>{row.qty_on_hand}</td>
                 </tr>
               ))}
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={3} style={emptyStateStyle}>
+                  <td colSpan={6} style={emptyStateStyle}>
                     No stock on hand found for the selected filters.
                   </td>
                 </tr>
@@ -212,6 +347,13 @@ const errorStyle: CSSProperties = {
   backgroundColor: "#fef2f2",
   color: "#991b1b",
 };
+
+const mutedStyle: CSSProperties = {
+  color: "#6b7280",
+  fontSize: 12,
+};
+
+const LARGE_DATASET_THRESHOLD = 500;
 
 const emptyStateStyle: CSSProperties = {
   ...tableCellStyle,

@@ -26,6 +26,10 @@ type WarehouseOption = {
 type VariantOption = {
   id: string;
   sku: string;
+  size: string | null;
+  color: string | null;
+  product_id: string;
+  product_title: string;
 };
 
 type LedgerRow = {
@@ -47,15 +51,20 @@ export default function InventoryMovementsPage() {
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [ledgerRows, setLedgerRows] = useState<LedgerRow[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [serverFilteredRows, setServerFilteredRows] = useState<LedgerRow[] | null>(null);
+  const [serverSearchLoading, setServerSearchLoading] = useState(false);
 
   const [adjustWarehouseId, setAdjustWarehouseId] = useState("");
   const [adjustVariantId, setAdjustVariantId] = useState("");
+  const [adjustVariantQuery, setAdjustVariantQuery] = useState("");
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustReason, setAdjustReason] = useState("Manual adjustment");
 
   const [fromWarehouseId, setFromWarehouseId] = useState("");
   const [toWarehouseId, setToWarehouseId] = useState("");
   const [transferVariantId, setTransferVariantId] = useState("");
+  const [transferVariantQuery, setTransferVariantQuery] = useState("");
   const [transferQty, setTransferQty] = useState("");
   const [transferReason, setTransferReason] = useState("Stock transfer");
 
@@ -89,15 +98,19 @@ export default function InventoryMovementsPage() {
 
   async function loadMovements(companyId: string, isActive = true) {
     setError("");
-    const [warehouseRes, variantRes, ledgerRes] = await Promise.all([
+    const [warehouseRes, productRes, variantRes, ledgerRes] = await Promise.all([
       supabase
         .from("erp_warehouses")
         .select("id, name")
         .eq("company_id", companyId)
         .order("name", { ascending: true }),
       supabase
+        .from("erp_products")
+        .select("id, title")
+        .eq("company_id", companyId),
+      supabase
         .from("erp_variants")
-        .select("id, sku")
+        .select("id, sku, size, color, product_id")
         .eq("company_id", companyId)
         .order("sku", { ascending: true }),
       supabase
@@ -108,10 +121,11 @@ export default function InventoryMovementsPage() {
         .limit(200),
     ]);
 
-    if (warehouseRes.error || variantRes.error || ledgerRes.error) {
+    if (warehouseRes.error || productRes.error || variantRes.error || ledgerRes.error) {
       if (isActive) {
         setError(
           warehouseRes.error?.message ||
+            productRes.error?.message ||
             variantRes.error?.message ||
             ledgerRes.error?.message ||
             "Failed to load stock movements."
@@ -121,8 +135,13 @@ export default function InventoryMovementsPage() {
     }
 
     if (isActive) {
+      const productMap = new Map((productRes.data || []).map((product) => [product.id, product.title]));
+      const variantList = (variantRes.data || []).map((variant) => ({
+        ...(variant as any),
+        product_title: productMap.get((variant as any).product_id) || "",
+      })) as VariantOption[];
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
-      setVariants((variantRes.data || []) as VariantOption[]);
+      setVariants(variantList);
       setLedgerRows((ledgerRes.data || []) as LedgerRow[]);
       if (!adjustWarehouseId) {
         setAdjustWarehouseId(warehouseRes.data?.[0]?.id || "");
@@ -233,7 +252,125 @@ export default function InventoryMovementsPage() {
     () => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.name])),
     [warehouses]
   );
-  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant.sku])), [variants]);
+  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
+
+  useEffect(() => {
+    if (!ctx?.companyId) return;
+    const query = searchQuery.trim();
+    if (!query || ledgerRows.length <= LARGE_DATASET_THRESHOLD) {
+      setServerFilteredRows(null);
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      setServerSearchLoading(true);
+      const results = await searchLedgerRows(ctx.companyId, query, active);
+      if (!active) return;
+      setServerFilteredRows(results);
+      setServerSearchLoading(false);
+    })().catch((searchError) => {
+      if (active) {
+        setError(searchError?.message || "Failed to search stock movements.");
+        setServerSearchLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [ctx?.companyId, searchQuery, ledgerRows.length]);
+
+  function variantMatchesSearch(variant: VariantOption, query: string) {
+    const normalized = query.toLowerCase();
+    return (
+      variant.sku.toLowerCase().includes(normalized) ||
+      (variant.product_title || "").toLowerCase().includes(normalized) ||
+      (variant.color || "").toLowerCase().includes(normalized) ||
+      (variant.size || "").toLowerCase().includes(normalized)
+    );
+  }
+
+  function getVariantDisplay(variant?: VariantOption) {
+    if (!variant) return "";
+    const color = variant.color?.trim();
+    const size = variant.size?.trim();
+    const details = [color, size].filter(Boolean).join("/");
+    const detailText = details ? ` — ${details}` : "";
+    return `${variant.sku} — ${variant.product_title || "Untitled"}${detailText}`;
+  }
+
+  const filteredAdjustmentVariants = variants.filter((variant) =>
+    adjustVariantQuery ? variantMatchesSearch(variant, adjustVariantQuery) : true
+  );
+  const filteredTransferVariants = variants.filter((variant) =>
+    transferVariantQuery ? variantMatchesSearch(variant, transferVariantQuery) : true
+  );
+
+  async function searchLedgerRows(companyId: string, query: string, isActive: boolean) {
+    setError("");
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    const { data: productMatches, error: productError } = await supabase
+      .from("erp_products")
+      .select("id")
+      .eq("company_id", companyId)
+      .ilike("title", `%${trimmed}%`);
+
+    if (productError) {
+      if (isActive) setError(productError.message);
+      return [];
+    }
+
+    const productIds = (productMatches || []).map((product) => product.id);
+    const likeQuery = `%${trimmed}%`;
+    const orFilters = [
+      `sku.ilike.${likeQuery}`,
+      `color.ilike.${likeQuery}`,
+      `size.ilike.${likeQuery}`,
+    ];
+    if (productIds.length) {
+      orFilters.push(`product_id.in.(${productIds.join(",")})`);
+    }
+
+    const { data: variantMatches, error: variantError } = await supabase
+      .from("erp_variants")
+      .select("id")
+      .eq("company_id", companyId)
+      .or(orFilters.join(","));
+
+    if (variantError) {
+      if (isActive) setError(variantError.message);
+      return [];
+    }
+
+    const variantIds = (variantMatches || []).map((variant) => variant.id);
+    if (variantIds.length === 0) return [];
+
+    const { data: ledgerMatches, error: ledgerError } = await supabase
+      .from("erp_inventory_ledger")
+      .select("id, warehouse_id, variant_id, qty, type, reason, ref, created_at")
+      .eq("company_id", companyId)
+      .in("variant_id", variantIds)
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (ledgerError) {
+      if (isActive) setError(ledgerError.message);
+      return [];
+    }
+
+    return (ledgerMatches || []) as LedgerRow[];
+  }
+
+  const baseRows = serverFilteredRows ?? ledgerRows;
+  const filteredRows = baseRows.filter((row) => {
+    if (!searchQuery || serverFilteredRows) return true;
+    const variant = variantMap.get(row.variant_id);
+    if (!variant) return false;
+    return variantMatchesSearch(variant, searchQuery);
+  });
 
   if (loading) {
     return (
@@ -257,6 +394,18 @@ export default function InventoryMovementsPage() {
         {error ? <div style={errorStyle}>{error}</div> : null}
 
         <section style={cardStyle}>
+          <div style={filterRowStyle}>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search SKU / title / color / size"
+              style={inputStyle}
+            />
+            {serverSearchLoading ? <span style={mutedStyle}>Searching…</span> : null}
+          </div>
+        </section>
+
+        <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>Stock Adjustment</h2>
           {!canWrite ? (
             <p style={mutedStyle}>Only owner/admin can post adjustments.</p>
@@ -273,14 +422,20 @@ export default function InventoryMovementsPage() {
                   </option>
                 ))}
               </select>
+              <input
+                value={adjustVariantQuery}
+                onChange={(event) => setAdjustVariantQuery(event.target.value)}
+                placeholder="Filter SKUs"
+                style={inputStyle}
+              />
               <select
                 value={adjustVariantId}
                 onChange={(event) => setAdjustVariantId(event.target.value)}
                 style={inputStyle}
               >
-                {variants.map((variant) => (
+                {filteredAdjustmentVariants.map((variant) => (
                   <option key={variant.id} value={variant.id}>
-                    {variant.sku}
+                    {getVariantDisplay(variant)}
                   </option>
                 ))}
               </select>
@@ -333,15 +488,21 @@ export default function InventoryMovementsPage() {
                   </option>
                 ))}
               </select>
+              <input
+                value={transferVariantQuery}
+                onChange={(event) => setTransferVariantQuery(event.target.value)}
+                placeholder="Filter SKUs"
+                style={inputStyle}
+              />
               <select
                 value={transferVariantId}
                 onChange={(event) => setTransferVariantId(event.target.value)}
                 style={inputStyle}
               >
                 <option value="">Select SKU</option>
-                {variants.map((variant) => (
+                {filteredTransferVariants.map((variant) => (
                   <option key={variant.id} value={variant.id}>
-                    {variant.sku}
+                    {getVariantDisplay(variant)}
                   </option>
                 ))}
               </select>
@@ -371,27 +532,30 @@ export default function InventoryMovementsPage() {
                 <th style={tableHeaderCellStyle}>Date</th>
                 <th style={tableHeaderCellStyle}>Warehouse</th>
                 <th style={tableHeaderCellStyle}>SKU</th>
+                <th style={tableHeaderCellStyle}>Variant</th>
                 <th style={tableHeaderCellStyle}>Qty</th>
                 <th style={tableHeaderCellStyle}>Type</th>
                 <th style={tableHeaderCellStyle}>Reason</th>
               </tr>
             </thead>
             <tbody>
-              {ledgerRows.map((row) => (
-                <tr key={row.id}>
-                  <td style={tableCellStyle}>{new Date(row.created_at).toLocaleString()}</td>
-                  <td style={tableCellStyle}>{warehouseMap.get(row.warehouse_id) || row.warehouse_id}</td>
-                  <td style={{ ...tableCellStyle, fontWeight: 600 }}>
-                    {variantMap.get(row.variant_id) || row.variant_id}
-                  </td>
-                  <td style={tableCellStyle}>{row.qty}</td>
-                  <td style={tableCellStyle}>{row.type}</td>
-                  <td style={tableCellStyle}>{row.reason || row.ref || "—"}</td>
-                </tr>
-              ))}
-              {ledgerRows.length === 0 ? (
+              {filteredRows.map((row) => {
+                const variant = variantMap.get(row.variant_id);
+                return (
+                  <tr key={row.id}>
+                    <td style={tableCellStyle}>{new Date(row.created_at).toLocaleString()}</td>
+                    <td style={tableCellStyle}>{warehouseMap.get(row.warehouse_id) || row.warehouse_id}</td>
+                    <td style={{ ...tableCellStyle, fontWeight: 600 }}>{variant?.sku || row.variant_id}</td>
+                    <td style={tableCellStyle}>{getVariantDisplay(variant) || row.variant_id}</td>
+                    <td style={tableCellStyle}>{row.qty}</td>
+                    <td style={tableCellStyle}>{row.type}</td>
+                    <td style={tableCellStyle}>{row.reason || row.ref || "—"}</td>
+                  </tr>
+                );
+              })}
+              {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={emptyStateStyle}>
+                  <td colSpan={7} style={emptyStateStyle}>
                     No stock movements yet.
                   </td>
                 </tr>
@@ -409,6 +573,13 @@ const formGridStyle: CSSProperties = {
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: 12,
   alignItems: "center",
+};
+
+const filterRowStyle: CSSProperties = {
+  display: "flex",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -435,3 +606,5 @@ const emptyStateStyle: CSSProperties = {
   textAlign: "center",
   color: "#6b7280",
 };
+
+const LARGE_DATASET_THRESHOLD = 500;
