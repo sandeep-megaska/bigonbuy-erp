@@ -167,6 +167,7 @@ export default function EmployeeExitsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, monthFilter]);
   async function loadExits() {
+    if (!ctx?.companyId) return;
   try {
     let query = supabase
       .from("erp_hr_employee_exits")
