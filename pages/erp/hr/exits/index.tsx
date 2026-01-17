@@ -281,7 +281,7 @@ export default function EmployeeExitsPage() {
       }
 
       setRlsWarning("");
-      const raw = (data ?? []) as (ExitRowBase & {
+      const raw = (data ?? []) as unknown as (ExitRowBase & {
         employee?: EmbeddedValue<EmployeeEmbed>;
         manager?: EmbeddedValue<EmployeeEmbed>;
         exit_type?: EmbeddedValue<ExitMetaEmbed>;
