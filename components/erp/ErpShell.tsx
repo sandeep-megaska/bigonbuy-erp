@@ -5,10 +5,10 @@ import ErpTopBar, { type ErpModuleKey } from "./ErpTopBar";
 import { pageWrapperStyle } from "./ui/styles";
 
 export default function ErpShell({
-  activeModule,
+  activeModule = "workspace",
   children,
 }: {
-  activeModule: ErpModuleKey;
+  activeModule?: ErpModuleKey;
   children: ReactNode;
 }) {
   const isNested = useContext(ErpShellContext);
