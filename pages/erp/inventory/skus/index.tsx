@@ -351,7 +351,7 @@ export default function InventorySkusPage() {
 
     let createdProducts = 0;
     if (!dryRun) {
-      for (const [key, value] of titlesToCreate.entries()) {
+      for (const [key, value] of Array.from(titlesToCreate.entries())) {
         const { data, error: insertError } = await supabase
           .from("erp_products")
           .insert({ company_id: ctx.companyId, title: value.title })
