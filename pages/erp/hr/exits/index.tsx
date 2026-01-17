@@ -150,6 +150,8 @@ export default function EmployeeExitsPage() {
     return hasActiveFilters && !loading && filteredRows.length === 0;
   }, [statusFilter, employeeFilter, loading, filteredRows.length]);
 
+  const showEmptyState = !loading && filteredRows.length === 0;
+
   useEffect(() => {
     let active = true;
 
@@ -434,88 +436,112 @@ export default function EmployeeExitsPage() {
             <div style={bannerStyle}>No exits match the current filters. Try clearing filters.</div>
           )}
 
-          <div style={{ marginTop: 14, overflowX: "auto" }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={tableHeaderCellStyle}>Employee</th>
-                  <th style={tableHeaderCellStyle}>Status</th>
-                  <th style={tableHeaderCellStyle}>LWD</th>
-                  <th style={tableHeaderCellStyle}>Initiated On</th>
-                  <th style={tableHeaderCellStyle}>Type</th>
-                  <th style={tableHeaderCellStyle}>Reason</th>
-                  <th style={tableHeaderCellStyle}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td style={tableCellStyle} colSpan={7}>
-                      Loading…
-                    </td>
-                  </tr>
-                ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td style={tableCellStyle} colSpan={7}>
-                      No exit requests found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRows.map((r) => (
-                    <tr key={r.id}>
-                      <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{r.employee?.full_name || "—"}</div>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>{r.employee?.employee_code || ""}</div>
-                      </td>
-                      <td style={tableCellStyle}>
-                        <span style={{ ...badgeStyle }}>{r.status}</span>
-                      </td>
-                      <td style={tableCellStyle}>{formatDate(r.last_working_day)}</td>
-                      <td style={tableCellStyle}>{formatDate(r.initiated_on)}</td>
-                      <td style={tableCellStyle}>{r.exit_type?.name || "—"}</td>
-                      <td style={tableCellStyle}>{r.exit_reason?.name || "—"}</td>
-                      <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                          <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
-                            View
-                          </Link>
-                          {canManage && r.status === "draft" ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleStatusChange(r.id, "approved")}
-                                disabled={actionLoading === r.id}
-                                style={primaryButtonStyle}
-                              >
-                                {actionLoading === r.id ? "Updating…" : "Approve"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleStatusChange(r.id, "rejected")}
-                                disabled={actionLoading === r.id}
-                                style={secondaryButtonStyle}
-                              >
-                                {actionLoading === r.id ? "Updating…" : "Reject"}
-                              </button>
-                            </>
-                          ) : null}
-                          {canComplete && r.status === "approved" ? (
-                            <button
-                              type="button"
-                              onClick={() => handleComplete(r.id)}
-                              disabled={actionLoading === r.id}
-                              style={secondaryButtonStyle}
-                            >
-                              {actionLoading === r.id ? "Completing…" : "Complete"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
+          <div style={{ marginTop: 14 }}>
+            {showEmptyState ? (
+              <div
+                style={{
+                  border: "1px dashed #d1d5db",
+                  borderRadius: 12,
+                  padding: "18px 20px",
+                  background: "#f9fafb",
+                  color: "#4b5563",
+                }}
+              >
+                <div style={{ fontWeight: 600, color: "#111827" }}>
+                  {showHelperBanner ? "No exits match the current filters." : "No exit requests found."}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13 }}>
+                  {showHelperBanner
+                    ? "Clear filters to see all exits."
+                    : "Create a draft exit from an employee profile to get started."}
+                </div>
+                {!showHelperBanner ? (
+                  <div style={{ marginTop: 12 }}>
+                    <Link href="/erp/hr/employees" style={{ color: "#2563eb", fontWeight: 600 }}>
+                      Go to employees
+                    </Link>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Employee</th>
+                      <th style={tableHeaderCellStyle}>Status</th>
+                      <th style={tableHeaderCellStyle}>LWD</th>
+                      <th style={tableHeaderCellStyle}>Initiated On</th>
+                      <th style={tableHeaderCellStyle}>Type</th>
+                      <th style={tableHeaderCellStyle}>Reason</th>
+                      <th style={tableHeaderCellStyle}>Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td style={tableCellStyle} colSpan={7}>
+                          Loading…
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRows.map((r) => (
+                        <tr key={r.id}>
+                          <td style={tableCellStyle}>
+                            <div style={{ fontWeight: 600 }}>{r.employee?.full_name || "—"}</div>
+                            <div style={{ fontSize: 12, color: "#6b7280" }}>{r.employee?.employee_code || ""}</div>
+                          </td>
+                          <td style={tableCellStyle}>
+                            <span style={{ ...badgeStyle }}>{r.status}</span>
+                          </td>
+                          <td style={tableCellStyle}>{formatDate(r.last_working_day)}</td>
+                          <td style={tableCellStyle}>{formatDate(r.initiated_on)}</td>
+                          <td style={tableCellStyle}>{r.exit_type?.name || "—"}</td>
+                          <td style={tableCellStyle}>{r.exit_reason?.name || "—"}</td>
+                          <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                              <Link href={`/erp/hr/exits/${r.id}`} style={{ color: "#2563eb", fontWeight: 600 }}>
+                                View
+                              </Link>
+                              {canManage && r.status === "draft" ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStatusChange(r.id, "approved")}
+                                    disabled={actionLoading === r.id}
+                                    style={primaryButtonStyle}
+                                  >
+                                    {actionLoading === r.id ? "Updating…" : "Approve"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStatusChange(r.id, "rejected")}
+                                    disabled={actionLoading === r.id}
+                                    style={secondaryButtonStyle}
+                                  >
+                                    {actionLoading === r.id ? "Updating…" : "Reject"}
+                                  </button>
+                                </>
+                              ) : null}
+                              {canComplete && r.status === "approved" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleComplete(r.id)}
+                                  disabled={actionLoading === r.id}
+                                  style={secondaryButtonStyle}
+                                >
+                                  {actionLoading === r.id ? "Completing…" : "Complete"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {!canManage && (
