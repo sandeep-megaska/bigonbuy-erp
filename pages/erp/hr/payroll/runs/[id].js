@@ -114,8 +114,8 @@ export default function PayrollRunDetailPage() {
           body: JSON.stringify({ payrollRunId: runId }),
         }),
         supabase
-          .from("erp_employees")
-          .select("id, full_name, employee_no")
+          .from("erp_payroll_eligible_employees_v")
+          .select("employee_id, full_name, employee_code")
           .eq("company_id", companyId)
           .order("full_name", { ascending: true }),
         supabase.rpc("erp_payroll_run_items_status", {
@@ -142,7 +142,14 @@ export default function PayrollRunDetailPage() {
 
       setRun(runPayload?.run || null);
       setItems(itemsPayload?.items || []);
-      setEmployees(employeesData || []);
+      const eligibleEmployees = (employeesData || []).map((row) => ({
+        ...row,
+        id: row.employee_id ?? row.id,
+      }));
+      if (process.env.NODE_ENV !== "production") {
+        console.info(`[Payroll] Eligible employees returned: ${eligibleEmployees.length}`);
+      }
+      setEmployees(eligibleEmployees);
       setItemStatuses(statusData || []);
       if (runPayload?.run?.status === "finalized") {
         const { data: payslipData, error: payslipErr } = await supabase.rpc("erp_payroll_run_payslips", {
@@ -667,7 +674,7 @@ export default function PayrollRunDetailPage() {
                     <tr key={item.id}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{emp?.full_name || "—"}</div>
-                        <div style={{ fontSize: 12, color: "#777" }}>{emp?.employee_no || item.employee_id}</div>
+                        <div style={{ fontSize: 12, color: "#777" }}>{emp?.employee_code || item.employee_id}</div>
                         {status?.has_salary_assignment === false ? (
                           <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <span style={missingBadgeStyle}>No salary assigned</span>
