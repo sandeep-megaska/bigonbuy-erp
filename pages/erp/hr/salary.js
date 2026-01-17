@@ -3,14 +3,22 @@ import { useRouter } from "next/router";
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
-const emptyStructureForm = {
+const getMonthStartDate = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}-01`;
+};
+
+const getEmptyStructureForm = () => ({
   name: "",
   notes: "",
   isActive: true,
   basicPct: "50",
   hraPctOfBasic: "40",
   allowancesMode: "remainder",
-};
+  effectiveFrom: getMonthStartDate(),
+});
 const emptyComponentForm = {
   code: "",
   name: "",
@@ -33,7 +41,7 @@ export default function HrSalaryPage() {
 
   const [structures, setStructures] = useState([]);
   const [selectedStructureId, setSelectedStructureId] = useState("");
-  const [structureForm, setStructureForm] = useState(emptyStructureForm);
+  const [structureForm, setStructureForm] = useState(getEmptyStructureForm);
 
   const [components, setComponents] = useState([]);
   const [componentForm, setComponentForm] = useState(emptyComponentForm);
@@ -84,7 +92,7 @@ export default function HrSalaryPage() {
   async function loadStructures(companyId, isActive = true) {
     const { data, error } = await supabase
       .from("erp_salary_structures")
-      .select("id, name, notes, is_active, basic_pct, hra_pct_of_basic, allowances_mode")
+      .select("id, name, notes, is_active, basic_pct, hra_pct_of_basic, allowances_mode, effective_from")
       .eq("company_id", companyId)
       .order("name", { ascending: true });
     if (error) {
@@ -103,6 +111,7 @@ export default function HrSalaryPage() {
           basicPct: first.basic_pct?.toString() ?? "50",
           hraPctOfBasic: first.hra_pct_of_basic?.toString() ?? "40",
           allowancesMode: first.allowances_mode ?? "remainder",
+          effectiveFrom: first.effective_from ? first.effective_from.split("T")[0] : getMonthStartDate(),
         });
       }
     }
@@ -161,6 +170,7 @@ export default function HrSalaryPage() {
       p_basic_pct: structureForm.basicPct ? Number(structureForm.basicPct) : 50,
       p_hra_pct_of_basic: structureForm.hraPctOfBasic ? Number(structureForm.hraPctOfBasic) : 40,
       p_allowances_mode: structureForm.allowancesMode || "remainder",
+      p_effective_from: structureForm.effectiveFrom || getMonthStartDate(),
       p_id: selectedStructureId || null,
     };
 
@@ -178,7 +188,7 @@ export default function HrSalaryPage() {
 
   async function handleNewStructure() {
     setSelectedStructureId("");
-    setStructureForm(emptyStructureForm);
+    setStructureForm(getEmptyStructureForm());
     setComponents([]);
     setOtRules(emptyOtRules);
   }
@@ -249,6 +259,7 @@ export default function HrSalaryPage() {
         basicPct: structure.basic_pct?.toString() ?? "50",
         hraPctOfBasic: structure.hra_pct_of_basic?.toString() ?? "40",
         allowancesMode: structure.allowances_mode ?? "remainder",
+        effectiveFrom: structure.effective_from ? structure.effective_from.split("T")[0] : getMonthStartDate(),
       });
     }
   }
@@ -360,6 +371,17 @@ export default function HrSalaryPage() {
                   onChange={(e) => setStructureForm({ ...structureForm, notes: e.target.value })}
                   style={{ ...inputStyle, minHeight: 80 }}
                   placeholder="Optional notes"
+                  disabled={!canWrite}
+                />
+              </label>
+              <label style={labelStyle}>
+                Effective From
+                <input
+                  type="date"
+                  value={structureForm.effectiveFrom}
+                  onChange={(e) => setStructureForm({ ...structureForm, effectiveFrom: e.target.value })}
+                  style={inputStyle}
+                  required
                   disabled={!canWrite}
                 />
               </label>
