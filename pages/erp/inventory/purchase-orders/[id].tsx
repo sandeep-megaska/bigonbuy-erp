@@ -18,6 +18,7 @@ import {
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
+import { useCompanyBranding } from "../../../../lib/erp/useCompanyBranding";
 
 type PurchaseOrder = {
   id: string;
@@ -86,6 +87,8 @@ export default function PurchaseOrderDetailPage() {
   const [grns, setGrns] = useState<Grn[]>([]);
   const [receiptLines, setReceiptLines] = useState<ReceiptLineDraft[]>([]);
   const [receiptNotes, setReceiptNotes] = useState("");
+  const [actionState, setActionState] = useState<"draft" | "post" | null>(null);
+  const branding = useCompanyBranding();
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -195,39 +198,36 @@ export default function PurchaseOrderDetailPage() {
     setReceiptLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...next } : line)));
   }
 
-  async function handlePostGrn(event: FormEvent) {
-    event.preventDefault();
-    if (!ctx?.companyId || !po) return;
-    if (!canWrite) {
-      setError("Only owner/admin can post GRNs.");
-      return;
-    }
-
-    const linesToReceive = receiptLines
+  function buildReceiptLines() {
+    return receiptLines
       .map((line) => ({
         ...line,
         receiveQtyNum: Number(line.receiveQty),
       }))
       .filter((line) => Number.isFinite(line.receiveQtyNum) && line.receiveQtyNum > 0);
+  }
 
+  function validateReceiptLines(linesToReceive: Array<ReceiptLineDraft & { receiveQtyNum: number }>) {
     if (linesToReceive.length === 0) {
-      setError("Enter at least one received quantity.");
-      return;
+      return "Enter at least one received quantity.";
     }
 
     for (const line of linesToReceive) {
       if (!line.warehouseId) {
-        setError("Select a warehouse for every received line.");
-        return;
+        return "Select a warehouse for every received line.";
       }
       if (line.receiveQtyNum > line.remainingQty) {
-        setError("Received quantities cannot exceed remaining quantities.");
-        return;
+        return "Received quantities cannot exceed remaining quantities.";
       }
     }
 
-    setError("");
-    setNotice("");
+    return "";
+  }
+
+  async function createDraftGrn(linesToReceive: Array<ReceiptLineDraft & { receiveQtyNum: number }>) {
+    if (!ctx?.companyId || !po) {
+      throw new Error("Purchase order context is missing.");
+    }
 
     const { data: grn, error: grnError } = await supabase
       .from("erp_grns")
@@ -236,12 +236,11 @@ export default function PurchaseOrderDetailPage() {
         purchase_order_id: po.id,
         notes: receiptNotes.trim() || null,
       })
-      .select("id")
+      .select("id, grn_no")
       .single();
 
     if (grnError) {
-      setError(grnError.message);
-      return;
+      throw new Error(grnError.message);
     }
 
     const { error: lineError } = await supabase.from("erp_grn_lines").insert(
@@ -257,19 +256,76 @@ export default function PurchaseOrderDetailPage() {
     );
 
     if (lineError) {
-      setError(lineError.message);
+      throw new Error(lineError.message);
+    }
+
+    return grn;
+  }
+
+  async function handleSaveDraft() {
+    if (!ctx?.companyId || !po) return;
+    if (!canWrite) {
+      setError("Only owner/admin can post GRNs.");
       return;
     }
 
-    const { error: postError } = await supabase.rpc("erp_post_grn", { p_grn_id: grn.id });
-    if (postError) {
-      setError(postError.message);
+    const linesToReceive = buildReceiptLines();
+    const validationError = validateReceiptLines(linesToReceive);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    setNotice("GRN posted and inventory updated.");
-    setReceiptNotes("");
-    await loadData(ctx.companyId, po.id);
+    setError("");
+    setNotice("");
+    setActionState("draft");
+
+    try {
+      const grn = await createDraftGrn(linesToReceive);
+      setNotice(`Draft GRN ${grn.grn_no} saved.`);
+      setReceiptNotes("");
+      await loadData(ctx.companyId, po.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save draft GRN.");
+    } finally {
+      setActionState(null);
+    }
+  }
+
+  async function handlePostGrn(event: FormEvent) {
+    event.preventDefault();
+    if (!ctx?.companyId || !po) return;
+    if (!canWrite) {
+      setError("Only owner/admin can post GRNs.");
+      return;
+    }
+
+    const linesToReceive = buildReceiptLines();
+    const validationError = validateReceiptLines(linesToReceive);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setActionState("post");
+
+    try {
+      const grn = await createDraftGrn(linesToReceive);
+      const { error: postError } = await supabase.rpc("erp_post_grn", { p_grn_id: grn.id });
+      if (postError) {
+        throw new Error(postError.message);
+      }
+
+      setNotice("GRN posted and inventory updated.");
+      setReceiptNotes("");
+      await loadData(ctx.companyId, po.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to post GRN.");
+    } finally {
+      setActionState(null);
+    }
   }
 
   const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant.sku])), [variants]);
@@ -277,11 +333,36 @@ export default function PurchaseOrderDetailPage() {
   return (
     <ErpShell activeModule="workspace">
       <div style={pageContainerStyle}>
+        <div className="po-print-header" style={printHeaderStyle}>
+          {branding?.bigonbuyLogoUrl ? (
+            <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={printLogoStyle} />
+          ) : (
+            <div style={printLogoFallbackStyle}>BIGONBUY</div>
+          )}
+          <div>
+            <div style={printCompanyNameStyle}>{branding?.companyName || "Company"}</div>
+            <div style={printHeaderSubTitleStyle}>Purchase Order</div>
+          </div>
+        </div>
+
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
             <h1 style={h1Style}>Purchase Order {po?.po_no || ""}</h1>
             <p style={subtitleStyle}>Review PO details and receive goods.</p>
+          </div>
+          <div className="no-print" style={{ display: "flex", gap: 12 }}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.print();
+                }
+              }}
+            >
+              Print / Save PDF
+            </button>
           </div>
         </header>
 
@@ -357,7 +438,7 @@ export default function PurchaseOrderDetailPage() {
         </section>
 
         <section style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>Receive Goods (Post GRN)</h2>
+          <h2 style={{ marginTop: 0 }}>Receive Goods (Create &amp; Post GRN)</h2>
           <form onSubmit={handlePostGrn} style={{ display: "grid", gap: 16 }}>
             <div style={{ display: "grid", gap: 12 }}>
               {receiptLines.map((line, index) => (
@@ -409,11 +490,23 @@ export default function PurchaseOrderDetailPage() {
               />
             </label>
 
-            <div style={{ display: "flex", gap: 12 }}>
-              <button type="submit" style={primaryButtonStyle} disabled={!canWrite}>
-                Post GRN
+            <div className="no-print" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={handleSaveDraft}
+                disabled={!canWrite || actionState !== null}
+              >
+                {actionState === "draft" ? "Saving…" : "Save Draft GRN"}
               </button>
-              <button type="button" style={secondaryButtonStyle} onClick={() => router.push("/erp/inventory/purchase-orders")}>
+              <button type="submit" style={primaryButtonStyle} disabled={!canWrite || actionState !== null}>
+                {actionState === "post" ? "Posting…" : "Post GRN"}
+              </button>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => router.push("/erp/inventory/purchase-orders")}
+              >
                 Back to POs
               </button>
             </div>
@@ -449,7 +542,105 @@ export default function PurchaseOrderDetailPage() {
             </tbody>
           </table>
         </section>
+
+        <footer className="po-print-footer" style={printFooterStyle}>
+          <div style={printFooterTextStyle}>{branding?.poFooterAddressText || ""}</div>
+          {branding?.megaskaLogoUrl ? (
+            <img src={branding.megaskaLogoUrl} alt="Megaska logo" style={printFooterLogoStyle} />
+          ) : null}
+        </footer>
+        <style jsx global>{`
+          @media print {
+            [data-erp-topbar],
+            [data-erp-sidebar],
+            .no-print {
+              display: none !important;
+            }
+
+            main {
+              margin-left: 0 !important;
+              padding-top: 0 !important;
+            }
+
+            .po-print-header {
+              margin-bottom: 16px;
+            }
+
+            .po-print-footer {
+              margin-top: 32px;
+              border-top: 1px solid #e5e7eb;
+              padding-top: 12px;
+            }
+          }
+        `}</style>
       </div>
     </ErpShell>
   );
 }
+
+const printHeaderStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 16,
+  marginBottom: 24,
+  padding: "12px 16px",
+  borderRadius: 12,
+  backgroundColor: "#ffffff",
+  boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08)",
+};
+
+const printLogoStyle = {
+  height: 40,
+  width: "auto",
+  objectFit: "contain" as const,
+};
+
+const printLogoFallbackStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 10,
+  backgroundColor: "#111827",
+  color: "#fff",
+  fontSize: 12,
+  letterSpacing: "0.12em",
+  fontWeight: 700,
+};
+
+const printCompanyNameStyle = {
+  fontSize: 18,
+  fontWeight: 700,
+  color: "#111827",
+};
+
+const printHeaderSubTitleStyle = {
+  fontSize: 13,
+  color: "#6b7280",
+  marginTop: 4,
+};
+
+const printFooterStyle = {
+  marginTop: 24,
+  padding: "12px 16px",
+  borderRadius: 12,
+  backgroundColor: "#ffffff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 16,
+  flexWrap: "wrap" as const,
+};
+
+const printFooterTextStyle = {
+  fontSize: 12,
+  color: "#374151",
+  whiteSpace: "pre-line" as const,
+};
+
+const printFooterLogoStyle = {
+  height: 24,
+  width: "auto",
+  objectFit: "contain" as const,
+};

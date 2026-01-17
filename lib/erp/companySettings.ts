@@ -4,6 +4,7 @@ export type CompanySettings = {
   company_id: string;
   bigonbuy_logo_path?: string | null;
   megaska_logo_path?: string | null;
+  po_footer_address_text?: string | null;
   setup_completed?: boolean | null;
   setup_completed_at?: string | null;
   updated_by?: string | null;
@@ -20,7 +21,9 @@ async function getCurrentCompanyId() {
 export async function getCompanySettings() {
   const { data, error } = await supabase
     .from("erp_company_settings")
-    .select("company_id, bigonbuy_logo_path, megaska_logo_path, setup_completed, setup_completed_at")
+    .select(
+      "company_id, bigonbuy_logo_path, megaska_logo_path, po_footer_address_text, setup_completed, setup_completed_at"
+    )
     .maybeSingle();
 
   if (error) throw new Error(error.message);
@@ -33,7 +36,9 @@ export async function updateCompanySettings(payload: Partial<CompanySettings>) {
     .from("erp_company_settings")
     .update(payload)
     .eq("company_id", companyId)
-    .select("company_id, bigonbuy_logo_path, megaska_logo_path, setup_completed, setup_completed_at")
+    .select(
+      "company_id, bigonbuy_logo_path, megaska_logo_path, po_footer_address_text, setup_completed, setup_completed_at"
+    )
     .maybeSingle();
 
   if (error) throw new Error(error.message);
