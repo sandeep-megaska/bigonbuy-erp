@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { supabase } from "../../../lib/supabaseClient";
-import {
-  getCompanyContext,
-  requireAuthRedirectHome,
-} from "../../../lib/erpContext";
+import { supabase } from "../../../lib/supabase";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
 type ExitRow = {
   id: string;
@@ -29,15 +26,8 @@ type ExitRow = {
     employee_code: string | null;
   } | null;
 
-  exit_type: {
-    id: string;
-    name: string | null;
-  } | null;
-
-  exit_reason: {
-    id: string;
-    name: string | null;
-  } | null;
+  exit_type: { id: string; name: string | null } | null;
+  exit_reason: { id: string; name: string | null } | null;
 };
 
 export default function EmployeeExitsPage() {
@@ -48,7 +38,6 @@ export default function EmployeeExitsPage() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ type: "error" | "success"; message: string } | null>(null);
 
-  // Filters (lean version)
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [employeeSearch, setEmployeeSearch] = useState("");
 
@@ -59,7 +48,6 @@ export default function EmployeeExitsPage() {
   useEffect(() => {
     if (ctxLoading) return;
     if (!ctx?.companyId) return;
-
     loadExits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx?.companyId, statusFilter]);
@@ -112,10 +100,7 @@ export default function EmployeeExitsPage() {
 
       setRows(normalized);
     } catch (e: any) {
-      setToast({
-        type: "error",
-        message: e?.message || "Unable to load employee exits.",
-      });
+      setToast({ type: "error", message: e?.message || "Unable to load employee exits." });
     } finally {
       setLoading(false);
     }
@@ -123,11 +108,11 @@ export default function EmployeeExitsPage() {
 
   const filteredRows = useMemo(() => {
     if (!employeeSearch.trim()) return rows;
-
     const q = employeeSearch.toLowerCase();
-    return rows.filter((r) =>
-      r.employee?.full_name?.toLowerCase().includes(q) ||
-      r.employee?.employee_code?.toLowerCase().includes(q)
+    return rows.filter(
+      (r) =>
+        r.employee?.full_name?.toLowerCase().includes(q) ||
+        r.employee?.employee_code?.toLowerCase().includes(q)
     );
   }, [rows, employeeSearch]);
 
@@ -137,25 +122,17 @@ export default function EmployeeExitsPage() {
         <h1>Employee Exits</h1>
         <p>Manage separations with manager approvals and final completion.</p>
         <div className="erp-page-links">
-          <Link href="/erp/hr">HR Home</Link> ·{" "}
-          <Link href="/erp/hr/employees">Employees</Link>
+          <Link href="/erp/hr">HR Home</Link> · <Link href="/erp/hr/employees">Employees</Link>
         </div>
       </div>
 
-      {toast && (
-        <div className={`erp-toast ${toast.type}`}>
-          {toast.message}
-        </div>
-      )}
+      {toast && <div className={`erp-toast ${toast.type}`}>{toast.message}</div>}
 
       <div className="erp-card">
         <div className="erp-filters">
           <div>
             <label>Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All statuses</option>
               <option value="draft">Draft</option>
               <option value="approved">Approved</option>
@@ -189,11 +166,7 @@ export default function EmployeeExitsPage() {
       <div className="erp-card">
         {loading && <p>Loading exits…</p>}
 
-        {!loading && filteredRows.length === 0 && (
-          <div className="erp-empty">
-            No exit requests found.
-          </div>
-        )}
+        {!loading && filteredRows.length === 0 && <div className="erp-empty">No exit requests found.</div>}
 
         {!loading && filteredRows.length > 0 && (
           <table className="erp-table">
@@ -212,18 +185,14 @@ export default function EmployeeExitsPage() {
                 <tr key={r.id}>
                   <td>
                     {r.employee?.full_name}
-                    <div className="muted">
-                      {r.employee?.employee_code}
-                    </div>
+                    <div className="muted">{r.employee?.employee_code}</div>
                   </td>
                   <td>{r.status}</td>
                   <td>{r.exit_type?.name ?? "-"}</td>
                   <td>{r.last_working_day}</td>
                   <td>{r.initiated_on}</td>
                   <td>
-                    <Link href={`/erp/hr/exits/${r.id}`}>
-                      View
-                    </Link>
+                    <Link href={`/erp/hr/exits/${r.id}`}>View</Link>
                   </td>
                 </tr>
               ))}
