@@ -84,6 +84,9 @@ const workspaceSidebarGroups: SidebarGroup[] = [
   {
     label: "Inventory",
     items: [
+      { label: "Vendors", href: "/erp/inventory/vendors", icon: "VE" },
+      { label: "Purchase Orders", href: "/erp/inventory/purchase-orders", icon: "PO" },
+      { label: "GRNs", href: "/erp/inventory/grns", icon: "GR" },
       { label: "Products", href: "/erp/inventory/products", icon: "PR" },
       { label: "SKUs", href: "/erp/inventory/skus", icon: "SK" },
       { label: "Warehouses", href: "/erp/inventory/warehouses", icon: "WH" },
