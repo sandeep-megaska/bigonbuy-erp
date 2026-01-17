@@ -40,7 +40,6 @@ type Warehouse = {
 type LineDraft = {
   variant_id: string;
   qty: string;
-  notes: string;
 };
 
 export default function RfqCreatePage() {
@@ -57,7 +56,7 @@ export default function RfqCreatePage() {
   const [neededBy, setNeededBy] = useState("");
   const [deliverToWarehouseId, setDeliverToWarehouseId] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([{ variant_id: "", qty: "", notes: "" }]);
+  const [lines, setLines] = useState<LineDraft[]>([{ variant_id: "", qty: "" }]);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -140,7 +139,7 @@ export default function RfqCreatePage() {
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { variant_id: "", qty: "", notes: "" }]);
+    setLines((prev) => [...prev, { variant_id: "", qty: "" }]);
   }
 
   function removeLine(index: number) {
@@ -151,7 +150,7 @@ export default function RfqCreatePage() {
     setRequestedOn(new Date().toISOString().split("T")[0]);
     setNeededBy("");
     setNotes("");
-    setLines([{ variant_id: "", qty: "", notes: "" }]);
+    setLines([{ variant_id: "", qty: "" }]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -170,7 +169,7 @@ export default function RfqCreatePage() {
       .map((line) => ({
         variant_id: line.variant_id,
         qty: Number(line.qty),
-        notes: line.notes.trim() || null,
+        notes: null,
       }))
       .filter((line) => line.variant_id && Number.isFinite(line.qty) && line.qty > 0);
 
@@ -299,7 +298,7 @@ export default function RfqCreatePage() {
             <label style={{ display: "grid", gap: 6 }}>
               Notes
               <textarea
-                style={{ ...inputStyle, minHeight: 90 }}
+                style={{ ...inputStyle, minHeight: 90, width: "100%" }}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
               />
@@ -307,13 +306,15 @@ export default function RfqCreatePage() {
 
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>RFQ Lines</div>
-              <table style={tableStyle}>
+              <table style={{ ...tableStyle, tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: "auto" }} />
+                  <col style={{ width: 160 }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th style={tableHeaderCellStyle}>SKU</th>
                     <th style={tableHeaderCellStyle}>Qty</th>
-                    <th style={tableHeaderCellStyle}>Notes</th>
-                    <th style={tableHeaderCellStyle}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,7 +322,7 @@ export default function RfqCreatePage() {
                     <tr key={`${line.variant_id}-${index}`}>
                       <td style={tableCellStyle}>
                         <select
-                          style={inputStyle}
+                          style={{ ...inputStyle, width: "100%", maxWidth: "100%" }}
                           value={line.variant_id}
                           onChange={(event) => updateLine(index, { variant_id: event.target.value })}
                         >
@@ -334,27 +335,20 @@ export default function RfqCreatePage() {
                         </select>
                       </td>
                       <td style={tableCellStyle}>
-                        <input
-                          style={inputStyle}
-                          type="number"
-                          min="0"
-                          value={line.qty}
-                          onChange={(event) => updateLine(index, { qty: event.target.value })}
-                        />
-                      </td>
-                      <td style={tableCellStyle}>
-                        <input
-                          style={inputStyle}
-                          value={line.notes}
-                          onChange={(event) => updateLine(index, { notes: event.target.value })}
-                        />
-                      </td>
-                      <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                        {lines.length > 1 ? (
-                          <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(index)}>
-                            Remove
-                          </button>
-                        ) : null}
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input
+                            style={{ ...inputStyle, width: 120 }}
+                            type="number"
+                            min="0"
+                            value={line.qty}
+                            onChange={(event) => updateLine(index, { qty: event.target.value })}
+                          />
+                          {lines.length > 1 ? (
+                            <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(index)}>
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))}

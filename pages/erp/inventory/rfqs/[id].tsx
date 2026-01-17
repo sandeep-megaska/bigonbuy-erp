@@ -338,6 +338,15 @@ export default function RfqDetailPage() {
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             {rfq ? (
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={() => window.open(`/erp/inventory/rfqs/${rfq.id}/print`, "_blank")}
+              >
+                Print / Save PDF
+              </button>
+            ) : null}
+            {rfq ? (
               <Link href="/erp/inventory/rfqs" style={secondaryButtonStyle}>
                 Back to RFQs
               </Link>
