@@ -24,6 +24,7 @@ type Product = {
   id: string;
   title: string;
   style_code: string | null;
+  hsn_code: string | null;
   status: string;
   created_at: string;
   image_url: string | null;
@@ -38,6 +39,7 @@ export default function InventoryProductsPage() {
   const [items, setItems] = useState<Product[]>([]);
   const [title, setTitle] = useState("");
   const [styleCode, setStyleCode] = useState("");
+  const [hsnCode, setHsnCode] = useState("");
   const [status, setStatus] = useState("draft");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -75,7 +77,7 @@ export default function InventoryProductsPage() {
     setError("");
     const { data, error: loadError } = await supabase
       .from("erp_products")
-      .select("id, title, style_code, status, created_at, image_url")
+      .select("id, title, style_code, hsn_code, status, created_at, image_url")
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
 
@@ -113,6 +115,7 @@ export default function InventoryProductsPage() {
 
     setError("");
     const trimmedStyleCode = styleCode.trim();
+    const trimmedHsnCode = hsnCode.trim();
     const { data: existingStyle, error: styleError } = await supabase
       .from("erp_products")
       .select("id")
@@ -131,7 +134,12 @@ export default function InventoryProductsPage() {
     if (editingId) {
       const { error: updateError } = await supabase
         .from("erp_products")
-        .update({ title: title.trim(), style_code: trimmedStyleCode, status })
+        .update({
+          title: title.trim(),
+          style_code: trimmedStyleCode,
+          hsn_code: trimmedHsnCode || null,
+          status,
+        })
         .eq("company_id", ctx.companyId)
         .eq("id", editingId);
       if (updateError) {
@@ -162,6 +170,7 @@ export default function InventoryProductsPage() {
           company_id: ctx.companyId,
           title: title.trim(),
           style_code: trimmedStyleCode,
+          hsn_code: trimmedHsnCode || null,
           status,
         })
         .select("id")
@@ -191,6 +200,7 @@ export default function InventoryProductsPage() {
 
     setTitle("");
     setStyleCode("");
+    setHsnCode("");
     setStatus("draft");
     setEditingId(null);
     setImageFile(null);
@@ -201,6 +211,7 @@ export default function InventoryProductsPage() {
   function handleEdit(product: Product) {
     setTitle(product.title);
     setStyleCode(product.style_code || "");
+    setHsnCode(product.hsn_code || "");
     setStatus(product.status);
     setEditingId(product.id);
     setImageFile(null);
@@ -210,6 +221,7 @@ export default function InventoryProductsPage() {
   function resetForm() {
     setTitle("");
     setStyleCode("");
+    setHsnCode("");
     setStatus("draft");
     setEditingId(null);
     setImageFile(null);
@@ -264,6 +276,12 @@ export default function InventoryProductsPage() {
                 style={inputStyle}
                 required
               />
+              <input
+                value={hsnCode}
+                onChange={(event) => setHsnCode(event.target.value)}
+                placeholder="HSN code (optional)"
+                style={inputStyle}
+              />
               <select value={status} onChange={(event) => setStatus(event.target.value)} style={inputStyle}>
                 <option value="draft">draft</option>
                 <option value="active">active</option>
@@ -296,6 +314,8 @@ export default function InventoryProductsPage() {
             <thead>
               <tr>
                 <th style={tableHeaderCellStyle}>Title</th>
+                <th style={tableHeaderCellStyle}>Style Code</th>
+                <th style={tableHeaderCellStyle}>HSN Code</th>
                 <th style={tableHeaderCellStyle}>Status</th>
                 <th style={tableHeaderCellStyle}>Created</th>
                 <th style={tableHeaderCellStyle}></th>
@@ -313,11 +333,12 @@ export default function InventoryProductsPage() {
                       )}
                       <div>
                         <div style={{ fontWeight: 600 }}>{product.title}</div>
-                        <div style={mutedStyle}>Style: {product.style_code || "—"}</div>
                         <div style={mutedStyle}>{product.id}</div>
                       </div>
                     </div>
                   </td>
+                  <td style={tableCellStyle}>{product.style_code || "—"}</td>
+                  <td style={tableCellStyle}>{product.hsn_code || "—"}</td>
                   <td style={tableCellStyle}>{product.status}</td>
                   <td style={tableCellStyle}>{new Date(product.created_at).toLocaleString()}</td>
                   <td style={{ ...tableCellStyle, textAlign: "right" }}>
@@ -331,7 +352,7 @@ export default function InventoryProductsPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={emptyStateStyle}>
+                  <td colSpan={6} style={emptyStateStyle}>
                     No products yet. Add one above or import SKUs from CSV.
                   </td>
                 </tr>
@@ -346,7 +367,7 @@ export default function InventoryProductsPage() {
 
 const formGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 220px)",
+  gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 220px) minmax(180px, 220px)",
   gap: 12,
   alignItems: "center",
 };
