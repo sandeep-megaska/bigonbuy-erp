@@ -242,21 +242,21 @@ export default function EmployeeExitsPage() {
           notice_waived,
           notes,
           created_at,
-          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey(
+          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey!left(
             id,
             full_name,
             employee_code
           ),
-          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey(
+          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey!left(
             id,
             full_name,
             employee_code
           ),
-          exit_type:erp_hr_employee_exit_types(
+          exit_type:erp_hr_employee_exit_types!left(
             id,
             name
           ),
-          exit_reason:erp_hr_employee_exit_reasons(
+          exit_reason:erp_hr_employee_exit_reasons!left(
             id,
             name
           )
