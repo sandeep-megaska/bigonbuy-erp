@@ -251,7 +251,8 @@ export default function EmployeeExitsPage() {
   }
 
   return (
-    <ErpShell title="Employee Exits">
+    <ErpShell activeModule="hr">
+
       <div style={pageContainerStyle}>
         <div style={pageHeaderStyle}>
           <div>
