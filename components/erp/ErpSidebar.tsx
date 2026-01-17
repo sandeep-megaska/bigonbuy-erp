@@ -81,6 +81,16 @@ const workspaceSidebarGroups: SidebarGroup[] = [
       { label: "Inventory", href: "/erp/inventory", icon: "IN" },
     ],
   },
+  {
+    label: "Inventory",
+    items: [
+      { label: "Products", href: "/erp/inventory/products", icon: "PR" },
+      { label: "SKUs", href: "/erp/inventory/skus", icon: "SK" },
+      { label: "Warehouses", href: "/erp/inventory/warehouses", icon: "WH" },
+      { label: "Stock On Hand", href: "/erp/inventory/stock", icon: "SH" },
+      { label: "Stock Movements", href: "/erp/inventory/movements", icon: "SM" },
+    ],
+  },
 ];
 
 const employeeSidebarGroups: SidebarGroup[] = [
