@@ -228,7 +228,7 @@ export default function PurchaseOrderPrintPage() {
   const deliveryWarehouse = warehouses[0];
 
   return (
-    <div style={printPageStyle}>
+    <div style={printPageStyle} className="po-print-root">
       {error ? <div style={printErrorStyle}>{error}</div> : null}
       <div style={printHeaderRowStyle} className="po-print-section">
         <div style={printBrandBlockStyle}>
@@ -392,8 +392,18 @@ export default function PurchaseOrderPrintPage() {
 
       <style jsx global>{`
         @media print {
+          @page {
+            margin: 0;
+          }
+
           body {
             background: #fff;
+            margin: 0;
+          }
+
+          .po-print-root {
+            max-width: none;
+            padding: 0;
           }
 
           .po-print-table {

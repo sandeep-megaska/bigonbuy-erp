@@ -14,7 +14,9 @@ export default function App({ Component, pageProps }) {
   const router = useRouter();
   const moduleKey = getErpModuleKey(router.pathname);
 
-  if (moduleKey) {
+  const isPrintRoute = router.pathname.includes("/print");
+
+  if (moduleKey && !isPrintRoute) {
     return (
       <ErpShell activeModule={moduleKey}>
         <Component {...pageProps} />
