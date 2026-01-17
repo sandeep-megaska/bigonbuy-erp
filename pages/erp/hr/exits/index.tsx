@@ -264,10 +264,6 @@ export default function EmployeeExitsPage() {
         )
         .order("created_at", { ascending: false });
 
-      if (ctx?.companyId) {
-        query = query.eq("company_id", ctx.companyId);
-      }
-
       if (statusValue) {
         query = query.eq("status", statusValue);
       }
