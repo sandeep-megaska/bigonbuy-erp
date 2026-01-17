@@ -44,10 +44,6 @@ type ExitRowBase = {
   notice_waived: boolean;
   notes: string | null;
   created_at: string | null;
-  employee_id: string | null;
-  manager_employee_id: string | null;
-  exit_type_id: string | null;
-  exit_reason_id: string | null;
 };
 
 type ExitRow = {
@@ -69,8 +65,15 @@ type ExitRow = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
+type EmbeddedValue<T> = T | T[] | null;
+
 function normalizeSearchTerm(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeEmbed<T>(value: EmbeddedValue<T>) {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function formatDate(value: string | null) {
@@ -78,6 +81,16 @@ function formatDate(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString();
+}
+
+function isRlsError(error: { message?: string } | null | undefined) {
+  if (!error?.message) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("row level security") ||
+    message.includes("rls") ||
+    message.includes("permission denied")
+  );
 }
 
 const bannerStyle: CSSProperties = {
@@ -108,6 +121,7 @@ export default function EmployeeExitsPage() {
 
   const [toast, setToast] = useState<ToastState>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rlsWarning, setRlsWarning] = useState<string>("");
 
   const roleKey = useMemo(
     () => (access.roleKey ?? ctx?.roleKey ?? "").toString(),
@@ -155,13 +169,9 @@ export default function EmployeeExitsPage() {
       });
       setCtx(context);
 
-      if (!context.companyId) {
+      if (!context.companyId && active) {
         setLoading(false);
-        return;
       }
-
-      await loadExits(context.companyId);
-      if (active) setLoading(false);
     })();
 
     return () => {
@@ -170,7 +180,43 @@ export default function EmployeeExitsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  async function loadExits(companyId: string) {
+  useEffect(() => {
+    let active = true;
+    if (!ctx?.companyId) return undefined;
+
+    (async () => {
+      setLoading(true);
+      await loadExits(ctx.companyId, {
+        statusFilter,
+        searchText: employeeFilter,
+      });
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [ctx?.companyId, statusFilter]);
+
+  async function loadExits(
+    companyId: string,
+    options: { statusFilter: string; searchText: string }
+  ) {
+    const { statusFilter: statusValue, searchText } = options;
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.log("[exits] ctx", {
+        companyId: ctx?.companyId,
+        userId: ctx?.userId,
+        roleKey: ctx?.roleKey,
+      });
+      // eslint-disable-next-line no-console
+      console.log("[exits] query params", {
+        statusFilter: statusValue,
+        searchText,
+      });
+    }
+
     try {
       let query = supabase
         .from("erp_hr_employee_exits")
@@ -184,64 +230,56 @@ export default function EmployeeExitsPage() {
           notice_waived,
           notes,
           created_at,
-          employee_id,
-          manager_employee_id,
-          exit_type_id,
-          exit_reason_id
+          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey(
+            id,
+            full_name,
+            employee_code
+          ),
+          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey(
+            id,
+            full_name,
+            employee_code
+          ),
+          exit_type:erp_hr_employee_exit_types(
+            id,
+            name
+          ),
+          exit_reason:erp_hr_employee_exit_reasons(
+            id,
+            name
+          )
         `
         )
         .eq("company_id", companyId)
         .order("created_at", { ascending: false });
 
+      if (statusValue) {
+        query = query.eq("status", statusValue);
+      }
+
       const { data, error } = await query;
-      if (error) throw error;
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.log("[exits] rowsError", error);
+      }
+      if (error) {
+        if (isRlsError(error)) {
+          setRlsWarning(`You don’t have access to view exits. (${error.message})`);
+        }
+        throw error;
+      }
 
-      const raw = (data ?? []) as ExitRowBase[];
-      const peopleIds = Array.from(
-        new Set(raw.flatMap((row) => [row.employee_id, row.manager_employee_id]).filter(Boolean))
-      ) as string[];
-      const exitTypeIds = Array.from(
-        new Set(raw.map((row) => row.exit_type_id).filter(Boolean))
-      ) as string[];
-      const exitReasonIds = Array.from(
-        new Set(raw.map((row) => row.exit_reason_id).filter(Boolean))
-      ) as string[];
-
-      const [peopleRes, typeRes, reasonRes] = await Promise.all([
-        peopleIds.length
-          ? supabase
-              .from("erp_employees")
-              .select("id, full_name, employee_code")
-              .in("id", peopleIds)
-          : Promise.resolve({ data: [], error: null }),
-        exitTypeIds.length
-          ? supabase
-              .from("erp_hr_employee_exit_types")
-              .select("id, name")
-              .in("id", exitTypeIds)
-          : Promise.resolve({ data: [], error: null }),
-        exitReasonIds.length
-          ? supabase
-              .from("erp_hr_employee_exit_reasons")
-              .select("id, name")
-              .in("id", exitReasonIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
-      if (peopleRes.error) throw peopleRes.error;
-      if (typeRes.error) throw typeRes.error;
-      if (reasonRes.error) throw reasonRes.error;
-
-      const peopleMap = new Map(
-        (peopleRes.data as EmployeeEmbed[]).map((person) => [person.id, person])
-      );
-      const exitTypeMap = new Map(
-        (typeRes.data as ExitMetaEmbed[]).map((type) => [type.id, type])
-      );
-      const exitReasonMap = new Map(
-        (reasonRes.data as ExitMetaEmbed[]).map((reason) => [reason.id, reason])
-      );
-
+      setRlsWarning("");
+      const raw = (data ?? []) as (ExitRowBase & {
+        employee?: EmbeddedValue<EmployeeEmbed>;
+        manager?: EmbeddedValue<EmployeeEmbed>;
+        exit_type?: EmbeddedValue<ExitMetaEmbed>;
+        exit_reason?: EmbeddedValue<ExitMetaEmbed>;
+      })[];
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.log("[exits] rows before normalize", raw.length);
+      }
       const normalized: ExitRow[] = raw.map((r) => ({
         id: r.id,
         status: r.status,
@@ -251,11 +289,15 @@ export default function EmployeeExitsPage() {
         notice_waived: r.notice_waived,
         notes: r.notes,
         created_at: r.created_at,
-        employee: r.employee_id ? peopleMap.get(r.employee_id) ?? null : null,
-        manager: r.manager_employee_id ? peopleMap.get(r.manager_employee_id) ?? null : null,
-        exit_type: r.exit_type_id ? exitTypeMap.get(r.exit_type_id) ?? null : null,
-        exit_reason: r.exit_reason_id ? exitReasonMap.get(r.exit_reason_id) ?? null : null,
+        employee: normalizeEmbed(r.employee),
+        manager: normalizeEmbed(r.manager),
+        exit_type: normalizeEmbed(r.exit_type),
+        exit_reason: normalizeEmbed(r.exit_reason),
       }));
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.log("[exits] rows after normalize", normalized.length);
+      }
 
       setRows(normalized);
     } catch (e: any) {
@@ -293,7 +335,10 @@ export default function EmployeeExitsPage() {
     setToast({ type: "success", message: "Exit completed successfully." });
     setActionLoading(null);
     if (ctx?.companyId) {
-      await loadExits(ctx.companyId);
+      await loadExits(ctx.companyId, {
+        statusFilter,
+        searchText: employeeFilter,
+      });
     }
   }
 
@@ -326,7 +371,10 @@ export default function EmployeeExitsPage() {
     setToast({ type: "success", message: `Exit ${status} successfully.` });
     setActionLoading(null);
     if (ctx?.companyId) {
-      await loadExits(ctx.companyId);
+      await loadExits(ctx.companyId, {
+        statusFilter,
+        searchText: employeeFilter,
+      });
     }
   }
 
@@ -346,6 +394,9 @@ export default function EmployeeExitsPage() {
           <div style={{ ...bannerStyle, background: toast.type === "error" ? "#fef2f2" : "#ecfdf5", borderColor: toast.type === "error" ? "#ef4444" : "#10b981", color: toast.type === "error" ? "#991b1b" : "#065f46" }}>
             {toast.message}
           </div>
+        )}
+        {rlsWarning && (
+          <div style={bannerStyle}>{rlsWarning}</div>
         )}
 
         <div style={{ ...cardStyle, marginTop: 16 }}>
