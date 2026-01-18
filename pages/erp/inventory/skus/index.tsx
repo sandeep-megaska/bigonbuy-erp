@@ -397,6 +397,23 @@ export default function InventorySkusPage() {
     return { sizeValue, colorValue, styleCode: parts[0] || "" };
   }
 
+  function getPreviewSizeAndColor(row: ImportRow) {
+    const { sizeValue, colorValue, hasOptionData } = deriveSizeAndColorFromOptions(row);
+    const skuFallback = deriveSizeAndColorFromSku(row.sku.trim());
+    let resolvedSize: string | null = sizeValue;
+    let resolvedColor: string | null = colorValue;
+
+    if (!hasOptionData) {
+      resolvedSize = skuFallback.sizeValue;
+      resolvedColor = skuFallback.colorValue;
+    } else {
+      if (!resolvedSize) resolvedSize = skuFallback.sizeValue;
+      if (!resolvedColor) resolvedColor = skuFallback.colorValue;
+    }
+
+    return { size: resolvedSize, color: resolvedColor };
+  }
+
   async function runImport() {
     if (!ctx?.companyId) return;
     if (!canWrite) {
@@ -675,15 +692,18 @@ export default function InventorySkusPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows.map((row) => (
-                        <tr key={row.rowNumber}>
-                          <td style={tableCellStyle}>{row.sku || "—"}</td>
-                          <td style={tableCellStyle}>{row.title || "—"}</td>
-                          <td style={tableCellStyle}>{row.size || "—"}</td>
-                          <td style={tableCellStyle}>{row.color || "—"}</td>
-                          <td style={tableCellStyle}>{row.costRaw || "—"}</td>
-                        </tr>
-                      ))}
+                      {previewRows.map((row) => {
+                        const preview = getPreviewSizeAndColor(row);
+                        return (
+                          <tr key={row.rowNumber}>
+                            <td style={tableCellStyle}>{row.sku || "—"}</td>
+                            <td style={tableCellStyle}>{row.title || "—"}</td>
+                            <td style={tableCellStyle}>{preview.size || "—"}</td>
+                            <td style={tableCellStyle}>{preview.color || "—"}</td>
+                            <td style={tableCellStyle}>{row.costRaw || "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
