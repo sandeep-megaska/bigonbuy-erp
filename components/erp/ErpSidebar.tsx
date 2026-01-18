@@ -108,7 +108,14 @@ const employeeSidebarGroups: SidebarGroup[] = [
 const financeSidebarGroups: SidebarGroup[] = [
   {
     label: "Finance",
-    items: [{ label: "Finance Home", href: "/erp/finance", icon: "FI" }],
+    items: [
+      { label: "Finance Home", href: "/erp/finance", icon: "FI" },
+      {
+        label: "Marketplace Margin",
+        href: "/erp/finance/marketplace-margin",
+        icon: "MM",
+      },
+    ],
   },
 ];
 
