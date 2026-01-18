@@ -1,0 +1,119 @@
+import { z } from "zod";
+
+export const expenseCategorySchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  group_key: z.string(),
+  is_active: z.boolean(),
+});
+
+export type ExpenseCategory = z.infer<typeof expenseCategorySchema>;
+
+export const expenseFormSchema = z.object({
+  expense_date: z.string().min(1),
+  amount: z.coerce.number().min(0),
+  currency: z.string().min(1),
+  category_id: z.string().uuid(),
+  channel_id: z.string().uuid().nullable(),
+  warehouse_id: z.string().uuid().nullable(),
+  vendor_id: z.string().uuid().nullable(),
+  payee_name: z.string().nullable(),
+  reference: z.string().nullable(),
+  description: z.string().nullable(),
+  is_recurring: z.boolean(),
+  recurring_rule: z.string().nullable(),
+  attachment_url: z.string().nullable(),
+});
+
+export type ExpenseFormPayload = z.infer<typeof expenseFormSchema>;
+
+export const expenseListRowSchema = z.object({
+  id: z.string().uuid(),
+  expense_date: z.string(),
+  amount: z.coerce.number(),
+  currency: z.string(),
+  category_id: z.string().uuid(),
+  category_name: z.string(),
+  category_group: z.string(),
+  channel_id: z.string().uuid().nullable(),
+  channel_name: z.string().nullable(),
+  warehouse_id: z.string().uuid().nullable(),
+  warehouse_name: z.string().nullable(),
+  vendor_id: z.string().uuid().nullable(),
+  vendor_name: z.string().nullable(),
+  payee_name: z.string().nullable(),
+  reference: z.string().nullable(),
+  description: z.string().nullable(),
+  is_recurring: z.boolean(),
+  recurring_rule: z.string().nullable(),
+  attachment_url: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const expenseListResponseSchema = z.array(expenseListRowSchema);
+export type ExpenseListRow = z.infer<typeof expenseListRowSchema>;
+
+export const expenseImportRowSchema = z.object({
+  expense_date: z.string(),
+  amount: z.string(),
+  currency: z.string().optional(),
+  category_code: z.string(),
+  channel_code: z.string().optional(),
+  warehouse_code: z.string().optional(),
+  vendor_name: z.string().optional(),
+  payee_name: z.string().optional(),
+  reference: z.string().optional(),
+  description: z.string().optional(),
+  attachment_url: z.string().optional(),
+});
+
+export type ExpenseImportRow = z.infer<typeof expenseImportRowSchema>;
+
+export const expenseImportResponseSchema = z.object({
+  ok: z.boolean(),
+  inserted: z.coerce.number(),
+  rows: z.array(
+    z.object({
+      row_index: z.coerce.number(),
+      ok: z.boolean(),
+      errors: z.array(z.string()),
+      expense_id: z.string().uuid().nullable().optional(),
+    })
+  ),
+});
+
+export type ExpenseImportResponse = z.infer<typeof expenseImportResponseSchema>;
+
+export const monthlyCategorySummarySchema = z.array(
+  z.object({
+    month: z.string(),
+    category_group: z.string(),
+    category_name: z.string(),
+    amount: z.coerce.number(),
+  })
+);
+
+export const monthlyChannelSummarySchema = z.array(
+  z.object({
+    month: z.string(),
+    channel_name: z.string(),
+    amount: z.coerce.number(),
+  })
+);
+
+export const monthlyWarehouseSummarySchema = z.array(
+  z.object({
+    month: z.string(),
+    warehouse_name: z.string(),
+    amount: z.coerce.number(),
+  })
+);
+
+export const parseAmountInput = (value: string) => {
+  if (!value) return 0;
+  const cleaned = value.replace(/,/g, "").trim();
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
