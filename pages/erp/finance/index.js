@@ -176,6 +176,12 @@ const navItems = [
     icon: "🧾",
   },
   {
+    title: "Finance Bridge",
+    description: "Inventory + GRN exports ready for CA/GST review.",
+    href: "/erp/finance/bridge",
+    icon: "🧩",
+  },
+  {
     title: "Marketplace Margin",
     description: "Upload settlement files and analyze SKU/order profitability.",
     href: "/erp/finance/marketplace-margin",
