@@ -933,10 +933,18 @@ export default function TabbedCsvImport({
                   <td style={tableCellStyle}>{result.message || "—"}</td>
                   {activeTab === "stocktake" ? (
                     <>
-                      <td style={tableCellStyle}>{result.on_hand ?? "—"}</td>
-                      <td style={tableCellStyle}>{result.counted_qty ?? "—"}</td>
-                      <td style={tableCellStyle}>{result.delta ?? "—"}</td>
-                      <td style={tableCellStyle}>{result.ledger_type ?? "—"}</td>
+                      {(() => {
+                        const stocktakeResult = result as StocktakeImportResponse["results"][number];
+
+                        return (
+                          <>
+                            <td style={tableCellStyle}>{stocktakeResult.on_hand ?? "—"}</td>
+                            <td style={tableCellStyle}>{stocktakeResult.counted_qty ?? "—"}</td>
+                            <td style={tableCellStyle}>{stocktakeResult.delta ?? "—"}</td>
+                            <td style={tableCellStyle}>{stocktakeResult.ledger_type ?? "—"}</td>
+                          </>
+                        );
+                      })()}
                     </>
                   ) : null}
                 </tr>
