@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../components/erp/ErpShell";
 import {
@@ -8,31 +7,16 @@ import {
   h1Style,
   pageContainerStyle,
   pageHeaderStyle,
-  secondaryButtonStyle,
   subtitleStyle,
 } from "../../../components/erp/uiStyles";
-import InventoryCsvImport from "../../../components/inventory/InventoryCsvImport";
-import type { ImportMode } from "../../../components/inventory/csvSchemas";
+import TabbedCsvImport from "../../../components/inventory/import/TabbedCsvImport";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
-
-const modeButtonStyle: CSSProperties = {
-  ...secondaryButtonStyle,
-  borderColor: "#cbd5f5",
-};
-
-const activeModeButtonStyle: CSSProperties = {
-  ...modeButtonStyle,
-  backgroundColor: "#1f2937",
-  color: "#fff",
-  borderColor: "#1f2937",
-};
 
 export default function InventoryImportPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<ImportMode>("adjustment");
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -83,43 +67,21 @@ export default function InventoryImportPage() {
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory · CSV Import</p>
-            <h1 style={h1Style}>Stock Import</h1>
+            <h1 style={h1Style}>Inventory Import</h1>
             <p style={subtitleStyle}>
-              Upload adjustment, stocktake, or Amazon FBA reconciliation CSVs to update inventory across warehouses.
+              Upload sales consumption or stocktake CSVs to validate and post inventory updates.
             </p>
           </div>
         </header>
 
         <section style={cardStyle}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Select import mode</h2>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              style={mode === "adjustment" ? activeModeButtonStyle : modeButtonStyle}
-              onClick={() => setMode("adjustment")}
-            >
-              Adjustment import
-            </button>
-            <button
-              type="button"
-              style={mode === "stocktake" ? activeModeButtonStyle : modeButtonStyle}
-              onClick={() => setMode("stocktake")}
-            >
-              Stocktake import
-            </button>
-            <button
-              type="button"
-              style={mode === "fba" ? activeModeButtonStyle : modeButtonStyle}
-              onClick={() => setMode("fba")}
-            >
-              FBA reconciliation
-            </button>
-          </div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Choose an import tab</h2>
+          <p style={{ color: "#475569", margin: 0 }}>
+            Validate-only mode lets you preview document counts and row-level issues without posting ledger entries.
+          </p>
         </section>
 
-        {ctx?.companyId ? (
-          <InventoryCsvImport mode={mode} companyId={ctx.companyId} canWrite={canWrite} />
-        ) : null}
+        {ctx?.companyId ? <TabbedCsvImport companyId={ctx.companyId} canWrite={canWrite} /> : null}
       </div>
     </ErpShell>
   );
