@@ -175,4 +175,10 @@ const navItems = [
     href: "/erp/finance/expenses",
     icon: "🧾",
   },
+  {
+    title: "Marketplace Margin",
+    description: "Upload settlement files and analyze SKU/order profitability.",
+    href: "/erp/finance/marketplace-margin",
+    icon: "📊",
+  },
 ];
