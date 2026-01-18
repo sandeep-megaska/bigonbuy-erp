@@ -212,7 +212,9 @@ export default function InventoryCsvImport({
           reference: normalizeValue(row.reference),
         };
         const result = schema.safeParse(raw);
-        const errors = result.success ? [] : result.error.issues.map((issue) => issue.message);
+        const errors = result.success
+          ? []
+          : result.error.issues.map((issue: { message: string }) => issue.message);
         return {
           rowNumber: index + 2,
           raw,
