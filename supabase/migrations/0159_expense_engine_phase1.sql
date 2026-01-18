@@ -58,6 +58,19 @@ alter table public.erp_expense_categories
 
 alter table public.erp_expense_categories
   add column if not exists created_by uuid;
+-- ALIGNMENT: ensure required category identity columns exist
+alter table public.erp_expense_categories
+  add column if not exists code text;
+
+alter table public.erp_expense_categories
+  add column if not exists name text;
+
+-- Backfill (safe defaults for legacy rows, if any)
+update public.erp_expense_categories
+set
+  code = coalesce(code, 'legacy_' || substr(id::text, 1, 8)),
+  name = coalesce(name, code)
+where code is null or name is null;
 
 -- Backfill safe defaults
 update public.erp_expense_categories
@@ -284,6 +297,18 @@ begin
     );
 end;
 $$;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'erp_expense_categories_unique'
+      and conrelid = 'public.erp_expense_categories'::regclass
+  ) then
+    alter table public.erp_expense_categories
+      add constraint erp_expense_categories_unique unique (company_id, code);
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- Seed categories (safe if code already exists)
@@ -358,7 +383,7 @@ revoke all on function public.erp_expense_categories_list() from public;
 grant execute on function public.erp_expense_categories_list() to authenticated;
 
 create or replace function public.erp_expense_upsert(
-  p_id uuid default null,
+  p_id uuid,
   p_expense_date date,
   p_amount numeric,
   p_currency text,
@@ -373,6 +398,7 @@ create or replace function public.erp_expense_upsert(
   p_recurring_rule text,
   p_attachment_url text
 )
+
 returns uuid
 language plpgsql
 security definer
@@ -514,6 +540,7 @@ revoke all on function public.erp_expense_upsert(
 grant execute on function public.erp_expense_upsert(
   uuid, date, numeric, text, uuid, uuid, uuid, uuid, text, text, text, boolean, text, text
 ) to authenticated;
+
 
 create or replace function public.erp_expenses_list(
   p_from date,
