@@ -110,6 +110,7 @@ const financeSidebarGroups: SidebarGroup[] = [
     label: "Finance",
     items: [
       { label: "Finance Home", href: "/erp/finance", icon: "FI" },
+      { label: "Finance Bridge", href: "/erp/finance/bridge", icon: "FB" },
       {
         label: "Marketplace Margin",
         href: "/erp/finance/marketplace-margin",
