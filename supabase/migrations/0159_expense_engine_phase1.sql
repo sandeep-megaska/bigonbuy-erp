@@ -1,4 +1,5 @@
 -- Expense engine phase 1 (categories + expenses + reports + import)
+-- Idempotent + schema-alignment safe: works even if tables already exist with older columns.
 
 create or replace function public.erp_require_finance_writer()
 returns void
@@ -29,6 +30,10 @@ $$;
 revoke all on function public.erp_require_finance_writer() from public;
 grant execute on function public.erp_require_finance_writer() to authenticated;
 
+-- ---------------------------------------------------------------------
+-- Expense categories
+-- ---------------------------------------------------------------------
+
 create table if not exists public.erp_expense_categories (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null default public.erp_current_company_id() references public.erp_companies (id) on delete cascade,
@@ -40,15 +45,36 @@ create table if not exists public.erp_expense_categories (
   created_by uuid default auth.uid(),
   constraint erp_expense_categories_unique unique (company_id, code)
 );
+
+-- ALIGNMENT: if table existed from older migrations, ensure required columns exist
 alter table public.erp_expense_categories
   add column if not exists group_key text;
 
-update public.erp_expense_categories
-set group_key = coalesce(group_key, 'other')
-where group_key is null;
+alter table public.erp_expense_categories
+  add column if not exists is_active boolean;
 
-create index if not exists erp_expense_categories_company_idx
+alter table public.erp_expense_categories
+  add column if not exists created_at timestamptz;
+
+alter table public.erp_expense_categories
+  add column if not exists created_by uuid;
+
+-- Backfill safe defaults
+update public.erp_expense_categories
+set
+  group_key = coalesce(group_key, 'other'),
+  is_active = coalesce(is_active, true),
+  created_at = coalesce(created_at, now())
+where group_key is null
+   or is_active is null
+   or created_at is null;
+
+create index if not exists erp_expense_categories_company_group_idx
   on public.erp_expense_categories (company_id, group_key);
+
+-- ---------------------------------------------------------------------
+-- Expenses
+-- ---------------------------------------------------------------------
 
 create table if not exists public.erp_expenses (
   id uuid primary key default gen_random_uuid(),
@@ -72,6 +98,75 @@ create table if not exists public.erp_expenses (
   updated_at timestamptz not null default now()
 );
 
+-- ALIGNMENT: if erp_expenses existed from older migrations, ensure all required columns exist
+alter table public.erp_expenses
+  add column if not exists expense_date date;
+
+alter table public.erp_expenses
+  add column if not exists amount numeric(14,2);
+
+alter table public.erp_expenses
+  add column if not exists currency text;
+
+alter table public.erp_expenses
+  add column if not exists category_id uuid;
+
+alter table public.erp_expenses
+  add column if not exists channel_id uuid;
+
+alter table public.erp_expenses
+  add column if not exists warehouse_id uuid;
+
+alter table public.erp_expenses
+  add column if not exists vendor_id uuid;
+
+alter table public.erp_expenses
+  add column if not exists payee_name text;
+
+alter table public.erp_expenses
+  add column if not exists reference text;
+
+alter table public.erp_expenses
+  add column if not exists description text;
+
+alter table public.erp_expenses
+  add column if not exists is_recurring boolean;
+
+alter table public.erp_expenses
+  add column if not exists recurring_rule text;
+
+alter table public.erp_expenses
+  add column if not exists allocation_type text;
+
+alter table public.erp_expenses
+  add column if not exists attachment_url text;
+
+alter table public.erp_expenses
+  add column if not exists created_at timestamptz;
+
+alter table public.erp_expenses
+  add column if not exists created_by uuid;
+
+alter table public.erp_expenses
+  add column if not exists updated_at timestamptz;
+
+-- Backfill safe defaults (do NOT invent amounts; only fill safe non-financial defaults)
+update public.erp_expenses
+set
+  currency = coalesce(currency, 'INR'),
+  is_recurring = coalesce(is_recurring, false),
+  allocation_type = coalesce(allocation_type, 'direct'),
+  created_at = coalesce(created_at, now()),
+  updated_at = coalesce(updated_at, now()),
+  expense_date = coalesce(expense_date, current_date)
+where currency is null
+   or is_recurring is null
+   or allocation_type is null
+   or created_at is null
+   or updated_at is null
+   or expense_date is null;
+
+-- Indexes (safe now that columns exist)
 create index if not exists erp_expenses_company_date_idx
   on public.erp_expenses (company_id, expense_date);
 
@@ -83,6 +178,10 @@ create index if not exists erp_expenses_company_channel_idx
 
 create index if not exists erp_expenses_company_warehouse_idx
   on public.erp_expenses (company_id, warehouse_id);
+
+-- ---------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------
 
 alter table public.erp_expense_categories enable row level security;
 alter table public.erp_expense_categories force row level security;
@@ -186,6 +285,10 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------
+-- Seed categories (safe if code already exists)
+-- ---------------------------------------------------------------------
+
 with seed_categories as (
   select * from (
     values
@@ -216,6 +319,11 @@ select c.id, sc.code, sc.name, sc.group_key, true
 from public.erp_companies c
 cross join seed_categories sc
 on conflict (company_id, code) do nothing;
+
+-- ---------------------------------------------------------------------
+-- Functions
+-- NOTE: assumes public.erp_require_finance_reader() already exists in your DB
+-- ---------------------------------------------------------------------
 
 create or replace function public.erp_expense_categories_list()
 returns table (
@@ -293,31 +401,42 @@ begin
     raise exception 'Invalid category';
   end if;
 
-  if p_channel_id is not null and not exists (
+  if p_channel_id is not null and exists (
     select 1
-    from public.erp_sales_channels ch
-    where ch.id = p_channel_id
-      and ch.company_id = v_company_id
+    from information_schema.tables t
+    where t.table_schema = 'public' and t.table_name = 'erp_sales_channels'
   ) then
-    raise exception 'Invalid channel';
+    -- validate channel only if table exists (defensive)
+    if not exists (
+      select 1
+      from public.erp_sales_channels ch
+      where ch.id = p_channel_id
+        and ch.company_id = v_company_id
+    ) then
+      raise exception 'Invalid channel';
+    end if;
   end if;
 
-  if p_warehouse_id is not null and not exists (
-    select 1
-    from public.erp_warehouses w
-    where w.id = p_warehouse_id
-      and w.company_id = v_company_id
-  ) then
-    raise exception 'Invalid warehouse';
+  if p_warehouse_id is not null then
+    if not exists (
+      select 1
+      from public.erp_warehouses w
+      where w.id = p_warehouse_id
+        and w.company_id = v_company_id
+    ) then
+      raise exception 'Invalid warehouse';
+    end if;
   end if;
 
-  if p_vendor_id is not null and not exists (
-    select 1
-    from public.erp_vendors v
-    where v.id = p_vendor_id
-      and v.company_id = v_company_id
-  ) then
-    raise exception 'Invalid vendor';
+  if p_vendor_id is not null then
+    if not exists (
+      select 1
+      from public.erp_vendors v
+      where v.id = p_vendor_id
+        and v.company_id = v_company_id
+    ) then
+      raise exception 'Invalid vendor';
+    end if;
   end if;
 
   if p_id is null then
@@ -389,36 +508,11 @@ end;
 $$;
 
 revoke all on function public.erp_expense_upsert(
-  uuid,
-  date,
-  numeric,
-  text,
-  uuid,
-  uuid,
-  uuid,
-  uuid,
-  text,
-  text,
-  text,
-  boolean,
-  text,
-  text
+  uuid, date, numeric, text, uuid, uuid, uuid, uuid, text, text, text, boolean, text, text
 ) from public;
+
 grant execute on function public.erp_expense_upsert(
-  uuid,
-  date,
-  numeric,
-  text,
-  uuid,
-  uuid,
-  uuid,
-  uuid,
-  text,
-  text,
-  text,
-  boolean,
-  text,
-  text
+  uuid, date, numeric, text, uuid, uuid, uuid, uuid, text, text, text, boolean, text, text
 ) to authenticated;
 
 create or replace function public.erp_expenses_list(
@@ -514,24 +608,11 @@ end;
 $$;
 
 revoke all on function public.erp_expenses_list(
-  date,
-  date,
-  uuid,
-  uuid,
-  uuid,
-  text,
-  int,
-  int
+  date, date, uuid, uuid, uuid, text, int, int
 ) from public;
+
 grant execute on function public.erp_expenses_list(
-  date,
-  date,
-  uuid,
-  uuid,
-  uuid,
-  text,
-  int,
-  int
+  date, date, uuid, uuid, uuid, text, int, int
 ) to authenticated;
 
 create or replace function public.erp_expenses_delete(p_id uuid)
@@ -666,6 +747,8 @@ $$;
 revoke all on function public.erp_expense_monthly_by_warehouse(date, date) from public;
 grant execute on function public.erp_expense_monthly_by_warehouse(date, date) to authenticated;
 
+-- CSV import function kept as-is from your file (already robust). If you had it working, keep it.
+-- NOTE: requires erp_sales_channels.code and erp_warehouses.code and vendor legal_name to resolve.
 create or replace function public.erp_expenses_import_csv(
   p_rows jsonb,
   p_validate_only boolean default false
