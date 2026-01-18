@@ -47,8 +47,10 @@ type ImportRow = {
   rowNumber: number;
   sku: string;
   title: string;
-  size: string;
-  color: string;
+  option1Name: string;
+  option1Value: string;
+  option2Name: string;
+  option2Value: string;
   costRaw: string;
 };
 
@@ -64,8 +66,10 @@ type ImportSummary = {
 const REQUIRED_HEADERS = {
   sku: ["variant sku"],
   title: ["title"],
-  size: ["option1 value", "option1 value (size)"],
-  color: ["option2 value", "option2 value (color)"],
+  option1Name: ["option1 name"],
+  option1Value: ["option1 value"],
+  option2Name: ["option2 name"],
+  option2Value: ["option2 value"],
   cost: ["cost per item"],
 };
 
@@ -317,15 +321,15 @@ export default function InventorySkusPage() {
     const headers = rows[0];
     const skuIndex = findHeaderIndex(headers, REQUIRED_HEADERS.sku);
     const titleIndex = findHeaderIndex(headers, REQUIRED_HEADERS.title);
-    const sizeIndex = findHeaderIndex(headers, REQUIRED_HEADERS.size);
-    const colorIndex = findHeaderIndex(headers, REQUIRED_HEADERS.color);
+    const option1NameIndex = findHeaderIndex(headers, REQUIRED_HEADERS.option1Name);
+    const option1ValueIndex = findHeaderIndex(headers, REQUIRED_HEADERS.option1Value);
+    const option2NameIndex = findHeaderIndex(headers, REQUIRED_HEADERS.option2Name);
+    const option2ValueIndex = findHeaderIndex(headers, REQUIRED_HEADERS.option2Value);
     const costIndex = findHeaderIndex(headers, REQUIRED_HEADERS.cost);
 
     const missing: string[] = [];
     if (skuIndex === -1) missing.push("Variant SKU");
     if (titleIndex === -1) missing.push("Title");
-    if (sizeIndex === -1) missing.push("Option1 Value (Size)");
-    if (colorIndex === -1) missing.push("Option2 Value (Color)");
 
     if (missing.length) {
       setImportError(`Missing required columns: ${missing.join(", ")}.`);
@@ -336,12 +340,57 @@ export default function InventorySkusPage() {
       rowNumber: idx + 2,
       sku: row[skuIndex] ?? "",
       title: row[titleIndex] ?? "",
-      size: row[sizeIndex] ?? "",
-      color: row[colorIndex] ?? "",
+      option1Name: option1NameIndex === -1 ? "" : row[option1NameIndex] ?? "",
+      option1Value: option1ValueIndex === -1 ? "" : row[option1ValueIndex] ?? "",
+      option2Name: option2NameIndex === -1 ? "" : row[option2NameIndex] ?? "",
+      option2Value: option2ValueIndex === -1 ? "" : row[option2ValueIndex] ?? "",
       costRaw: costIndex === -1 ? "" : row[costIndex] ?? "",
     }));
 
     setImportRows(parsed);
+  }
+
+  function normalizeOptionLabel(value: string) {
+    return value.trim().toLowerCase();
+  }
+
+  function deriveSizeAndColorFromOptions(row: ImportRow) {
+    let sizeValue: string | null = null;
+    let colorValue: string | null = null;
+    let hasOptionData = false;
+
+    const optionPairs = [
+      { name: row.option1Name, value: row.option1Value },
+      { name: row.option2Name, value: row.option2Value },
+    ];
+
+    optionPairs.forEach((option) => {
+      const name = option.name.trim();
+      const value = option.value.trim();
+      if (name || value) {
+        hasOptionData = true;
+      }
+      if (!value) return;
+      const normalizedName = normalizeOptionLabel(name);
+      if (normalizedName.includes("size")) {
+        sizeValue = value;
+      }
+      if (normalizedName.includes("color") || normalizedName.includes("colour")) {
+        colorValue = value;
+      }
+    });
+
+    return { sizeValue, colorValue, hasOptionData };
+  }
+
+  function deriveSizeAndColorFromSku(skuTrim: string) {
+    const parts = skuTrim
+      .split("-")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const colorValue = parts.length >= 2 ? parts[1] : null;
+    const sizeValue = parts.length >= 3 ? parts.slice(2).join("-") : parts.length === 2 ? parts[1] : null;
+    return { sizeValue, colorValue, styleCode: parts[0] || "" };
   }
 
   async function runImport() {
@@ -362,7 +411,7 @@ export default function InventorySkusPage() {
     const [productsRes, variantsRes] = await Promise.all([
       supabase
         .from("erp_products")
-        .select("id, title")
+        .select("id, title, style_code")
         .eq("company_id", ctx.companyId),
       supabase
         .from("erp_variants")
@@ -378,21 +427,30 @@ export default function InventorySkusPage() {
 
     const productMap = new Map<string, ProductOption>();
     (productsRes.data || []).forEach((product) => {
-      productMap.set(product.title.trim().toLowerCase(), product as ProductOption);
+      const styleCode = (product as ProductOption).style_code?.trim();
+      if (styleCode) {
+        productMap.set(styleCode.toLowerCase(), product as ProductOption);
+      }
     });
 
-    const existingSkus = new Set<string>((variantsRes.data || []).map((row) => row.sku));
+    const existingSkus = new Set<string>((variantsRes.data || []).map((row) => row.sku.trim()));
     const seenSkus = new Set<string>(existingSkus);
-    const pendingRows: Array<ImportRow & { skuTrim: string; titleTrim: string }> = [];
+    const pendingRows: Array<
+      ImportRow & {
+        skuTrim: string;
+        styleCode: string;
+        sizeValue: string | null;
+        colorValue: string | null;
+      }
+    > = [];
     const skippedRows: number[] = [];
     const errors: string[] = [];
 
     importRows.forEach((row) => {
       const skuTrim = row.sku.trim();
-      const titleTrim = row.title.trim();
 
-      if (!skuTrim || !titleTrim) {
-        errors.push(`Row ${row.rowNumber}: Missing SKU or Title.`);
+      if (!skuTrim) {
+        errors.push(`Row ${row.rowNumber}: Missing Variant SKU.`);
         return;
       }
 
@@ -402,61 +460,62 @@ export default function InventorySkusPage() {
         return;
       }
 
+      const { sizeValue, colorValue, hasOptionData } = deriveSizeAndColorFromOptions(row);
+      const skuFallback = deriveSizeAndColorFromSku(skuTrim);
+      let resolvedSize = sizeValue;
+      let resolvedColor = colorValue;
+
+      if (!hasOptionData) {
+        resolvedSize = skuFallback.sizeValue;
+        resolvedColor = skuFallback.colorValue;
+      } else {
+        if (!resolvedSize) resolvedSize = skuFallback.sizeValue;
+        if (!resolvedColor) resolvedColor = skuFallback.colorValue;
+      }
+      const styleCode = skuFallback.styleCode;
+
+      if (!styleCode) {
+        errors.push(`Row ${row.rowNumber}: SKU must include a style code segment.`);
+        return;
+      }
+
+      if (!productMap.has(styleCode.toLowerCase())) {
+        errors.push(`Row ${row.rowNumber}: Missing product for style code "${styleCode}".`);
+        return;
+      }
+
+      if (!resolvedSize || !resolvedColor) {
+        errors.push(`Row ${row.rowNumber}: Missing size or color for SKU ${skuTrim}.`);
+        return;
+      }
+
       if (seenSkus.has(skuTrim)) {
         skippedRows.push(row.rowNumber);
         return;
       }
 
       seenSkus.add(skuTrim);
-      pendingRows.push({ ...row, skuTrim, titleTrim });
+      pendingRows.push({ ...row, skuTrim, styleCode, sizeValue: resolvedSize, colorValue: resolvedColor });
     });
 
-    const titlesToCreate = new Map<string, { title: string; rowNumber: number }>();
-    pendingRows.forEach((row) => {
-      const key = row.titleTrim.toLowerCase();
-      if (!productMap.has(key) && !titlesToCreate.has(key)) {
-        titlesToCreate.set(key, { title: row.titleTrim, rowNumber: row.rowNumber });
-      }
-    });
-
-    let createdProducts = 0;
-    if (!dryRun) {
-      for (const [key, value] of Array.from(titlesToCreate.entries())) {
-        const { data, error: insertError } = await supabase
-          .from("erp_products")
-          .insert({ company_id: ctx.companyId, title: value.title, style_code: value.title })
-          .select("id, title")
-          .single();
-        if (insertError) {
-          errors.push(`Row ${value.rowNumber}: ${insertError.message}`);
-          continue;
-        }
-        if (data) {
-          productMap.set(key, data as ProductOption);
-          createdProducts += 1;
-        }
-      }
-    } else {
-      createdProducts = titlesToCreate.size;
-    }
+    const createdProducts = 0;
 
     let createdSkus = 0;
     if (dryRun) {
       createdSkus = pendingRows.length;
     } else {
       for (const row of pendingRows) {
-        const key = row.titleTrim.toLowerCase();
-        const product = productMap.get(key);
+        const product = productMap.get(row.styleCode.toLowerCase());
         if (!product) {
-          errors.push(`Row ${row.rowNumber}: Missing product for "${row.titleTrim}".`);
+          errors.push(`Row ${row.rowNumber}: Missing product for style code "${row.styleCode}".`);
           continue;
         }
         const payload = {
           company_id: ctx.companyId,
           product_id: product.id,
           sku: row.skuTrim,
-          size: row.size.trim() || null,
-          color: row.color.trim() || null,
+          size: row.sizeValue,
+          color: row.colorValue,
           cost_price: row.costRaw.trim() ? Number(row.costRaw.trim()) : null,
         };
         const { error: insertError } = await supabase.from("erp_variants").insert(payload);
