@@ -6,53 +6,44 @@ import {
   cardStyle,
   eyebrowStyle,
   h1Style,
+  inputStyle,
   pageContainerStyle,
   pageHeaderStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
   subtitleStyle,
-  tableCellStyle,
-  tableHeaderCellStyle,
-  tableStyle,
-  inputStyle,
 } from "../../../../components/erp/uiStyles";
-import { resolveErpAssetUrl } from "../../../../lib/erp/assetImages";
+import StockOnHandTable from "../../../../components/inventory/StockOnHandTable";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { useDebouncedValue, useStockOnHandList } from "../../../../lib/erp/inventoryStock";
 import { supabase } from "../../../../lib/supabaseClient";
+
+type CompanyContext = {
+  companyId: string | null;
+  roleKey: string | null;
+  membershipError: string | null;
+};
 
 type WarehouseOption = {
   id: string;
   name: string;
+  code: string | null;
 };
 
-type VariantOption = {
-  id: string;
-  sku: string;
-  size: string | null;
-  color: string | null;
-  product_id: string;
-  product_title: string;
-  image_url?: string | null;
-  image_preview?: string | null;
-  product_image_preview?: string | null;
-};
-
-type StockRow = {
-  warehouse_id: string;
-  variant_id: string;
-  qty_on_hand: number;
-};
+const PAGE_SIZE = 50;
 
 export default function InventoryStockPage() {
   const router = useRouter();
-  const [ctx, setCtx] = useState<any>(null);
+  const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [variants, setVariants] = useState<VariantOption[]>([]);
-  const [stockRows, setStockRows] = useState<StockRow[]>([]);
-  const [warehouseFilter, setWarehouseFilter] = useState("");
-  const [skuQuery, setSkuQuery] = useState("");
-  const [serverFilteredRows, setServerFilteredRows] = useState<StockRow[] | null>(null);
-  const [serverSearchLoading, setServerSearchLoading] = useState(false);
+  const [warehouseFilter, setWarehouseFilter] = useState<string>("");
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [offset, setOffset] = useState(0);
+
+  const debouncedQuery = useDebouncedValue(searchQuery, 300);
 
   useEffect(() => {
     let active = true;
@@ -64,15 +55,19 @@ export default function InventoryStockPage() {
       const context = await getCompanyContext(session);
       if (!active) return;
 
-      setCtx(context);
+      setCtx({
+        companyId: context.companyId,
+        roleKey: context.roleKey,
+        membershipError: context.membershipError,
+      });
+
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found for this user.");
         setLoading(false);
         return;
       }
 
-      await loadStock(context.companyId, active);
-      if (active) setLoading(false);
+      setLoading(false);
     })();
 
     return () => {
@@ -80,194 +75,64 @@ export default function InventoryStockPage() {
     };
   }, [router]);
 
-  async function loadStock(companyId: string, isActive = true) {
-    setError("");
-    const [warehouseRes, productRes, variantRes, stockRes] = await Promise.all([
-      supabase
-        .from("erp_warehouses")
-        .select("id, name")
-        .eq("company_id", companyId)
-        .order("name", { ascending: true }),
-      supabase
-        .from("erp_products")
-        .select("id, title, image_url")
-        .eq("company_id", companyId),
-      supabase
-        .from("erp_variants")
-        .select("id, sku, size, color, product_id, image_url")
-        .eq("company_id", companyId)
-        .order("sku", { ascending: true }),
-      supabase
-        .from("erp_inventory_on_hand")
-        .select("warehouse_id, variant_id, qty_on_hand")
-        .eq("company_id", companyId),
-    ]);
-
-    if (warehouseRes.error || productRes.error || variantRes.error || stockRes.error) {
-      if (isActive) {
-        setError(
-          warehouseRes.error?.message ||
-            productRes.error?.message ||
-            variantRes.error?.message ||
-            stockRes.error?.message ||
-            "Failed to load stock on hand."
-        );
-      }
-      return;
-    }
-
-    if (isActive) {
-      const products = (productRes.data || []) as Array<{ id: string; title: string; image_url?: string | null }>;
-      const productWithImages = await Promise.all(
-        products.map(async (product) => ({
-          ...product,
-          image_preview: await resolveErpAssetUrl(product.image_url || null),
-        }))
-      );
-      const productMap = new Map(productWithImages.map((product) => [product.id, product]));
-      const variantList = await Promise.all(
-        (variantRes.data || []).map(async (variant) => {
-          const product = productMap.get((variant as any).product_id);
-          return {
-            ...(variant as any),
-            product_title: product?.title || "",
-            image_preview: await resolveErpAssetUrl((variant as any).image_url),
-            product_image_preview: product?.image_preview || null,
-          } as VariantOption;
-        })
-      );
-      setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
-      setVariants(variantList);
-      setStockRows((stockRes.data || []) as StockRow[]);
-    }
-  }
-
-  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
-  const warehouseMap = useMemo(
-    () => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.name])),
-    [warehouses]
-  );
-
   useEffect(() => {
     if (!ctx?.companyId) return;
-    const query = skuQuery.trim();
-    if (!query || stockRows.length <= LARGE_DATASET_THRESHOLD) {
-      setServerFilteredRows(null);
-      return;
-    }
-
     let active = true;
+
     (async () => {
-      setServerSearchLoading(true);
-      const results = await searchStockRows(ctx.companyId, query, warehouseFilter, active);
+      const { data, error: loadError } = await supabase
+        .from("erp_warehouses")
+        .select("id, name, code")
+        .eq("company_id", ctx.companyId)
+        .order("name", { ascending: true });
+
       if (!active) return;
-      setServerFilteredRows(results);
-      setServerSearchLoading(false);
-    })().catch((searchError) => {
-      if (active) {
-        setError(searchError?.message || "Failed to search stock on hand.");
-        setServerSearchLoading(false);
+
+      if (loadError) {
+        setError(loadError.message);
+        return;
       }
+
+      setWarehouses((data || []) as WarehouseOption[]);
+    })().catch((loadError: Error) => {
+      if (active) setError(loadError.message || "Failed to load warehouses.");
     });
 
     return () => {
       active = false;
     };
-  }, [ctx?.companyId, skuQuery, warehouseFilter, stockRows.length]);
+  }, [ctx?.companyId]);
 
-  function variantMatchesSearch(variant: VariantOption, query: string) {
-    const normalized = query.toLowerCase();
-    return (
-      variant.sku.toLowerCase().includes(normalized) ||
-      (variant.product_title || "").toLowerCase().includes(normalized) ||
-      (variant.color || "").toLowerCase().includes(normalized) ||
-      (variant.size || "").toLowerCase().includes(normalized)
-    );
+  useEffect(() => {
+    setOffset(0);
+  }, [warehouseFilter, inStockOnly, debouncedQuery]);
+
+  const { data: rows, loading: stockLoading, error: stockError } = useStockOnHandList({
+    companyId: ctx?.companyId ?? null,
+    warehouseId: warehouseFilter || null,
+    query: debouncedQuery,
+    inStockOnly,
+    limit: PAGE_SIZE,
+    offset,
+  });
+
+  const showWarehouseColumn = warehouseFilter === "";
+
+  const hasNextPage = rows.length === PAGE_SIZE;
+
+  const headerSubtitle = useMemo(() => {
+    if (showWarehouseColumn) return "Current inventory balances by SKU and warehouse.";
+    const selected = warehouses.find((warehouse) => warehouse.id === warehouseFilter);
+    return selected
+      ? `Current inventory balances for ${selected.name}.`
+      : "Current inventory balances by SKU and warehouse.";
+  }, [showWarehouseColumn, warehouses, warehouseFilter]);
+
+  function handleMovements(row: { warehouse_id: string; variant_id: string }) {
+    router.push(`/erp/inventory/stock/${row.warehouse_id}/${row.variant_id}`);
   }
 
-  async function searchStockRows(
-    companyId: string,
-    query: string,
-    warehouseId: string,
-    isActive: boolean
-  ) {
-    setError("");
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-
-    const { data: productMatches, error: productError } = await supabase
-      .from("erp_products")
-      .select("id")
-      .eq("company_id", companyId)
-      .ilike("title", `%${trimmed}%`);
-
-    if (productError) {
-      if (isActive) setError(productError.message);
-      return [];
-    }
-
-    const productIds = (productMatches || []).map((product) => product.id);
-    const likeQuery = `%${trimmed}%`;
-    const orFilters = [
-      `sku.ilike.${likeQuery}`,
-      `color.ilike.${likeQuery}`,
-      `size.ilike.${likeQuery}`,
-    ];
-    if (productIds.length) {
-      orFilters.push(`product_id.in.(${productIds.join(",")})`);
-    }
-
-    const { data: variantMatches, error: variantError } = await supabase
-      .from("erp_variants")
-      .select("id")
-      .eq("company_id", companyId)
-      .or(orFilters.join(","));
-
-    if (variantError) {
-      if (isActive) setError(variantError.message);
-      return [];
-    }
-
-    const variantIds = (variantMatches || []).map((variant) => variant.id);
-    if (variantIds.length === 0) return [];
-
-    let stockQuery = supabase
-      .from("erp_inventory_on_hand")
-      .select("warehouse_id, variant_id, qty_on_hand")
-      .eq("company_id", companyId)
-      .in("variant_id", variantIds);
-
-    if (warehouseId) {
-      stockQuery = stockQuery.eq("warehouse_id", warehouseId);
-    }
-
-    const { data: stockMatches, error: stockError } = await stockQuery;
-    if (stockError) {
-      if (isActive) setError(stockError.message);
-      return [];
-    }
-
-    return (stockMatches || []) as StockRow[];
-  }
-
-  const baseRows = serverFilteredRows ?? stockRows;
-
-  const filteredRows = baseRows
-    .map((row) => ({
-      variant: variantMap.get(row.variant_id),
-      ...row,
-      warehouseName: warehouseMap.get(row.warehouse_id) || row.warehouse_id,
-      sku: variantMap.get(row.variant_id)?.sku || row.variant_id,
-      productTitle: variantMap.get(row.variant_id)?.product_title || "",
-      size: variantMap.get(row.variant_id)?.size || "",
-      color: variantMap.get(row.variant_id)?.color || "",
-    }))
-    .filter((row) => (warehouseFilter ? row.warehouse_id === warehouseFilter : true))
-    .filter((row) => {
-      if (!skuQuery || serverFilteredRows) return true;
-      if (!row.variant) return row.sku.toLowerCase().includes(skuQuery.toLowerCase());
-      return variantMatchesSearch(row.variant, skuQuery);
-    });
+  const displayError = error || stockError;
 
   if (loading) {
     return (
@@ -284,11 +149,11 @@ export default function InventoryStockPage() {
           <div>
             <p style={eyebrowStyle}>Inventory · Stock On Hand</p>
             <h1 style={h1Style}>Stock On Hand</h1>
-            <p style={subtitleStyle}>Current inventory balances by SKU and warehouse.</p>
+            <p style={subtitleStyle}>{headerSubtitle}</p>
           </div>
         </header>
 
-        {error ? <div style={errorStyle}>{error}</div> : null}
+        {displayError ? <div style={errorStyle}>{displayError}</div> : null}
 
         <section style={cardStyle}>
           <div style={filterRowStyle}>
@@ -304,61 +169,46 @@ export default function InventoryStockPage() {
                 </option>
               ))}
             </select>
+            <label style={toggleStyle}>
+              <input
+                type="checkbox"
+                checked={inStockOnly}
+                onChange={(event) => setInStockOnly(event.target.checked)}
+              />
+              In stock only
+            </label>
             <input
-              value={skuQuery}
-              onChange={(event) => setSkuQuery(event.target.value)}
-              placeholder="Search SKU / title / color / size"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search SKU / style / title"
               style={inputStyle}
             />
-            {serverSearchLoading ? <span style={mutedStyle}>Searching…</span> : null}
           </div>
         </section>
 
-        <section style={tableStyle}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={tableHeaderCellStyle}>Image</th>
-                <th style={tableHeaderCellStyle}>SKU</th>
-                <th style={tableHeaderCellStyle}>Product title</th>
-                <th style={tableHeaderCellStyle}>Size</th>
-                <th style={tableHeaderCellStyle}>Color</th>
-                <th style={tableHeaderCellStyle}>Warehouse</th>
-                <th style={tableHeaderCellStyle}>Qty On Hand</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((row, index) => (
-                <tr key={`${row.warehouse_id}-${row.variant_id}-${index}`}>
-                  <td style={tableCellStyle}>
-                    {row.variant?.image_preview || row.variant?.product_image_preview ? (
-                      <img
-                        src={row.variant?.image_preview || row.variant?.product_image_preview || undefined}
-                        alt={`${row.sku} image`}
-                        style={thumbnailStyle}
-                      />
-                    ) : (
-                      <div style={thumbnailPlaceholderStyle}>IMG</div>
-                    )}
-                  </td>
-                  <td style={{ ...tableCellStyle, fontWeight: 600 }}>{row.sku}</td>
-                  <td style={tableCellStyle}>{row.productTitle || "—"}</td>
-                  <td style={tableCellStyle}>{row.size || "—"}</td>
-                  <td style={tableCellStyle}>{row.color || "—"}</td>
-                  <td style={tableCellStyle}>{row.warehouseName}</td>
-                  <td style={tableCellStyle}>{row.qty_on_hand}</td>
-                </tr>
-              ))}
-              {filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={emptyStateStyle}>
-                    No stock on hand found for the selected filters.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </section>
+        {stockLoading ? <div style={mutedStyle}>Loading stock on hand…</div> : null}
+
+        <StockOnHandTable rows={rows} showWarehouse={showWarehouseColumn} onMovements={handleMovements} />
+
+        <div style={paginationRowStyle}>
+          <button
+            type="button"
+            style={secondaryButtonStyle}
+            onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_SIZE))}
+            disabled={offset === 0}
+          >
+            Previous
+          </button>
+          <span style={mutedStyle}>Page {Math.floor(offset / PAGE_SIZE) + 1}</span>
+          <button
+            type="button"
+            style={primaryButtonStyle}
+            onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
+            disabled={!hasNextPage}
+          >
+            Next
+          </button>
+        </div>
       </div>
     </ErpShell>
   );
@@ -368,6 +218,15 @@ const filterRowStyle: CSSProperties = {
   display: "flex",
   gap: 12,
   flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const toggleStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  color: "#111827",
+  fontSize: 14,
 };
 
 const errorStyle: CSSProperties = {
@@ -383,31 +242,9 @@ const mutedStyle: CSSProperties = {
   fontSize: 12,
 };
 
-const LARGE_DATASET_THRESHOLD = 500;
-
-const emptyStateStyle: CSSProperties = {
-  ...tableCellStyle,
-  textAlign: "center",
-  color: "#6b7280",
-};
-
-const thumbnailStyle: CSSProperties = {
-  width: 36,
-  height: 36,
-  borderRadius: 8,
-  objectFit: "cover",
-  border: "1px solid #e5e7eb",
-};
-
-const thumbnailPlaceholderStyle: CSSProperties = {
-  width: 36,
-  height: 36,
-  borderRadius: 8,
-  border: "1px dashed #d1d5db",
+const paginationRowStyle: CSSProperties = {
   display: "flex",
+  gap: 12,
   alignItems: "center",
-  justifyContent: "center",
-  color: "#9ca3af",
-  fontSize: 10,
-  fontWeight: 600,
+  justifyContent: "flex-end",
 };
