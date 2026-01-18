@@ -329,7 +329,6 @@ export default function InventorySkusPage() {
 
     const missing: string[] = [];
     if (skuIndex === -1) missing.push("Variant SKU");
-    if (titleIndex === -1) missing.push("Title");
 
     if (missing.length) {
       setImportError(`Missing required columns: ${missing.join(", ")}.`);
@@ -339,7 +338,7 @@ export default function InventorySkusPage() {
     const parsed = rows.slice(1).map((row, idx) => ({
       rowNumber: idx + 2,
       sku: row[skuIndex] ?? "",
-      title: row[titleIndex] ?? "",
+      title: titleIndex === -1 ? "" : row[titleIndex] ?? "",
       option1Name: option1NameIndex === -1 ? "" : row[option1NameIndex] ?? "",
       option1Value: option1ValueIndex === -1 ? "" : row[option1ValueIndex] ?? "",
       option2Name: option2NameIndex === -1 ? "" : row[option2NameIndex] ?? "",
@@ -465,19 +464,69 @@ export default function InventorySkusPage() {
       }
     > = [];
     const skippedRows: number[] = [];
-    const errors: string[] = [];
+    const errorBuckets = new Map<string, number[]>();
+    const productCreationIssues: string[] = [];
+
+    const addRowError = (reason: string, rowNumber: number) => {
+      const existing = errorBuckets.get(reason) || [];
+      existing.push(rowNumber);
+      errorBuckets.set(reason, existing);
+    };
+
+    const styleTitleMap = new Map<string, string>();
+    const styleCodes = new Set<string>();
+    importRows.forEach((row) => {
+      const skuTrim = row.sku.trim();
+      if (!skuTrim) return;
+      const { styleCode } = deriveSizeAndColorFromSku(skuTrim);
+      if (!styleCode) return;
+      styleCodes.add(styleCode);
+      const title = row.title.trim();
+      if (title && !styleTitleMap.has(styleCode)) {
+        styleTitleMap.set(styleCode, title);
+      }
+    });
+
+    const missingStyles = [...styleCodes].filter((styleCode) => !productMap.has(styleCode.toLowerCase()));
+    let createdProducts = 0;
+
+    if (missingStyles.length) {
+      for (const styleCode of missingStyles) {
+        const title = styleTitleMap.get(styleCode) || `Style ${styleCode}`;
+        if (dryRun) {
+          createdProducts += 1;
+          productMap.set(styleCode.toLowerCase(), { id: `dry-${styleCode}`, title, style_code: styleCode });
+        } else {
+          const { data, error: insertError } = await supabase
+            .from("erp_products")
+            .insert({
+              company_id: ctx.companyId,
+              style_code: styleCode,
+              title,
+            })
+            .select("id, title, style_code")
+            .single();
+          if (insertError || !data) {
+            productCreationIssues.push(styleCode);
+            continue;
+          }
+          createdProducts += 1;
+          productMap.set(styleCode.toLowerCase(), data as ProductOption);
+        }
+      }
+    }
 
     importRows.forEach((row) => {
       const skuTrim = row.sku.trim();
 
       if (!skuTrim) {
-        errors.push(`Row ${row.rowNumber}: Missing Variant SKU.`);
+        addRowError("Missing Variant SKU", row.rowNumber);
         return;
       }
 
       const costValue = row.costRaw.trim();
       if (costValue && Number.isNaN(Number(costValue))) {
-        errors.push(`Row ${row.rowNumber}: Cost per item must be a number.`);
+        addRowError("Cost per item must be a number", row.rowNumber);
         return;
       }
 
@@ -496,17 +545,12 @@ export default function InventorySkusPage() {
       const styleCode = skuFallback.styleCode;
 
       if (!styleCode) {
-        errors.push(`Row ${row.rowNumber}: SKU must include a style code segment.`);
+        addRowError("SKU must include a style code segment", row.rowNumber);
         return;
       }
 
-      if (!productMap.has(styleCode.toLowerCase())) {
-        errors.push(`Row ${row.rowNumber}: Missing product for style code "${styleCode}".`);
-        return;
-      }
-
-      if (!resolvedSize || !resolvedColor) {
-        errors.push(`Row ${row.rowNumber}: Missing size or color for SKU ${skuTrim}.`);
+      if (!resolvedSize) {
+        addRowError("Missing size for SKU", row.rowNumber);
         return;
       }
 
@@ -519,8 +563,6 @@ export default function InventorySkusPage() {
       pendingRows.push({ ...row, skuTrim, styleCode, sizeValue: resolvedSize, colorValue: resolvedColor });
     });
 
-    const createdProducts = 0;
-
     let createdSkus = 0;
     if (dryRun) {
       createdSkus = pendingRows.length;
@@ -528,7 +570,7 @@ export default function InventorySkusPage() {
       for (const row of pendingRows) {
         const product = productMap.get(row.styleCode.toLowerCase());
         if (!product) {
-          errors.push(`Row ${row.rowNumber}: Missing product for style code "${row.styleCode}".`);
+          addRowError("Product will be auto-created from style code", row.rowNumber);
           continue;
         }
         const payload = {
@@ -541,11 +583,19 @@ export default function InventorySkusPage() {
         };
         const { error: insertError } = await supabase.from("erp_variants").insert(payload);
         if (insertError) {
-          errors.push(`Row ${row.rowNumber}: ${insertError.message}`);
+          addRowError(insertError.message, row.rowNumber);
           continue;
         }
         createdSkus += 1;
       }
+    }
+
+    const errors = Array.from(errorBuckets.entries()).map(([reason, rows]) => {
+      const uniqueRows = Array.from(new Set(rows)).sort((a, b) => a - b);
+      return `${reason} (rows: ${uniqueRows.join(", ")})`;
+    });
+    if (productCreationIssues.length) {
+      errors.push(`Failed to create products (styles: ${productCreationIssues.join(", ")})`);
     }
 
     setImportSummary({
@@ -652,9 +702,10 @@ export default function InventorySkusPage() {
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>Import SKUs (CSV)</h2>
           <p style={mutedStyle}>
-            Accepts Shopify product export CSV files. Required headers: Variant SKU, Title, Option1 Value (Size),
-            Option2 Value (Color). Optional: Cost per item.
+            Accepts Shopify product export CSV files. Required header: Variant SKU. Size comes from Option1 Value or
+            SKU. Color is optional. Optional: Title, Option2 Value (Color), Cost per item.
           </p>
+          <p style={mutedStyle}>Product will be auto-created from style code.</p>
           {!canWrite ? (
             <p style={mutedStyle}>Only owner/admin can run imports.</p>
           ) : (
@@ -697,7 +748,7 @@ export default function InventorySkusPage() {
                         return (
                           <tr key={row.rowNumber}>
                             <td style={tableCellStyle}>{row.sku || "—"}</td>
-                            <td style={tableCellStyle}>{row.title || "—"}</td>
+                            <td style={tableCellStyle}>{row.title || "(inherits from style)"}</td>
                             <td style={tableCellStyle}>{preview.size || "—"}</td>
                             <td style={tableCellStyle}>{preview.color || "—"}</td>
                             <td style={tableCellStyle}>{row.costRaw || "—"}</td>
