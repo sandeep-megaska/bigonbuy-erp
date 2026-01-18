@@ -354,7 +354,9 @@ export default function InventorySkusPage() {
     return value.trim().toLowerCase();
   }
 
-  function deriveSizeAndColorFromOptions(row: ImportRow) {
+  function deriveSizeAndColorFromOptions(
+    row: ImportRow,
+  ): { sizeValue: string | null; colorValue: string | null; hasOptionData: boolean } {
     let sizeValue: string | null = null;
     let colorValue: string | null = null;
     let hasOptionData = false;
@@ -383,7 +385,9 @@ export default function InventorySkusPage() {
     return { sizeValue, colorValue, hasOptionData };
   }
 
-  function deriveSizeAndColorFromSku(skuTrim: string) {
+  function deriveSizeAndColorFromSku(
+    skuTrim: string,
+  ): { sizeValue: string | null; colorValue: string | null; styleCode: string } {
     const parts = skuTrim
       .split("-")
       .map((part) => part.trim())
@@ -462,8 +466,8 @@ export default function InventorySkusPage() {
 
       const { sizeValue, colorValue, hasOptionData } = deriveSizeAndColorFromOptions(row);
       const skuFallback = deriveSizeAndColorFromSku(skuTrim);
-      let resolvedSize = sizeValue;
-      let resolvedColor = colorValue;
+      let resolvedSize: string | null = sizeValue;
+      let resolvedColor: string | null = colorValue;
 
       if (!hasOptionData) {
         resolvedSize = skuFallback.sizeValue;
