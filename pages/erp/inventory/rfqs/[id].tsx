@@ -3,6 +3,9 @@ import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
+import VariantTypeahead, {
+  type VariantTypeaheadValue,
+} from "../../../../components/erp/inventory/VariantTypeahead";
 import {
   cardStyle,
   eyebrowStyle,
@@ -36,14 +39,6 @@ type Vendor = {
   legal_name: string;
 };
 
-type Variant = {
-  id: string;
-  sku: string;
-  size: string | null;
-  color: string | null;
-  productTitle: string;
-};
-
 type Warehouse = {
   id: string;
   name: string;
@@ -66,6 +61,7 @@ type LineDraft = {
   variant_id: string;
   qty: string;
   notes: string;
+  variant: VariantTypeaheadValue | null;
 };
 
 export default function RfqDetailPage() {
@@ -77,7 +73,6 @@ export default function RfqDetailPage() {
   const [notice, setNotice] = useState("");
   const [rfq, setRfq] = useState<Rfq | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [variants, setVariants] = useState<Variant[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [quote, setQuote] = useState<QuoteSummary | null>(null);
 
@@ -137,7 +132,7 @@ export default function RfqDetailPage() {
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title)")
+        .select("id, sku, size, color, erp_products(title, style_code)")
         .eq("company_id", companyId)
         .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
@@ -175,30 +170,35 @@ export default function RfqDetailPage() {
       setDeliverToWarehouseId(rfqData.deliver_to_warehouse_id || "");
       setNotes(rfqData.notes || "");
 
+      setVendors((vendorRes.data || []) as Vendor[]);
+      const variantRows = (variantRes.data || []) as Array<{
+        id: string;
+        sku: string;
+        style_code?: string | null;
+        size: string | null;
+        color: string | null;
+        erp_products?: { title?: string | null; style_code?: string | null } | null;
+      }>;
+      const variantMap = new Map(
+        variantRows.map((row) => [
+          row.id,
+          {
+            variant_id: row.id,
+            sku: row.sku,
+            style_code: row.erp_products?.style_code ?? null,
+            title: row.erp_products?.title ?? null,
+            color: row.color ?? null,
+            size: row.size ?? null,
+          },
+        ])
+      );
       const lineRows = (lineRes.data || []) as RfqLine[];
       setLines(
         lineRows.map((line) => ({
           variant_id: line.variant_id,
           qty: String(line.qty),
           notes: line.notes || "",
-        }))
-      );
-
-      setVendors((vendorRes.data || []) as Vendor[]);
-      const variantRows = (variantRes.data || []) as Array<{
-        id: string;
-        sku: string;
-        size: string | null;
-        color: string | null;
-        erp_products?: { title?: string | null } | null;
-      }>;
-      setVariants(
-        variantRows.map((row) => ({
-          id: row.id,
-          sku: row.sku,
-          size: row.size ?? null,
-          color: row.color ?? null,
-          productTitle: row.erp_products?.title || "",
+          variant: variantMap.get(line.variant_id) || null,
         }))
       );
       setWarehouses((warehouseRes.data || []) as Warehouse[]);
@@ -211,7 +211,7 @@ export default function RfqDetailPage() {
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { variant_id: "", qty: "", notes: "" }]);
+    setLines((prev) => [...prev, { variant_id: "", qty: "", notes: "", variant: null }]);
   }
 
   function removeLine(index: number) {
@@ -310,14 +310,6 @@ export default function RfqDetailPage() {
 
     await loadData(ctx.companyId, rfq.id);
   }
-
-  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
-  const formatVariantLabel = (variantId: string) => {
-    const variant = variantMap.get(variantId);
-    if (!variant) return "";
-    const details = [variant.color, variant.size].filter(Boolean).join(" / ");
-    return `${variant.sku} — ${variant.productTitle}${details ? ` (${details})` : ""}`;
-  };
 
   if (loading) {
     return (
@@ -457,19 +449,18 @@ export default function RfqDetailPage() {
                   {lines.map((line, index) => (
                     <tr key={`${line.variant_id}-${index}`}>
                       <td style={tableCellStyle}>
-                        <select
-                          style={inputStyle}
-                          value={line.variant_id}
-                          onChange={(event) => updateLine(index, { variant_id: event.target.value })}
+                        <VariantTypeahead
+                          companyId={ctx?.companyId ?? ""}
+                          value={line.variant}
+                          placeholder="Search SKU, style code, or title"
                           disabled={!canEdit}
-                        >
-                          <option value="">Select SKU</option>
-                          {variants.map((variant) => (
-                            <option key={variant.id} value={variant.id}>
-                              {formatVariantLabel(variant.id)}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(variant) =>
+                            updateLine(index, {
+                              variant_id: variant?.variant_id || "",
+                              variant,
+                            })
+                          }
+                        />
                       </td>
                       <td style={tableCellStyle}>
                         <input
