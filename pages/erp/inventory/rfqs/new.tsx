@@ -2,17 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
+import VariantTypeahead, {
+  type VariantTypeaheadValue,
+} from "../../../../components/erp/inventory/VariantTypeahead";
 import {
   cardStyle,
   eyebrowStyle,
   h1Style,
-  pageContainerStyle,
   pageHeaderStyle,
   primaryButtonStyle,
   secondaryButtonStyle,
   subtitleStyle,
-  tableCellStyle,
-  tableHeaderCellStyle,
   tableStyle,
   inputStyle,
 } from "../../../../components/erp/uiStyles";
@@ -24,14 +24,6 @@ type Vendor = {
   legal_name: string;
 };
 
-type Variant = {
-  id: string;
-  sku: string;
-  size: string | null;
-  color: string | null;
-  productTitle: string;
-};
-
 type Warehouse = {
   id: string;
   name: string;
@@ -40,6 +32,8 @@ type Warehouse = {
 type LineDraft = {
   variant_id: string;
   qty: string;
+  notes: string;
+  variant: VariantTypeaheadValue | null;
 };
 
 export default function RfqCreatePage() {
@@ -48,7 +42,6 @@ export default function RfqCreatePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [variants, setVariants] = useState<Variant[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const [vendorId, setVendorId] = useState("");
@@ -56,7 +49,9 @@ export default function RfqCreatePage() {
   const [neededBy, setNeededBy] = useState("");
   const [deliverToWarehouseId, setDeliverToWarehouseId] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([{ variant_id: "", qty: "" }]);
+  const [lines, setLines] = useState<LineDraft[]>([
+    { variant_id: "", qty: "", notes: "", variant: null },
+  ]);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -88,21 +83,15 @@ export default function RfqCreatePage() {
 
   async function loadData(companyId: string, isActiveFetch = true) {
     setError("");
-    const [vendorRes, variantRes, warehouseRes] = await Promise.all([
+    const [vendorRes, warehouseRes] = await Promise.all([
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
-      supabase
-        .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title)")
-        .eq("company_id", companyId)
-        .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
     ]);
 
-    if (vendorRes.error || variantRes.error || warehouseRes.error) {
+    if (vendorRes.error || warehouseRes.error) {
       if (isActiveFetch) {
         setError(
           vendorRes.error?.message ||
-            variantRes.error?.message ||
             warehouseRes.error?.message ||
             "Failed to load RFQ data."
         );
@@ -112,22 +101,6 @@ export default function RfqCreatePage() {
 
     if (isActiveFetch) {
       setVendors((vendorRes.data || []) as Vendor[]);
-      const variantRows = (variantRes.data || []) as Array<{
-        id: string;
-        sku: string;
-        size: string | null;
-        color: string | null;
-        erp_products?: { title?: string | null } | null;
-      }>;
-      setVariants(
-        variantRows.map((row) => ({
-          id: row.id,
-          sku: row.sku,
-          size: row.size ?? null,
-          color: row.color ?? null,
-          productTitle: row.erp_products?.title || "",
-        }))
-      );
       setWarehouses((warehouseRes.data || []) as Warehouse[]);
       if (vendorRes.data?.[0]?.id) setVendorId(vendorRes.data[0].id);
       if (warehouseRes.data?.[0]?.id) setDeliverToWarehouseId(warehouseRes.data[0].id);
@@ -139,7 +112,7 @@ export default function RfqCreatePage() {
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { variant_id: "", qty: "" }]);
+    setLines((prev) => [...prev, { variant_id: "", qty: "", notes: "", variant: null }]);
   }
 
   function removeLine(index: number) {
@@ -150,7 +123,7 @@ export default function RfqCreatePage() {
     setRequestedOn(new Date().toISOString().split("T")[0]);
     setNeededBy("");
     setNotes("");
-    setLines([{ variant_id: "", qty: "" }]);
+    setLines([{ variant_id: "", qty: "", notes: "", variant: null }]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -169,7 +142,7 @@ export default function RfqCreatePage() {
       .map((line) => ({
         variant_id: line.variant_id,
         qty: Number(line.qty),
-        notes: null,
+        notes: line.notes?.trim() || null,
       }))
       .filter((line) => line.variant_id && Number.isFinite(line.qty) && line.qty > 0);
 
@@ -217,25 +190,30 @@ export default function RfqCreatePage() {
     router.push(`/erp/inventory/rfqs/${rfq.id}`);
   }
 
-  const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
-  const formatVariantLabel = (variantId: string) => {
-    const variant = variantMap.get(variantId);
-    if (!variant) return "";
-    const details = [variant.color, variant.size].filter(Boolean).join(" / ");
-    return `${variant.sku} — ${variant.productTitle}${details ? ` (${details})` : ""}`;
-  };
+  const containerStyle = useMemo(
+    () => ({ maxWidth: 1100, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }),
+    []
+  );
+  const lineHeaderStyle = useMemo(
+    () => ({ display: "grid", gridTemplateColumns: "3fr 120px 2fr auto", gap: 12, fontSize: 12, color: "#6b7280" }),
+    []
+  );
+  const lineRowStyle = useMemo(
+    () => ({ display: "grid", gridTemplateColumns: "3fr 120px 2fr auto", gap: 12, alignItems: "end" }),
+    []
+  );
 
   if (loading) {
     return (
       <ErpShell activeModule="workspace">
-        <div style={pageContainerStyle}>Loading RFQ form…</div>
+        <div style={containerStyle}>Loading RFQ form…</div>
       </ErpShell>
     );
   }
 
   return (
     <ErpShell activeModule="workspace">
-      <div style={pageContainerStyle}>
+      <div style={containerStyle}>
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
@@ -306,54 +284,50 @@ export default function RfqCreatePage() {
 
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>RFQ Lines</div>
-              <table style={{ ...tableStyle, tableLayout: "fixed" }}>
-                <colgroup>
-                  <col style={{ width: "auto" }} />
-                  <col style={{ width: 160 }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th style={tableHeaderCellStyle}>SKU</th>
-                    <th style={tableHeaderCellStyle}>Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <div style={{ ...tableStyle, padding: 16 }}>
+                <div style={{ ...lineHeaderStyle, marginBottom: 8, padding: "0 4px" }}>
+                  <span>SKU / Style / Title</span>
+                  <span>Qty</span>
+                  <span>Notes</span>
+                  <span />
+                </div>
+                <div style={{ display: "grid", gap: 12 }}>
                   {lines.map((line, index) => (
-                    <tr key={`${line.variant_id}-${index}`}>
-                      <td style={tableCellStyle}>
-                        <select
-                          style={{ ...inputStyle, width: "100%", maxWidth: "100%" }}
-                          value={line.variant_id}
-                          onChange={(event) => updateLine(index, { variant_id: event.target.value })}
-                        >
-                          <option value="">Select SKU</option>
-                          {variants.map((variant) => (
-                            <option key={variant.id} value={variant.id}>
-                              {formatVariantLabel(variant.id)}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td style={tableCellStyle}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <input
-                            style={{ ...inputStyle, width: 120 }}
-                            type="number"
-                            min="0"
-                            value={line.qty}
-                            onChange={(event) => updateLine(index, { qty: event.target.value })}
-                          />
-                          {lines.length > 1 ? (
-                            <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(index)}>
-                              Remove
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
+                    <div key={`${line.variant_id}-${index}`} style={lineRowStyle}>
+                      <VariantTypeahead
+                        companyId={ctx.companyId}
+                        value={line.variant}
+                        placeholder="Search SKU, style code, or title"
+                        onChange={(variant) =>
+                          updateLine(index, {
+                            variant_id: variant?.variant_id || "",
+                            variant,
+                          })
+                        }
+                      />
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min="0"
+                        value={line.qty}
+                        onChange={(event) => updateLine(index, { qty: event.target.value })}
+                      />
+                      <input
+                        style={inputStyle}
+                        value={line.notes}
+                        onChange={(event) => updateLine(index, { notes: event.target.value })}
+                      />
+                      {lines.length > 1 ? (
+                        <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(index)}>
+                          Remove
+                        </button>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              </div>
               <button type="button" style={{ ...secondaryButtonStyle, marginTop: 12 }} onClick={addLine}>
                 Add Line
               </button>
