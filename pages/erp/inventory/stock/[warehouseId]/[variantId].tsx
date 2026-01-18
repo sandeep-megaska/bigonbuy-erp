@@ -117,7 +117,7 @@ export default function StockMovementsPage() {
       }
 
       if (variantRes.data) {
-        const productTitle = variantRes.data.erp_products?.title ?? null;
+        const productTitle = variantRes.data.erp_products?.[0]?.title ?? null;
         setVariantInfo({
           sku: variantRes.data.sku,
           productTitle,
