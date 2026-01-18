@@ -487,7 +487,7 @@ export default function InventorySkusPage() {
       }
     });
 
-    const missingStyles = [...styleCodes].filter((styleCode) => !productMap.has(styleCode.toLowerCase()));
+    const missingStyles = Array.from(styleCodes).filter((styleCode) => !productMap.has(styleCode.toLowerCase()));
     let createdProducts = 0;
 
     if (missingStyles.length) {
