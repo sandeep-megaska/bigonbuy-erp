@@ -94,6 +94,7 @@ const workspaceSidebarGroups: SidebarGroup[] = [
       { label: "Warehouses", href: "/erp/inventory/warehouses", icon: "WH" },
       { label: "Stock On Hand", href: "/erp/inventory/stock", icon: "SH" },
       { label: "Stock Movements", href: "/erp/inventory/movements", icon: "SM" },
+      { label: "Stock Import", href: "/erp/inventory/import", icon: "IM" },
     ],
   },
 ];
