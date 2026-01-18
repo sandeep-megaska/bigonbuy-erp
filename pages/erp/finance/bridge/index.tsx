@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
@@ -248,7 +248,7 @@ const cardGridStyle = {
   gap: 16,
 };
 
-const cardLinkStyle = {
+const cardLinkStyle: CSSProperties = {
   display: "flex",
   gap: 14,
   alignItems: "flex-start",
