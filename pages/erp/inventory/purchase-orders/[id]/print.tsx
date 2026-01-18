@@ -48,6 +48,7 @@ type VariantOption = {
   color: string | null;
   productTitle: string;
   hsnCode: string | null;
+  styleCode: string | null;
 };
 
 type WarehouseOption = {
@@ -150,7 +151,7 @@ export default function PurchaseOrderPrintPage() {
         .eq("company_id", companyId),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title, hsn_code)")
+        .select("id, sku, size, color, erp_products(title, hsn_code, style_code)")
         .eq("company_id", companyId)
         .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
@@ -197,7 +198,7 @@ export default function PurchaseOrderPrintPage() {
         sku: string;
         size: string | null;
         color: string | null;
-        erp_products?: { title?: string | null; hsn_code?: string | null } | null;
+        erp_products?: { title?: string | null; hsn_code?: string | null; style_code?: string | null } | null;
       }>;
       setVariants(
         variantRows.map((row) => ({
@@ -207,6 +208,7 @@ export default function PurchaseOrderPrintPage() {
           color: row.color ?? null,
           productTitle: row.erp_products?.title || "",
           hsnCode: row.erp_products?.hsn_code ?? null,
+          styleCode: row.erp_products?.style_code ?? null,
         }))
       );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
@@ -350,9 +352,10 @@ export default function PurchaseOrderPrintPage() {
             <tr>
               <th style={printTableHeaderStyle}>Sl No</th>
               <th style={printTableHeaderStyle}>SKU</th>
-              <th style={printTableHeaderStyle}>Item</th>
+              <th style={printTableHeaderStyle}>Style</th>
               <th style={printTableHeaderStyle}>HSN</th>
-              <th style={printTableHeaderStyle}>Variant</th>
+              <th style={printTableHeaderStyle}>Size</th>
+              <th style={printTableHeaderStyle}>Color</th>
               <th style={printTableHeaderStyle}>Qty</th>
               <th style={printTableHeaderStyle}>Unit Rate</th>
               <th style={printTableHeaderStyle}>Amount</th>
@@ -361,22 +364,22 @@ export default function PurchaseOrderPrintPage() {
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td style={printTableCellStyle} colSpan={8}>
+                <td style={printTableCellStyle} colSpan={9}>
                   No line items found.
                 </td>
               </tr>
             ) : (
               lines.map((line, index) => {
                 const variant = variantMap.get(line.variant_id);
-                const variantLabel = [variant?.color, variant?.size].filter(Boolean).join(" / ") || "—";
                 const lineTotal = line.unit_cost !== null ? line.unit_cost * line.ordered_qty : null;
                 return (
                   <tr key={line.id}>
                     <td style={printTableCellStyle}>{index + 1}</td>
                     <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
-                    <td style={printTableCellStyle}>{variant?.productTitle || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
                     <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
-                    <td style={printTableCellStyle}>{variantLabel}</td>
+                    <td style={printTableCellStyle}>{variant?.size || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.color || "—"}</td>
                     <td style={printTableCellStyle}>{line.ordered_qty}</td>
                     <td style={printTableCellStyle}>{formatMoney(line.unit_cost)}</td>
                     <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>

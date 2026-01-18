@@ -44,6 +44,8 @@ type VariantOption = {
   size: string | null;
   color: string | null;
   productTitle: string;
+  styleCode: string | null;
+  hsnCode: string | null;
 };
 
 type WarehouseOption = {
@@ -144,7 +146,7 @@ export default function RfqPrintPage() {
         .maybeSingle(),
       supabase
         .from("erp_variants")
-        .select("id, sku, size, color, erp_products(title)")
+        .select("id, sku, size, color, erp_products(title, style_code, hsn_code)")
         .eq("company_id", companyId)
         .order("sku"),
       supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
@@ -172,7 +174,7 @@ export default function RfqPrintPage() {
         sku: string;
         size: string | null;
         color: string | null;
-        erp_products?: { title?: string | null } | null;
+        erp_products?: { title?: string | null; style_code?: string | null; hsn_code?: string | null } | null;
       }>;
       setVariants(
         variantRows.map((row) => ({
@@ -181,6 +183,8 @@ export default function RfqPrintPage() {
           size: row.size ?? null,
           color: row.color ?? null,
           productTitle: row.erp_products?.title || "",
+          styleCode: row.erp_products?.style_code ?? null,
+          hsnCode: row.erp_products?.hsn_code ?? null,
         }))
       );
       setWarehouses((warehouseRes.data || []) as WarehouseOption[]);
@@ -296,8 +300,10 @@ export default function RfqPrintPage() {
             <tr>
               <th style={printTableHeaderStyle}>Sl No</th>
               <th style={printTableHeaderStyle}>SKU</th>
-              <th style={printTableHeaderStyle}>Item</th>
-              <th style={printTableHeaderStyle}>Variant</th>
+              <th style={printTableHeaderStyle}>Style</th>
+              <th style={printTableHeaderStyle}>HSN</th>
+              <th style={printTableHeaderStyle}>Size</th>
+              <th style={printTableHeaderStyle}>Color</th>
               <th style={printTableHeaderStyle}>Qty</th>
               <th style={printTableHeaderStyle}>Notes</th>
             </tr>
@@ -305,20 +311,21 @@ export default function RfqPrintPage() {
           <tbody>
             {lines.length === 0 ? (
               <tr>
-                <td style={printTableCellStyle} colSpan={6}>
+                <td style={printTableCellStyle} colSpan={8}>
                   No line items found.
                 </td>
               </tr>
             ) : (
               lines.map((line, index) => {
                 const variant = variantMap.get(line.variant_id);
-                const variantLabel = [variant?.color, variant?.size].filter(Boolean).join(" / ") || "—";
                 return (
                   <tr key={line.id}>
                     <td style={printTableCellStyle}>{index + 1}</td>
                     <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
-                    <td style={printTableCellStyle}>{variant?.productTitle || "—"}</td>
-                    <td style={printTableCellStyle}>{variantLabel}</td>
+                    <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.size || "—"}</td>
+                    <td style={printTableCellStyle}>{variant?.color || "—"}</td>
                     <td style={printTableCellStyle}>{line.qty}</td>
                     <td style={printTableCellStyle}>{line.notes || "—"}</td>
                   </tr>

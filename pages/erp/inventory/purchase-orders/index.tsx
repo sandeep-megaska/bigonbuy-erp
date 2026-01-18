@@ -17,17 +17,13 @@ import {
   tableStyle,
   inputStyle,
 } from "../../../../components/erp/uiStyles";
+import VariantTypeahead, { type VariantSearchResult } from "../../../../components/inventory/VariantTypeahead";
 import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
 type VendorOption = {
   id: string;
   legal_name: string;
-};
-
-type VariantOption = {
-  id: string;
-  sku: string;
 };
 
 type PurchaseOrder = {
@@ -50,6 +46,7 @@ type LineDraft = {
   variant_id: string;
   ordered_qty: string;
   unit_cost: string;
+  variant: VariantSearchResult | null;
 };
 
 export default function PurchaseOrdersPage() {
@@ -58,7 +55,6 @@ export default function PurchaseOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [vendors, setVendors] = useState<VendorOption[]>([]);
-  const [variants, setVariants] = useState<VariantOption[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [lines, setLines] = useState<PurchaseOrderLine[]>([]);
 
@@ -67,7 +63,9 @@ export default function PurchaseOrdersPage() {
   const [orderDate, setOrderDate] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
-  const [lineItems, setLineItems] = useState<LineDraft[]>([{ variant_id: "", ordered_qty: "", unit_cost: "" }]);
+  const [lineItems, setLineItems] = useState<LineDraft[]>([
+    { variant_id: "", ordered_qty: "", unit_cost: "", variant: null },
+  ]);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -99,9 +97,8 @@ export default function PurchaseOrdersPage() {
 
   async function loadData(companyId: string, isActiveFetch = true) {
     setError("");
-    const [vendorRes, variantRes, orderRes, lineRes] = await Promise.all([
+    const [vendorRes, orderRes, lineRes] = await Promise.all([
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
-      supabase.from("erp_variants").select("id, sku").eq("company_id", companyId).order("sku"),
       supabase
         .from("erp_purchase_orders")
         .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, created_at")
@@ -113,11 +110,10 @@ export default function PurchaseOrdersPage() {
         .eq("company_id", companyId),
     ]);
 
-    if (vendorRes.error || variantRes.error || orderRes.error || lineRes.error) {
+    if (vendorRes.error || orderRes.error || lineRes.error) {
       if (isActiveFetch) {
         setError(
           vendorRes.error?.message ||
-            variantRes.error?.message ||
             orderRes.error?.message ||
             lineRes.error?.message ||
             "Failed to load purchase orders."
@@ -128,7 +124,6 @@ export default function PurchaseOrdersPage() {
 
     if (isActiveFetch) {
       setVendors((vendorRes.data || []) as VendorOption[]);
-      setVariants((variantRes.data || []) as VariantOption[]);
       setOrders((orderRes.data || []) as PurchaseOrder[]);
       setLines((lineRes.data || []) as PurchaseOrderLine[]);
       setVendorId(vendorRes.data?.[0]?.id || "");
@@ -140,7 +135,7 @@ export default function PurchaseOrdersPage() {
   }
 
   function addLine() {
-    setLineItems((prev) => [...prev, { variant_id: "", ordered_qty: "", unit_cost: "" }]);
+    setLineItems((prev) => [...prev, { variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
   }
 
   function removeLine(index: number) {
@@ -152,7 +147,7 @@ export default function PurchaseOrdersPage() {
     setOrderDate("");
     setExpectedDate("");
     setNotes("");
-    setLineItems([{ variant_id: "", ordered_qty: "", unit_cost: "" }]);
+    setLineItems([{ variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -294,18 +289,22 @@ export default function PurchaseOrdersPage() {
                 >
                   <label style={{ display: "grid", gap: 6 }}>
                     SKU
-                    <select
-                      style={inputStyle}
-                      value={line.variant_id}
-                      onChange={(e) => updateLine(index, { variant_id: e.target.value })}
-                    >
-                      <option value="">Select SKU</option>
-                      {variants.map((variant) => (
-                        <option key={variant.id} value={variant.id}>
-                          {variant.sku}
-                        </option>
-                      ))}
-                    </select>
+                    <VariantTypeahead
+                      valueVariantId={line.variant_id}
+                      valueVariant={line.variant}
+                      onSelect={(variant) =>
+                        updateLine(index, {
+                          variant_id: variant?.variant_id || "",
+                          variant,
+                        })
+                      }
+                      onError={setError}
+                    />
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontSize: 12, color: "#4b5563" }}>
+                      <span>Style: {line.variant?.style_code || "—"}</span>
+                      <span>HSN: {line.variant?.hsn_code || "—"}</span>
+                      <span>Item: {line.variant?.title || "—"}</span>
+                    </div>
                   </label>
                   <label style={{ display: "grid", gap: 6 }}>
                     Qty
