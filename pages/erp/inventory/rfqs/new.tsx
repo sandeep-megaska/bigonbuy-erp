@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
   h1Style,
+  pageWrapperStyle,
   pageContainerStyle,
   pageHeaderStyle,
   primaryButtonStyle,
@@ -228,14 +229,14 @@ export default function RfqCreatePage() {
   if (loading) {
     return (
       <ErpShell activeModule="workspace">
-        <div style={pageContainerStyle}>Loading RFQ form…</div>
+        <div style={containerStyle}>Loading RFQ form…</div>
       </ErpShell>
     );
   }
 
   return (
     <ErpShell activeModule="workspace">
-      <div style={pageContainerStyle}>
+      <div style={containerStyle}>
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
@@ -377,3 +378,8 @@ export default function RfqCreatePage() {
     </ErpShell>
   );
 }
+
+const containerStyle: CSSProperties = {
+  ...pageWrapperStyle,
+  ...pageContainerStyle,
+};
