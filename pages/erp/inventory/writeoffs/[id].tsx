@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
 import InventoryLinesEditor, { type InventoryLine } from "../../../../components/inventory/InventoryLinesEditor";
+import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
+import { upsertQtyLine } from "../../../../components/inventory/lineUpsert";
 import {
   cardStyle,
   eyebrowStyle,
@@ -17,6 +19,7 @@ import {
 import { getCompanyContext, isInventoryWriter, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import type { VariantSearchResult } from "../../../../components/inventory/VariantTypeahead";
+import { resolveVariantBySku } from "../../../../components/inventory/variantLookup";
 
 type CompanyContext = {
   companyId: string | null;
@@ -241,6 +244,12 @@ export default function InventoryWriteoffDetailPage() {
     return { errors, parsedLines };
   }, []);
 
+  const handleResolveVariantBySku = useCallback(async (sku: string) => resolveVariantBySku(sku), []);
+
+  const handleScanResolvedVariant = useCallback((variant: VariantSearchResult) => {
+    setLines((prev) => upsertQtyLine(prev, variant, 1));
+  }, []);
+
   const lineSnapshot = useMemo(() => validateLines(lines), [lines, validateLines]);
   const hasLineErrors = Object.keys(lineSnapshot.errors).length > 0;
   const hasValidLines = lineSnapshot.parsedLines.length > 0;
@@ -463,6 +472,11 @@ export default function InventoryWriteoffDetailPage() {
 
         <section style={cardStyle}>
           <div style={{ fontWeight: 600, marginBottom: 12 }}>Lines</div>
+          <ScanSkuAddBar
+            resolveVariantBySku={handleResolveVariantBySku}
+            onResolvedVariant={handleScanResolvedVariant}
+            disabled={!isDraft}
+          />
           <InventoryLinesEditor
             lines={lines}
             lineErrors={lineErrors}

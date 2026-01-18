@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
 import StocktakeLinesEditor, { type StocktakeLine } from "../../../../components/inventory/StocktakeLinesEditor";
+import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
+import { upsertCountedLine } from "../../../../components/inventory/lineUpsert";
 import {
   cardStyle,
   eyebrowStyle,
@@ -20,6 +22,7 @@ import {
 import { getCompanyContext, isInventoryWriter, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import type { VariantSearchResult } from "../../../../components/inventory/VariantTypeahead";
+import { resolveVariantBySku } from "../../../../components/inventory/variantLookup";
 
 type CompanyContext = {
   companyId: string | null;
@@ -261,6 +264,12 @@ export default function StocktakeDetailPage() {
     });
 
     return { errors, parsedLines };
+  }, []);
+
+  const handleResolveVariantBySku = useCallback(async (sku: string) => resolveVariantBySku(sku), []);
+
+  const handleScanResolvedVariant = useCallback((variant: VariantSearchResult) => {
+    setLines((prev) => upsertCountedLine(prev, variant, 1));
   }, []);
 
   const persistDraft = useCallback(async () => {
@@ -507,6 +516,12 @@ export default function StocktakeDetailPage() {
 
         <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>Counted Lines</h2>
+          <ScanSkuAddBar
+            resolveVariantBySku={handleResolveVariantBySku}
+            onResolvedVariant={handleScanResolvedVariant}
+            disabled={editorDisabled}
+            mode="counted_qty"
+          />
           <StocktakeLinesEditor
             lines={lines}
             lineErrors={lineErrors}
