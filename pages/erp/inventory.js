@@ -168,6 +168,7 @@ export default function ErpInventoryPage() {
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <a href="/erp">← ERP Home</a>
+          <a href="/erp/inventory/dashboard">Dashboard</a>
           <a href="/erp/products">Products</a>
           <a href="/erp/variants">Variants</a>
         </div>
