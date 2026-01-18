@@ -43,6 +43,7 @@ type PurchaseOrderLine = {
 };
 
 type LineDraft = {
+  id: string;
   variant_id: string;
   ordered_qty: string;
   unit_cost: string;
@@ -64,8 +65,9 @@ export default function PurchaseOrdersPage() {
   const [expectedDate, setExpectedDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lineItems, setLineItems] = useState<LineDraft[]>([
-    { variant_id: "", ordered_qty: "", unit_cost: "", variant: null },
+    { id: "line-0", variant_id: "", ordered_qty: "", unit_cost: "", variant: null },
   ]);
+  const [lineCounter, setLineCounter] = useState(1);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -130,16 +132,18 @@ export default function PurchaseOrdersPage() {
     }
   }
 
-  function updateLine(index: number, next: Partial<LineDraft>) {
-    setLineItems((prev) => prev.map((line, i) => (i === index ? { ...line, ...next } : line)));
+  function updateLine(lineId: string, next: Partial<LineDraft>) {
+    setLineItems((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...next } : line)));
   }
 
   function addLine() {
-    setLineItems((prev) => [...prev, { variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
+    const id = `line-${lineCounter}`;
+    setLineCounter((prev) => prev + 1);
+    setLineItems((prev) => [...prev, { id, variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
   }
 
-  function removeLine(index: number) {
-    setLineItems((prev) => prev.filter((_, i) => i !== index));
+  function removeLine(lineId: string) {
+    setLineItems((prev) => prev.filter((line) => line.id !== lineId));
   }
 
   function resetForm() {
@@ -147,7 +151,8 @@ export default function PurchaseOrdersPage() {
     setOrderDate("");
     setExpectedDate("");
     setNotes("");
-    setLineItems([{ variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
+    setLineItems([{ id: "line-0", variant_id: "", ordered_qty: "", unit_cost: "", variant: null }]);
+    setLineCounter(1);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -162,15 +167,26 @@ export default function PurchaseOrdersPage() {
       return;
     }
 
-    const normalizedLines = lineItems
-      .map((line) => ({
-        variant_id: line.variant_id,
-        ordered_qty: Number(line.ordered_qty),
-        unit_cost: line.unit_cost ? Number(line.unit_cost) : null,
-      }))
-      .filter((line) => line.variant_id && Number.isFinite(line.ordered_qty) && line.ordered_qty > 0);
+    const normalizedLines = lineItems.map((line) => ({
+      variant_id: line.variant_id,
+      ordered_qty: Number(line.ordered_qty),
+      unit_cost: line.unit_cost ? Number(line.unit_cost) : null,
+    }));
 
-    if (normalizedLines.length === 0) {
+    const missingVariant = normalizedLines.some(
+      (line) => !line.variant_id && Number.isFinite(line.ordered_qty) && line.ordered_qty > 0
+    );
+
+    if (missingVariant) {
+      setError("Select a SKU for each line item with a quantity.");
+      return;
+    }
+
+    const validLines = normalizedLines.filter(
+      (line) => line.variant_id && Number.isFinite(line.ordered_qty) && line.ordered_qty > 0
+    );
+
+    if (validLines.length === 0) {
       setError("Add at least one line with a valid quantity.");
       return;
     }
@@ -195,7 +211,7 @@ export default function PurchaseOrdersPage() {
     }
 
     const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
-      normalizedLines.map((line) => ({
+      validLines.map((line) => ({
         company_id: ctx.companyId,
         purchase_order_id: po.id,
         variant_id: line.variant_id,
@@ -284,16 +300,15 @@ export default function PurchaseOrdersPage() {
               <div style={{ fontWeight: 600 }}>Line Items</div>
               {lineItems.map((line, index) => (
                 <div
-                  key={`line-${index}`}
+                  key={line.id}
                   style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr auto", alignItems: "end" }}
                 >
                   <label style={{ display: "grid", gap: 6 }}>
                     SKU
                     <VariantTypeahead
-                      valueVariantId={line.variant_id}
-                      valueVariant={line.variant}
+                      value={line.variant}
                       onSelect={(variant) =>
-                        updateLine(index, {
+                        updateLine(line.id, {
                           variant_id: variant?.variant_id || "",
                           variant,
                         })
@@ -313,7 +328,7 @@ export default function PurchaseOrdersPage() {
                       type="number"
                       min="1"
                       value={line.ordered_qty}
-                      onChange={(e) => updateLine(index, { ordered_qty: e.target.value })}
+                      onChange={(e) => updateLine(line.id, { ordered_qty: e.target.value })}
                     />
                   </label>
                   <label style={{ display: "grid", gap: 6 }}>
@@ -324,13 +339,13 @@ export default function PurchaseOrdersPage() {
                       min="0"
                       step="0.01"
                       value={line.unit_cost}
-                      onChange={(e) => updateLine(index, { unit_cost: e.target.value })}
+                      onChange={(e) => updateLine(line.id, { unit_cost: e.target.value })}
                     />
                   </label>
                   <button
                     type="button"
                     style={secondaryButtonStyle}
-                    onClick={() => removeLine(index)}
+                    onClick={() => removeLine(line.id)}
                     disabled={lineItems.length === 1}
                   >
                     Remove
