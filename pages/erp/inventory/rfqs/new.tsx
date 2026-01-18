@@ -32,6 +32,7 @@ type Warehouse = {
 };
 
 type LineDraft = {
+  id: string;
   variant_id: string;
   qty: string;
   variant: VariantSearchResult | null;
@@ -50,7 +51,8 @@ export default function RfqCreatePage() {
   const [neededBy, setNeededBy] = useState("");
   const [deliverToWarehouseId, setDeliverToWarehouseId] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([{ variant_id: "", qty: "", variant: null }]);
+  const [lines, setLines] = useState<LineDraft[]>([{ id: "line-0", variant_id: "", qty: "", variant: null }]);
+  const [lineCounter, setLineCounter] = useState(1);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -106,23 +108,26 @@ export default function RfqCreatePage() {
     }
   }
 
-  function updateLine(index: number, next: Partial<LineDraft>) {
-    setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...next } : line)));
+  function updateLine(lineId: string, next: Partial<LineDraft>) {
+    setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...next } : line)));
   }
 
   function addLine() {
-    setLines((prev) => [...prev, { variant_id: "", qty: "", variant: null }]);
+    const id = `line-${lineCounter}`;
+    setLineCounter((prev) => prev + 1);
+    setLines((prev) => [...prev, { id, variant_id: "", qty: "", variant: null }]);
   }
 
-  function removeLine(index: number) {
-    setLines((prev) => prev.filter((_, i) => i !== index));
+  function removeLine(lineId: string) {
+    setLines((prev) => prev.filter((line) => line.id !== lineId));
   }
 
   function resetForm() {
     setRequestedOn(new Date().toISOString().split("T")[0]);
     setNeededBy("");
     setNotes("");
-    setLines([{ variant_id: "", qty: "", variant: null }]);
+    setLines([{ id: "line-0", variant_id: "", qty: "", variant: null }]);
+    setLineCounter(1);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -137,15 +142,26 @@ export default function RfqCreatePage() {
       return;
     }
 
-    const normalizedLines = lines
-      .map((line) => ({
-        variant_id: line.variant_id,
-        qty: Number(line.qty),
-        notes: null,
-      }))
-      .filter((line) => line.variant_id && Number.isFinite(line.qty) && line.qty > 0);
+    const normalizedLines = lines.map((line) => ({
+      variant_id: line.variant_id,
+      qty: Number(line.qty),
+      notes: null,
+    }));
 
-    if (normalizedLines.length === 0) {
+    const missingVariant = normalizedLines.some(
+      (line) => !line.variant_id && Number.isFinite(line.qty) && line.qty > 0
+    );
+
+    if (missingVariant) {
+      setError("Select a SKU for each line item with a quantity.");
+      return;
+    }
+
+    const validLines = normalizedLines.filter(
+      (line) => line.variant_id && Number.isFinite(line.qty) && line.qty > 0
+    );
+
+    if (validLines.length === 0) {
       setError("Add at least one line with a valid quantity.");
       return;
     }
@@ -171,7 +187,7 @@ export default function RfqCreatePage() {
     }
 
     const { error: lineError } = await supabase.from("erp_rfq_lines").insert(
-      normalizedLines.map((line) => ({
+      validLines.map((line) => ({
         company_id: ctx.companyId,
         rfq_id: rfq.id,
         variant_id: line.variant_id,
@@ -271,7 +287,7 @@ export default function RfqCreatePage() {
 
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>RFQ Lines</div>
-              <table style={{ ...tableStyle, tableLayout: "fixed" }}>
+              <table style={{ ...tableStyle, tableLayout: "fixed", overflow: "visible" }}>
                 <colgroup>
                   <col style={{ width: 260 }} />
                   <col style={{ width: 140 }} />
@@ -289,14 +305,13 @@ export default function RfqCreatePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((line, index) => (
-                    <tr key={`${line.variant_id}-${index}`}>
+                  {lines.map((line) => (
+                    <tr key={line.id}>
                       <td style={tableCellStyle}>
                         <VariantTypeahead
-                          valueVariantId={line.variant_id}
-                          valueVariant={line.variant}
+                          value={line.variant}
                           onSelect={(variant) =>
-                            updateLine(index, {
+                            updateLine(line.id, {
                               variant_id: variant?.variant_id || "",
                               variant,
                             })
@@ -314,10 +329,10 @@ export default function RfqCreatePage() {
                             type="number"
                             min="0"
                             value={line.qty}
-                            onChange={(event) => updateLine(index, { qty: event.target.value })}
+                            onChange={(event) => updateLine(line.id, { qty: event.target.value })}
                           />
                           {lines.length > 1 ? (
-                            <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(index)}>
+                            <button type="button" style={secondaryButtonStyle} onClick={() => removeLine(line.id)}>
                               Remove
                             </button>
                           ) : null}

@@ -15,8 +15,7 @@ export type VariantSearchResult = {
 };
 
 type VariantTypeaheadProps = {
-  valueVariantId?: string | null;
-  valueVariant?: VariantSearchResult | null;
+  value?: VariantSearchResult | null;
   onSelect: (variant: VariantSearchResult | null) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -122,8 +121,7 @@ const emptyStateStyle = {
 };
 
 export default function VariantTypeahead({
-  valueVariantId,
-  valueVariant,
+  value,
   onSelect,
   disabled,
   placeholder = "Search SKU, style, or title",
@@ -138,7 +136,7 @@ export default function VariantTypeahead({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const queryRef = useRef("");
 
-  const selectedSku = valueVariant?.sku || valueVariantId || "";
+  const selectedSku = value?.sku || value?.variant_id || "";
 
   useEffect(() => {
     queryRef.current = query;
@@ -229,8 +227,9 @@ export default function VariantTypeahead({
     }
   }
 
-  function handleResultMouseDown(event: MouseEvent<HTMLDivElement>) {
+  function handleResultMouseDown(event: MouseEvent<HTMLDivElement>, result: VariantSearchResult) {
     event.preventDefault();
+    handleSelect(result);
   }
 
   return (
@@ -282,8 +281,7 @@ export default function VariantTypeahead({
                       ...resultRowStyle,
                       backgroundColor: isActive ? "#eef2ff" : "transparent",
                     }}
-                    onMouseDown={handleResultMouseDown}
-                    onClick={() => handleSelect(result)}
+                    onMouseDown={(event) => handleResultMouseDown(event, result)}
                   >
                     <div style={resultSkuStyle}>{result.sku}</div>
                     <div style={resultMetaStyle}>{detailText || "—"}</div>
