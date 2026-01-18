@@ -40,6 +40,12 @@ create table if not exists public.erp_expense_categories (
   created_by uuid default auth.uid(),
   constraint erp_expense_categories_unique unique (company_id, code)
 );
+alter table public.erp_expense_categories
+  add column if not exists group_key text;
+
+update public.erp_expense_categories
+set group_key = coalesce(group_key, 'other')
+where group_key is null;
 
 create index if not exists erp_expense_categories_company_idx
   on public.erp_expense_categories (company_id, group_key);
