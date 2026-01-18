@@ -85,7 +85,7 @@ export default function InventoryImportPage() {
             <p style={eyebrowStyle}>Inventory · CSV Import</p>
             <h1 style={h1Style}>Stock Import</h1>
             <p style={subtitleStyle}>
-              Upload adjustment or stocktake CSVs to update inventory across warehouses.
+              Upload adjustment, stocktake, or Amazon FBA reconciliation CSVs to update inventory across warehouses.
             </p>
           </div>
         </header>
@@ -106,6 +106,13 @@ export default function InventoryImportPage() {
               onClick={() => setMode("stocktake")}
             >
               Stocktake import
+            </button>
+            <button
+              type="button"
+              style={mode === "fba" ? activeModeButtonStyle : modeButtonStyle}
+              onClick={() => setMode("fba")}
+            >
+              FBA reconciliation
             </button>
           </div>
         </section>

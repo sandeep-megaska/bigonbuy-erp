@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export type ImportMode = "adjustment" | "stocktake";
+export type ImportMode = "adjustment" | "stocktake" | "fba";
 
 const trimmedRequiredString = (label: string) =>
   z
@@ -40,8 +40,16 @@ export const stocktakeRowSchema = z.object({
   reference: optionalTrimmedString,
 });
 
+export const fbaRowSchema = z.object({
+  sku: trimmedRequiredString("sku"),
+  amazon_fulfillable_qty: integerString("amazon_fulfillable_qty", { allowNegative: false }),
+  reason: optionalTrimmedString,
+  reference: optionalTrimmedString,
+});
+
 export type AdjustmentCsvRow = z.infer<typeof adjustmentRowSchema>;
 export type StocktakeCsvRow = z.infer<typeof stocktakeRowSchema>;
+export type FbaCsvRow = z.infer<typeof fbaRowSchema>;
 
 export const importResponseSchema = z.object({
   results: z.array(
