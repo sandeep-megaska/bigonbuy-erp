@@ -49,6 +49,12 @@ const startOfMonth = () => {
   return first.toISOString().slice(0, 10);
 };
 
+const parseDateQuery = (value: string | string[] | undefined) => {
+  if (typeof value !== "string") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value;
+};
+
 export default function ExpensesListPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
@@ -79,6 +85,7 @@ export default function ExpensesListPage() {
     let active = true;
 
     (async () => {
+      if (!router.isReady) return;
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
@@ -98,14 +105,18 @@ export default function ExpensesListPage() {
         return;
       }
 
-      await loadExpenses();
+      const initialFrom = parseDateQuery(router.query.from) ?? startOfMonth();
+      const initialTo = parseDateQuery(router.query.to) ?? today();
+      setFromDate(initialFrom);
+      setToDate(initialTo);
+      await loadExpenses({ fromDate: initialFrom, toDate: initialTo });
       if (active) setLoading(false);
     })();
 
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [router.isReady]);
 
   const groupedKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -152,16 +163,29 @@ export default function ExpensesListPage() {
     return true;
   };
 
-  const loadExpenses = async () => {
+  const loadExpenses = async (overrides?: {
+    fromDate?: string;
+    toDate?: string;
+    categoryId?: string;
+    channelId?: string;
+    warehouseId?: string;
+    search?: string;
+  }) => {
     setIsLoadingList(true);
     setError(null);
+    const effectiveFrom = overrides?.fromDate ?? fromDate;
+    const effectiveTo = overrides?.toDate ?? toDate;
+    const effectiveCategory = overrides?.categoryId ?? categoryId;
+    const effectiveChannel = overrides?.channelId ?? channelId;
+    const effectiveWarehouse = overrides?.warehouseId ?? warehouseId;
+    const effectiveSearch = overrides?.search ?? search;
     const { data, error: listError } = await supabase.rpc("erp_expenses_list", {
-      p_from: fromDate,
-      p_to: toDate,
-      p_category_id: categoryId || null,
-      p_channel_id: channelId || null,
-      p_warehouse_id: warehouseId || null,
-      p_search: search || null,
+      p_from: effectiveFrom,
+      p_to: effectiveTo,
+      p_category_id: effectiveCategory || null,
+      p_channel_id: effectiveChannel || null,
+      p_warehouse_id: effectiveWarehouse || null,
+      p_search: effectiveSearch || null,
       p_limit: 500,
       p_offset: 0,
     });
@@ -259,6 +283,9 @@ export default function ExpensesListPage() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Link href="/erp/finance/expenses/new" style={primaryButtonStyle}>
                 New Expense
+              </Link>
+              <Link href="/erp/finance/expenses/recurring" style={secondaryButtonStyle}>
+                Recurring Templates
               </Link>
               <Link href="/erp/finance/expenses/import" style={secondaryButtonStyle}>
                 Import CSV
