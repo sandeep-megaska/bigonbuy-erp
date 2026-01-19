@@ -183,16 +183,31 @@ async function fetchInventorySummaries(
 ): Promise<InventorySummary[]> {
   const summaries: InventorySummary[] = [];
   let nextToken: string | null = null;
+  const normalizedMarketplaceIds = marketplaceId
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .join(",");
+  const primaryMarketplaceId = normalizedMarketplaceIds.split(",")[0] ?? marketplaceId;
 
   do {
     const query = nextToken
       ? { nextToken }
       : {
           granularityType: "Marketplace",
-          granularityId: marketplaceId,
-          marketplaceIds: marketplaceId,
+          granularityId: primaryMarketplaceId,
+          marketplaceIds: normalizedMarketplaceIds,
           details: true,
         };
+    const queryParams = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      queryParams.append(key, String(value));
+    });
+    const requestUrl = `/fba/inventory/v1/summaries${
+      queryParams.toString() ? `?${queryParams.toString()}` : ""
+    }`;
+    console.info("[amazon inventory] request url", requestUrl);
 
     const response = await spApiSignedFetch({
       method: "GET",
