@@ -365,7 +365,7 @@ export default function ExpensesListPage() {
             </label>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" onClick={loadExpenses} style={primaryButtonStyle}>
+            <button type="button" onClick={() => loadExpenses()} style={primaryButtonStyle}>
               Apply Filters
             </button>
             <button type="button" onClick={handleExport} style={secondaryButtonStyle}>
