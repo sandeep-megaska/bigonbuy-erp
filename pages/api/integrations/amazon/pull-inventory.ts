@@ -69,25 +69,28 @@ const inventorySummarySchema = z
     condition: z.string().nullable().optional(),
     inventoryDetails: z
       .object({
-        fulfillableQuantity: z.number().nullable().optional(),
+        fulfillableQuantity: z
+          .union([z.number(), z.record(z.any()), z.null()])
+          .optional()
+          .nullable(),
         reservedQuantity: z
-          .union([
-            z.number(),
-            z
-              .object({
-                totalReservedQuantity: z.number().nullable().optional(),
-                pendingCustomerOrderQuantity: z.number().nullable().optional(),
-                pendingTransshipmentQuantity: z.number().nullable().optional(),
-                fcProcessingQuantity: z.number().nullable().optional(),
-              })
-              .partial(),
-          ])
-          .nullable()
-          .optional(),
-        inboundWorkingQuantity: z.number().nullable().optional(),
-        inboundShippedQuantity: z.number().nullable().optional(),
-        inboundReceivingQuantity: z.number().nullable().optional(),
+          .union([z.number(), z.record(z.any()), z.null()])
+          .optional()
+          .nullable(),
+        inboundWorkingQuantity: z
+          .union([z.number(), z.record(z.any()), z.null()])
+          .optional()
+          .nullable(),
+        inboundShippedQuantity: z
+          .union([z.number(), z.record(z.any()), z.null()])
+          .optional()
+          .nullable(),
+        inboundReceivingQuantity: z
+          .union([z.number(), z.record(z.any()), z.null()])
+          .optional()
+          .nullable(),
       })
+      .passthrough()
       .nullable()
       .optional(),
   })
@@ -117,34 +120,55 @@ function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
 }
 
-function normalizeReservedQuantity(
-  value:
-    | number
-    | {
-        totalReservedQuantity?: number | null;
-        pendingCustomerOrderQuantity?: number | null;
-        pendingTransshipmentQuantity?: number | null;
-        fcProcessingQuantity?: number | null;
+function toNumber(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      "totalAvailableQuantity",
+      "totalReservedQuantity",
+      "availableQuantity",
+      "quantity",
+      "totalQuantity",
+      "total",
+    ];
+
+    for (const key of preferredKeys) {
+      const candidate = record[key];
+      if (typeof candidate === "number") {
+        return candidate;
       }
-    | null
-    | undefined
+    }
+  }
+
+  return 0;
+}
+
+function normalizeReservedQuantity(
+  value: number | Record<string, unknown> | null | undefined
 ): number {
   if (typeof value === "number") {
     return value;
   }
 
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    if (typeof value.totalReservedQuantity === "number") {
-      return value.totalReservedQuantity;
+    const record = value as Record<string, unknown>;
+    if (typeof record.totalReservedQuantity === "number") {
+      return record.totalReservedQuantity;
     }
 
     const fallbackFields = [
-      value.pendingCustomerOrderQuantity,
-      value.pendingTransshipmentQuantity,
-      value.fcProcessingQuantity,
-    ].filter((entry): entry is number => typeof entry === "number");
+      record.pendingCustomerOrderQuantity,
+      record.pendingTransshipmentQuantity,
+      record.fcProcessingQuantity,
+      record.totalAvailableQuantity,
+      record.totalReservedQuantity,
+    ];
 
-    return fallbackFields.reduce((total, entry) => total + entry, 0);
+    return fallbackFields.reduce((total, entry) => total + toNumber(entry), 0);
   }
 
   return 0;
@@ -181,7 +205,7 @@ async function fetchInventorySummaries(
 
     const parsed = inventoryResponseSchema.safeParse(json);
     if (!parsed.success) {
-      throw new Error(`Unexpected inventory response: ${parsed.error.message}`);
+      throw new Error(`Inventory response parse failed: ${parsed.error.message}`);
     }
 
     const batchSummaries = parsed.data.payload?.inventorySummaries ?? null;
@@ -324,6 +348,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     );
     const externalSkus = summaries.map((summary) => summary.sellerSku);
     const matchesBySku = await fetchVariantMatches(dataClient, companyId, externalSkus);
+    console.log(
+      "[amazon pull] summaries=",
+      summaries.length,
+      "reservedQuantityType=",
+      typeof summaries[0]?.inventoryDetails?.reservedQuantity
+    );
 
     const { data: batch, error: batchError } = await dataClient
       .from("erp_external_inventory_batches")
@@ -362,11 +392,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         asin: summary.asin ?? null,
         fnsku: summary.fnSku ?? null,
         condition: summary.condition ?? null,
-        qty_available: details.fulfillableQuantity ?? 0,
+        qty_available: toNumber(details.fulfillableQuantity),
         qty_reserved: normalizeReservedQuantity(details.reservedQuantity),
-        qty_inbound_working: details.inboundWorkingQuantity ?? 0,
-        qty_inbound_shipped: details.inboundShippedQuantity ?? 0,
-        qty_inbound_receiving: details.inboundReceivingQuantity ?? 0,
+        qty_inbound_working: toNumber(details.inboundWorkingQuantity),
+        qty_inbound_shipped: toNumber(details.inboundShippedQuantity),
+        qty_inbound_receiving: toNumber(details.inboundReceivingQuantity),
         external_location_code: null,
         erp_variant_id: erpVariantId,
         erp_warehouse_id: null,
