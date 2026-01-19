@@ -168,7 +168,10 @@ function normalizeReservedQuantity(
       record.totalReservedQuantity,
     ];
 
-    return fallbackFields.reduce((total, entry) => total + toNumber(entry), 0);
+    return fallbackFields.reduce<number>(
+      (total, entry) => total + toNumber(entry),
+      0
+    );
   }
 
   return 0;
