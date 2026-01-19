@@ -204,14 +204,16 @@ async function fetchInventorySummaries(
       if (value === undefined || value === null) return;
       queryParams.append(key, String(value));
     });
-    const requestUrl = `/fba/inventory/v1/summaries${
-      queryParams.toString() ? `?${queryParams.toString()}` : ""
-    }`;
+    const method = "GET";
+    const path = "/fba/inventory/v1/summaries";
+    const queryString = queryParams.toString();
+    const requestUrl = `${path}${queryString ? `?${queryString}` : ""}`;
     console.info("[amazon inventory] request url", requestUrl);
+    console.log("[amazon request]", method, path, queryString);
 
     const response = await spApiSignedFetch({
-      method: "GET",
-      path: "/fba/inventory/v1/summaries",
+      method,
+      path,
       accessToken,
       query,
     });
