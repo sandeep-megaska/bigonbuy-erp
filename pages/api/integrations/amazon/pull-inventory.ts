@@ -12,11 +12,15 @@ import {
 type ApiResponse =
   | {
       ok: true;
-      batch_id: string;
-      pulled_count: number;
-      matched_count: number;
-      unmatched_count: number;
-      ambiguous_count: number;
+      batch: {
+        id: string;
+        channel_key: string;
+        marketplace_id: string | null;
+        pulled_at: string;
+        row_count: number;
+        matched_count: number;
+        unmatched_count: number;
+      };
     }
   | { ok: false; error: string; details?: string };
 
@@ -266,7 +270,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         channel_key: "amazon",
         marketplace_id: marketplaceId,
       })
-      .select("id")
+      .select("id, channel_key, marketplace_id, pulled_at")
       .single();
 
     if (batchError || !batch) {
@@ -319,17 +323,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
     }
 
-    const matchedCount = rows.filter((row) => row.match_status === "matched").length;
-    const unmatchedCount = rows.filter((row) => row.match_status === "unmatched").length;
-    const ambiguousCount = rows.filter((row) => row.match_status === "ambiguous").length;
+    const { count: rowCount, error: rowCountError } = await dataClient
+      .from("erp_external_inventory_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_id", batch.id);
+
+    if (rowCountError) {
+      throw new Error(rowCountError.message || "Failed to count inventory rows");
+    }
+
+    const { count: matchedCount, error: matchedCountError } = await dataClient
+      .from("erp_external_inventory_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_id", batch.id)
+      .not("erp_variant_id", "is", null);
+
+    if (matchedCountError) {
+      throw new Error(matchedCountError.message || "Failed to count matched inventory rows");
+    }
+
+    const { count: unmatchedCount, error: unmatchedCountError } = await dataClient
+      .from("erp_external_inventory_rows")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_id", batch.id)
+      .is("erp_variant_id", null);
+
+    if (unmatchedCountError) {
+      throw new Error(unmatchedCountError.message || "Failed to count unmatched inventory rows");
+    }
 
     return res.status(200).json({
       ok: true,
-      batch_id: batch.id,
-      pulled_count: rows.length,
-      matched_count: matchedCount,
-      unmatched_count: unmatchedCount,
-      ambiguous_count: ambiguousCount,
+      batch: {
+        id: batch.id,
+        channel_key: batch.channel_key,
+        marketplace_id: batch.marketplace_id ?? null,
+        pulled_at: batch.pulled_at,
+        row_count: rowCount ?? 0,
+        matched_count: matchedCount ?? 0,
+        unmatched_count: unmatchedCount ?? 0,
+      },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

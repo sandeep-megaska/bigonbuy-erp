@@ -36,12 +36,9 @@ const latestBatchSchema = z
     channel_key: z.string(),
     marketplace_id: z.string().nullable(),
     pulled_at: z.string(),
-    pulled_by: z.string().uuid().nullable(),
-    notes: z.string().nullable(),
-    total_rows: z.number(),
-    matched_rows: z.number(),
-    unmatched_rows: z.number(),
-    ambiguous_rows: z.number(),
+    row_count: z.number(),
+    matched_count: z.number(),
+    unmatched_count: z.number(),
   })
   .nullable();
 
@@ -70,11 +67,7 @@ const inventoryRowSchema = z.object({
 
 const pullResponseSchema = z.object({
   ok: z.boolean(),
-  batch_id: z.string().uuid().optional(),
-  pulled_count: z.number().optional(),
-  matched_count: z.number().optional(),
-  unmatched_count: z.number().optional(),
-  ambiguous_count: z.number().optional(),
+  batch: latestBatchSchema.optional(),
   error: z.string().optional(),
   details: z.string().optional(),
 });
@@ -135,26 +128,6 @@ export default function AmazonExternalInventoryPage() {
     };
   }, [router]);
 
-  const loadLatestBatch = async () => {
-    setError(null);
-    const { data, error: batchError } = await supabase.rpc("erp_external_inventory_batch_latest", {
-      p_channel_key: "amazon",
-    });
-
-    if (batchError) {
-      setError(batchError.message);
-      return;
-    }
-
-    const parsed = latestBatchSchema.safeParse(data ?? null);
-    if (!parsed.success) {
-      setError("Failed to parse latest batch response.");
-      return;
-    }
-
-    setLatestBatch(parsed.data);
-  };
-
   const loadRows = async (batchId: string, onlyUnmatchedRows: boolean) => {
     setIsLoadingRows(true);
     setError(null);
@@ -182,14 +155,6 @@ export default function AmazonExternalInventoryPage() {
     setRows(parsed.data);
     setIsLoadingRows(false);
   };
-
-  useEffect(() => {
-    if (!ctx?.companyId) return;
-
-    (async () => {
-      await loadLatestBatch();
-    })();
-  }, [ctx?.companyId]);
 
   useEffect(() => {
     if (!latestBatch?.id) {
@@ -264,10 +229,12 @@ export default function AmazonExternalInventoryPage() {
         setError("Unexpected pull response.");
       } else if (!parsed.data.ok) {
         setError(parsed.data.error || "Failed to pull inventory snapshot.");
+      } else if (!parsed.data.batch) {
+        setError("Snapshot pulled but no batch details were returned.");
       } else {
-        const summary = `Pulled ${parsed.data.pulled_count ?? 0} rows (${parsed.data.matched_count ?? 0} matched, ${parsed.data.unmatched_count ?? 0} unmatched).`;
+        const summary = `Pulled ${parsed.data.batch.row_count} rows (${parsed.data.batch.matched_count} matched, ${parsed.data.batch.unmatched_count} unmatched).`;
+        setLatestBatch(parsed.data.batch);
         setNotice(summary);
-        await loadLatestBatch();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -379,10 +346,6 @@ export default function AmazonExternalInventoryPage() {
                 <span style={summaryValueStyle}>{latestBatch.id}</span>
               </div>
               <div style={summaryRowStyle}>
-                <span>Pulled by</span>
-                <span style={summaryValueStyle}>{latestBatch.pulled_by || "—"}</span>
-              </div>
-              <div style={summaryRowStyle}>
                 <span>Pulled at</span>
                 <span style={summaryValueStyle}>{new Date(latestBatch.pulled_at).toLocaleString()}</span>
               </div>
@@ -392,12 +355,12 @@ export default function AmazonExternalInventoryPage() {
               </div>
               <div style={summaryRowStyle}>
                 <span>Total rows</span>
-                <span style={summaryValueStyle}>{latestBatch.total_rows}</span>
+                <span style={summaryValueStyle}>{latestBatch.row_count}</span>
               </div>
               <div style={summaryRowStyle}>
-                <span>Matched / Unmatched / Ambiguous</span>
+                <span>Matched / Unmatched</span>
                 <span style={summaryValueStyle}>
-                  {latestBatch.matched_rows} / {latestBatch.unmatched_rows} / {latestBatch.ambiguous_rows}
+                  {latestBatch.matched_count} / {latestBatch.unmatched_count}
                 </span>
               </div>
             </div>
