@@ -1,0 +1,493 @@
+import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import { useRouter } from "next/router";
+import { z } from "zod";
+import ErpShell from "../../../../components/erp/ErpShell";
+import {
+  cardStyle,
+  eyebrowStyle,
+  h1Style,
+  pageContainerStyle,
+  pageHeaderStyle,
+  primaryButtonStyle,
+  secondaryButtonStyle,
+  subtitleStyle,
+  tableCellStyle,
+  tableHeaderCellStyle,
+  tableStyle,
+} from "../../../../components/erp/uiStyles";
+import { createCsvBlob, triggerDownload } from "../../../../components/inventory/csvUtils";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { supabase } from "../../../../lib/supabaseClient";
+
+type CompanyContext = {
+  companyId: string | null;
+  roleKey: string | null;
+  membershipError: string | null;
+};
+
+type LatestBatch = z.infer<typeof latestBatchSchema>;
+
+type InventoryRow = z.infer<typeof inventoryRowSchema>;
+
+const latestBatchSchema = z
+  .object({
+    id: z.string().uuid(),
+    channel_key: z.string(),
+    marketplace_id: z.string().nullable(),
+    pulled_at: z.string(),
+    pulled_by: z.string().uuid().nullable(),
+    notes: z.string().nullable(),
+    total_rows: z.number(),
+    matched_rows: z.number(),
+    unmatched_rows: z.number(),
+    ambiguous_rows: z.number(),
+  })
+  .nullable();
+
+const inventoryRowSchema = z.object({
+  id: z.string().uuid(),
+  external_sku: z.string(),
+  asin: z.string().nullable(),
+  fnsku: z.string().nullable(),
+  condition: z.string().nullable(),
+  qty_available: z.number(),
+  qty_reserved: z.number(),
+  qty_inbound_working: z.number(),
+  qty_inbound_shipped: z.number(),
+  qty_inbound_receiving: z.number(),
+  external_location_code: z.string().nullable(),
+  match_status: z.string(),
+  erp_variant_id: z.string().uuid().nullable(),
+  sku_code: z.string().nullable(),
+  variant_title: z.string().nullable(),
+  variant_size: z.string().nullable(),
+  variant_color: z.string().nullable(),
+  variant_hsn: z.string().nullable(),
+  erp_warehouse_id: z.string().uuid().nullable(),
+  warehouse_name: z.string().nullable(),
+});
+
+const pullResponseSchema = z.object({
+  ok: z.boolean(),
+  batch_id: z.string().uuid().optional(),
+  pulled_count: z.number().optional(),
+  matched_count: z.number().optional(),
+  unmatched_count: z.number().optional(),
+  ambiguous_count: z.number().optional(),
+  error: z.string().optional(),
+  details: z.string().optional(),
+});
+
+const testResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+});
+
+const rowLimit = 500;
+
+export default function AmazonExternalInventoryPage() {
+  const router = useRouter();
+  const [ctx, setCtx] = useState<CompanyContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [latestBatch, setLatestBatch] = useState<LatestBatch>(null);
+  const [rows, setRows] = useState<InventoryRow[]>([]);
+  const [onlyUnmatched, setOnlyUnmatched] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isLoadingRows, setIsLoadingRows] = useState(false);
+
+  const canAccess = useMemo(() => {
+    if (!ctx?.roleKey) return false;
+    return ["owner", "admin", "inventory", "finance"].includes(ctx.roleKey);
+  }, [ctx]);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const context = await getCompanyContext(session);
+      if (!active) return;
+
+      setCtx({
+        companyId: context.companyId,
+        roleKey: context.roleKey,
+        membershipError: context.membershipError,
+      });
+
+      if (!context.companyId) {
+        setError(context.membershipError || "No active company membership found for this user.");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  const loadLatestBatch = async () => {
+    setError(null);
+    const { data, error: batchError } = await supabase.rpc("erp_external_inventory_batch_latest", {
+      p_channel_key: "amazon",
+    });
+
+    if (batchError) {
+      setError(batchError.message);
+      return;
+    }
+
+    const parsed = latestBatchSchema.safeParse(data ?? null);
+    if (!parsed.success) {
+      setError("Failed to parse latest batch response.");
+      return;
+    }
+
+    setLatestBatch(parsed.data);
+  };
+
+  const loadRows = async (batchId: string, onlyUnmatchedRows: boolean) => {
+    setIsLoadingRows(true);
+    setError(null);
+
+    const { data, error: rowsError } = await supabase.rpc("erp_external_inventory_rows_list", {
+      p_batch_id: batchId,
+      p_only_unmatched: onlyUnmatchedRows,
+      p_limit: rowLimit,
+      p_offset: 0,
+    });
+
+    if (rowsError) {
+      setIsLoadingRows(false);
+      setError(rowsError.message);
+      return;
+    }
+
+    const parsed = z.array(inventoryRowSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setIsLoadingRows(false);
+      setError("Failed to parse inventory rows.");
+      return;
+    }
+
+    setRows(parsed.data);
+    setIsLoadingRows(false);
+  };
+
+  useEffect(() => {
+    if (!ctx?.companyId) return;
+
+    (async () => {
+      await loadLatestBatch();
+    })();
+  }, [ctx?.companyId]);
+
+  useEffect(() => {
+    if (!latestBatch?.id) {
+      setRows([]);
+      return;
+    }
+
+    (async () => {
+      await loadRows(latestBatch.id, onlyUnmatched);
+    })();
+  }, [latestBatch?.id, onlyUnmatched]);
+
+  const handleTestConnection = async () => {
+    setNotice(null);
+    setError(null);
+    setIsTesting(true);
+
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) {
+      setIsTesting(false);
+      setError("Missing session token. Please sign in again.");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/integrations/amazon/test", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json: unknown = await response.json();
+      const parsed = testResponseSchema.safeParse(json);
+      if (!parsed.success) {
+        setError("Unexpected test response.");
+      } else if (!parsed.data.ok) {
+        setError(parsed.data.error || "Amazon test failed.");
+      } else {
+        setNotice(parsed.data.message || "Amazon connection successful.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handlePullSnapshot = async () => {
+    setNotice(null);
+    setError(null);
+    setIsPulling(true);
+
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) {
+      setIsPulling(false);
+      setError("Missing session token. Please sign in again.");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/integrations/amazon/pull-inventory", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const json: unknown = await response.json();
+      const parsed = pullResponseSchema.safeParse(json);
+      if (!parsed.success) {
+        setError("Unexpected pull response.");
+      } else if (!parsed.data.ok) {
+        setError(parsed.data.error || "Failed to pull inventory snapshot.");
+      } else {
+        const summary = `Pulled ${parsed.data.pulled_count ?? 0} rows (${parsed.data.matched_count ?? 0} matched, ${parsed.data.unmatched_count ?? 0} unmatched).`;
+        setNotice(summary);
+        await loadLatestBatch();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setError(message);
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const handleExportUnmatched = () => {
+    const unmatchedRows = rows.filter((row) => row.match_status === "unmatched");
+    if (unmatchedRows.length === 0) {
+      setNotice("No unmatched rows to export.");
+      return;
+    }
+
+    const headers = [
+      "external_sku",
+      "external_location_code",
+      "asin",
+      "fnsku",
+      "condition",
+      "qty_available",
+      "qty_reserved",
+      "qty_inbound_working",
+      "qty_inbound_shipped",
+      "qty_inbound_receiving",
+    ];
+    const csvRows = unmatchedRows.map((row) => [
+      row.external_sku,
+      row.external_location_code || "",
+      row.asin || "",
+      row.fnsku || "",
+      row.condition || "",
+      row.qty_available,
+      row.qty_reserved,
+      row.qty_inbound_working,
+      row.qty_inbound_shipped,
+      row.qty_inbound_receiving,
+    ]);
+    const csv = [
+      headers.join(","),
+      ...csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    triggerDownload("amazon_unmatched_inventory.csv", createCsvBlob(csv));
+  };
+
+  if (loading) {
+    return (
+      <ErpShell activeModule="inventory">
+        <div style={pageContainerStyle}>Loading Amazon inventory snapshot…</div>
+      </ErpShell>
+    );
+  }
+
+  if (!ctx?.companyId) {
+    return (
+      <ErpShell activeModule="inventory">
+        <div style={pageContainerStyle}>{error || "No company context available."}</div>
+      </ErpShell>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <ErpShell activeModule="inventory">
+        <div style={pageContainerStyle}>You do not have access to Amazon inventory snapshots.</div>
+      </ErpShell>
+    );
+  }
+
+  return (
+    <ErpShell activeModule="inventory">
+      <div style={pageContainerStyle}>
+        <header style={pageHeaderStyle}>
+          <div>
+            <p style={eyebrowStyle}>External Inventory</p>
+            <h1 style={h1Style}>Amazon Inventory Snapshot</h1>
+            <p style={subtitleStyle}>Pull a read-only snapshot from Amazon FBA to compare with ERP stock.</p>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button type="button" onClick={handleTestConnection} style={secondaryButtonStyle} disabled={isTesting}>
+              {isTesting ? "Testing…" : "Test Connection"}
+            </button>
+            <button type="button" onClick={handlePullSnapshot} style={primaryButtonStyle} disabled={isPulling}>
+              {isPulling ? "Pulling…" : "Pull Snapshot Now"}
+            </button>
+          </div>
+        </header>
+
+        {(notice || error) && (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: error ? "#fca5a5" : "#bbf7d0",
+              color: error ? "#b91c1c" : "#047857",
+            }}
+          >
+            {error || notice}
+          </div>
+        )}
+
+        <section style={cardStyle}>
+          <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Latest snapshot</h2>
+          {latestBatch ? (
+            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+              <div style={summaryRowStyle}>
+                <span>Batch ID</span>
+                <span style={summaryValueStyle}>{latestBatch.id}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Pulled at</span>
+                <span style={summaryValueStyle}>{new Date(latestBatch.pulled_at).toLocaleString()}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Marketplace</span>
+                <span style={summaryValueStyle}>{latestBatch.marketplace_id || "Amazon"}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Total rows</span>
+                <span style={summaryValueStyle}>{latestBatch.total_rows}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Matched / Unmatched / Ambiguous</span>
+                <span style={summaryValueStyle}>
+                  {latestBatch.matched_rows} / {latestBatch.unmatched_rows} / {latestBatch.ambiguous_rows}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, color: "#6b7280" }}>No snapshot pulled yet.</div>
+          )}
+        </section>
+
+        <section style={cardStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Snapshot rows</h2>
+              <p style={{ margin: "6px 0 0", color: "#6b7280" }}>
+                {isLoadingRows ? "Loading rows…" : `${rows.length} rows loaded (limit ${rowLimit}).`}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
+                <input
+                  type="checkbox"
+                  checked={onlyUnmatched}
+                  onChange={(event) => setOnlyUnmatched(event.target.checked)}
+                />
+                Only unmatched
+              </label>
+              <button type="button" onClick={handleExportUnmatched} style={secondaryButtonStyle}>
+                Export unmatched CSV
+              </button>
+            </div>
+          </div>
+          <div style={{ overflowX: "auto", marginTop: 16 }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>External SKU</th>
+                  <th style={tableHeaderCellStyle}>ERP SKU</th>
+                  <th style={tableHeaderCellStyle}>Product</th>
+                  <th style={tableHeaderCellStyle}>Size</th>
+                  <th style={tableHeaderCellStyle}>Color</th>
+                  <th style={tableHeaderCellStyle}>Location</th>
+                  <th style={tableHeaderCellStyle}>Available</th>
+                  <th style={tableHeaderCellStyle}>Inbound (W/S/R)</th>
+                  <th style={tableHeaderCellStyle}>Match status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                      {latestBatch ? "No rows to display." : "Pull a snapshot to view inventory."}
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => (
+                    <tr key={row.id}>
+                      <td style={tableCellStyle}>{row.external_sku}</td>
+                      <td style={tableCellStyle}>{row.sku_code || "—"}</td>
+                      <td style={tableCellStyle}>{row.variant_title || "—"}</td>
+                      <td style={tableCellStyle}>{row.variant_size || "—"}</td>
+                      <td style={tableCellStyle}>{row.variant_color || "—"}</td>
+                      <td style={tableCellStyle}>{row.external_location_code || "—"}</td>
+                      <td style={tableCellStyle}>{row.qty_available}</td>
+                      <td style={tableCellStyle}>
+                        {row.qty_inbound_working}/{row.qty_inbound_shipped}/{row.qty_inbound_receiving}
+                      </td>
+                      <td style={tableCellStyle}>{row.match_status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </ErpShell>
+  );
+}
+
+const summaryRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  color: "#374151",
+};
+
+const summaryValueStyle: CSSProperties = {
+  fontWeight: 600,
+  color: "#111827",
+};
