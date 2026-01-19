@@ -70,7 +70,20 @@ const inventorySummarySchema = z
     inventoryDetails: z
       .object({
         fulfillableQuantity: z.number().nullable().optional(),
-        reservedQuantity: z.number().nullable().optional(),
+        reservedQuantity: z
+          .union([
+            z.number(),
+            z
+              .object({
+                totalReservedQuantity: z.number().nullable().optional(),
+                pendingCustomerOrderQuantity: z.number().nullable().optional(),
+                pendingTransshipmentQuantity: z.number().nullable().optional(),
+                fcProcessingQuantity: z.number().nullable().optional(),
+              })
+              .partial(),
+          ])
+          .nullable()
+          .optional(),
         inboundWorkingQuantity: z.number().nullable().optional(),
         inboundShippedQuantity: z.number().nullable().optional(),
         inboundReceivingQuantity: z.number().nullable().optional(),
@@ -84,7 +97,7 @@ const inventoryResponseSchema = z
   .object({
     payload: z
       .object({
-        inventorySummaries: z.array(inventorySummarySchema).nullable().optional(),
+        inventorySummaries: z.array(inventorySummarySchema),
       })
       .nullable()
       .optional(),
@@ -102,6 +115,44 @@ const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
+}
+
+function normalizeReservedQuantity(
+  value:
+    | number
+    | {
+        totalReservedQuantity?: number | null;
+        pendingCustomerOrderQuantity?: number | null;
+        pendingTransshipmentQuantity?: number | null;
+        fcProcessingQuantity?: number | null;
+      }
+    | null
+    | undefined
+): number {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (typeof value.totalReservedQuantity === "number") {
+      return value.totalReservedQuantity;
+    }
+
+    const fallbackFields = [
+      value.pendingCustomerOrderQuantity,
+      value.pendingTransshipmentQuantity,
+      value.fcProcessingQuantity,
+    ];
+
+    return fallbackFields.reduce((total, entry) => {
+      if (typeof entry === "number") {
+        return total + entry;
+      }
+      return total;
+    }, 0);
+  }
+
+  return 0;
 }
 
 async function fetchInventorySummaries(
@@ -138,7 +189,11 @@ async function fetchInventorySummaries(
       throw new Error(`Unexpected inventory response: ${parsed.error.message}`);
     }
 
-    const batchSummaries = parsed.data.payload?.inventorySummaries ?? [];
+    const batchSummaries = parsed.data.payload?.inventorySummaries ?? null;
+    if (!Array.isArray(batchSummaries)) {
+      throw new Error("Unexpected inventory response: missing inventorySummaries");
+    }
+
     summaries.push(...batchSummaries);
     nextToken = parsed.data.pagination?.nextToken ?? null;
   } while (nextToken);
@@ -260,6 +315,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const summaries = await fetchInventorySummaries(accessToken, marketplaceId);
+    console.info("[amazon inventory] received inventory summaries", {
+      count: summaries.length,
+    });
+    console.info(
+      "[amazon inventory] reserved quantity samples",
+      summaries.slice(0, 2).map((summary) => ({
+        sellerSku: summary.sellerSku,
+        reservedQuantity: normalizeReservedQuantity(
+          summary.inventoryDetails?.reservedQuantity
+        ),
+      }))
+    );
     const externalSkus = summaries.map((summary) => summary.sellerSku);
     const matchesBySku = await fetchVariantMatches(dataClient, companyId, externalSkus);
 
@@ -301,7 +368,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         fnsku: summary.fnSku ?? null,
         condition: summary.condition ?? null,
         qty_available: details.fulfillableQuantity ?? 0,
-        qty_reserved: details.reservedQuantity ?? 0,
+        qty_reserved: normalizeReservedQuantity(details.reservedQuantity),
         qty_inbound_working: details.inboundWorkingQuantity ?? 0,
         qty_inbound_shipped: details.inboundShippedQuantity ?? 0,
         qty_inbound_receiving: details.inboundReceivingQuantity ?? 0,
