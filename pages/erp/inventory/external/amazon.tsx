@@ -317,7 +317,7 @@ export default function AmazonExternalInventoryPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="inventory">
+      <ErpShell activeModule="workspace">
         <div style={pageContainerStyle}>Loading Amazon inventory snapshot…</div>
       </ErpShell>
     );
@@ -325,7 +325,7 @@ export default function AmazonExternalInventoryPage() {
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="inventory">
+      <ErpShell activeModule="workspace">
         <div style={pageContainerStyle}>{error || "No company context available."}</div>
       </ErpShell>
     );
@@ -333,14 +333,14 @@ export default function AmazonExternalInventoryPage() {
 
   if (!canAccess) {
     return (
-      <ErpShell activeModule="inventory">
+      <ErpShell activeModule="workspace">
         <div style={pageContainerStyle}>You do not have access to Amazon inventory snapshots.</div>
       </ErpShell>
     );
   }
 
   return (
-    <ErpShell activeModule="inventory">
+    <ErpShell activeModule="workspace">
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
