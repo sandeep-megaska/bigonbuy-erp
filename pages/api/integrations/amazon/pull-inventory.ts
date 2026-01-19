@@ -142,14 +142,9 @@ function normalizeReservedQuantity(
       value.pendingCustomerOrderQuantity,
       value.pendingTransshipmentQuantity,
       value.fcProcessingQuantity,
-    ];
+    ].filter((entry): entry is number => typeof entry === "number");
 
-    return fallbackFields.reduce((total, entry) => {
-      if (typeof entry === "number") {
-        return total + entry;
-      }
-      return total;
-    }, 0);
+    return fallbackFields.reduce((total, entry) => total + entry, 0);
   }
 
   return 0;
