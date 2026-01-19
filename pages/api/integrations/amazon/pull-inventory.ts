@@ -343,11 +343,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         reservedQuantity: normalizeReserved(summary.inventoryDetails?.reservedQuantity),
       }))
     );
-    const externalSkus = summaries.map((summary) => summary.sellerSku);
+    const summariesWithSku = summaries.filter(
+      (summary): summary is InventorySummary & { sellerSku: string } => Boolean(summary.sellerSku)
+    );
+    const externalSkus = summariesWithSku.map((summary) => summary.sellerSku);
     const matchesBySku = await fetchVariantMatches(dataClient, companyId, externalSkus);
     console.log(
       "[amazon pull] summaries=",
-      summaries.length,
+      summariesWithSku.length,
       "reservedQuantityType=",
       typeof summaries[0]?.inventoryDetails?.reservedQuantity
     );
@@ -366,7 +369,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       throw new Error(batchError?.message || "Failed to create inventory batch");
     }
 
-    const rows: ExternalRowInsert[] = summaries.map((summary) => {
+    const rows: ExternalRowInsert[] = summariesWithSku.map((summary) => {
       const details = summary.inventoryDetails ?? {};
       const key = summary.sellerSku.toLowerCase();
       const variantMatches = matchesBySku.get(key) ?? [];
