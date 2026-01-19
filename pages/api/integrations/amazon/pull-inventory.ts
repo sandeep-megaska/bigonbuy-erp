@@ -251,6 +251,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       companyId = membership.company_id;
     }
 
+    if (!companyId) {
+      return res.status(400).json({ ok: false, error: "Missing companyId" });
+    }
+
     const summaries = await fetchInventorySummaries(accessToken, marketplaceId);
     const externalSkus = summaries.map((summary) => summary.sellerSku);
     const matchesBySku = await fetchVariantMatches(dataClient, companyId, externalSkus);
