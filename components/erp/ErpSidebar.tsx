@@ -96,6 +96,10 @@ const workspaceSidebarGroups: SidebarGroup[] = [
       { label: "Stock Movements", href: "/erp/inventory/movements", icon: "SM" },
     ],
   },
+  {
+    label: "External",
+    items: [{ label: "Amazon Snapshot", href: "/erp/inventory/external/amazon", icon: "AM" }],
+  },
 ];
 
 const employeeSidebarGroups: SidebarGroup[] = [

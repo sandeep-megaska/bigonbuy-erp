@@ -371,12 +371,16 @@ export default function AmazonExternalInventoryPage() {
         )}
 
         <section style={cardStyle}>
-          <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Latest snapshot</h2>
+          <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Latest batch</h2>
           {latestBatch ? (
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               <div style={summaryRowStyle}>
                 <span>Batch ID</span>
                 <span style={summaryValueStyle}>{latestBatch.id}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Pulled by</span>
+                <span style={summaryValueStyle}>{latestBatch.pulled_by || "—"}</span>
               </div>
               <div style={summaryRowStyle}>
                 <span>Pulled at</span>
@@ -437,14 +441,14 @@ export default function AmazonExternalInventoryPage() {
               <thead>
                 <tr>
                   <th style={tableHeaderCellStyle}>External SKU</th>
+                  <th style={tableHeaderCellStyle}>Match status</th>
                   <th style={tableHeaderCellStyle}>ERP SKU</th>
                   <th style={tableHeaderCellStyle}>Product</th>
                   <th style={tableHeaderCellStyle}>Size</th>
                   <th style={tableHeaderCellStyle}>Color</th>
-                  <th style={tableHeaderCellStyle}>Location</th>
                   <th style={tableHeaderCellStyle}>Available</th>
-                  <th style={tableHeaderCellStyle}>Inbound (W/S/R)</th>
-                  <th style={tableHeaderCellStyle}>Match status</th>
+                  <th style={tableHeaderCellStyle}>Inbound total</th>
+                  <th style={tableHeaderCellStyle}>Location</th>
                 </tr>
               </thead>
               <tbody>
@@ -458,16 +462,16 @@ export default function AmazonExternalInventoryPage() {
                   rows.map((row) => (
                     <tr key={row.id}>
                       <td style={tableCellStyle}>{row.external_sku}</td>
+                      <td style={tableCellStyle}>{row.match_status}</td>
                       <td style={tableCellStyle}>{row.sku_code || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_title || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_size || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_color || "—"}</td>
-                      <td style={tableCellStyle}>{row.external_location_code || "—"}</td>
                       <td style={tableCellStyle}>{row.qty_available}</td>
                       <td style={tableCellStyle}>
-                        {row.qty_inbound_working}/{row.qty_inbound_shipped}/{row.qty_inbound_receiving}
+                        {row.qty_inbound_working + row.qty_inbound_shipped + row.qty_inbound_receiving}
                       </td>
-                      <td style={tableCellStyle}>{row.match_status}</td>
+                      <td style={tableCellStyle}>{row.external_location_code || "—"}</td>
                     </tr>
                   ))
                 )}

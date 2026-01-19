@@ -203,6 +203,7 @@ export default function InventoryDashboardPage() {
       { label: "Stocktake", href: buildWarehouseLink("/erp/inventory/stocktakes", warehouseId) },
       { label: "Valuation", href: buildWarehouseLink("/erp/inventory/valuation", warehouseId) },
       { label: "CSV Import", href: "/erp/inventory/import" },
+      { label: "Amazon Snapshot", href: "/erp/inventory/external/amazon" },
     ],
     [warehouseId]
   );
