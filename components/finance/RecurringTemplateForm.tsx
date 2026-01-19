@@ -99,7 +99,9 @@ export default function RecurringTemplateForm({
   const [reference, setReference] = useState(initialValues?.reference ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [dayOfMonth, setDayOfMonth] = useState(initialValues?.day_of_month ?? 1);
-  const [recurrence, setRecurrence] = useState(initialValues?.recurrence ?? "monthly");
+  const [recurrence, setRecurrence] = useState<
+    RecurringExpenseTemplateFormPayload["recurrence"]
+  >(initialValues?.recurrence ?? "monthly");
   const [startMonth, setStartMonth] = useState(normalizeMonthInput(initialValues?.start_month ?? ""));
   const [endMonth, setEndMonth] = useState(normalizeMonthInput(initialValues?.end_month ?? ""));
   const [isActive, setIsActive] = useState(initialValues?.is_active ?? true);
@@ -308,7 +310,11 @@ export default function RecurringTemplateForm({
           <span style={labelStyle}>Recurrence</span>
           <select
             value={recurrence}
-            onChange={(event) => setRecurrence(event.target.value)}
+            onChange={(event) =>
+              setRecurrence(
+                event.target.value as RecurringExpenseTemplateFormPayload["recurrence"]
+              )
+            }
             disabled={!canWrite}
             style={inputStyle}
           >
