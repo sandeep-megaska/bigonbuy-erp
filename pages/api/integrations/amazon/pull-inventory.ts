@@ -161,14 +161,13 @@ async function fetchInventorySummaries(
   const primaryMarketplaceId = normalizedMarketplaceIds.split(",")[0] ?? marketplaceId;
 
   do {
-    const query = nextToken
-      ? { nextToken }
-      : {
-          granularityType: "Marketplace",
-          granularityId: primaryMarketplaceId,
-          marketplaceIds: normalizedMarketplaceIds,
-          details: true,
-        };
+    const query = {
+      granularityType: "Marketplace",
+      granularityId: primaryMarketplaceId,
+      marketplaceIds: normalizedMarketplaceIds,
+      details: true,
+      nextToken: nextToken ?? undefined,
+    };
     const queryParams = new URLSearchParams();
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined || value === null) return;
