@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import crypto from "crypto";
-import fetch from "node-fetch";
+
 
 /**
  * STEP 1: Get LWA Access Token using refresh token
