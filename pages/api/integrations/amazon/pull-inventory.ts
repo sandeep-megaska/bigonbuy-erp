@@ -63,36 +63,12 @@ const requestSchema = z.object({
 
 const inventorySummarySchema = z
   .object({
-    sellerSku: z.string(),
+    sellerSku: z.string().optional(),
     asin: z.string().nullable().optional(),
     fnSku: z.string().nullable().optional(),
     condition: z.string().nullable().optional(),
-    inventoryDetails: z
-      .object({
-        fulfillableQuantity: z
-          .union([z.number(), z.record(z.any()), z.null()])
-          .optional()
-          .nullable(),
-        reservedQuantity: z
-          .union([z.number(), z.record(z.any()), z.null()])
-          .optional()
-          .nullable(),
-        inboundWorkingQuantity: z
-          .union([z.number(), z.record(z.any()), z.null()])
-          .optional()
-          .nullable(),
-        inboundShippedQuantity: z
-          .union([z.number(), z.record(z.any()), z.null()])
-          .optional()
-          .nullable(),
-        inboundReceivingQuantity: z
-          .union([z.number(), z.record(z.any()), z.null()])
-          .optional()
-          .nullable(),
-      })
-      .passthrough()
-      .nullable()
-      .optional(),
+    inventoryDetails: z.any().optional(),
+    totalQuantity: z.any().optional(),
   })
   .passthrough();
 
@@ -120,7 +96,7 @@ function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
 }
 
-function toNumber(value: unknown): number {
+function toNum(value: unknown): number {
   if (typeof value === "number") {
     return value;
   }
@@ -128,8 +104,8 @@ function toNumber(value: unknown): number {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, unknown>;
     const preferredKeys = [
-      "totalAvailableQuantity",
       "totalReservedQuantity",
+      "totalAvailableQuantity",
       "availableQuantity",
       "quantity",
       "totalQuantity",
@@ -147,9 +123,7 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
-function normalizeReservedQuantity(
-  value: number | Record<string, unknown> | null | undefined
-): number {
+function normalizeReserved(value: unknown): number {
   if (typeof value === "number") {
     return value;
   }
@@ -160,16 +134,12 @@ function normalizeReservedQuantity(
       return record.totalReservedQuantity;
     }
 
-    const fallbackFields = [
-      record.pendingCustomerOrderQuantity,
-      record.pendingTransshipmentQuantity,
-      record.fcProcessingQuantity,
-      record.totalAvailableQuantity,
-      record.totalReservedQuantity,
-    ];
+    const fallbackFields = Object.values(record).filter(
+      (entry) => typeof entry === "number"
+    );
 
     return fallbackFields.reduce<number>(
-      (total, entry) => total + toNumber(entry),
+      (total, entry) => total + toNum(entry),
       0
     );
   }
@@ -224,17 +194,26 @@ async function fetchInventorySummaries(
     }
 
     const parsed = inventoryResponseSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new Error(`Inventory response parse failed: ${parsed.error.message}`);
-    }
-
-    const batchSummaries = parsed.data.payload?.inventorySummaries ?? null;
+    const batchSummaries = parsed.success
+      ? parsed.data.payload?.inventorySummaries ?? null
+      : (json as { payload?: { inventorySummaries?: unknown } })?.payload
+          ?.inventorySummaries ?? null;
     if (!Array.isArray(batchSummaries)) {
       throw new Error("Unexpected inventory response: missing inventorySummaries");
     }
 
-    summaries.push(...batchSummaries);
-    nextToken = parsed.data.pagination?.nextToken ?? null;
+    console.log(
+      "[amazon payload sample]",
+      JSON.stringify(batchSummaries[0]?.inventoryDetails?.reservedQuantity).slice(0, 300)
+    );
+
+    const filteredSummaries = batchSummaries.filter(
+      (summary): summary is InventorySummary & { sellerSku: string } =>
+        typeof summary?.sellerSku === "string" && summary.sellerSku.length > 0
+    );
+
+    summaries.push(...filteredSummaries);
+    nextToken = parsed.success ? parsed.data.pagination?.nextToken ?? null : null;
   } while (nextToken);
 
   return summaries;
@@ -361,9 +340,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       "[amazon inventory] reserved quantity samples",
       summaries.slice(0, 2).map((summary) => ({
         sellerSku: summary.sellerSku,
-        reservedQuantity: normalizeReservedQuantity(
-          summary.inventoryDetails?.reservedQuantity
-        ),
+        reservedQuantity: normalizeReserved(summary.inventoryDetails?.reservedQuantity),
       }))
     );
     const externalSkus = summaries.map((summary) => summary.sellerSku);
@@ -412,11 +389,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         asin: summary.asin ?? null,
         fnsku: summary.fnSku ?? null,
         condition: summary.condition ?? null,
-        qty_available: toNumber(details.fulfillableQuantity),
-        qty_reserved: normalizeReservedQuantity(details.reservedQuantity),
-        qty_inbound_working: toNumber(details.inboundWorkingQuantity),
-        qty_inbound_shipped: toNumber(details.inboundShippedQuantity),
-        qty_inbound_receiving: toNumber(details.inboundReceivingQuantity),
+        qty_available: toNum(details.fulfillableQuantity),
+        qty_reserved: normalizeReserved(details.reservedQuantity),
+        qty_inbound_working: toNum(details.inboundWorkingQuantity),
+        qty_inbound_shipped: toNum(details.inboundShippedQuantity),
+        qty_inbound_receiving: toNum(details.inboundReceivingQuantity),
         external_location_code: null,
         erp_variant_id: erpVariantId,
         erp_warehouse_id: null,
