@@ -65,11 +65,20 @@ const inventoryRowSchema = z.object({
   warehouse_name: z.string().nullable(),
 });
 
-const pullResponseSchema = z.object({
+const reportRequestSchema = z.object({
   ok: z.boolean(),
+  batchId: z.string().uuid().optional(),
+  error: z.string().optional(),
+  details: z.string().optional(),
+});
+
+const reportStatusSchema = z.object({
+  ok: z.boolean(),
+  status: z.string().optional(),
   batch: latestBatchSchema.optional(),
   error: z.string().optional(),
   details: z.string().optional(),
+  message: z.string().optional(),
 });
 
 const testResponseSchema = z.object({
@@ -90,8 +99,11 @@ export default function AmazonExternalInventoryPage() {
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [onlyUnmatched, setOnlyUnmatched] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
+  const [reportBatchId, setReportBatchId] = useState<string | null>(null);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
 
   const canAccess = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -205,6 +217,7 @@ export default function AmazonExternalInventoryPage() {
     setNotice(null);
     setError(null);
     setIsPulling(true);
+    setReportStatus(null);
 
     const session = await supabase.auth.getSession();
     const token = session.data.session?.access_token;
@@ -215,7 +228,7 @@ export default function AmazonExternalInventoryPage() {
     }
 
     try {
-      const response = await fetch("/api/integrations/amazon/pull-inventory", {
+      const response = await fetch("/api/integrations/amazon/pull-inventory-report", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -224,17 +237,17 @@ export default function AmazonExternalInventoryPage() {
         body: JSON.stringify({}),
       });
       const json: unknown = await response.json();
-      const parsed = pullResponseSchema.safeParse(json);
+      const parsed = reportRequestSchema.safeParse(json);
       if (!parsed.success) {
-        setError("Unexpected pull response.");
+        setError("Unexpected report request response.");
       } else if (!parsed.data.ok) {
-        setError(parsed.data.error || "Failed to pull inventory snapshot.");
-      } else if (!parsed.data.batch) {
-        setError("Snapshot pulled but no batch details were returned.");
+        setError(parsed.data.error || "Failed to request inventory report.");
+      } else if (!parsed.data.batchId) {
+        setError("Report requested but no batch ID was returned.");
       } else {
-        const summary = `Pulled ${parsed.data.batch.row_count} rows (${parsed.data.batch.matched_count} matched, ${parsed.data.batch.unmatched_count} unmatched).`;
-        setLatestBatch(parsed.data.batch);
-        setNotice(summary);
+        setReportBatchId(parsed.data.batchId);
+        setReportStatus("requested");
+        setNotice("Report requested. Waiting for Amazon to generate the inventory snapshot…");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -243,6 +256,74 @@ export default function AmazonExternalInventoryPage() {
       setIsPulling(false);
     }
   };
+
+  useEffect(() => {
+    if (!reportBatchId || reportStatus === "completed" || reportStatus === "failed") {
+      setIsPolling(false);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      setIsPolling(true);
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) {
+        setIsPolling(false);
+        setError("Missing session token. Please sign in again.");
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/integrations/amazon/fetch-inventory-report?batchId=${reportBatchId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const json: unknown = await response.json();
+        const parsed = reportStatusSchema.safeParse(json);
+        if (!parsed.success) {
+          setError("Unexpected report status response.");
+          return;
+        }
+
+        if (!parsed.data.ok) {
+          setError(parsed.data.error || "Failed to fetch report status.");
+          return;
+        }
+
+        const status = parsed.data.status ?? "processing";
+        setReportStatus(status);
+
+        if (status === "completed" && parsed.data.batch) {
+          const summary = `Pulled ${parsed.data.batch.row_count} rows (${parsed.data.batch.matched_count} matched, ${parsed.data.batch.unmatched_count} unmatched).`;
+          setLatestBatch(parsed.data.batch);
+          setNotice(summary);
+        } else if (status === "failed") {
+          setError(parsed.data.message || "Amazon report generation failed.");
+        } else {
+          setNotice("Generating report…");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setError(message);
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(poll, 6000);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [reportBatchId, reportStatus]);
 
   const handleExportUnmatched = () => {
     const unmatchedRows = rows.filter((row) => row.match_status === "unmatched");
@@ -319,8 +400,13 @@ export default function AmazonExternalInventoryPage() {
             <button type="button" onClick={handleTestConnection} style={secondaryButtonStyle} disabled={isTesting}>
               {isTesting ? "Testing…" : "Test Connection"}
             </button>
-            <button type="button" onClick={handlePullSnapshot} style={primaryButtonStyle} disabled={isPulling}>
-              {isPulling ? "Pulling…" : "Pull Snapshot Now"}
+            <button
+              type="button"
+              onClick={handlePullSnapshot}
+              style={primaryButtonStyle}
+              disabled={isPulling || isPolling}
+            >
+              {isPulling ? "Requesting…" : isPolling ? "Generating report…" : "Pull Inventory"}
             </button>
           </div>
         </header>
@@ -418,7 +504,11 @@ export default function AmazonExternalInventoryPage() {
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={9} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
-                      {latestBatch ? "No rows to display." : "Pull a snapshot to view inventory."}
+                      {latestBatch
+                        ? "No rows to display."
+                        : reportBatchId
+                          ? "Report in progress…"
+                          : "Pull a snapshot to view inventory."}
                     </td>
                   </tr>
                 ) : (
