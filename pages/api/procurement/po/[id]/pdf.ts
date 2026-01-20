@@ -392,10 +392,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { headerTemplate, footerTemplate } = buildHeaderFooter(payload, headerLogoUrl, footerLogoUrl);
 
     const executablePath = await chromium.executablePath();
+    const headless = chromium.headless === "shell" ? true : chromium.headless;
     browser = await playwright.launch({
       args: chromium.args,
       executablePath: executablePath || undefined,
-      headless: chromium.headless,
+      headless,
     });
 
     const page = await browser.newPage();
