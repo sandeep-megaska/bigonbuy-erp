@@ -294,8 +294,10 @@ export default function PurchaseOrderPrintPage() {
   if (quoteReference) referenceParts.push(quoteReference);
   const referenceText = referenceParts.length > 0 ? referenceParts.join(" / ") : null;
 
+  const printDebug = router.query.printDebug === "1";
+
   return (
-    <div style={printPageStyle} className="po-print po-print-root">
+    <div style={printPageStyle} className={`po-print po-print-root${printDebug ? " print-debug" : ""}`}>
       <div className="po-sheet">
         {error ? <div style={printErrorStyle}>{error}</div> : null}
         <header style={printHeaderRowStyle} className="po-header">
@@ -492,7 +494,7 @@ export default function PurchaseOrderPrintPage() {
         @media print {
           @page {
             size: A4;
-            margin: 0;
+            margin: 12mm;
           }
 
           body {
@@ -506,8 +508,11 @@ export default function PurchaseOrderPrintPage() {
           .po-sheet,
           .po-content,
           .po-body,
-          .po-table-wrap {
+          .po-table-wrap,
+          .po-header,
+          .po-footer {
             overflow: visible !important;
+            transform: none !important;
           }
 
           .po-print-root {
@@ -523,9 +528,10 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-sheet {
-            width: 210mm;
-            min-height: 297mm;
-            padding: 12mm;
+            width: 100%;
+            max-width: 100%;
+            min-height: auto;
+            padding: 0;
             box-sizing: border-box;
             margin: 0 auto;
             position: relative;
@@ -534,34 +540,30 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-header {
-            position: fixed;
-            top: 12mm;
-            left: 12mm;
-            right: 12mm;
-            height: var(--po-header-h);
+            position: static;
+            height: auto;
             padding: 0 0 6mm;
             background: #fff;
             display: block;
+            margin-bottom: var(--po-section-gap);
             transform: none !important;
             zoom: 1 !important;
           }
 
           .po-footer {
-            position: fixed;
-            bottom: 12mm;
-            left: 12mm;
-            right: 12mm;
-            height: var(--po-footer-h);
+            position: static;
+            height: auto;
             padding: 6mm 0 0;
             background: #fff;
             display: block;
+            margin-top: var(--po-section-gap);
             transform: none !important;
             zoom: 1 !important;
           }
 
           .po-content {
-            padding-top: calc(var(--po-header-h) + var(--po-section-gap));
-            padding-bottom: calc(var(--po-footer-h) + var(--po-section-gap));
+            padding-top: 0;
+            padding-bottom: 0;
             display: block;
             transform: none !important;
             zoom: 1 !important;
@@ -581,9 +583,12 @@ export default function PurchaseOrderPrintPage() {
 
           .po-print-section {
             display: block;
+            break-inside: auto;
+            page-break-inside: auto;
           }
 
           .po-print-table {
+            border-collapse: collapse;
             page-break-inside: auto;
             table-layout: fixed;
             width: 100%;
@@ -602,8 +607,8 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-print-table tr {
-            break-inside: auto !important;
-            page-break-inside: auto !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
 
           .po-print-table th,
@@ -638,6 +643,20 @@ export default function PurchaseOrderPrintPage() {
           .no-break {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
+          }
+
+          .print-debug .po-header,
+          .print-debug .po-footer,
+          .print-debug .po-print-section,
+          .print-debug .po-table-wrap {
+            outline: 1px dashed #ef4444 !important;
+            outline-offset: 2px;
+          }
+
+          .print-debug .po-print-table th,
+          .print-debug .po-print-table td {
+            outline: 1px dotted #f59e0b !important;
+            outline-offset: -2px;
           }
         }
       `}</style>
