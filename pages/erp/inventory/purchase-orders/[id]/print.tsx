@@ -228,18 +228,23 @@ export default function PurchaseOrderPrintPage() {
 
   const currencyCode = branding?.currencyCode || "INR";
 
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
   const formatMoney = (value: number | null | undefined) => {
     if (value === null || value === undefined) return "—";
     return new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: currencyCode,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(value);
+    }).format(round2(value));
   };
 
   const subtotal = lines.reduce((sum, line) => {
     if (line.unit_cost === null) return sum;
-    return sum + line.unit_cost * line.ordered_qty;
+    const roundedUnitRate = round2(line.unit_cost);
+    const lineTotal = round2(line.ordered_qty * roundedUnitRate);
+    return sum + lineTotal;
   }, 0);
 
   const companyLegalName = branding?.legalName || branding?.companyName || "Company";
@@ -372,7 +377,9 @@ export default function PurchaseOrderPrintPage() {
               ) : (
                 lines.map((line, index) => {
                   const variant = variantMap.get(line.variant_id);
-                  const lineTotal = line.unit_cost !== null ? line.unit_cost * line.ordered_qty : null;
+                  const roundedUnitRate = line.unit_cost !== null ? round2(line.unit_cost) : null;
+                  const lineTotal =
+                    roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
                   return (
                     <tr key={line.id}>
                       <td style={printTableCellStyle}>{index + 1}</td>
@@ -382,7 +389,7 @@ export default function PurchaseOrderPrintPage() {
                       <td style={printTableCellStyle}>{variant?.size || "—"}</td>
                       <td style={printTableCellStyle}>{variant?.color || "—"}</td>
                       <td style={printTableCellStyle}>{line.ordered_qty}</td>
-                      <td style={printTableCellStyle}>{formatMoney(line.unit_cost)}</td>
+                      <td style={printTableCellStyle}>{formatMoney(roundedUnitRate)}</td>
                       <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
                     </tr>
                   );
@@ -395,11 +402,11 @@ export default function PurchaseOrderPrintPage() {
         <section style={printTotalsSectionStyle} className="po-print-section">
           <div style={printTotalsRowStyle}>
             <span style={printMetaLabelStyle}>Subtotal</span>
-            <span style={printTotalsValueStyle}>{formatMoney(subtotal)}</span>
+            <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
           </div>
           <div style={{ ...printTotalsRowStyle, fontWeight: 700 }}>
             <span>Total Amount ({currencyCode})</span>
-            <span style={printTotalsValueStyle}>{formatMoney(subtotal)}</span>
+            <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
           </div>
           <div style={printGstNoteStyle}>GST: As applicable / extra</div>
         </section>
@@ -459,7 +466,7 @@ export default function PurchaseOrderPrintPage() {
 
           .po-print-root {
             max-width: none;
-            padding: 0;
+            padding: 60mm 12mm 40mm;
           }
 
           .po-header {
@@ -481,8 +488,11 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-body {
-            margin-top: 52mm;
-            margin-bottom: 34mm;
+            margin: 0;
+          }
+
+          .po-body > .po-print-section:last-child {
+            margin-bottom: 0;
           }
 
           .po-print-table {
