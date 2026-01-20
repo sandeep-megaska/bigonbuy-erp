@@ -156,7 +156,7 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
           .section { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
           .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
           .vendor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-          .vendor-name { font-size: 14px; font-weight: 700; }
+          .vendor-name { font-size: 15px; font-weight: 800; }
           .detail-text { color: #4b5563; white-space: pre-line; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
           thead { display: table-header-group; }
@@ -281,7 +281,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
           ${headerLogoMarkup}
           <div>
             <div style="font-size: 12px; font-weight: 700;">${escapeHtml(companyName)}</div>
-            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em;">Purchase Order</div>
+            <div style="font-size: 16px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; margin-top: 4px;">Purchase Order</div>
           </div>
         </div>
         <div style="text-align: right; font-size: 9px; color: #111827;">
@@ -303,8 +303,8 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
         <div style="text-align: center;">
           ${footerLogoMarkup}
         </div>
-        <div style="text-align: right; min-width: 110px;">
-          Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+        <div style="text-align: right; min-width: 140px;">
+          ${escapeHtml(po.po_no || po.id)} – Page <span class="pageNumber"></span> / <span class="totalPages"></span>
         </div>
       </div>
     </div>
