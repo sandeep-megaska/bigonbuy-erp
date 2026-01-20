@@ -456,7 +456,7 @@ export default function PurchaseOrderPrintPage() {
         @media print {
           @page {
             size: A4;
-            margin: 16mm 12mm;
+            margin: 48mm 12mm 28mm;
           }
 
           body {
@@ -466,7 +466,8 @@ export default function PurchaseOrderPrintPage() {
 
           .po-print-root {
             max-width: none;
-            padding: 60mm 12mm 40mm;
+            padding: 0;
+            display: block;
           }
 
           .po-header {
@@ -489,6 +490,7 @@ export default function PurchaseOrderPrintPage() {
 
           .po-body {
             margin: 0;
+            display: block;
           }
 
           .po-body > .po-print-section:last-child {
