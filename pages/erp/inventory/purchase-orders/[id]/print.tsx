@@ -511,6 +511,9 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-print-root {
+            --po-header-h: 70mm;
+            --po-footer-h: 22mm;
+            --po-section-gap: 4mm;
             max-width: none;
             margin: 0 !important;
             padding: 0 !important;
@@ -535,6 +538,7 @@ export default function PurchaseOrderPrintPage() {
             top: 12mm;
             left: 12mm;
             right: 12mm;
+            height: var(--po-header-h);
             padding: 0 0 6mm;
             background: #fff;
             display: block;
@@ -547,6 +551,7 @@ export default function PurchaseOrderPrintPage() {
             bottom: 12mm;
             left: 12mm;
             right: 12mm;
+            height: var(--po-footer-h);
             padding: 6mm 0 0;
             background: #fff;
             display: block;
@@ -555,11 +560,8 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-content {
-            --po-header-height: 44mm;
-            --po-footer-height: 22mm;
-            --po-section-gap: 4mm;
-            padding-top: calc(var(--po-header-height) + var(--po-section-gap));
-            padding-bottom: calc(var(--po-footer-height) + var(--po-section-gap));
+            padding-top: calc(var(--po-header-h) + var(--po-section-gap));
+            padding-bottom: calc(var(--po-footer-h) + var(--po-section-gap));
             display: block;
             transform: none !important;
             zoom: 1 !important;
