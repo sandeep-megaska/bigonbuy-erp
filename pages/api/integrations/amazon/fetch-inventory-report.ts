@@ -2,8 +2,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gunzipSync } from "zlib";
-import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
-import { parseTsv } from "../../../../lib/erp/parseCsv";
+import { assertSupportedReportType, getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
+import { parseCsv, parseTsv } from "../../../../lib/erp/parseCsv";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -14,19 +14,16 @@ import {
 type ApiResponse =
   | {
       ok: true;
-      status: "requested" | "processing" | "completed" | "failed";
-      batch?: {
-        id: string;
-        channel_key: string;
-        marketplace_id: string | null;
-        pulled_at: string;
-        row_count: number;
-        matched_count: number;
-        unmatched_count: number;
-      };
+      status: "requested" | "processing" | "done" | "fatal";
       message?: string;
+      nextPollAfterMs: number;
+      done: boolean;
+      fatal: boolean;
+      rowsInserted?: number;
+      matched?: number;
+      unmatched?: number;
     }
-  | { ok: false; error: string; details?: string };
+  | { ok: false; error: string; details?: string; nextPollAfterMs?: number; done?: boolean; fatal?: boolean };
 
 type VariantRow = {
   id: string;
@@ -43,6 +40,7 @@ type ExternalRowInsert = {
   channel_key: string;
   marketplace_id: string | null;
   external_sku: string;
+  external_sku_norm: string;
   asin: string | null;
   fnsku: string | null;
   condition: string | null;
@@ -51,10 +49,15 @@ type ExternalRowInsert = {
   qty_inbound_working: number;
   qty_inbound_shipped: number;
   qty_inbound_receiving: number;
+  available_qty: number;
+  reserved_qty: number;
+  inbound_qty: number;
+  location: string | null;
   external_location_code: string | null;
   erp_variant_id: string | null;
+  matched_variant_id: string | null;
   erp_warehouse_id: string | null;
-  match_status: "matched" | "unmatched" | "ambiguous";
+  match_status: "matched" | "unmatched";
   raw: unknown;
 };
 
@@ -69,6 +72,12 @@ const reportStatusSchema = z
   })
   .passthrough();
 
+const reportCreateSchema = z
+  .object({
+    reportId: z.string(),
+  })
+  .passthrough();
+
 const reportDocumentSchema = z
   .object({
     url: z.string().url(),
@@ -77,11 +86,18 @@ const reportDocumentSchema = z
   .passthrough();
 
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
+const POLL_INTERVAL_MS = 45000;
+const PRIMARY_REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const FALLBACK_REPORT_TYPE = "GET_AFN_INVENTORY_DATA";
 
 function toInt(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+}
+
+function normalizeSku(value: string): string {
+  return value.trim().toUpperCase();
 }
 
 async function fetchVariantMatches(
@@ -90,7 +106,15 @@ async function fetchVariantMatches(
   skus: string[]
 ): Promise<Map<string, VariantRow[]>> {
   const matches = new Map<string, VariantRow[]>();
-  const uniqueSkus = Array.from(new Set(skus));
+  const candidateSkus = new Set<string>();
+  skus.forEach((sku) => {
+    const trimmed = sku.trim();
+    if (!trimmed) return;
+    candidateSkus.add(trimmed);
+    candidateSkus.add(trimmed.toUpperCase());
+    candidateSkus.add(trimmed.toLowerCase());
+  });
+  const uniqueSkus = Array.from(candidateSkus);
   const chunkSize = 50;
 
   for (let i = 0; i < uniqueSkus.length; i += chunkSize) {
@@ -107,7 +131,7 @@ async function fetchVariantMatches(
     }
 
     (data || []).forEach((row: VariantRow) => {
-      const key = row.sku.toLowerCase();
+      const key = normalizeSku(row.sku);
       const existing = matches.get(key) ?? [];
       existing.push(row);
       matches.set(key, existing);
@@ -205,7 +229,7 @@ async function fetchBatchSummary(
     .from("erp_external_inventory_rows")
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
-    .not("erp_variant_id", "is", null);
+    .eq("match_status", "matched");
 
   if (matchedCountError) {
     throw new Error(matchedCountError.message || "Failed to count matched inventory rows");
@@ -215,7 +239,7 @@ async function fetchBatchSummary(
     .from("erp_external_inventory_rows")
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
-    .is("erp_variant_id", null);
+    .eq("match_status", "unmatched");
 
   if (unmatchedCountError) {
     throw new Error(unmatchedCountError.message || "Failed to count unmatched inventory rows");
@@ -234,6 +258,20 @@ function buildRawRecord(headers: string[], row: string[]): Record<string, string
     record[header] = row[index] ?? "";
   });
   return record;
+}
+
+function parseReportText(text: string): string[][] {
+  const rows = text.includes("\t") ? parseTsv(text) : parseCsv(text);
+  return rows;
+}
+
+function pickHeader(headers: Map<string, number>, candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    if (headers.has(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -267,7 +305,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
-      .select("id, channel_key, marketplace_id, pulled_at, status, external_report_id")
+      .select(
+        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_document_id, report_type, rows_total, matched_count, unmatched_count"
+      )
       .eq("id", parseResult.data.batchId)
       .maybeSingle();
 
@@ -275,28 +315,67 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ ok: false, error: batchError?.message || "Batch not found" });
     }
 
-    if (!batch.external_report_id) {
+    const reportId = batch.report_id ?? batch.external_report_id;
+    if (!reportId) {
       return res.status(500).json({ ok: false, error: "Missing report ID for batch" });
     }
 
-    if (batch.status === "completed") {
-      const summary = await fetchBatchSummary(client, batch.id);
+    const createReport = async (reportType: string) => {
+      assertSupportedReportType(reportType);
+      const response = await spApiSignedFetch({
+        method: "POST",
+        path: "/reports/2021-06-30/reports",
+        accessToken,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reportType,
+          marketplaceIds: batch.marketplace_id ? [batch.marketplace_id] : undefined,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) {
+        return { ok: false as const, error: `SP-API error: ${JSON.stringify(json)}` };
+      }
+
+      const parsedReport = reportCreateSchema.safeParse(json);
+      const newReportId = parsedReport.success
+        ? parsedReport.data.reportId
+        : (json as { reportId?: string })?.reportId;
+      if (!newReportId) {
+        return { ok: false as const, error: "Missing reportId in SP-API response" };
+      }
+
+      return { ok: true as const, reportId: newReportId };
+    };
+
+    if (batch.status === "done") {
       return res.status(200).json({
         ok: true,
-        status: "completed",
-        batch: {
-          id: batch.id,
-          channel_key: batch.channel_key,
-          marketplace_id: batch.marketplace_id ?? null,
-          pulled_at: batch.pulled_at,
-          ...summary,
-        },
+        status: "done",
+        nextPollAfterMs: 0,
+        done: true,
+        fatal: false,
+        rowsInserted: batch.rows_total ?? 0,
+        matched: batch.matched_count ?? 0,
+        unmatched: batch.unmatched_count ?? 0,
+      });
+    }
+
+    if (batch.status === "fatal") {
+      return res.status(200).json({
+        ok: true,
+        status: "fatal",
+        nextPollAfterMs: 0,
+        done: false,
+        fatal: true,
+        message: "Report generation failed.",
       });
     }
 
     const reportStatusResponse = await spApiSignedFetch({
       method: "GET",
-      path: `/reports/2021-06-30/reports/${batch.external_report_id}`,
+      path: `/reports/2021-06-30/reports/${reportId}`,
       accessToken,
     });
 
@@ -316,19 +395,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const normalizedStatus = processingStatus?.toUpperCase() ?? "UNKNOWN";
 
     if (["CANCELLED", "FATAL"].includes(normalizedStatus)) {
+      let fatalMessage = `Report status: ${normalizedStatus}`;
+      if (batch.report_type === PRIMARY_REPORT_TYPE) {
+        const fallbackResult = await createReport(FALLBACK_REPORT_TYPE);
+        if (fallbackResult.ok) {
+          await client
+            .from("erp_external_inventory_batches")
+            .update({
+              status: "requested",
+              report_id: fallbackResult.reportId,
+              report_type: FALLBACK_REPORT_TYPE,
+              external_report_id: fallbackResult.reportId,
+              report_document_id: null,
+              error: null,
+            })
+            .eq("id", batch.id);
+
+          return res.status(200).json({
+            ok: true,
+            status: "processing",
+            message: "Primary report failed. Retrying with fallback report type.",
+            nextPollAfterMs: POLL_INTERVAL_MS,
+            done: false,
+            fatal: false,
+          });
+        }
+
+        fatalMessage = fallbackResult.error;
+      }
+
       await client
         .from("erp_external_inventory_batches")
-        .update({ status: "failed" })
+        .update({ status: "fatal", error: fatalMessage })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "failed", message: `Report status: ${normalizedStatus}` });
+
+      return res.status(200).json({
+        ok: true,
+        status: "fatal",
+        message: fatalMessage,
+        nextPollAfterMs: 0,
+        done: false,
+        fatal: true,
+      });
     }
 
     if (normalizedStatus !== "DONE") {
       await client
         .from("erp_external_inventory_batches")
-        .update({ status: "processing" })
+        .update({ status: "in_progress" })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "processing" });
+      return res.status(200).json({
+        ok: true,
+        status: "processing",
+        nextPollAfterMs: POLL_INTERVAL_MS,
+        done: false,
+        fatal: false,
+      });
     }
 
     const reportDocumentId = parsedStatus.success
@@ -338,6 +460,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!reportDocumentId) {
       return res.status(500).json({ ok: false, error: "Missing reportDocumentId" });
     }
+
+    await client
+      .from("erp_external_inventory_batches")
+      .update({ report_document_id: reportDocumentId })
+      .eq("id", batch.id);
 
     const documentResponse = await spApiSignedFetch({
       method: "GET",
@@ -364,13 +491,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const decompressed = parsedDocument.data.compressionAlgorithm === "GZIP" ? gunzipSync(buffer) : buffer;
     const text = decompressed.toString("utf8");
 
-    const rows = parseTsv(text);
+    const rows = parseReportText(text);
     if (rows.length === 0) {
       await client
         .from("erp_external_inventory_batches")
-        .update({ status: "completed", pulled_at: new Date().toISOString() })
+        .update({
+          status: "done",
+          pulled_at: new Date().toISOString(),
+          rows_total: 0,
+          matched_count: 0,
+          unmatched_count: 0,
+        })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "completed" });
+      return res.status(200).json({
+        ok: true,
+        status: "done",
+        nextPollAfterMs: 0,
+        done: true,
+        fatal: false,
+        rowsInserted: 0,
+        matched: 0,
+        unmatched: 0,
+      });
     }
 
     const [headerRow, ...dataRows] = rows;
@@ -380,14 +522,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       headerIndex.set(header, index);
     });
 
-    const getCell = (row: string[], header: string): string => {
+    const getCell = (row: string[], header: string | null): string => {
+      if (!header) return "";
       const idx = headerIndex.get(header);
       if (idx === undefined) return "";
       return row[idx]?.trim() ?? "";
     };
 
+    const skuHeader = pickHeader(headerIndex, ["seller-sku", "seller_sku", "seller sku", "sku"]);
+    if (!skuHeader) {
+      return res.status(500).json({ ok: false, error: "Missing SKU column in report" });
+    }
+
+    const asinHeader = pickHeader(headerIndex, ["asin"]);
+    const fnskuHeader = pickHeader(headerIndex, ["fnsku"]);
+    const conditionHeader = pickHeader(headerIndex, ["condition"]);
+    const availableHeader = pickHeader(headerIndex, [
+      "available",
+      "afn-fulfillable-quantity",
+      "afn-warehouse-quantity",
+    ]);
+    const reservedHeader = pickHeader(headerIndex, ["reserved", "afn-reserved-quantity"]);
+    const inboundWorkingHeader = pickHeader(headerIndex, ["afn-inbound-working-quantity"]);
+    const inboundShippedHeader = pickHeader(headerIndex, ["afn-inbound-shipped-quantity"]);
+    const inboundReceivingHeader = pickHeader(headerIndex, ["afn-inbound-receiving-quantity"]);
+    const inboundHeader = pickHeader(headerIndex, ["inbound"]);
+    const locationHeader = pickHeader(headerIndex, [
+      "fulfillment-center-id",
+      "fulfillment center id",
+      "location",
+    ]);
+
     const externalSkus = dataRows
-      .map((row) => getCell(row, "sku"))
+      .map((row) => getCell(row, skuHeader))
       .filter((sku) => sku.length > 0);
     const matchesBySku = await fetchVariantMatches(client, companyId, externalSkus);
 
@@ -400,25 +567,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       throw new Error(existingRows.error.message || "Failed to check existing rows");
     }
 
+    let rowsInserted = 0;
+
     if ((existingRows.count ?? 0) === 0) {
       const inserts: ExternalRowInsert[] = [];
       dataRows.forEach((row) => {
-        const sku = getCell(row, "sku");
+        const sku = getCell(row, skuHeader);
         if (!sku) return;
-        const key = sku.toLowerCase();
-        const variantMatches = matchesBySku.get(key) ?? [];
+        const normalizedSku = normalizeSku(sku);
+        const variantMatches = matchesBySku.get(normalizedSku) ?? [];
         let matchStatus: ExternalRowInsert["match_status"] = "unmatched";
         let erpVariantId: string | null = null;
 
         if (variantMatches.length === 1) {
           matchStatus = "matched";
           erpVariantId = variantMatches[0].id;
-        } else if (variantMatches.length > 1) {
-          matchStatus = "ambiguous";
         }
 
-        const fulfillableRaw = getCell(row, "afn-fulfillable-quantity");
-        const qtyAvailable = fulfillableRaw ? toInt(fulfillableRaw) : toInt(getCell(row, "afn-warehouse-quantity"));
+        const qtyAvailable = toInt(getCell(row, availableHeader));
+        const qtyReserved = toInt(getCell(row, reservedHeader));
+        const qtyInboundWorking = toInt(getCell(row, inboundWorkingHeader));
+        const qtyInboundShipped = toInt(getCell(row, inboundShippedHeader));
+        const qtyInboundReceiving = toInt(getCell(row, inboundReceivingHeader));
+        const inboundTotalRaw = toInt(getCell(row, inboundHeader));
+        const inboundTotal =
+          qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving > 0
+            ? qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving
+            : inboundTotalRaw;
+        const location = getCell(row, locationHeader) || null;
 
         inserts.push({
           company_id: companyId,
@@ -426,22 +602,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           channel_key: "amazon",
           marketplace_id: batch.marketplace_id ?? null,
           external_sku: sku,
-          asin: getCell(row, "asin") || null,
-          fnsku: getCell(row, "fnsku") || null,
-          condition: getCell(row, "condition") || null,
+          external_sku_norm: normalizedSku,
+          asin: getCell(row, asinHeader) || null,
+          fnsku: getCell(row, fnskuHeader) || null,
+          condition: getCell(row, conditionHeader) || null,
           qty_available: qtyAvailable,
-          qty_reserved: toInt(getCell(row, "afn-reserved-quantity")),
-          qty_inbound_working: toInt(getCell(row, "afn-inbound-working-quantity")),
-          qty_inbound_shipped: toInt(getCell(row, "afn-inbound-shipped-quantity")),
-          qty_inbound_receiving: toInt(getCell(row, "afn-inbound-receiving-quantity")),
-          external_location_code: null,
+          qty_reserved: qtyReserved,
+          qty_inbound_working: qtyInboundWorking,
+          qty_inbound_shipped: qtyInboundShipped,
+          qty_inbound_receiving: qtyInboundReceiving,
+          available_qty: qtyAvailable,
+          reserved_qty: qtyReserved,
+          inbound_qty: inboundTotal,
+          location,
+          external_location_code: location,
           erp_variant_id: erpVariantId,
+          matched_variant_id: erpVariantId,
           erp_warehouse_id: null,
           match_status: matchStatus,
           raw: buildRawRecord(normalizedHeaders, row),
         });
       });
 
+      rowsInserted = inserts.length;
       const chunkSize = 500;
       for (let i = 0; i < inserts.length; i += chunkSize) {
         const chunk = inserts.slice(i, i + chunkSize);
@@ -453,29 +636,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
     }
 
+    const summary = await fetchBatchSummary(client, batch.id);
+
     const updatedBatch = await client
       .from("erp_external_inventory_batches")
-      .update({ status: "completed", pulled_at: new Date().toISOString() })
+      .update({
+        status: "done",
+        pulled_at: new Date().toISOString(),
+        rows_total: summary.row_count,
+        matched_count: summary.matched_count,
+        unmatched_count: summary.unmatched_count,
+      })
       .eq("id", batch.id)
-      .select("id, channel_key, marketplace_id, pulled_at")
+      .select("id")
       .single();
 
     if (updatedBatch.error || !updatedBatch.data) {
       throw new Error(updatedBatch.error?.message || "Failed to update batch status");
     }
 
-    const summary = await fetchBatchSummary(client, batch.id);
-
     return res.status(200).json({
       ok: true,
-      status: "completed",
-      batch: {
-        id: updatedBatch.data.id,
-        channel_key: updatedBatch.data.channel_key,
-        marketplace_id: updatedBatch.data.marketplace_id ?? null,
-        pulled_at: updatedBatch.data.pulled_at,
-        ...summary,
-      },
+      status: "done",
+      nextPollAfterMs: 0,
+      done: true,
+      fatal: false,
+      rowsInserted,
+      matched: summary.matched_count,
+      unmatched: summary.unmatched_count,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
