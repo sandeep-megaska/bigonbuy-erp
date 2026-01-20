@@ -29,7 +29,8 @@ const reportCreateSchema = z
   .passthrough();
 
 const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
-const REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const PRIMARY_REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const FALLBACK_REPORT_TYPE = "GET_AFN_INVENTORY_DATA";
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -125,26 +126,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       serviceRoleKey
     );
 
-    assertSupportedReportType(REPORT_TYPE);
+    assertSupportedReportType(PRIMARY_REPORT_TYPE);
+    assertSupportedReportType(FALLBACK_REPORT_TYPE);
 
-    const response = await spApiSignedFetch({
-      method: "POST",
-      path: "/reports/2021-06-30/reports",
-      accessToken,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        reportType: REPORT_TYPE,
-        marketplaceIds: MARKETPLACE_IDS,
-      }),
-    });
+    const createReport = async (reportType: string) => {
+      const response = await spApiSignedFetch({
+        method: "POST",
+        path: "/reports/2021-06-30/reports",
+        accessToken,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reportType,
+          marketplaceIds: MARKETPLACE_IDS,
+        }),
+      });
 
-    const json = await response.json();
+      const json = await response.json();
+      return { response, json };
+    };
+
+    const isInvalidReportType = (payload: unknown): boolean => {
+      if (!payload || typeof payload !== "object") return false;
+      const errors = (payload as { errors?: Array<{ code?: string; message?: string }> }).errors;
+      if (!Array.isArray(errors)) return false;
+      return errors.some(
+        (error) =>
+          /invalid report type/i.test(error?.message ?? "") ||
+          /invalidreporttype/i.test(error?.code ?? "")
+      );
+    };
+
+    let usedReportType = PRIMARY_REPORT_TYPE;
+    let { response, json } = await createReport(usedReportType);
+    if (!response.ok && isInvalidReportType(json)) {
+      usedReportType = FALLBACK_REPORT_TYPE;
+      ({ response, json } = await createReport(usedReportType));
+    }
+
     if (!response.ok) {
       return res.status(500).json({ ok: false, error: `SP-API error: ${JSON.stringify(json)}` });
     }
 
     const parsedReport = reportCreateSchema.safeParse(json);
-    const reportId = parsedReport.success ? parsedReport.data.reportId : (json as { reportId?: string })?.reportId;
+    const reportId = parsedReport.success
+      ? parsedReport.data.reportId
+      : (json as { reportId?: string })?.reportId;
     if (!reportId) {
       return res.status(500).json({ ok: false, error: "Missing reportId in SP-API response" });
     }
@@ -156,8 +182,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         channel_key: "amazon",
         marketplace_id: marketplaceId,
         type: "report",
-        status: "requested",
+        status: "processing",
+        notes: `Report type: ${usedReportType}`,
         external_report_id: reportId,
+        report_id: reportId,
+        report_type: usedReportType,
       })
       .select("id")
       .single();
