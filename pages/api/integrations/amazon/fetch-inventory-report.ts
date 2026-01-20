@@ -30,7 +30,7 @@ type ApiResponse =
 
 type VariantRow = {
   id: string;
-  sku_code: string;
+  sku: string;
   title: string | null;
   size: string | null;
   color: string | null;
@@ -99,11 +99,11 @@ async function fetchVariantMatches(
 
   for (let i = 0; i < uniqueSkus.length; i += chunkSize) {
     const chunk = uniqueSkus.slice(i, i + chunkSize);
-    const orFilter = chunk.map((sku) => `sku_code.ilike.${escapeIlike(sku)}`).join(",");
+    const orFilter = chunk.map((sku) => `sku.ilike.${escapeIlike(sku)}`).join(",");
 
     const { data, error } = await client
       .from("erp_variants")
-      .select("id, sku_code, title, size, color, hsn")
+      .select("id, sku, title, size, color, hsn")
       .eq("company_id", companyId)
       .or(orFilter);
 
@@ -112,7 +112,7 @@ async function fetchVariantMatches(
     }
 
     (data || []).forEach((row: VariantRow) => {
-      const key = row.sku_code.toLowerCase();
+      const key = row.sku.toLowerCase();
       const existing = matches.get(key) ?? [];
       existing.push(row);
       matches.set(key, existing);
