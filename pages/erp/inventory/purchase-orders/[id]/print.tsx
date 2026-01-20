@@ -113,11 +113,30 @@ export default function PurchaseOrderPrintPage() {
     if (loading || !po || !branding?.loaded) return;
     if (!logoLoaded || !secondaryLogoLoaded) return;
 
-    const timer = window.setTimeout(() => {
-      window.print();
-    }, 300);
+    let active = true;
+    let timer: number | undefined;
 
-    return () => window.clearTimeout(timer);
+    const waitForPrint = async () => {
+      if (document.fonts?.ready) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // Ignore font loading failures; still attempt to print.
+        }
+      }
+
+      if (!active) return;
+      timer = window.setTimeout(() => {
+        if (active) window.print();
+      }, 300);
+    };
+
+    waitForPrint();
+
+    return () => {
+      active = false;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [loading, po, branding?.loaded, logoLoaded, secondaryLogoLoaded]);
 
   async function loadData(companyId: string, poId: string, isActiveFetch = true) {
@@ -456,40 +475,42 @@ export default function PurchaseOrderPrintPage() {
         @media print {
           @page {
             size: A4;
-            margin: 48mm 12mm 28mm;
+            margin: 12mm;
           }
 
           body {
             background: #fff;
             margin: 0;
+            transform: none !important;
           }
 
           .po-print-root {
             max-width: none;
             padding: 0;
             display: block;
+            transform: none !important;
           }
 
           .po-header {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 16mm 12mm 6mm;
+            top: 12mm;
+            left: 12mm;
+            right: 12mm;
+            padding: 0 0 6mm;
             background: #fff;
           }
 
           .po-footer {
             position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 6mm 12mm 12mm;
+            bottom: 12mm;
+            left: 12mm;
+            right: 12mm;
+            padding: 6mm 0 0;
             background: #fff;
           }
 
           .po-body {
-            margin: 0;
+            margin: 52mm 0 28mm;
             display: block;
           }
 
