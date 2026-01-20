@@ -76,9 +76,6 @@ const reportStatusSchema = z.object({
   ok: z.boolean(),
   status: z.string().optional(),
   message: z.string().optional(),
-  nextPollAfterMs: z.number().optional(),
-  done: z.boolean().optional(),
-  fatal: z.boolean().optional(),
   rowsInserted: z.number().optional(),
   matched: z.number().optional(),
   unmatched: z.number().optional(),
@@ -93,7 +90,7 @@ const testResponseSchema = z.object({
 });
 
 const rowLimit = 500;
-const maxPolls = 20;
+const pollBackoffMs = [2000, 4000, 8000, 15000, 20000];
 
 export default function AmazonExternalInventoryPage() {
   const router = useRouter();
@@ -281,7 +278,7 @@ export default function AmazonExternalInventoryPage() {
       } else {
         setReportBatchId(parsed.data.batchId);
         setReportStatus("requested");
-        setNotice("Report requested. Waiting for Amazon to generate the inventory snapshot…");
+        setNotice("Status: requested — Report requested. Waiting for Amazon to generate the inventory snapshot…");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -292,19 +289,7 @@ export default function AmazonExternalInventoryPage() {
   };
 
   useEffect(() => {
-    if (
-      !reportBatchId ||
-      reportStatus === "done" ||
-      reportStatus === "fatal" ||
-      reportStatus === "paused"
-    ) {
-      setIsPolling(false);
-      return;
-    }
-
-    if (pollCountRef.current >= maxPolls) {
-      setNotice("Still processing. Try refresh later.");
-      setReportStatus("paused");
+    if (!reportBatchId || reportStatus === "completed" || reportStatus === "failed") {
       setIsPolling(false);
       return;
     }
@@ -322,17 +307,9 @@ export default function AmazonExternalInventoryPage() {
         return;
       }
 
-      let nextPollAfterMs = 0;
+      let nextStatus: string | null = null;
 
       try {
-        pollCountRef.current += 1;
-        if (pollCountRef.current > maxPolls) {
-          setNotice("Still processing. Try refresh later.");
-          setReportStatus("paused");
-          setIsPolling(false);
-          return;
-        }
-
         const response = await fetch(
           `/api/integrations/amazon/fetch-inventory-report?batchId=${reportBatchId}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -341,43 +318,55 @@ export default function AmazonExternalInventoryPage() {
         const parsed = reportStatusSchema.safeParse(json);
         if (!parsed.success) {
           setError("Unexpected report status response.");
-          setReportStatus("fatal");
+          setReportStatus("failed");
+          nextStatus = "failed";
           return;
         }
 
         if (!parsed.data.ok) {
           setError(parsed.data.error || "Failed to fetch report status.");
-          setReportStatus("fatal");
+          setReportStatus("failed");
+          nextStatus = "failed";
           return;
         }
 
-        const status = parsed.data.status ?? "processing";
-        const done = parsed.data.done ?? false;
-        const fatal = parsed.data.fatal ?? false;
-        nextPollAfterMs = parsed.data.nextPollAfterMs ?? 0;
-        setReportStatus(status);
+        nextStatus = parsed.data.status ?? "processing";
+        const message = parsed.data.message ?? null;
+        setReportStatus(nextStatus);
 
-        if (done) {
+        const statusNotice = `Status: ${nextStatus}${message ? ` — ${message}` : ""}`;
+
+        if (nextStatus === "completed") {
           const matched = parsed.data.matched ?? 0;
           const unmatched = parsed.data.unmatched ?? 0;
           const total = matched + unmatched;
-          setNotice(`Pulled ${total} rows (${matched} matched, ${unmatched} unmatched).`);
+          setNotice(`${statusNotice}. Pulled ${total} rows (${matched} matched, ${unmatched} unmatched).`);
           await loadBatchSummary(reportBatchId);
-        } else if (fatal) {
-          setError(parsed.data.message || "Amazon report generation failed.");
+        } else if (nextStatus === "failed") {
+          setError(statusNotice || "Amazon report generation failed.");
         } else {
-          setNotice(parsed.data.message || "Generating report…");
+          setNotice(statusNotice || "Generating report…");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         setError(message);
-        setReportStatus("fatal");
+        setReportStatus("failed");
+        nextStatus = "failed";
       } finally {
-        if (!cancelled && nextPollAfterMs > 0) {
-          timeoutId = setTimeout(poll, nextPollAfterMs);
-        } else {
+        if (cancelled) {
           setIsPolling(false);
+          return;
         }
+
+        if (nextStatus === "completed" || nextStatus === "failed") {
+          setIsPolling(false);
+          return;
+        }
+
+        const delay =
+          pollBackoffMs[Math.min(pollCountRef.current, pollBackoffMs.length - 1)];
+        pollCountRef.current += 1;
+        timeoutId = setTimeout(poll, delay);
       }
     };
 
