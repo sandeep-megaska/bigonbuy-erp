@@ -29,77 +29,56 @@ create index if not exists erp_external_inventory_rows_external_sku_norm_idx
 create index if not exists erp_external_inventory_rows_matched_variant_idx
   on public.erp_external_inventory_rows (matched_variant_id);
 
-create or replace function public.erp_external_inventory_rows_list(
+-- IMPORTANT: Postgres cannot CREATE OR REPLACE if return rowtype changes
+drop function if exists public.erp_external_inventory_rows_list(uuid, boolean, int, int);
+
+create function public.erp_external_inventory_rows_list(
   p_batch_id uuid,
   p_only_unmatched boolean default false,
   p_limit int default 500,
   p_offset int default 0
 )
-returns table(
+returns table (
   id uuid,
+  batch_id uuid,
   external_sku text,
-  asin text,
-  fnsku text,
-  condition text,
-  qty_available int,
-  qty_reserved int,
-  qty_inbound_working int,
-  qty_inbound_shipped int,
-  qty_inbound_receiving int,
-  external_location_code text,
+  external_sku_norm text,
   match_status text,
-  erp_variant_id uuid,
-  sku text,
-  variant_title text,
-  variant_size text,
-  variant_color text,
-  variant_hsn text,
-  erp_warehouse_id uuid,
-  warehouse_name text
+  matched_variant_id uuid,
+  available_qty int,
+  reserved_qty int,
+  inbound_qty int,
+  location text,
+  asin text
 )
-language plpgsql
+language sql
 stable
 security definer
 set search_path = public
 as $$
-begin
-  perform public.erp_require_inventory_reader();
-
-  return query
   select
     r.id,
+    r.batch_id,
     r.external_sku,
-    r.asin,
-    r.fnsku,
-    r.condition,
-    r.qty_available,
-    r.qty_reserved,
-    r.qty_inbound_working,
-    r.qty_inbound_shipped,
-    r.qty_inbound_receiving,
-    r.external_location_code,
+    r.external_sku_norm,
     r.match_status,
-    r.erp_variant_id,
-    v.sku,
-    v.title as variant_title,
-    v.size as variant_size,
-    v.color as variant_color,
-    v.hsn as variant_hsn,
-    r.erp_warehouse_id,
-    w.name as warehouse_name
+    r.matched_variant_id,
+    r.available_qty,
+    r.reserved_qty,
+    r.inbound_qty,
+    r.location,
+    r.asin
   from public.erp_external_inventory_rows r
-  left join public.erp_variants v
-    on v.id = r.erp_variant_id
-  left join public.erp_warehouses w
-    on w.id = r.erp_warehouse_id
-  where r.company_id = public.erp_current_company_id()
-    and r.batch_id = p_batch_id
-    and (not p_only_unmatched or r.match_status = 'unmatched')
-  order by r.external_sku
-  limit greatest(p_limit, 1)
+  where r.batch_id = p_batch_id
+    and (not p_only_unmatched or coalesce(r.match_status,'unmatched') = 'unmatched')
+  order by r.external_sku_norm nulls last, r.external_sku nulls last
+  limit greatest(p_limit, 0)
   offset greatest(p_offset, 0);
-end;
 $$;
+
+-- re-grant if your project uses grants explicitly
+grant execute on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) to authenticated;
+
 
 revoke all on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) from public;
 grant execute on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) to authenticated;
