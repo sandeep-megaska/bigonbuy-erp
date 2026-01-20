@@ -351,107 +351,109 @@ export default function PurchaseOrderPrintPage() {
         </div>
       </header>
 
-      <main style={printBodyStyle} className="po-body">
-        <section style={printSectionStyle} className="po-print-section">
-          <div style={printSectionTitleStyle}>Vendor</div>
-          <div style={printVendorGridStyle}>
-            <div>
-              <div style={printVendorNameStyle}>{vendor?.legal_name || "—"}</div>
-              <div style={printDetailTextStyle}>GSTIN: {vendor?.gstin || "—"}</div>
-              <div style={printDetailTextStyle}>
-                {vendorAddressLines.length > 0 ? vendorAddressLines.join("\n") : "—"}
+      <div className="po-content">
+        <main style={printBodyStyle} className="po-body">
+          <section style={printSectionStyle} className="po-print-section">
+            <div style={printSectionTitleStyle}>Vendor</div>
+            <div style={printVendorGridStyle}>
+              <div>
+                <div style={printVendorNameStyle}>{vendor?.legal_name || "—"}</div>
+                <div style={printDetailTextStyle}>GSTIN: {vendor?.gstin || "—"}</div>
+                <div style={printDetailTextStyle}>
+                  {vendorAddressLines.length > 0 ? vendorAddressLines.join("\n") : "—"}
+                </div>
+              </div>
+              <div>
+                <div style={printDetailLabelStyle}>Contact</div>
+                <div style={printDetailTextStyle}>{vendor?.contact_person || "—"}</div>
+                <div style={printDetailTextStyle}>Phone: {vendor?.phone || "—"}</div>
+                <div style={printDetailTextStyle}>Email: {vendor?.email || "—"}</div>
               </div>
             </div>
-            <div>
-              <div style={printDetailLabelStyle}>Contact</div>
-              <div style={printDetailTextStyle}>{vendor?.contact_person || "—"}</div>
-              <div style={printDetailTextStyle}>Phone: {vendor?.phone || "—"}</div>
-              <div style={printDetailTextStyle}>Email: {vendor?.email || "—"}</div>
-            </div>
-          </div>
-        </section>
-
-        <section style={printSectionStyle} className="po-print-section">
-          <table style={printTableStyle} className="po-print-table">
-            <thead>
-              <tr>
-                <th style={printTableHeaderStyle}>Sl No</th>
-                <th style={printTableHeaderStyle}>SKU</th>
-                <th style={printTableHeaderStyle}>Style</th>
-                <th style={printTableHeaderStyle}>HSN</th>
-                <th style={printTableHeaderStyle}>Size</th>
-                <th style={printTableHeaderStyle}>Color</th>
-                <th style={printTableHeaderStyle}>Qty</th>
-                <th style={printTableHeaderStyle}>Unit Rate</th>
-                <th style={printTableHeaderStyle}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.length === 0 ? (
-                <tr>
-                  <td style={printTableCellStyle} colSpan={9}>
-                    No line items found.
-                  </td>
-                </tr>
-              ) : (
-                lines.map((line, index) => {
-                  const variant = variantMap.get(line.variant_id);
-                  const roundedUnitRate = line.unit_cost !== null ? round2(line.unit_cost) : null;
-                  const lineTotal =
-                    roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
-                  return (
-                    <tr key={line.id}>
-                      <td style={printTableCellStyle}>{index + 1}</td>
-                      <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
-                      <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
-                      <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
-                      <td style={printTableCellStyle}>{variant?.size || "—"}</td>
-                      <td style={printTableCellStyle}>{variant?.color || "—"}</td>
-                      <td style={printTableCellStyle}>{line.ordered_qty}</td>
-                      <td style={printTableCellStyle}>{formatMoney(roundedUnitRate)}</td>
-                      <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </section>
-
-        <section style={printTotalsSectionStyle} className="po-print-section">
-          <div style={printTotalsRowStyle}>
-            <span style={printMetaLabelStyle}>Subtotal</span>
-            <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
-          </div>
-          <div style={{ ...printTotalsRowStyle, fontWeight: 700 }}>
-            <span>Total Amount ({currencyCode})</span>
-            <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
-          </div>
-          <div style={printGstNoteStyle}>GST: As applicable / extra</div>
-        </section>
-
-        {termsLines.length > 0 ? (
-          <section style={printSectionStyle} className="po-print-section">
-            <div style={printSectionTitleStyle}>Terms &amp; Conditions</div>
-            <ul style={printBulletListStyle}>
-              {termsLines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
           </section>
-        ) : null}
 
-        <section style={printSignatureRowStyle} className="po-print-section">
-          <div style={printSignatureBlockStyle}>
-            <div style={printSignatureLineStyle} />
-            <div style={printSignatureLabelStyle}>Authorized Signatory</div>
-          </div>
-          <div style={printSignatureBlockStyle}>
-            <div style={printSignatureLineStyle} />
-            <div style={printSignatureLabelStyle}>Vendor Acceptance</div>
-          </div>
-        </section>
-      </main>
+          <section style={printSectionStyle} className="po-print-section">
+            <table style={printTableStyle} className="po-print-table">
+              <thead>
+                <tr>
+                  <th style={printTableHeaderStyle}>Sl No</th>
+                  <th style={printTableHeaderStyle}>SKU</th>
+                  <th style={printTableHeaderStyle}>Style</th>
+                  <th style={printTableHeaderStyle}>HSN</th>
+                  <th style={printTableHeaderStyle}>Size</th>
+                  <th style={printTableHeaderStyle}>Color</th>
+                  <th style={printTableHeaderStyle}>Qty</th>
+                  <th style={printTableHeaderStyle}>Unit Rate</th>
+                  <th style={printTableHeaderStyle}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.length === 0 ? (
+                  <tr>
+                    <td style={printTableCellStyle} colSpan={9}>
+                      No line items found.
+                    </td>
+                  </tr>
+                ) : (
+                  lines.map((line, index) => {
+                    const variant = variantMap.get(line.variant_id);
+                    const roundedUnitRate = line.unit_cost !== null ? round2(line.unit_cost) : null;
+                    const lineTotal =
+                      roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
+                    return (
+                      <tr key={line.id}>
+                        <td style={printTableCellStyle}>{index + 1}</td>
+                        <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
+                        <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
+                        <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
+                        <td style={printTableCellStyle}>{variant?.size || "—"}</td>
+                        <td style={printTableCellStyle}>{variant?.color || "—"}</td>
+                        <td style={printTableCellStyle}>{line.ordered_qty}</td>
+                        <td style={printTableCellStyle}>{formatMoney(roundedUnitRate)}</td>
+                        <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section style={printTotalsSectionStyle} className="po-print-section">
+            <div style={printTotalsRowStyle}>
+              <span style={printMetaLabelStyle}>Subtotal</span>
+              <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
+            </div>
+            <div style={{ ...printTotalsRowStyle, fontWeight: 700 }}>
+              <span>Total Amount ({currencyCode})</span>
+              <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
+            </div>
+            <div style={printGstNoteStyle}>GST: As applicable / extra</div>
+          </section>
+
+          {termsLines.length > 0 ? (
+            <section style={printSectionStyle} className="po-print-section">
+              <div style={printSectionTitleStyle}>Terms &amp; Conditions</div>
+              <ul style={printBulletListStyle}>
+                {termsLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section style={printSignatureRowStyle} className="po-print-section">
+            <div style={printSignatureBlockStyle}>
+              <div style={printSignatureLineStyle} />
+              <div style={printSignatureLabelStyle}>Authorized Signatory</div>
+            </div>
+            <div style={printSignatureBlockStyle}>
+              <div style={printSignatureLineStyle} />
+              <div style={printSignatureLabelStyle}>Vendor Acceptance</div>
+            </div>
+          </section>
+        </main>
+      </div>
 
       <footer style={printFooterStyle} className="po-footer">
         <div style={printFooterTextStyle}>
@@ -486,36 +488,53 @@ export default function PurchaseOrderPrintPage() {
 
           .po-print-root {
             max-width: none;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
             display: block;
             transform: none !important;
           }
 
           .po-header {
             position: fixed;
-            top: 12mm;
-            left: 12mm;
-            right: 12mm;
+            top: 0;
+            left: 0;
+            right: 0;
             padding: 0 0 6mm;
             background: #fff;
+            display: block;
           }
 
           .po-footer {
             position: fixed;
-            bottom: 12mm;
-            left: 12mm;
-            right: 12mm;
+            bottom: 0;
+            left: 0;
+            right: 0;
             padding: 6mm 0 0;
             background: #fff;
+            display: block;
+          }
+
+          .po-content {
+            --po-header-height: 44mm;
+            --po-footer-height: 22mm;
+            --po-section-gap: 4mm;
+            padding-top: calc(var(--po-header-height) + var(--po-section-gap));
+            padding-bottom: calc(var(--po-footer-height) + var(--po-section-gap));
+            display: block;
           }
 
           .po-body {
-            margin: 52mm 0 28mm;
+            margin: 0 !important;
+            padding: 0 !important;
             display: block;
           }
 
           .po-body > .po-print-section:last-child {
             margin-bottom: 0;
+          }
+
+          .po-print-section {
+            display: block;
           }
 
           .po-print-table {
