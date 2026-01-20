@@ -1,7 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
+import {
+  assertSupportedReportType,
+  getAmazonAccessToken,
+  spApiSignedFetch,
+} from "../../../../lib/amazonSpApi";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -24,7 +28,8 @@ const reportCreateSchema = z
   })
   .passthrough();
 
-const DEFAULT_MARKETPLACE_ID = "A21TJRUUN4KGV";
+const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
+const REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -112,7 +117,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     const accessToken = await getAmazonAccessToken();
-    const marketplaceId = parseResult.data.marketplaceId ?? DEFAULT_MARKETPLACE_ID;
+    const marketplaceId = MARKETPLACE_IDS[0];
     const { companyId, client } = await resolveCompanyClient(
       req,
       supabaseUrl,
@@ -120,14 +125,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       serviceRoleKey
     );
 
+    assertSupportedReportType(REPORT_TYPE);
+
     const response = await spApiSignedFetch({
       method: "POST",
       path: "/reports/2021-06-30/reports",
       accessToken,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        reportType: "_GET_FBA_INVENTORY_AVAILABILITY_DATA_",
-        marketplaceIds: [marketplaceId],
+        reportType: REPORT_TYPE,
+        marketplaceIds: MARKETPLACE_IDS,
       }),
     });
 

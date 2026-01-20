@@ -1,4 +1,4 @@
-export function parseCsv(text: string): string[][] {
+export function parseDelimited(text: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   const normalized = text.replace(/\uFEFF/g, "");
   let current: string[] = [];
@@ -19,7 +19,7 @@ export function parseCsv(text: string): string[][] {
       continue;
     }
 
-    if (char === "," && !inQuotes) {
+    if (char === delimiter && !inQuotes) {
       current.push(value);
       value = "";
       continue;
@@ -49,4 +49,12 @@ export function parseCsv(text: string): string[][] {
   }
 
   return rows;
+}
+
+export function parseCsv(text: string): string[][] {
+  return parseDelimited(text, ",");
+}
+
+export function parseTsv(text: string): string[][] {
+  return parseDelimited(text, "\t");
 }
