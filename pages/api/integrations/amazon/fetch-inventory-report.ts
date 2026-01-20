@@ -30,7 +30,7 @@ type ApiResponse =
 
 type VariantRow = {
   id: string;
-  sku_code: string;
+  sku: string;
   title: string | null;
   size: string | null;
   color: string | null;
@@ -78,10 +78,6 @@ const reportDocumentSchema = z
 
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
-function escapeIlike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
-}
-
 function toInt(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Number(value);
@@ -99,20 +95,19 @@ async function fetchVariantMatches(
 
   for (let i = 0; i < uniqueSkus.length; i += chunkSize) {
     const chunk = uniqueSkus.slice(i, i + chunkSize);
-    const orFilter = chunk.map((sku) => `sku_code.ilike.${escapeIlike(sku)}`).join(",");
 
     const { data, error } = await client
       .from("erp_variants")
-      .select("id, sku_code, title, size, color, hsn")
+      .select("id, sku, title, size, color, hsn")
       .eq("company_id", companyId)
-      .or(orFilter);
+      .in("sku", chunk);
 
     if (error) {
       throw new Error(error.message || "Failed to match ERP SKUs");
     }
 
     (data || []).forEach((row: VariantRow) => {
-      const key = row.sku_code.toLowerCase();
+      const key = row.sku.toLowerCase();
       const existing = matches.get(key) ?? [];
       existing.push(row);
       matches.set(key, existing);
