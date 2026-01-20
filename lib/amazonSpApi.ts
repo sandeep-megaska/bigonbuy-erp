@@ -18,6 +18,7 @@ type SignedFetchOptions = {
   accessToken: string;
   query?: Record<string, string | number | boolean | undefined | null>;
   body?: string;
+  headers?: Record<string, string>;
 };
 
 const lwaTokenSchema = z.object({
@@ -182,6 +183,7 @@ export async function spApiSignedFetch(options: SignedFetchOptions): Promise<Res
       "x-amz-access-token": options.accessToken,
       "x-amz-date": amzDate,
       host,
+      ...options.headers,
     },
     body: options.body,
   });
