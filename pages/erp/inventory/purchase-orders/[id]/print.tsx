@@ -295,7 +295,7 @@ export default function PurchaseOrderPrintPage() {
   const referenceText = referenceParts.length > 0 ? referenceParts.join(" / ") : null;
 
   return (
-    <div style={printPageStyle} className="po-print-root">
+    <div style={printPageStyle} className="po-print po-print-root">
       <div className="po-sheet">
         {error ? <div style={printErrorStyle}>{error}</div> : null}
         <header style={printHeaderRowStyle} className="po-header">
@@ -374,50 +374,52 @@ export default function PurchaseOrderPrintPage() {
             </section>
 
             <section style={printSectionStyle} className="po-print-section">
-              <table style={printTableStyle} className="po-print-table">
-                <thead>
-                  <tr>
-                    <th style={printTableHeaderStyle}>Sl No</th>
-                    <th style={printTableHeaderStyle}>SKU</th>
-                    <th style={printTableHeaderStyle}>Style</th>
-                    <th style={printTableHeaderStyle}>HSN</th>
-                    <th style={printTableHeaderStyle}>Size</th>
-                    <th style={printTableHeaderStyle}>Color</th>
-                    <th style={printTableHeaderStyle}>Qty</th>
-                    <th style={printTableHeaderStyle}>Unit Rate</th>
-                    <th style={printTableHeaderStyle}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.length === 0 ? (
+              <div className="po-table-wrap">
+                <table style={printTableStyle} className="po-print-table">
+                  <thead>
                     <tr>
-                      <td style={printTableCellStyle} colSpan={9}>
-                        No line items found.
-                      </td>
+                      <th style={printTableHeaderStyle}>Sl No</th>
+                      <th style={printTableHeaderStyle}>SKU</th>
+                      <th style={printTableHeaderStyle}>Style</th>
+                      <th style={printTableHeaderStyle}>HSN</th>
+                      <th style={printTableHeaderStyle}>Size</th>
+                      <th style={printTableHeaderStyle}>Color</th>
+                      <th style={printTableHeaderStyle}>Qty</th>
+                      <th style={printTableHeaderStyle}>Unit Rate</th>
+                      <th style={printTableHeaderStyle}>Amount</th>
                     </tr>
-                  ) : (
-                    lines.map((line, index) => {
-                      const variant = variantMap.get(line.variant_id);
-                      const roundedUnitRate = line.unit_cost !== null ? round2(line.unit_cost) : null;
-                      const lineTotal =
-                        roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
-                      return (
-                        <tr key={line.id}>
-                          <td style={printTableCellStyle}>{index + 1}</td>
-                          <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
-                          <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
-                          <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
-                          <td style={printTableCellStyle}>{variant?.size || "—"}</td>
-                          <td style={printTableCellStyle}>{variant?.color || "—"}</td>
-                          <td style={printTableCellStyle}>{line.ordered_qty}</td>
-                          <td style={printTableCellStyle}>{formatMoney(roundedUnitRate)}</td>
-                          <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td style={printTableCellStyle} colSpan={9}>
+                          No line items found.
+                        </td>
+                      </tr>
+                    ) : (
+                      lines.map((line, index) => {
+                        const variant = variantMap.get(line.variant_id);
+                        const roundedUnitRate = line.unit_cost !== null ? round2(line.unit_cost) : null;
+                        const lineTotal =
+                          roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
+                        return (
+                          <tr key={line.id}>
+                            <td style={printTableCellStyle}>{index + 1}</td>
+                            <td style={printTableCellStyle}>{variant?.sku || line.variant_id}</td>
+                            <td style={printTableCellStyle}>{variant?.styleCode || "—"}</td>
+                            <td style={printTableCellStyle}>{variant?.hsnCode || "—"}</td>
+                            <td style={printTableCellStyle}>{variant?.size || "—"}</td>
+                            <td style={printTableCellStyle}>{variant?.color || "—"}</td>
+                            <td style={printTableCellStyle}>{line.ordered_qty}</td>
+                            <td style={printTableCellStyle}>{formatMoney(roundedUnitRate)}</td>
+                            <td style={printTableCellStyle}>{formatMoney(lineTotal)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             <section style={printTotalsSectionStyle} className="po-print-section">
@@ -487,6 +489,14 @@ export default function PurchaseOrderPrintPage() {
             margin: 0;
             transform: none !important;
             zoom: 1 !important;
+          }
+
+          .po-print,
+          .po-sheet,
+          .po-content,
+          .po-body,
+          .po-table-wrap {
+            overflow: visible !important;
           }
 
           .po-print-root {
@@ -568,9 +578,21 @@ export default function PurchaseOrderPrintPage() {
             display: table-header-group;
           }
 
+          .po-print-table tbody {
+            display: table-row-group;
+          }
+
+          .po-print-table tfoot {
+            display: table-footer-group;
+          }
+
           .po-print-table tr {
             break-inside: avoid;
             page-break-inside: avoid;
+          }
+
+          .po-table-wrap {
+            padding-top: 6mm !important;
           }
 
           .po-print-section {
