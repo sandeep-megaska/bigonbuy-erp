@@ -101,9 +101,14 @@ export default function PurchaseOrderDetailPage() {
   const [receiptLines, setReceiptLines] = useState<ReceiptLineDraft[]>([]);
   const [receiptNotes, setReceiptNotes] = useState("");
   const [actionState, setActionState] = useState<"draft" | "post" | null>(null);
+  const [approveState, setApproveState] = useState<"idle" | "saving">("idle");
   const branding = useCompanyBranding();
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
+  const canApprove = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin", "procurement"].includes(ctx.roleKey)),
+    [ctx]
+  );
   const currencyCode = branding?.currencyCode || "INR";
 
   useEffect(() => {
@@ -364,6 +369,34 @@ export default function PurchaseOrderDetailPage() {
     }
   }
 
+  async function handleApproveDraft() {
+    if (!ctx?.companyId || !po) return;
+    if (!canApprove) {
+      setError("Only procurement writers/admin can approve purchase orders.");
+      return;
+    }
+
+    const confirmed = typeof window === "undefined" ? false : window.confirm("Approve this purchase order?");
+    if (!confirmed) return;
+
+    setError("");
+    setNotice("");
+    setApproveState("saving");
+
+    try {
+      const { error: approveError } = await supabase.rpc("erp_proc_po_approve", { p_po_id: po.id });
+      if (approveError) {
+        throw new Error(approveError.message);
+      }
+      setNotice("Purchase order approved.");
+      await loadData(ctx.companyId, po.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve purchase order.");
+    } finally {
+      setApproveState("idle");
+    }
+  }
+
   const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
 
   const formatDate = (value: string | null | undefined) => {
@@ -403,6 +436,26 @@ export default function PurchaseOrderDetailPage() {
             >
               Print / Save PDF
             </button>
+            {po?.status === "draft" ? (
+              <>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => router.push(`/erp/inventory/purchase-orders/${po.id}/edit`)}
+                  disabled={!canApprove || approveState !== "idle"}
+                >
+                  Edit Draft
+                </button>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleApproveDraft}
+                  disabled={!canApprove || approveState !== "idle"}
+                >
+                  {approveState === "saving" ? "Approving…" : "Approve PO"}
+                </button>
+              </>
+            ) : null}
           </div>
         </header>
 
