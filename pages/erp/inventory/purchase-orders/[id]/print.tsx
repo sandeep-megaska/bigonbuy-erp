@@ -298,7 +298,7 @@ export default function PurchaseOrderPrintPage() {
 
   return (
     <div style={printPageStyle} className={`po-print po-print-root${printDebug ? " print-debug" : ""}`}>
-      <div className="po-sheet">
+      <div className="po-sheet print-page">
         {error ? <div style={printErrorStyle}>{error}</div> : null}
         <header style={printHeaderRowStyle} className="po-header">
           <div style={printBrandBlockStyle}>
@@ -354,7 +354,7 @@ export default function PurchaseOrderPrintPage() {
           </div>
         </header>
 
-        <div className="po-content">
+        <div className="po-content print-content">
           <main style={printBodyStyle} className="po-body">
             <section style={printSectionStyle} className="po-print-section">
               <div style={printSectionTitleStyle}>Vendor</div>
@@ -471,10 +471,14 @@ export default function PurchaseOrderPrintPage() {
           </main>
         </div>
 
-        <footer style={printFooterStyle} className="po-footer">
+        <footer style={printFooterStyle} className="po-footer print-footer">
           <div style={printFooterTextStyle}>
             {companyAddressLines.length > 0 ? companyAddressLines.join("\n") : "—"}
             {"\n"}GSTIN: {branding?.gstin || "—"}
+          </div>
+          <div style={printFooterPageStyle}>
+            {po?.po_no || po?.id || "—"} – Page <span className="pageNumber"></span> /{" "}
+            <span className="totalPages"></span>
           </div>
           {secondaryLogoUrl ? (
             <img
@@ -494,7 +498,12 @@ export default function PurchaseOrderPrintPage() {
         @media print {
           @page {
             size: A4;
-            margin: 12mm;
+            margin: 12mm 12mm 14mm;
+          }
+
+          html,
+          body {
+            height: auto;
           }
 
           body {
@@ -530,11 +539,13 @@ export default function PurchaseOrderPrintPage() {
           .po-sheet {
             width: 100%;
             max-width: 100%;
-            min-height: auto;
+            min-height: calc(297mm - 26mm);
             padding: 0;
             box-sizing: border-box;
             margin: 0 auto;
             position: relative;
+            display: flex;
+            flex-direction: column;
             transform: none !important;
             zoom: 1 !important;
           }
@@ -556,7 +567,7 @@ export default function PurchaseOrderPrintPage() {
             padding: 6mm 0 0;
             background: #fff;
             display: block;
-            margin-top: var(--po-section-gap);
+            margin-top: 12px;
             transform: none !important;
             zoom: 1 !important;
           }
@@ -565,6 +576,7 @@ export default function PurchaseOrderPrintPage() {
             padding-top: 0;
             padding-bottom: 0;
             display: block;
+            flex: 1;
             transform: none !important;
             zoom: 1 !important;
           }
@@ -575,6 +587,10 @@ export default function PurchaseOrderPrintPage() {
             display: block;
             transform: none !important;
             zoom: 1 !important;
+          }
+
+          .print-footer {
+            margin-top: auto;
           }
 
           .po-body > .po-print-section:last-child {
@@ -751,12 +767,12 @@ const printCompanyAddressStyle = {
 };
 
 const printPoTitleStyle = {
-  marginTop: 10,
-  fontSize: 12,
+  marginTop: 8,
+  fontSize: 17,
   textTransform: "uppercase" as const,
-  letterSpacing: "0.12em",
+  letterSpacing: "0.06em",
   color: "#6b7280",
-  fontWeight: 700,
+  fontWeight: 800,
 };
 
 const printMetaCardStyle = {
@@ -808,8 +824,8 @@ const printVendorGridStyle = {
 };
 
 const printVendorNameStyle = {
-  fontSize: 15,
-  fontWeight: 700,
+  fontSize: 16,
+  fontWeight: 800,
   color: "#111827",
   marginBottom: 4,
 };
@@ -924,4 +940,11 @@ const printFooterTextStyle = {
   fontSize: 11,
   color: "#6b7280",
   whiteSpace: "pre-line" as const,
+};
+
+const printFooterPageStyle = {
+  fontSize: 11,
+  color: "#6b7280",
+  textAlign: "center" as const,
+  whiteSpace: "nowrap" as const,
 };
