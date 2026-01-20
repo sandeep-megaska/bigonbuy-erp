@@ -8,10 +8,12 @@
     "check:migrations": "bash scripts/check-migrations.sh"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^123.0.1",
     "@supabase/supabase-js": "^2.45.4",
     "next": "14.2.5",
     "papaparse": "^5.5.1",
     "pdf-lib": "^1.17.1",
+    "playwright-core": "^1.46.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "zod": "^3.23.8"

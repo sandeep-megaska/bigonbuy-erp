@@ -102,6 +102,7 @@ export default function PurchaseOrderDetailPage() {
   const [receiptNotes, setReceiptNotes] = useState("");
   const [actionState, setActionState] = useState<"draft" | "post" | null>(null);
   const [approveState, setApproveState] = useState<"idle" | "saving">("idle");
+  const [downloadState, setDownloadState] = useState<"idle" | "downloading">("idle");
   const branding = useCompanyBranding();
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
@@ -415,6 +416,36 @@ export default function PurchaseOrderDetailPage() {
     }).format(value);
   };
 
+  async function handleDownloadPdf() {
+    if (!ctx?.session?.access_token || !po?.id) return;
+    setError("");
+    setNotice("");
+    setDownloadState("downloading");
+    try {
+      const response = await fetch(`/api/procurement/po/${po.id}/pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ctx.session.access_token}` },
+      });
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.error || "Failed to download PDF");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `PO_${po.po_no || po.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download PDF");
+    } finally {
+      setDownloadState("idle");
+    }
+  }
+
   return (
     <ErpShell activeModule="workspace">
       <div style={pageContainerStyle}>
@@ -425,6 +456,14 @@ export default function PurchaseOrderDetailPage() {
             <p style={subtitleStyle}>Review PO details and receive goods.</p>
           </div>
           <div className="no-print" style={{ display: "flex", gap: 12 }}>
+            <button
+              type="button"
+              style={primaryButtonStyle}
+              onClick={handleDownloadPdf}
+              disabled={downloadState !== "idle" || !po?.id}
+            >
+              {downloadState === "downloading" ? "Downloading…" : "Download PDF"}
+            </button>
             <button
               type="button"
               style={secondaryButtonStyle}
