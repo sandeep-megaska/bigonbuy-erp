@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import chromium from "@sparticuz/chromium";
-import { chromium as playwright } from "playwright-core";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
 type PurchaseOrderPayload = {
@@ -57,7 +55,6 @@ type PurchaseOrderPayload = {
 };
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
-
 type ApiResponse = ErrorResponse | Buffer;
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -90,6 +87,7 @@ const formatDate = (value?: string | null) => {
 function buildPoHtml(payload: PurchaseOrderPayload) {
   const { po, vendor, lines, company } = payload;
   const currencyCode = company?.currency_code || "INR";
+
   const formatMoney = (value: number | null | undefined) => {
     if (value === null || value === undefined) return "—";
     return new Intl.NumberFormat("en-IN", {
@@ -126,9 +124,10 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
       ? `<tr><td class="cell" colspan="9">No line items found.</td></tr>`
       : lines
           .map((line, index) => {
-            const roundedUnitRate = line.unit_cost !== null && line.unit_cost !== undefined ? round2(line.unit_cost) : null;
-            const lineTotal =
-              roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
+            const roundedUnitRate =
+              line.unit_cost !== null && line.unit_cost !== undefined ? round2(line.unit_cost) : null;
+            const lineTotal = roundedUnitRate !== null ? round2(line.ordered_qty * roundedUnitRate) : null;
+
             return `
               <tr>
                 <td class="cell">${index + 1}</td>
@@ -161,7 +160,6 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
           .detail-text { color: #4b5563; white-space: pre-line; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
           thead { display: table-header-group; }
-          tfoot { display: table-footer-group; }
           th { text-align: left; background: #f3f4f6; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; }
           td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
           tr { page-break-inside: avoid; }
@@ -195,17 +193,6 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
 
           <section class="section">
             <table>
-              <colgroup>
-                <col style="width: 6%" />
-                <col style="width: 18%" />
-                <col style="width: 12%" />
-                <col style="width: 10%" />
-                <col style="width: 10%" />
-                <col style="width: 12%" />
-                <col style="width: 8%" />
-                <col style="width: 12%" />
-                <col style="width: 12%" />
-              </colgroup>
               <thead>
                 <tr>
                   <th>Sl No</th>
@@ -286,6 +273,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
     ? `<img src="${footerLogoUrl}" style="height: 22px; width: auto;" />`
     : `<div style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em;">MEGASKA</div>`;
 
+  // Chromium-compatible header/footer HTML (pageNumber/totalPages work)
   const headerTemplate = `
     <div style="width: 100%; padding: 0 40px; font-family: Inter, system-ui, sans-serif; color: #111827;">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px;">
@@ -331,6 +319,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  const GOTENBERG_URL = process.env.GOTENBERG_URL;
+  if (!GOTENBERG_URL) {
+    return res.status(500).json({ ok: false, error: "Missing GOTENBERG_URL env var" });
+  }
+
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || missing.length > 0) {
     return res.status(500).json({
@@ -349,8 +342,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!poId) {
     return res.status(400).json({ ok: false, error: "Purchase order id is required" });
   }
-
-  let browser;
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
@@ -374,6 +365,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const payload = data as PurchaseOrderPayload;
 
+    // Resolve logo URLs (signed preferred)
     const storage = userClient.storage.from("erp-assets");
     const resolveUrl = async (path: string | null | undefined) => {
       if (!path) return null;
@@ -391,37 +383,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const html = buildPoHtml(payload);
     const { headerTemplate, footerTemplate } = buildHeaderFooter(payload, headerLogoUrl, footerLogoUrl);
 
-    const executablePath = await chromium.executablePath();
-    const headless = chromium.headless === "shell" ? true : chromium.headless;
-    browser = await playwright.launch({
-      args: chromium.args,
-      executablePath: executablePath || undefined,
-      headless,
-    });
+    // Gotenberg Chromium HTML conversion (multipart form)
+    // Endpoint: /forms/chromium/convert/html
+    const form = new FormData();
+    form.append("files", new Blob([html], { type: "text/html" }), "index.html");
+    form.append("files", new Blob([headerTemplate], { type: "text/html" }), "header.html");
+    form.append("files", new Blob([footerTemplate], { type: "text/html" }), "footer.html");
 
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "load" });
-    await page.emulateMedia({ media: "screen" });
+    // Print settings
+    form.append("paperWidth", "8.27");  // A4 width in inches
+    form.append("paperHeight", "11.69"); // A4 height in inches
+    form.append("marginTop", "0.9");     // inches (~80px)
+    form.append("marginBottom", "0.7");  // inches (~60px)
+    form.append("marginLeft", "0.5");    // inches (~40px)
+    form.append("marginRight", "0.5");   // inches (~40px)
+    form.append("printBackground", "true");
+    form.append("displayHeaderFooter", "true");
 
-    const pdfBuffer = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate,
-      footerTemplate,
-      margin: { top: "80px", bottom: "60px", left: "40px", right: "40px" },
-    });
+    const url = `${GOTENBERG_URL.replace(/\/$/, "")}/forms/chromium/convert/html`;
+    const resp = await fetch(url, { method: "POST", body: form as any });
 
-    await browser.close();
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      return res.status(500).json({
+        ok: false,
+        error: `Gotenberg error (${resp.status})`,
+        details: text.slice(0, 2000),
+      });
+    }
+
+    const pdfArrayBuffer = await resp.arrayBuffer();
+    const pdfBuffer = Buffer.from(pdfArrayBuffer);
 
     const filename = `PO_${payload.po.po_no || payload.po.id}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    return res.status(200).send(Buffer.from(pdfBuffer));
+    return res.status(200).send(pdfBuffer);
   } catch (err) {
-    if (browser) {
-      await browser.close();
-    }
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
   }
