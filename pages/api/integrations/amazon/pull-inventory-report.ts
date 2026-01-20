@@ -29,7 +29,8 @@ const reportCreateSchema = z
   .passthrough();
 
 const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
-const REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const PRIMARY_REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const FALLBACK_REPORT_TYPE = "GET_AFN_INVENTORY_DATA";
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -125,30 +126,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       serviceRoleKey
     );
 
-    assertSupportedReportType(REPORT_TYPE);
-
-    const response = await spApiSignedFetch({
-      method: "POST",
-      path: "/reports/2021-06-30/reports",
-      accessToken,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        reportType: REPORT_TYPE,
-        marketplaceIds: MARKETPLACE_IDS,
-      }),
-    });
-
-    const json = await response.json();
-    if (!response.ok) {
-      return res.status(500).json({ ok: false, error: `SP-API error: ${JSON.stringify(json)}` });
-    }
-
-    const parsedReport = reportCreateSchema.safeParse(json);
-    const reportId = parsedReport.success ? parsedReport.data.reportId : (json as { reportId?: string })?.reportId;
-    if (!reportId) {
-      return res.status(500).json({ ok: false, error: "Missing reportId in SP-API response" });
-    }
-
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
       .insert({
@@ -157,13 +134,78 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         marketplace_id: marketplaceId,
         type: "report",
         status: "requested",
-        external_report_id: reportId,
+        report_type: PRIMARY_REPORT_TYPE,
       })
       .select("id")
       .single();
 
     if (batchError || !batch) {
       return res.status(500).json({ ok: false, error: batchError?.message || "Failed to create batch" });
+    }
+
+    const createReport = async (reportType: string) => {
+      assertSupportedReportType(reportType);
+      const response = await spApiSignedFetch({
+        method: "POST",
+        path: "/reports/2021-06-30/reports",
+        accessToken,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reportType,
+          marketplaceIds: MARKETPLACE_IDS,
+        }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) {
+        return { ok: false as const, error: `SP-API error: ${JSON.stringify(json)}` };
+      }
+
+      const parsedReport = reportCreateSchema.safeParse(json);
+      const reportId = parsedReport.success
+        ? parsedReport.data.reportId
+        : (json as { reportId?: string })?.reportId;
+      if (!reportId) {
+        return { ok: false as const, error: "Missing reportId in SP-API response" };
+      }
+
+      return { ok: true as const, reportId };
+    };
+
+    let reportType = PRIMARY_REPORT_TYPE;
+    let createResult = await createReport(reportType);
+
+    if (!createResult.ok) {
+      reportType = FALLBACK_REPORT_TYPE;
+      createResult = await createReport(reportType);
+    }
+
+    if (!createResult.ok) {
+      await client
+        .from("erp_external_inventory_batches")
+        .update({
+          status: "fatal",
+          error: createResult.error,
+        })
+        .eq("id", batch.id);
+
+      return res.status(500).json({ ok: false, error: createResult.error });
+    }
+
+    const updateResult = await client
+      .from("erp_external_inventory_batches")
+      .update({
+        report_id: createResult.reportId,
+        report_type: reportType,
+        external_report_id: createResult.reportId,
+        status: "requested",
+      })
+      .eq("id", batch.id);
+
+    if (updateResult.error) {
+      return res
+        .status(500)
+        .json({ ok: false, error: updateResult.error.message || "Failed to update report batch" });
     }
 
     return res.status(200).json({ ok: true, batchId: batch.id });
