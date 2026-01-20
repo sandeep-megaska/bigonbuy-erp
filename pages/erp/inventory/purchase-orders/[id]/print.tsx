@@ -376,6 +376,17 @@ export default function PurchaseOrderPrintPage() {
             <section style={printSectionStyle} className="po-print-section">
               <div className="po-table-wrap">
                 <table style={printTableStyle} className="po-print-table">
+                  <colgroup>
+                    <col style={{ width: "6%" }} />
+                    <col style={{ width: "18%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "8%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "12%" }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th style={printTableHeaderStyle}>Sl No</th>
@@ -572,6 +583,8 @@ export default function PurchaseOrderPrintPage() {
 
           .po-print-table {
             page-break-inside: auto;
+            table-layout: fixed;
+            width: 100%;
           }
 
           .po-print-table thead {
@@ -589,6 +602,28 @@ export default function PurchaseOrderPrintPage() {
           .po-print-table tr {
             break-inside: auto !important;
             page-break-inside: auto !important;
+          }
+
+          .po-print-table th,
+          .po-print-table td {
+            padding: 8px 10px !important;
+            font-size: 12px !important;
+          }
+
+          .po-print-table th:nth-child(7),
+          .po-print-table th:nth-child(8),
+          .po-print-table th:nth-child(9),
+          .po-print-table td:nth-child(7),
+          .po-print-table td:nth-child(8),
+          .po-print-table td:nth-child(9) {
+            text-align: right !important;
+          }
+
+          .po-print-table th:nth-child(2),
+          .po-print-table td:nth-child(2) {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
 
           .po-table-wrap {
