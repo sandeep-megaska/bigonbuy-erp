@@ -21,7 +21,10 @@ type SignedFetchOptions = {
   headers?: Record<string, string>;
 };
 
-const SUPPORTED_REPORT_TYPES = new Set(["GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA"]);
+const SUPPORTED_REPORT_TYPES = new Set([
+  "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA",
+  "GET_AFN_INVENTORY_DATA",
+]);
 
 const lwaTokenSchema = z.object({
   access_token: z.string(),

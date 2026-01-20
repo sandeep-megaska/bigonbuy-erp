@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gunzipSync } from "zlib";
 import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
-import { parseTsv } from "../../../../lib/erp/parseCsv";
+import { parseDelimited } from "../../../../lib/erp/parseCsv";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -12,20 +12,9 @@ import {
 } from "../../../../lib/serverSupabase";
 
 type ApiResponse =
-  | {
-      ok: true;
-      status: "requested" | "processing" | "completed" | "failed";
-      batch?: {
-        id: string;
-        channel_key: string;
-        marketplace_id: string | null;
-        pulled_at: string;
-        row_count: number;
-        matched_count: number;
-        unmatched_count: number;
-      };
-      message?: string;
-    }
+  | { ok: true; status: "queued" | "processing"; nextPollAfterMs: number; message?: string }
+  | { ok: true; status: "done"; rowsInserted: number; message?: string }
+  | { ok: true; status: "failed"; message: string; details?: string }
   | { ok: false; error: string; details?: string };
 
 type VariantRow = {
@@ -53,6 +42,7 @@ type ExternalRowInsert = {
   qty_inbound_receiving: number;
   external_location_code: string | null;
   erp_variant_id: string | null;
+  erp_sku: string | null;
   erp_warehouse_id: string | null;
   match_status: "matched" | "unmatched" | "ambiguous";
   raw: unknown;
@@ -77,11 +67,17 @@ const reportDocumentSchema = z
   .passthrough();
 
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
+const DEFAULT_POLL_MS = 60000;
+const THROTTLED_POLL_MS = 120000;
 
 function toInt(value: string | undefined): number {
   if (!value) return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
+}
+
+function escapeIlike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
 }
 
 async function fetchVariantMatches(
@@ -95,12 +91,13 @@ async function fetchVariantMatches(
 
   for (let i = 0; i < uniqueSkus.length; i += chunkSize) {
     const chunk = uniqueSkus.slice(i, i + chunkSize);
+    const orFilter = chunk.map((sku) => `sku.ilike.${escapeIlike(sku)}`).join(",");
 
     const { data, error } = await client
       .from("erp_variants")
       .select("id, sku, title, size, color, hsn")
       .eq("company_id", companyId)
-      .in("sku", chunk);
+      .or(orFilter);
 
     if (error) {
       throw new Error(error.message || "Failed to match ERP SKUs");
@@ -267,7 +264,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
-      .select("id, channel_key, marketplace_id, pulled_at, status, external_report_id")
+      .select(
+        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_type, report_document_id"
+      )
       .eq("id", parseResult.data.batchId)
       .maybeSingle();
 
@@ -275,36 +274,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ ok: false, error: batchError?.message || "Batch not found" });
     }
 
-    if (!batch.external_report_id) {
-      return res.status(500).json({ ok: false, error: "Missing report ID for batch" });
+    const reportId = batch.report_id ?? batch.external_report_id;
+    if (!reportId) {
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: "Missing report ID for batch." })
+        .eq("id", batch.id);
+      return res.status(200).json({ ok: true, status: "failed", message: "Missing report ID for batch." });
     }
 
-    if (batch.status === "completed") {
+    if (batch.status === "done" || batch.status === "completed") {
       const summary = await fetchBatchSummary(client, batch.id);
       return res.status(200).json({
         ok: true,
-        status: "completed",
-        batch: {
-          id: batch.id,
-          channel_key: batch.channel_key,
-          marketplace_id: batch.marketplace_id ?? null,
-          pulled_at: batch.pulled_at,
-          ...summary,
-        },
+        status: "done",
+        rowsInserted: summary.row_count,
+        message: "Inventory snapshot already processed.",
       });
     }
 
     const reportStatusResponse = await spApiSignedFetch({
       method: "GET",
-      path: `/reports/2021-06-30/reports/${batch.external_report_id}`,
+      path: `/reports/2021-06-30/reports/${reportId}`,
       accessToken,
     });
 
     const reportStatusJson = await reportStatusResponse.json();
+    const isThrottledResponse =
+      reportStatusResponse.status === 429 ||
+      (Array.isArray((reportStatusJson as { errors?: Array<{ code?: string }> }).errors) &&
+        (reportStatusJson as { errors?: Array<{ code?: string }> }).errors?.some((error) =>
+          /quota|throttl/i.test(error?.code ?? "")
+        ));
     if (!reportStatusResponse.ok) {
-      return res.status(500).json({
-        ok: false,
-        error: `SP-API error: ${JSON.stringify(reportStatusJson)}`,
+      if (isThrottledResponse) {
+        return res.status(200).json({
+          ok: true,
+          status: "processing",
+          nextPollAfterMs: THROTTLED_POLL_MS,
+          message: "Amazon throttled the request. Retrying soon.",
+        });
+      }
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: `SP-API status error: ${JSON.stringify(reportStatusJson)}` })
+        .eq("id", batch.id);
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Amazon report status failed.",
+        details: JSON.stringify(reportStatusJson),
       });
     }
 
@@ -316,19 +335,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const normalizedStatus = processingStatus?.toUpperCase() ?? "UNKNOWN";
 
     if (["CANCELLED", "FATAL"].includes(normalizedStatus)) {
+      const errorDetails = JSON.stringify(reportStatusJson);
       await client
         .from("erp_external_inventory_batches")
-        .update({ status: "failed" })
+        .update({ status: "failed", notes: `Report status: ${normalizedStatus}. ${errorDetails}` })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "failed", message: `Report status: ${normalizedStatus}` });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: `Report status: ${normalizedStatus}`,
+        details: errorDetails,
+      });
     }
 
     if (normalizedStatus !== "DONE") {
+      const queuedStatus = normalizedStatus === "IN_QUEUE" ? "queued" : "processing";
       await client
         .from("erp_external_inventory_batches")
         .update({ status: "processing" })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "processing" });
+      return res.status(200).json({
+        ok: true,
+        status: queuedStatus,
+        nextPollAfterMs: DEFAULT_POLL_MS,
+        message: normalizedStatus === "IN_QUEUE" ? "Report queued with Amazon." : "Report processing.",
+      });
     }
 
     const reportDocumentId = parsedStatus.success
@@ -336,7 +367,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       : (reportStatusJson as { reportDocumentId?: string })?.reportDocumentId;
 
     if (!reportDocumentId) {
-      return res.status(500).json({ ok: false, error: "Missing reportDocumentId" });
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: "Missing reportDocumentId." })
+        .eq("id", batch.id);
+      return res.status(200).json({ ok: true, status: "failed", message: "Missing report document ID." });
     }
 
     const documentResponse = await spApiSignedFetch({
@@ -346,8 +381,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
 
     const documentJson = await documentResponse.json();
+    const documentIsThrottled =
+      documentResponse.status === 429 ||
+      (Array.isArray((documentJson as { errors?: Array<{ code?: string }> }).errors) &&
+        (documentJson as { errors?: Array<{ code?: string }> }).errors?.some((error) =>
+          /quota|throttl/i.test(error?.code ?? "")
+        ));
     if (!documentResponse.ok) {
-      return res.status(500).json({ ok: false, error: `SP-API error: ${JSON.stringify(documentJson)}` });
+      if (documentIsThrottled) {
+        return res.status(200).json({
+          ok: true,
+          status: "processing",
+          nextPollAfterMs: THROTTLED_POLL_MS,
+          message: "Amazon throttled the document request.",
+        });
+      }
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: `SP-API document error: ${JSON.stringify(documentJson)}` })
+        .eq("id", batch.id);
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Amazon report document fetch failed.",
+        details: JSON.stringify(documentJson),
+      });
     }
 
     const parsedDocument = reportDocumentSchema.safeParse(documentJson);
@@ -357,39 +415,68 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const documentFetch = await fetch(parsedDocument.data.url);
     if (!documentFetch.ok) {
-      return res.status(500).json({ ok: false, error: "Failed to download report document" });
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: "Failed to download report document." })
+        .eq("id", batch.id);
+      return res.status(200).json({ ok: true, status: "failed", message: "Failed to download report document." });
     }
 
     const buffer = Buffer.from(await documentFetch.arrayBuffer());
     const decompressed = parsedDocument.data.compressionAlgorithm === "GZIP" ? gunzipSync(buffer) : buffer;
     const text = decompressed.toString("utf8");
 
-    const rows = parseTsv(text);
+    const delimiter = text.includes("\t") ? "\t" : ",";
+    const rows = parseDelimited(text, delimiter);
     if (rows.length === 0) {
       await client
         .from("erp_external_inventory_batches")
-        .update({ status: "completed", pulled_at: new Date().toISOString() })
+        .update({
+          status: "done",
+          pulled_at: new Date().toISOString(),
+          report_document_id: reportDocumentId,
+        })
         .eq("id", batch.id);
-      return res.status(200).json({ ok: true, status: "completed" });
+      return res.status(200).json({ ok: true, status: "done", rowsInserted: 0, message: "No rows in report." });
     }
 
     const [headerRow, ...dataRows] = rows;
-    const normalizedHeaders = headerRow.map((header) => header.trim().toLowerCase());
+    const normalizedHeaders = headerRow.map((header) =>
+      header
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-")
+    );
     const headerIndex = new Map<string, number>();
     normalizedHeaders.forEach((header, index) => {
       headerIndex.set(header, index);
     });
 
-    const getCell = (row: string[], header: string): string => {
-      const idx = headerIndex.get(header);
-      if (idx === undefined) return "";
-      return row[idx]?.trim() ?? "";
+    const getCell = (row: string[], headers: string[]): string => {
+      for (const header of headers) {
+        const idx = headerIndex.get(header);
+        if (idx !== undefined) {
+          return row[idx]?.trim() ?? "";
+        }
+      }
+      return "";
     };
 
+    const skuHeaders = ["seller-sku", "sku", "merchant-sku"];
+    const hasSkuHeader = skuHeaders.some((header) => headerIndex.has(header));
+    if (!hasSkuHeader) {
+      await client
+        .from("erp_external_inventory_batches")
+        .update({ status: "failed", notes: "Missing SKU header in report." })
+        .eq("id", batch.id);
+      return res.status(200).json({ ok: true, status: "failed", message: "Missing SKU column in report." });
+    }
     const externalSkus = dataRows
-      .map((row) => getCell(row, "sku"))
+      .map((row) => getCell(row, skuHeaders))
+      .map((sku) => sku.trim())
       .filter((sku) => sku.length > 0);
-    const matchesBySku = await fetchVariantMatches(client, companyId, externalSkus);
+    const normalizedSkus = externalSkus.map((sku) => sku.toLowerCase());
+    const matchesBySku = await fetchVariantMatches(client, companyId, normalizedSkus);
 
     const existingRows = await client
       .from("erp_external_inventory_rows")
@@ -403,22 +490,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if ((existingRows.count ?? 0) === 0) {
       const inserts: ExternalRowInsert[] = [];
       dataRows.forEach((row) => {
-        const sku = getCell(row, "sku");
+        const sku = getCell(row, skuHeaders).trim();
         if (!sku) return;
         const key = sku.toLowerCase();
         const variantMatches = matchesBySku.get(key) ?? [];
         let matchStatus: ExternalRowInsert["match_status"] = "unmatched";
         let erpVariantId: string | null = null;
+        let erpSku: string | null = null;
 
         if (variantMatches.length === 1) {
           matchStatus = "matched";
           erpVariantId = variantMatches[0].id;
+          erpSku = variantMatches[0].sku;
         } else if (variantMatches.length > 1) {
           matchStatus = "ambiguous";
         }
 
-        const fulfillableRaw = getCell(row, "afn-fulfillable-quantity");
-        const qtyAvailable = fulfillableRaw ? toInt(fulfillableRaw) : toInt(getCell(row, "afn-warehouse-quantity"));
+        const fulfillableRaw = getCell(row, ["afn-fulfillable-quantity"]);
+        const qtyAvailable = fulfillableRaw
+          ? toInt(fulfillableRaw)
+          : toInt(getCell(row, ["afn-warehouse-quantity", "afn-quantity"]));
 
         inserts.push({
           company_id: companyId,
@@ -426,19 +517,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           channel_key: "amazon",
           marketplace_id: batch.marketplace_id ?? null,
           external_sku: sku,
-          asin: getCell(row, "asin") || null,
-          fnsku: getCell(row, "fnsku") || null,
-          condition: getCell(row, "condition") || null,
+          asin: getCell(row, ["asin"]) || null,
+          fnsku: getCell(row, ["fnsku"]) || null,
+          condition: getCell(row, ["condition"]) || null,
           qty_available: qtyAvailable,
-          qty_reserved: toInt(getCell(row, "afn-reserved-quantity")),
-          qty_inbound_working: toInt(getCell(row, "afn-inbound-working-quantity")),
-          qty_inbound_shipped: toInt(getCell(row, "afn-inbound-shipped-quantity")),
-          qty_inbound_receiving: toInt(getCell(row, "afn-inbound-receiving-quantity")),
+          qty_reserved: toInt(getCell(row, ["afn-reserved-quantity", "reserved-quantity"])),
+          qty_inbound_working: toInt(getCell(row, ["afn-inbound-working-quantity"])),
+          qty_inbound_shipped: toInt(getCell(row, ["afn-inbound-shipped-quantity"])),
+          qty_inbound_receiving: toInt(getCell(row, ["afn-inbound-receiving-quantity"])),
           external_location_code: null,
           erp_variant_id: erpVariantId,
+          erp_sku: erpSku,
           erp_warehouse_id: null,
           match_status: matchStatus,
-          raw: buildRawRecord(normalizedHeaders, row),
+          raw: buildRawRecord(headerRow, row),
         });
       });
 
@@ -455,7 +547,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const updatedBatch = await client
       .from("erp_external_inventory_batches")
-      .update({ status: "completed", pulled_at: new Date().toISOString() })
+      .update({
+        status: "done",
+        pulled_at: new Date().toISOString(),
+        report_document_id: reportDocumentId,
+        report_type: batch.report_type ?? null,
+        report_id: reportId,
+      })
       .eq("id", batch.id)
       .select("id, channel_key, marketplace_id, pulled_at")
       .single();
@@ -468,14 +566,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     return res.status(200).json({
       ok: true,
-      status: "completed",
-      batch: {
-        id: updatedBatch.data.id,
-        channel_key: updatedBatch.data.channel_key,
-        marketplace_id: updatedBatch.data.marketplace_id ?? null,
-        pulled_at: updatedBatch.data.pulled_at,
-        ...summary,
-      },
+      status: "done",
+      rowsInserted: summary.row_count,
+      message: "Inventory snapshot processed.",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

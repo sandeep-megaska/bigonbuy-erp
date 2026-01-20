@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
@@ -42,6 +42,18 @@ const latestBatchSchema = z
   })
   .nullable();
 
+const latestBatchRpcSchema = z.array(
+  z.object({
+    id: z.string().uuid(),
+    channel_key: z.string(),
+    marketplace_id: z.string().nullable(),
+    pulled_at: z.string(),
+    total_rows: z.number(),
+    matched_rows: z.number(),
+    unmatched_rows: z.number(),
+  })
+);
+
 const inventoryRowSchema = z.object({
   id: z.string().uuid(),
   external_sku: z.string(),
@@ -56,7 +68,7 @@ const inventoryRowSchema = z.object({
   external_location_code: z.string().nullable(),
   match_status: z.string(),
   erp_variant_id: z.string().uuid().nullable(),
-  sku_code: z.string().nullable(),
+  sku: z.string().nullable(),
   variant_title: z.string().nullable(),
   variant_size: z.string().nullable(),
   variant_color: z.string().nullable(),
@@ -75,7 +87,8 @@ const reportRequestSchema = z.object({
 const reportStatusSchema = z.object({
   ok: z.boolean(),
   status: z.string().optional(),
-  batch: latestBatchSchema.optional(),
+  nextPollAfterMs: z.number().optional(),
+  rowsInserted: z.number().optional(),
   error: z.string().optional(),
   details: z.string().optional(),
   message: z.string().optional(),
@@ -104,6 +117,8 @@ export default function AmazonExternalInventoryPage() {
   const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [reportBatchId, setReportBatchId] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const pollAttemptsRef = useRef(0);
+  const pollStartedAtRef = useRef<number | null>(null);
 
   const canAccess = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -132,6 +147,27 @@ export default function AmazonExternalInventoryPage() {
         return;
       }
 
+      const { data: latestBatchData, error: latestBatchError } = await supabase.rpc(
+        "erp_external_inventory_batch_latest",
+        { p_channel_key: "amazon" }
+      );
+
+      if (!latestBatchError && latestBatchData) {
+        const parsedLatest = latestBatchRpcSchema.safeParse(latestBatchData);
+        const latest = parsedLatest.success ? parsedLatest.data[0] : null;
+        if (latest) {
+          setLatestBatch({
+            id: latest.id,
+            channel_key: latest.channel_key,
+            marketplace_id: latest.marketplace_id,
+            pulled_at: latest.pulled_at,
+            row_count: latest.total_rows,
+            matched_count: latest.matched_rows,
+            unmatched_count: latest.unmatched_rows,
+          });
+        }
+      }
+
       setLoading(false);
     })();
 
@@ -139,6 +175,12 @@ export default function AmazonExternalInventoryPage() {
       active = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!reportBatchId) return;
+    pollAttemptsRef.current = 0;
+    pollStartedAtRef.current = Date.now();
+  }, [reportBatchId]);
 
   const loadRows = async (batchId: string, onlyUnmatchedRows: boolean) => {
     setIsLoadingRows(true);
@@ -246,7 +288,7 @@ export default function AmazonExternalInventoryPage() {
         setError("Report requested but no batch ID was returned.");
       } else {
         setReportBatchId(parsed.data.batchId);
-        setReportStatus("requested");
+        setReportStatus("queued");
         setNotice("Report requested. Waiting for Amazon to generate the inventory snapshot…");
       }
     } catch (err) {
@@ -258,7 +300,7 @@ export default function AmazonExternalInventoryPage() {
   };
 
   useEffect(() => {
-    if (!reportBatchId || reportStatus === "completed" || reportStatus === "failed") {
+    if (!reportBatchId || reportStatus === "done" || reportStatus === "failed") {
       setIsPolling(false);
       return;
     }
@@ -267,7 +309,17 @@ export default function AmazonExternalInventoryPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const poll = async () => {
+      const pollStartedAt = pollStartedAtRef.current ?? Date.now();
+      const elapsedMs = Date.now() - pollStartedAt;
+      if (pollAttemptsRef.current >= 20 || elapsedMs >= 20 * 60 * 1000) {
+        setIsPolling(false);
+        setNotice("Still processing, click Refresh.");
+        return;
+      }
+
       setIsPolling(true);
+      pollAttemptsRef.current += 1;
+      let nextDelay = 60000;
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       if (!token) {
@@ -276,6 +328,7 @@ export default function AmazonExternalInventoryPage() {
         return;
       }
 
+      let shouldContinue = true;
       try {
         const response = await fetch(
           `/api/integrations/amazon/fetch-inventory-report?batchId=${reportBatchId}`,
@@ -293,24 +346,49 @@ export default function AmazonExternalInventoryPage() {
           return;
         }
 
+        if (parsed.data.nextPollAfterMs) {
+          nextDelay = parsed.data.nextPollAfterMs;
+        }
+
         const status = parsed.data.status ?? "processing";
         setReportStatus(status);
 
-        if (status === "completed" && parsed.data.batch) {
-          const summary = `Pulled ${parsed.data.batch.row_count} rows (${parsed.data.batch.matched_count} matched, ${parsed.data.batch.unmatched_count} unmatched).`;
-          setLatestBatch(parsed.data.batch);
-          setNotice(summary);
+        if (status === "done") {
+          shouldContinue = false;
+          const { data: latestBatchData } = await supabase.rpc("erp_external_inventory_batch_latest", {
+            p_channel_key: "amazon",
+          });
+          const parsedLatest = latestBatchRpcSchema.safeParse(latestBatchData);
+          const latest = parsedLatest.success ? parsedLatest.data[0] : null;
+          if (latest) {
+            const summary = `Pulled ${latest.total_rows} rows (${latest.matched_rows} matched, ${latest.unmatched_rows} unmatched).`;
+            setLatestBatch({
+              id: latest.id,
+              channel_key: latest.channel_key,
+              marketplace_id: latest.marketplace_id,
+              pulled_at: latest.pulled_at,
+              row_count: latest.total_rows,
+              matched_count: latest.matched_rows,
+              unmatched_count: latest.unmatched_rows,
+            });
+            setNotice(summary);
+            await loadRows(latest.id, onlyUnmatched);
+          } else {
+            setNotice("Inventory snapshot processed.");
+          }
         } else if (status === "failed") {
+          shouldContinue = false;
           setError(parsed.data.message || "Amazon report generation failed.");
         } else {
-          setNotice("Generating report…");
+          setNotice(parsed.data.message || "Generating report…");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         setError(message);
       } finally {
-        if (!cancelled) {
-          timeoutId = setTimeout(poll, 6000);
+        if (!cancelled && shouldContinue) {
+          const delay = Math.max(nextDelay, 30000);
+          timeoutId = setTimeout(poll, delay);
         }
       }
     };
@@ -406,7 +484,7 @@ export default function AmazonExternalInventoryPage() {
               style={primaryButtonStyle}
               disabled={isPulling || isPolling}
             >
-              {isPulling ? "Requesting…" : isPolling ? "Generating report…" : "Pull Inventory"}
+              {isPulling ? "Requesting…" : isPolling ? "Generating report…" : "Pull Snapshot Now"}
             </button>
           </div>
         </header>
@@ -516,7 +594,7 @@ export default function AmazonExternalInventoryPage() {
                     <tr key={row.id}>
                       <td style={tableCellStyle}>{row.external_sku}</td>
                       <td style={tableCellStyle}>{row.match_status}</td>
-                      <td style={tableCellStyle}>{row.sku_code || "—"}</td>
+                      <td style={tableCellStyle}>{row.sku || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_title || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_size || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_color || "—"}</td>
