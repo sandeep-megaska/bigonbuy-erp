@@ -155,9 +155,9 @@ export default function PurchaseOrderEditPage() {
             size: row.size ?? null,
             color: row.color ?? null,
             product_id: row.product_id,
-            style_code: row.erp_products?.style_code ?? null,
-            title: row.erp_products?.title ?? null,
-            hsn_code: row.erp_products?.hsn_code ?? null,
+            style_code: row.erp_products?.[0]?.style_code ?? null,
+            title: row.erp_products?.[0]?.title ?? null,
+            hsn_code: row.erp_products?.[0]?.hsn_code ?? null,
           } as VariantSearchResult,
         ])
       );
