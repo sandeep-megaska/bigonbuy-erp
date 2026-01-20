@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gunzipSync } from "zlib";
 import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
-import { parseCsv } from "../../../../lib/erp/parseCsv";
+import { parseTsv } from "../../../../lib/erp/parseCsv";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -328,7 +328,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json({ ok: true, status: "failed", message: `Report status: ${normalizedStatus}` });
     }
 
-    if (!["DONE", "COMPLETED"].includes(normalizedStatus)) {
+    if (normalizedStatus !== "DONE") {
       await client
         .from("erp_external_inventory_batches")
         .update({ status: "processing" })
@@ -369,7 +369,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const decompressed = parsedDocument.data.compressionAlgorithm === "GZIP" ? gunzipSync(buffer) : buffer;
     const text = decompressed.toString("utf8");
 
-    const rows = parseCsv(text);
+    const rows = parseTsv(text);
     if (rows.length === 0) {
       await client
         .from("erp_external_inventory_batches")

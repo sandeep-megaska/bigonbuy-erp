@@ -21,6 +21,8 @@ type SignedFetchOptions = {
   headers?: Record<string, string>;
 };
 
+const SUPPORTED_REPORT_TYPES = new Set(["GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA"]);
+
 const lwaTokenSchema = z.object({
   access_token: z.string(),
   token_type: z.string().optional(),
@@ -98,6 +100,12 @@ export async function getAmazonAccessToken(): Promise<string> {
   }
 
   return parsed.data.access_token;
+}
+
+export function assertSupportedReportType(reportType: string): void {
+  if (!SUPPORTED_REPORT_TYPES.has(reportType)) {
+    throw new Error(`Unsupported reportType: ${reportType}`);
+  }
 }
 
 export async function spApiSignedFetch(options: SignedFetchOptions): Promise<Response> {
