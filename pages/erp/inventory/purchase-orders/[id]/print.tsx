@@ -422,7 +422,7 @@ export default function PurchaseOrderPrintPage() {
               </div>
             </section>
 
-            <section style={printTotalsSectionStyle} className="po-print-section">
+            <section style={printTotalsSectionStyle} className="po-print-section no-break">
               <div style={printTotalsRowStyle}>
                 <span style={printMetaLabelStyle}>Subtotal</span>
                 <span style={printTotalsValueStyle}>{formatMoney(round2(subtotal))}</span>
@@ -445,7 +445,7 @@ export default function PurchaseOrderPrintPage() {
               </section>
             ) : null}
 
-            <section style={printSignatureRowStyle} className="po-print-section">
+            <section style={printSignatureRowStyle} className="po-print-section no-break">
               <div style={printSignatureBlockStyle}>
                 <div style={printSignatureLineStyle} />
                 <div style={printSignatureLabelStyle}>Authorized Signatory</div>
@@ -587,17 +587,20 @@ export default function PurchaseOrderPrintPage() {
           }
 
           .po-print-table tr {
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
           }
 
           .po-table-wrap {
-            padding-top: 6mm !important;
+            display: block;
+            overflow: visible !important;
+            height: auto;
+            padding-top: 2mm !important;
           }
 
-          .po-print-section {
-            break-inside: avoid;
-            page-break-inside: avoid;
+          .no-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
         }
       `}</style>
