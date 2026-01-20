@@ -14,16 +14,20 @@ import {
 type ApiResponse =
   | {
       ok: true;
-      status: "requested" | "processing" | "done" | "fatal";
+      status: "requested" | "processing" | "completed" | "failed";
       message?: string;
-      nextPollAfterMs: number;
-      done: boolean;
-      fatal: boolean;
       rowsInserted?: number;
       matched?: number;
       unmatched?: number;
     }
-  | { ok: false; error: string; details?: string; nextPollAfterMs?: number; done?: boolean; fatal?: boolean };
+  | { ok: false; error: string; details?: string };
+
+type VariantRow = {
+  id: string;
+  sku: string;
+  size: string | null;
+  color: string | null;
+};
 
 type ExternalRowInsert = {
   company_id: string;
@@ -48,7 +52,7 @@ type ExternalRowInsert = {
   erp_variant_id: string | null;
   matched_variant_id: string | null;
   erp_warehouse_id: string | null;
-  match_status: "matched" | "unmatched";
+  match_status: "matched" | "unmatched" | "ambiguous";
   raw_row: unknown;
 };
 
@@ -71,7 +75,6 @@ const reportDocumentSchema = z
   .passthrough();
 
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
-const POLL_INTERVAL_MS = 60000;
 
 function toInt(value: string | undefined): number {
   if (!value) return 0;
@@ -81,6 +84,10 @@ function toInt(value: string | undefined): number {
 
 function normalizeSku(value: string): string {
   return value.trim().toUpperCase();
+}
+
+function escapeIlike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
 }
 
 async function resolveCompanyClient(
@@ -181,7 +188,7 @@ async function fetchBatchSummary(
     .from("erp_external_inventory_rows")
     .select("id", { count: "exact", head: true })
     .eq("batch_id", batchId)
-    .eq("match_status", "unmatched");
+    .in("match_status", ["unmatched", "ambiguous"]);
 
   if (unmatchedCountError) {
     throw new Error(unmatchedCountError.message || "Failed to count unmatched inventory rows");
@@ -216,6 +223,40 @@ function pickHeader(headers: Map<string, number>, candidates: string[]): string 
   return null;
 }
 
+async function fetchVariantMatches(
+  client: SupabaseClient,
+  companyId: string,
+  skus: string[]
+): Promise<Map<string, VariantRow[]>> {
+  const matches = new Map<string, VariantRow[]>();
+  const uniqueSkus = Array.from(new Set(skus));
+  const chunkSize = 50;
+
+  for (let i = 0; i < uniqueSkus.length; i += chunkSize) {
+    const chunk = uniqueSkus.slice(i, i + chunkSize);
+    const orFilter = chunk.map((sku) => `sku.ilike.${escapeIlike(sku)}`).join(",");
+
+    const { data, error } = await client
+      .from("erp_variants")
+      .select("id, sku, size, color")
+      .eq("company_id", companyId)
+      .or(orFilter);
+
+    if (error) {
+      throw new Error(error.message || "Failed to match ERP SKUs");
+    }
+
+    (data || []).forEach((row: VariantRow) => {
+      const key = row.sku.toLowerCase();
+      const existing = matches.get(key) ?? [];
+      existing.push(row);
+      matches.set(key, existing);
+    });
+  }
+
+  return matches;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -248,7 +289,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
       .select(
-        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_document_id, report_type, rows_total, matched_count, unmatched_count"
+        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_document_id, report_type, rows_total, matched_count, unmatched_count, error"
       )
       .eq("id", parseResult.data.batchId)
       .maybeSingle();
@@ -259,16 +300,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const reportId = batch.report_id ?? batch.external_report_id;
     if (!reportId) {
-      return res.status(500).json({ ok: false, error: "Missing report ID for batch" });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Missing report ID for batch.",
+      });
     }
 
     if (batch.status === "done") {
       return res.status(200).json({
         ok: true,
-        status: "done",
-        nextPollAfterMs: 0,
-        done: true,
-        fatal: false,
+        status: "completed",
+        message: "Report completed.",
         rowsInserted: batch.rows_total ?? 0,
         matched: batch.matched_count ?? 0,
         unmatched: batch.unmatched_count ?? 0,
@@ -278,11 +321,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (batch.status === "fatal") {
       return res.status(200).json({
         ok: true,
-        status: "fatal",
-        nextPollAfterMs: 0,
-        done: false,
-        fatal: true,
-        message: "Report generation failed.",
+        status: "failed",
+        message: batch.error || "Report generation failed.",
       });
     }
 
@@ -294,9 +334,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const reportStatusJson = await reportStatusResponse.json();
     if (!reportStatusResponse.ok) {
-      return res.status(500).json({
-        ok: false,
-        error: `SP-API error: ${JSON.stringify(reportStatusJson)}`,
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: `SP-API error: ${JSON.stringify(reportStatusJson)}`,
       });
     }
 
@@ -307,7 +348,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const normalizedStatus = processingStatus?.toUpperCase() ?? "UNKNOWN";
 
-    if (["CANCELLED", "FATAL"].includes(normalizedStatus)) {
+    if (["CANCELLED", "FATAL", "DONE_NO_DATA"].includes(normalizedStatus)) {
       const fatalMessage = `Report status: ${normalizedStatus}`;
       await client
         .from("erp_external_inventory_batches")
@@ -316,15 +357,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       return res.status(200).json({
         ok: true,
-        status: "fatal",
+        status: "failed",
         message: fatalMessage,
-        nextPollAfterMs: 0,
-        done: false,
-        fatal: true,
       });
     }
 
-    if (normalizedStatus !== "DONE") {
+    if (["IN_QUEUE", "IN_PROGRESS"].includes(normalizedStatus)) {
       await client
         .from("erp_external_inventory_batches")
         .update({ status: "in_progress" })
@@ -332,9 +370,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json({
         ok: true,
         status: "processing",
-        nextPollAfterMs: POLL_INTERVAL_MS,
-        done: false,
-        fatal: false,
+        message: "Report still processing.",
+      });
+    }
+
+    if (normalizedStatus !== "DONE") {
+      return res.status(200).json({
+        ok: true,
+        status: "processing",
+        message: `Report status: ${normalizedStatus}`,
       });
     }
 
@@ -343,7 +387,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       : (reportStatusJson as { reportDocumentId?: string })?.reportDocumentId;
 
     if (!reportDocumentId) {
-      return res.status(500).json({ ok: false, error: "Missing reportDocumentId" });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Missing reportDocumentId.",
+      });
     }
 
     await client
@@ -359,17 +407,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const documentJson = await documentResponse.json();
     if (!documentResponse.ok) {
-      return res.status(500).json({ ok: false, error: `SP-API error: ${JSON.stringify(documentJson)}` });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: `SP-API error: ${JSON.stringify(documentJson)}`,
+      });
     }
 
     const parsedDocument = reportDocumentSchema.safeParse(documentJson);
     if (!parsedDocument.success) {
-      return res.status(500).json({ ok: false, error: "Unexpected report document response" });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Unexpected report document response.",
+      });
     }
 
     const documentFetch = await fetch(parsedDocument.data.url);
     if (!documentFetch.ok) {
-      return res.status(500).json({ ok: false, error: "Failed to download report document" });
+      return res.status(200).json({
+        ok: true,
+        status: "failed",
+        message: "Failed to download report document.",
+      });
     }
 
     const buffer = Buffer.from(await documentFetch.arrayBuffer());
@@ -390,10 +450,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         .eq("id", batch.id);
       return res.status(200).json({
         ok: true,
-        status: "done",
-        nextPollAfterMs: 0,
-        done: true,
-        fatal: false,
+        status: "completed",
+        message: "Report completed with no rows.",
         rowsInserted: 0,
         matched: 0,
         unmatched: 0,
@@ -447,11 +505,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       return res.status(200).json({
         ok: true,
-        status: "fatal",
+        status: "failed",
         message: fatalMessage,
-        nextPollAfterMs: 0,
-        done: false,
-        fatal: true,
       });
     }
 
@@ -465,6 +520,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     let rowsInserted = 0;
+    const externalSkus = dataRows
+      .map((row) => getCell(row, skuHeader))
+      .filter((sku): sku is string => Boolean(sku))
+      .map((sku) => sku.trim())
+      .filter((sku) => sku.length > 0);
+
+    const matchesBySku = await fetchVariantMatches(client, companyId, externalSkus);
 
     if ((existingRows.count ?? 0) === 0) {
       const inserts: ExternalRowInsert[] = [];
@@ -472,8 +534,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const sku = getCell(row, skuHeader);
         if (!sku) return;
         const normalizedSku = normalizeSku(sku);
-        const matchStatus: ExternalRowInsert["match_status"] = "unmatched";
-        const erpVariantId: string | null = null;
+        const skuKey = sku.trim().toLowerCase();
+        const variantMatches = matchesBySku.get(skuKey) ?? [];
+        let matchStatus: ExternalRowInsert["match_status"] = "unmatched";
+        let erpVariantId: string | null = null;
+
+        if (variantMatches.length === 1) {
+          matchStatus = "matched";
+          erpVariantId = variantMatches[0].id;
+        } else if (variantMatches.length > 1) {
+          matchStatus = "ambiguous";
+        }
 
         const qtyAvailable = toInt(getCell(row, availableHeader));
         const qtyReserved = toInt(getCell(row, reservedHeader));
@@ -552,10 +623,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     return res.status(200).json({
       ok: true,
-      status: "done",
-      nextPollAfterMs: 0,
-      done: true,
-      fatal: false,
+      status: "completed",
+      message: "Report completed.",
       rowsInserted,
       matched: summary.matched_count,
       unmatched: summary.unmatched_count,
