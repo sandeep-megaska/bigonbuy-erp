@@ -30,7 +30,6 @@ const reportCreateSchema = z
 
 const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
 const PRIMARY_REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
-const FALLBACK_REPORT_TYPE = "GET_AFN_INVENTORY_DATA";
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -172,13 +171,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return { ok: true as const, reportId };
     };
 
-    let reportType = PRIMARY_REPORT_TYPE;
-    let createResult = await createReport(reportType);
-
-    if (!createResult.ok) {
-      reportType = FALLBACK_REPORT_TYPE;
-      createResult = await createReport(reportType);
-    }
+    const reportType = PRIMARY_REPORT_TYPE;
+    const createResult = await createReport(reportType);
 
     if (!createResult.ok) {
       await client
