@@ -147,19 +147,29 @@ export default function PurchaseOrderEditPage() {
 
     if (isActiveFetch) {
       const variantMap = new Map(
-        (variantRes.data || []).map((row) => [
-          row.id,
-          {
-            variant_id: row.id,
-            sku: row.sku,
-            size: row.size ?? null,
-            color: row.color ?? null,
-            product_id: row.product_id,
-            style_code: row.erp_products?.style_code ?? null,
-            title: row.erp_products?.title ?? null,
-            hsn_code: row.erp_products?.hsn_code ?? null,
-          } as VariantSearchResult,
-        ])
+        (variantRes.data || []).map((row) => {
+          const product = (
+            row as {
+              erp_products?:
+                | { title?: string | null; hsn_code?: string | null; style_code?: string | null }
+                | { title?: string | null; hsn_code?: string | null; style_code?: string | null }[];
+            }
+          ).erp_products;
+          const productDetails = Array.isArray(product) ? product[0] : product;
+          return [
+            row.id,
+            {
+              variant_id: row.id,
+              sku: row.sku,
+              size: row.size ?? null,
+              color: row.color ?? null,
+              product_id: row.product_id,
+              style_code: productDetails?.style_code ?? null,
+              title: productDetails?.title ?? null,
+              hsn_code: productDetails?.hsn_code ?? null,
+            } as VariantSearchResult,
+          ];
+        })
       );
 
       setPo(poRes.data as PurchaseOrder);
