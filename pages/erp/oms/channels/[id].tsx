@@ -74,6 +74,7 @@ type JobRow = {
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
+  item_count?: number | null;
 };
 
 type CoverageRow = {
@@ -583,7 +584,7 @@ export default function OmsChannelDetailPage() {
 
     setNotice(`Inventory push job queued${data ? ` (${data})` : ""}.`);
     setCreatingJob(false);
-    await loadJobs();
+    await Promise.all([loadJobs(), loadPreview()]);
   }
 
   if (loading) {
@@ -1025,8 +1026,10 @@ export default function OmsChannelDetailPage() {
                       <td style={tableCellStyle}>{job.job_type}</td>
                       <td style={tableCellStyle}>{job.status}</td>
                       <td style={tableCellStyle}>
-                        {typeof (job.payload as any)?.summary?.item_count === "number"
-                          ? (job.payload as any).summary.item_count
+                        {typeof job.item_count === "number"
+                          ? job.item_count
+                          : typeof (job.payload as any)?.summary?.item_count === "number"
+                            ? (job.payload as any).summary.item_count
                           : "—"}
                       </td>
                       <td style={tableCellStyle}>{new Date(job.requested_at).toLocaleString()}</td>
