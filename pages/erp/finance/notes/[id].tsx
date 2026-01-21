@@ -266,6 +266,10 @@ export default function NoteDetailPage() {
             currency: noteHeader.currency,
             source_type: noteHeader.source_type ?? "",
             source_id: noteHeader.source_id ?? "",
+            reference_invoice_number: noteHeader.reference_invoice_number ?? "",
+            reference_invoice_date: noteHeader.reference_invoice_date ?? "",
+            reason: noteHeader.reason ?? "",
+            place_of_supply: noteHeader.place_of_supply ?? "",
             lines: note.lines.map((line) => ({
               item_type: (line.item_type as "manual" | "variant") || "manual",
               variant: null,
