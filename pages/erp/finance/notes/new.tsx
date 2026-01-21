@@ -10,12 +10,7 @@ import { type NoteFormPayload } from "../../../../lib/erp/notes";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
-type CompanyContext = {
-  companyId: string | null;
-  roleKey: string | null;
-  membershipError: string | null;
-  email: string | null;
-};
+type CompanyContext = Awaited<ReturnType<typeof getCompanyContext>>;
 
 type Option = {
   id: string;
@@ -91,16 +86,32 @@ export default function NoteCreatePage() {
 
   const handleSubmit = async (payload: NoteFormPayload) => {
     setError(null);
-    const { data, error: insertError } = await supabase.rpc("erp_note_upsert", {
-      p_note: payload,
-    });
-
-    if (insertError) {
-      setError(insertError.message);
+    const accessToken = ctx?.session?.access_token;
+    if (!accessToken) {
+      setError("Not authenticated.");
       return;
     }
 
-    const parsed = z.string().uuid().safeParse(data);
+    const response = await fetch("/api/erp/finance/notes/upsert", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const result = (await response.json()) as
+      | { ok: true; noteId: string }
+      | { ok: false; error: string; correlationId?: string };
+
+    if (!result.ok) {
+      const correlation = result.correlationId ? ` (ref: ${result.correlationId})` : "";
+      setError(`${result.error}${correlation}`);
+      return;
+    }
+
+    const parsed = z.string().uuid().safeParse(result.noteId);
     if (!parsed.success) {
       setError("Failed to parse created note id.");
       return;
