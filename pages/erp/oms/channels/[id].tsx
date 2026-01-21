@@ -113,6 +113,7 @@ export default function OmsChannelDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [account, setAccount] = useState<ChannelAccount | null>(null);
   const [activeTab, setActiveTab] = useState("locations");
 
@@ -146,6 +147,7 @@ export default function OmsChannelDetailPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showUnmapped, setShowUnmapped] = useState(false);
   const [creatingJob, setCreatingJob] = useState(false);
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
   const eligibleJobLocations = useMemo(
@@ -587,6 +589,43 @@ export default function OmsChannelDetailPage() {
     await Promise.all([loadJobs(), loadPreview()]);
   }
 
+  async function handleRunJob(jobId: string) {
+    if (!canWrite) {
+      setToast({ type: "error", message: "Only owner/admin can run OMS jobs." });
+      return;
+    }
+    setToast(null);
+    setError(null);
+    setRunningJobId(jobId);
+
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) {
+      setRunningJobId(null);
+      setToast({ type: "error", message: "Missing session token. Please sign in again." });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/erp/oms/jobs/run?id=${jobId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = (await response.json()) as { ok: boolean; error?: string };
+      if (!json.ok) {
+        setToast({ type: "error", message: json.error || "Job run failed." });
+      } else {
+        setToast({ type: "success", message: "Job executed successfully." });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setToast({ type: "error", message });
+    } finally {
+      setRunningJobId(null);
+      await Promise.all([loadJobs(), loadPreview()]);
+    }
+  }
+
   if (loading) {
     return (
       <ErpShell activeModule="oms">
@@ -613,6 +652,9 @@ export default function OmsChannelDetailPage() {
 
         {error ? <div style={{ color: "#b91c1c" }}>{error}</div> : null}
         {notice ? <div style={{ color: "#059669" }}>{notice}</div> : null}
+        {toast ? (
+          <div style={{ color: toast.type === "success" ? "#059669" : "#b91c1c" }}>{toast.message}</div>
+        ) : null}
 
         <section style={{ display: "flex", gap: 12 }}>
           <button type="button" style={tabButtonStyle(activeTab === "locations")} onClick={() => setActiveTab("locations")}>
@@ -913,7 +955,7 @@ export default function OmsChannelDetailPage() {
         {activeTab === "jobs" ? (
           <section style={cardStyle}>
             <h2 style={{ margin: "0 0 12px" }}>Channel jobs</h2>
-            <p style={subtitleStyle}>Queue and track OMS sync jobs. External execution is not enabled in this sprint.</p>
+            <p style={subtitleStyle}>Queue, run, and track OMS inventory push jobs.</p>
             <div style={{ display: "grid", gap: 16 }}>
               <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                 <div style={{ ...cardStyle, margin: 0 }}>
@@ -1011,12 +1053,13 @@ export default function OmsChannelDetailPage() {
                   <th style={tableHeaderCellStyle}>Started</th>
                   <th style={tableHeaderCellStyle}>Finished</th>
                   <th style={tableHeaderCellStyle}>Error</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={7}>
+                    <td style={tableCellStyle} colSpan={8}>
                       No jobs queued yet.
                     </td>
                   </tr>
@@ -1036,6 +1079,20 @@ export default function OmsChannelDetailPage() {
                       <td style={tableCellStyle}>{job.started_at ? new Date(job.started_at).toLocaleString() : "—"}</td>
                       <td style={tableCellStyle}>{job.finished_at ? new Date(job.finished_at).toLocaleString() : "—"}</td>
                       <td style={tableCellStyle}>{job.error || "—"}</td>
+                      <td style={tableCellStyle}>
+                        {job.status === "queued" && canWrite ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRunJob(job.id)}
+                            style={{ ...primaryButtonStyle, padding: "6px 12px" }}
+                            disabled={runningJobId === job.id}
+                          >
+                            {runningJobId === job.id ? "Running…" : "Run job"}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
