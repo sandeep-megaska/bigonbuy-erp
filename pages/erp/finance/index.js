@@ -170,6 +170,12 @@ const linkButtonStyle = {
 
 const navItems = [
   {
+    title: "Credit / Debit Notes",
+    description: "Issue customer and vendor credit/debit notes.",
+    href: "/erp/finance/notes",
+    icon: "📝",
+  },
+  {
     title: "Expenses",
     description: "Record expenses, categories, and monthly totals.",
     href: "/erp/finance/expenses",
