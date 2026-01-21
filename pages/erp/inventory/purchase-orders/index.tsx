@@ -28,7 +28,7 @@ type VendorOption = {
 
 type PurchaseOrder = {
   id: string;
-  po_no: string;
+  doc_no: string | null;
   vendor_id: string;
   status: string;
   order_date: string;
@@ -68,6 +68,7 @@ export default function PurchaseOrdersPage() {
     { id: "line-0", variant_id: "", ordered_qty: "", unit_cost: "", variant: null },
   ]);
   const [lineCounter, setLineCounter] = useState(1);
+  const [docNoQuery, setDocNoQuery] = useState("");
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -99,13 +100,18 @@ export default function PurchaseOrdersPage() {
 
   async function loadData(companyId: string, isActiveFetch = true) {
     setError("");
+    let orderQuery = supabase
+      .from("erp_purchase_orders")
+      .select("id, doc_no, vendor_id, status, order_date, expected_delivery_date, created_at")
+      .eq("company_id", companyId);
+
+    if (docNoQuery.trim()) {
+      orderQuery = orderQuery.ilike("doc_no", `%${docNoQuery.trim()}%`);
+    }
+
     const [vendorRes, orderRes, lineRes] = await Promise.all([
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
-      supabase
-        .from("erp_purchase_orders")
-        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, created_at")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false }),
+      orderQuery.order("created_at", { ascending: false }),
       supabase
         .from("erp_purchase_order_lines")
         .select("purchase_order_id, ordered_qty, received_qty")
@@ -192,28 +198,30 @@ export default function PurchaseOrdersPage() {
     }
 
     setError("");
-    const { data: po, error: poError } = await supabase
-      .from("erp_purchase_orders")
-      .insert({
-        company_id: ctx.companyId,
-        vendor_id: vendorId,
-        status,
-        order_date: orderDate || null,
-        expected_delivery_date: expectedDate || null,
-        notes: notes.trim() || null,
-      })
-      .select("id")
-      .single();
+    const { data: poId, error: poError } = await supabase.rpc("erp_po_create_draft", {
+      p_vendor_id: vendorId,
+      p_status: status,
+      p_order_date: orderDate || null,
+      p_expected_delivery_date: expectedDate || null,
+      p_notes: notes.trim() || null,
+      p_deliver_to_warehouse_id: null,
+    });
 
     if (poError) {
       setError(poError.message);
       return;
     }
 
+    const parsedPoId = typeof poId === "string" ? poId : null;
+    if (!parsedPoId) {
+      setError("Failed to parse created purchase order id.");
+      return;
+    }
+
     const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
       validLines.map((line) => ({
         company_id: ctx.companyId,
-        purchase_order_id: po.id,
+        purchase_order_id: parsedPoId,
         variant_id: line.variant_id,
         ordered_qty: line.ordered_qty,
         unit_cost: line.unit_cost,
@@ -370,7 +378,25 @@ export default function PurchaseOrdersPage() {
           </form>
         </section>
 
-        <section>
+        <section style={cardStyle}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 240 }}>
+              <span style={{ fontSize: 12, color: "#4b5563" }}>Doc Number</span>
+              <input
+                value={docNoQuery}
+                onChange={(event) => setDocNoQuery(event.target.value)}
+                placeholder="FY25-26/PO/000001"
+                style={inputStyle}
+              />
+            </label>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => ctx?.companyId && loadData(ctx.companyId)}
+            >
+              Apply Search
+            </button>
+          </div>
           <table style={tableStyle}>
             <thead>
               <tr>
@@ -401,7 +427,7 @@ export default function PurchaseOrdersPage() {
                   return (
                     <tr key={order.id}>
                       <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{order.po_no}</div>
+                        <div style={{ fontWeight: 600 }}>{order.doc_no || `PO-${order.id.slice(0, 8)}`}</div>
                         <div style={{ color: "#6b7280", fontSize: 12 }}>{order.order_date}</div>
                       </td>
                       <td style={tableCellStyle}>{vendorMap.get(order.vendor_id) || order.vendor_id}</td>

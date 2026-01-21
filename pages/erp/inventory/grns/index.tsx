@@ -25,7 +25,7 @@ type Grn = {
 
 type PurchaseOrder = {
   id: string;
-  po_no: string;
+  doc_no: string | null;
   vendor_id: string;
 };
 
@@ -77,7 +77,7 @@ export default function GrnListPage() {
         .select("id, grn_no, purchase_order_id, status, received_at")
         .eq("company_id", companyId)
         .order("received_at", { ascending: false }),
-      supabase.from("erp_purchase_orders").select("id, po_no, vendor_id").eq("company_id", companyId),
+      supabase.from("erp_purchase_orders").select("id, doc_no, vendor_id").eq("company_id", companyId),
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId),
     ]);
 
@@ -141,7 +141,7 @@ export default function GrnListPage() {
                   return (
                     <tr key={grn.id}>
                       <td style={tableCellStyle}>{grn.grn_no}</td>
-                      <td style={tableCellStyle}>{po?.po_no || grn.purchase_order_id}</td>
+                      <td style={tableCellStyle}>{po?.doc_no || `PO-${grn.purchase_order_id.slice(0, 8)}`}</td>
                       <td style={tableCellStyle}>{vendorMap.get(po?.vendor_id || "") || "—"}</td>
                       <td style={tableCellStyle}>{grn.status}</td>
                       <td style={tableCellStyle}>{new Date(grn.received_at).toLocaleString()}</td>

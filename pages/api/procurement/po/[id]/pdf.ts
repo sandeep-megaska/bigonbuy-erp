@@ -4,7 +4,7 @@ import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../..
 type PurchaseOrderPayload = {
   po: {
     id: string;
-    po_no: string;
+    doc_no: string | null;
     status: string;
     order_date: string;
     expected_delivery_date: string | null;
@@ -143,6 +143,8 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
             `;
           })
           .join("");
+
+  const poLabel = po.doc_no || `PO-${po.id.slice(0, 8)}`;
 
   return `
     <!doctype html>
@@ -285,7 +287,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
           </div>
         </div>
         <div style="text-align: right; font-size: 9px; color: #111827;">
-          <div><span style="color: #6b7280;">PO</span> ${escapeHtml(po.po_no || po.id)}</div>
+          <div><span style="color: #6b7280;">PO</span> ${escapeHtml(poLabel)}</div>
           <div><span style="color: #6b7280;">Date</span> ${escapeHtml(formatDate(po.order_date))}</div>
           <div><span style="color: #6b7280;">Deliver To</span> ${escapeHtml(deliver_to?.name || "—")}</div>
           <div><span style="color: #6b7280;">Status</span> ${escapeHtml(po.status || "—")}</div>
@@ -304,7 +306,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
           ${footerLogoMarkup}
         </div>
         <div style="text-align: right; min-width: 140px;">
-          ${escapeHtml(po.po_no || po.id)} – Page <span class="pageNumber"></span> / <span class="totalPages"></span>
+          ${escapeHtml(poLabel)} – Page <span class="pageNumber"></span> / <span class="totalPages"></span>
         </div>
       </div>
     </div>
@@ -415,7 +417,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const pdfArrayBuffer = await resp.arrayBuffer();
     const pdfBuffer = Buffer.from(pdfArrayBuffer);
 
-    const filename = `PO_${payload.po.po_no || payload.po.id}.pdf`;
+    const filename = `PO_${payload.po.doc_no || `PO-${payload.po.id.slice(0, 8)}`}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.status(200).send(pdfBuffer);

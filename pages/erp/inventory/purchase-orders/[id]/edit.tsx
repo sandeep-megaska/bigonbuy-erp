@@ -19,7 +19,7 @@ import { supabase } from "../../../../../lib/supabaseClient";
 
 type PurchaseOrder = {
   id: string;
-  po_no: string;
+  doc_no: string | null;
   vendor_id: string;
   status: string;
   order_date: string;
@@ -106,7 +106,7 @@ export default function PurchaseOrderEditPage() {
       supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
       supabase
         .from("erp_purchase_orders")
-        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, notes")
+        .select("id, doc_no, vendor_id, status, order_date, expected_delivery_date, notes")
         .eq("company_id", companyId)
         .eq("id", poId)
         .single(),
@@ -298,7 +298,9 @@ export default function PurchaseOrderEditPage() {
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
-            <h1 style={h1Style}>Edit Purchase Order {po?.po_no || ""}</h1>
+            <h1 style={h1Style}>
+              Edit Purchase Order {po?.doc_no || (po ? `PO-${po.id.slice(0, 8)}` : "")}
+            </h1>
             <p style={subtitleStyle}>Update the draft purchase order before approval.</p>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
