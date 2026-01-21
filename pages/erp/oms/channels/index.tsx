@@ -167,7 +167,7 @@ export default function OmsChannelAccountsPage() {
   }
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="oms">
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>

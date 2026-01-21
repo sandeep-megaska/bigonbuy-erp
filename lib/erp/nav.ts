@@ -149,6 +149,14 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "oms-channels",
+    label: "Channels",
+    href: "/erp/oms/channels",
+    section: "OMS",
+    description: "Configure marketplace and store channels.",
+    access: "manager",
+  },
+  {
     id: "company-users",
     label: "Company Users",
     href: "/erp/admin/company-users",
