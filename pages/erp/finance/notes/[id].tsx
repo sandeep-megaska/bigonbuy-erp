@@ -218,11 +218,7 @@ export default function NoteDetailPage() {
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
-          title={
-            noteHeader.doc_no
-              ? `Note ${noteHeader.doc_no}`
-              : `Note ${noteHeader.note_kind === "credit" ? "CN" : "DN"}-${noteHeader.id.slice(0, 8)}`
-          }
+          title={noteHeader.note_number ? `Note ${noteHeader.note_number}` : "Note"}
           description={`${noteHeader.party_name} · ${noteHeader.party_type === "customer" ? "Customer" : "Vendor"} · ${noteHeader.note_kind === "credit" ? "Credit" : "Debit"}`}
           rightActions={
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

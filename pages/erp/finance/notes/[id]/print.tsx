@@ -211,9 +211,7 @@ export default function NotePrintPage() {
   const roundedTotal = round2(noteHeader?.total ?? totals.total);
   const computedTotal = round2(roundedSubtotal + roundedTax);
   const roundOff = round2(roundedTotal - computedTotal);
-  const noteDocNo =
-    noteHeader?.doc_no ||
-    (noteHeader ? `${noteHeader.note_kind === "credit" ? "CN" : "DN"}-${noteHeader.id.slice(0, 8)}` : "DRAFT");
+  const noteDocNo = noteHeader?.note_number || "";
 
   return (
     <div style={printPageStyle} className="note-print note-print-root">

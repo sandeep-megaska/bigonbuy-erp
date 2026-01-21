@@ -5,6 +5,7 @@ type PurchaseOrderPayload = {
   po: {
     id: string;
     doc_no: string | null;
+    po_no: string | null;
     status: string;
     order_date: string;
     expected_delivery_date: string | null;
@@ -144,7 +145,7 @@ function buildPoHtml(payload: PurchaseOrderPayload) {
           })
           .join("");
 
-  const poLabel = po.doc_no || `PO-${po.id.slice(0, 8)}`;
+  const poLabel = po.doc_no || po.po_no || "";
 
   return `
     <!doctype html>
@@ -266,7 +267,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
   const { po, deliver_to, company } = payload;
   const companyName = company?.legal_name || company?.brand_name || "Bigonbuy";
   const footerAddress = company?.po_footer_address_text || company?.address_text || "";
-  const poLabel = po.doc_no || `PO-${po.id.slice(0, 8)}`;
+  const poLabel = po.doc_no || po.po_no || "";
 
   const headerLogoMarkup = logoUrl
     ? `<img src="${logoUrl}" style="height: 28px; width: auto;" />`
@@ -418,7 +419,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const pdfArrayBuffer = await resp.arrayBuffer();
     const pdfBuffer = Buffer.from(pdfArrayBuffer);
 
-    const filename = `PO_${payload.po.doc_no || `PO-${payload.po.id.slice(0, 8)}`}.pdf`;
+    const filename = `PO_${payload.po.doc_no || payload.po.po_no || ""}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.status(200).send(pdfBuffer);
