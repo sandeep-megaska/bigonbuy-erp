@@ -266,6 +266,7 @@ function buildHeaderFooter(payload: PurchaseOrderPayload, logoUrl: string | null
   const { po, deliver_to, company } = payload;
   const companyName = company?.legal_name || company?.brand_name || "Bigonbuy";
   const footerAddress = company?.po_footer_address_text || company?.address_text || "";
+  const poLabel = po.doc_no || `PO-${po.id.slice(0, 8)}`;
 
   const headerLogoMarkup = logoUrl
     ? `<img src="${logoUrl}" style="height: 28px; width: auto;" />`
