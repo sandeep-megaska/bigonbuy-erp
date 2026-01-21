@@ -269,7 +269,7 @@ export default function OmsChannelDetailPage() {
 
   async function loadJobs(isActive = true) {
     if (!channelId) return;
-    const { data, error: loadError } = await supabase.rpc("erp_channel_job_list", {
+    const { data, error: loadError } = await supabase.rpc("erp_channel_job_list_with_counts", {
       p_channel_account_id: channelId,
       p_job_type: null,
       p_status: null,
