@@ -71,7 +71,7 @@ type WarehouseOption = {
 
 type Grn = {
   id: string;
-  grn_no: string;
+  grn_no: string | null;
   status: string;
   received_at: string;
 };
@@ -324,7 +324,8 @@ export default function PurchaseOrderDetailPage() {
 
     try {
       const grn = await createDraftGrn(linesToReceive);
-      setNotice(`Draft GRN ${grn.grn_no} saved.`);
+      const grnLabel = grn.grn_no || `GRN-${grn.id.slice(0, 8)}`;
+      setNotice(`Draft GRN ${grnLabel} saved.`);
       setReceiptNotes("");
       await loadData(ctx.companyId, po.id);
     } catch (err) {
@@ -671,7 +672,7 @@ export default function PurchaseOrderDetailPage() {
               ) : (
                 grns.map((grn) => (
                   <tr key={grn.id}>
-                    <td style={tableCellStyle}>{grn.grn_no}</td>
+                    <td style={tableCellStyle}>{grn.grn_no || `GRN-${grn.id.slice(0, 8)}`}</td>
                     <td style={tableCellStyle}>{grn.status}</td>
                     <td style={tableCellStyle}>{new Date(grn.received_at).toLocaleString()}</td>
                   </tr>

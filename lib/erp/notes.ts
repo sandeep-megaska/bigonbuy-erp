@@ -28,6 +28,10 @@ export const noteHeaderSchema = z.object({
   party_id: z.string().uuid().nullable(),
   party_name: z.string(),
   currency: z.string(),
+  reference_invoice_number: z.string().nullable(),
+  reference_invoice_date: z.string().nullable(),
+  reason: z.string().nullable(),
+  place_of_supply: z.string().nullable(),
   subtotal: z.coerce.number(),
   tax_total: z.coerce.number(),
   total: z.coerce.number(),
@@ -93,6 +97,10 @@ export type NoteFormPayload = {
   currency: string;
   source_type: string | null;
   source_id: string | null;
+  reference_invoice_number: string;
+  reference_invoice_date: string;
+  reason: string;
+  place_of_supply: string;
   lines: NoteLineInput[];
 };
 

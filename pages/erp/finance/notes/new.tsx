@@ -150,6 +150,10 @@ export default function NoteCreatePage() {
             currency: "INR",
             source_type: "",
             source_id: "",
+            reference_invoice_number: "",
+            reference_invoice_date: today(),
+            reason: "",
+            place_of_supply: "",
             lines: [
               {
                 item_type: "manual",

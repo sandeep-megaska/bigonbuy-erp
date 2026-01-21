@@ -130,6 +130,14 @@ export default function NoteForm({
   const [currency, setCurrency] = useState(initialValues.currency ?? "INR");
   const [sourceType, setSourceType] = useState(initialValues.source_type ?? "");
   const [sourceId, setSourceId] = useState(initialValues.source_id ?? "");
+  const [referenceInvoiceNumber, setReferenceInvoiceNumber] = useState(
+    initialValues.reference_invoice_number ?? ""
+  );
+  const [referenceInvoiceDate, setReferenceInvoiceDate] = useState(
+    initialValues.reference_invoice_date ?? ""
+  );
+  const [reason, setReason] = useState(initialValues.reason ?? "");
+  const [placeOfSupply, setPlaceOfSupply] = useState(initialValues.place_of_supply ?? "");
   const [lines, setLines] = useState<NoteLineState[]>(initialValues.lines ?? [emptyLine()]);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -144,6 +152,10 @@ export default function NoteForm({
     setCurrency(initialValues.currency ?? "INR");
     setSourceType(initialValues.source_type ?? "");
     setSourceId(initialValues.source_id ?? "");
+    setReferenceInvoiceNumber(initialValues.reference_invoice_number ?? "");
+    setReferenceInvoiceDate(initialValues.reference_invoice_date ?? "");
+    setReason(initialValues.reason ?? "");
+    setPlaceOfSupply(initialValues.place_of_supply ?? "");
     setLines(initialValues.lines && initialValues.lines.length > 0 ? initialValues.lines : [emptyLine()]);
   }, [initialValues]);
 
@@ -227,6 +239,26 @@ export default function NoteForm({
       return;
     }
 
+    if (!referenceInvoiceNumber.trim()) {
+      setLocalError("Please provide the reference invoice number.");
+      return;
+    }
+
+    if (!referenceInvoiceDate) {
+      setLocalError("Please provide the reference invoice date.");
+      return;
+    }
+
+    if (!reason.trim()) {
+      setLocalError("Please provide a reason for the note.");
+      return;
+    }
+
+    if (!placeOfSupply.trim()) {
+      setLocalError("Please provide the place of supply.");
+      return;
+    }
+
     const sanitizedLines = lines.map((line) => ({
       item_type: line.item_type,
       variant_id: line.variant_id,
@@ -253,6 +285,10 @@ export default function NoteForm({
       currency,
       source_type: sourceType || null,
       source_id: sourceId || null,
+      reference_invoice_number: referenceInvoiceNumber.trim(),
+      reference_invoice_date: referenceInvoiceDate,
+      reason: reason.trim(),
+      place_of_supply: placeOfSupply.trim(),
       lines: sanitizedLines,
     };
 
@@ -315,6 +351,50 @@ export default function NoteForm({
         </div>
 
         <div style={formGridStyle}>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Reference Invoice Number</span>
+            <input
+              type="text"
+              value={referenceInvoiceNumber}
+              onChange={(event) => setReferenceInvoiceNumber(event.target.value)}
+              disabled={isReadOnly}
+              style={inputStyle}
+              required
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Reference Invoice Date</span>
+            <input
+              type="date"
+              value={referenceInvoiceDate}
+              onChange={(event) => setReferenceInvoiceDate(event.target.value)}
+              disabled={isReadOnly}
+              style={inputStyle}
+              required
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Place of Supply</span>
+            <input
+              type="text"
+              value={placeOfSupply}
+              onChange={(event) => setPlaceOfSupply(event.target.value)}
+              disabled={isReadOnly}
+              style={inputStyle}
+              required
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Reason</span>
+            <input
+              type="text"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              disabled={isReadOnly}
+              style={inputStyle}
+              required
+            />
+          </label>
           <label style={fieldStyle}>
             <span style={labelStyle}>Source Type</span>
             <input type="text" value={sourceType} disabled style={inputStyle} placeholder="Linked source (read-only)" />

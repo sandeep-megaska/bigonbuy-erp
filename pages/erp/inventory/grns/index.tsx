@@ -17,7 +17,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 
 type Grn = {
   id: string;
-  grn_no: string;
+  grn_no: string | null;
   purchase_order_id: string;
   status: string;
   received_at: string;
@@ -138,9 +138,10 @@ export default function GrnListPage() {
               ) : (
                 grns.map((grn) => {
                   const po = poMap.get(grn.purchase_order_id);
+                  const grnLabel = grn.grn_no || `GRN-${grn.id.slice(0, 8)}`;
                   return (
                     <tr key={grn.id}>
-                      <td style={tableCellStyle}>{grn.grn_no}</td>
+                      <td style={tableCellStyle}>{grnLabel}</td>
                       <td style={tableCellStyle}>{po?.doc_no || `PO-${grn.purchase_order_id.slice(0, 8)}`}</td>
                       <td style={tableCellStyle}>{vendorMap.get(po?.vendor_id || "") || "—"}</td>
                       <td style={tableCellStyle}>{grn.status}</td>
