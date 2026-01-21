@@ -22,10 +22,30 @@ type Option = {
   name: string;
 };
 
+type Issue = {
+  path: string;
+  message: string;
+};
+
 const vendorSchema = z.object({
   id: z.string().uuid(),
   legal_name: z.string(),
 });
+
+const errorBannerStyle = {
+  marginBottom: 16,
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid #fecaca",
+  backgroundColor: "#fff1f2",
+  color: "#b91c1c",
+  fontSize: 13,
+};
+
+const errorListStyle = {
+  margin: "8px 0 0",
+  paddingLeft: 18,
+};
 
 const statusBadgeStyle = (status: string) => {
   if (status === "approved") {
@@ -43,9 +63,15 @@ export default function NoteDetailPage() {
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorIssues, setErrorIssues] = useState<Issue[]>([]);
   const [note, setNote] = useState<NoteGetPayload | null>(null);
   const [vendors, setVendors] = useState<Option[]>([]);
   const [isWorking, setIsWorking] = useState(false);
+
+  const setErrorWithIssues = (message: string | null, issues: Issue[] = []) => {
+    setError(message);
+    setErrorIssues(issues);
+  };
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -65,7 +91,7 @@ export default function NoteDetailPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
+        setErrorWithIssues(context.membershipError || "No active company membership found.");
         setLoading(false);
         return;
       }
@@ -88,13 +114,13 @@ export default function NoteDetailPage() {
       .order("legal_name");
 
     if (vendorError) {
-      setError(vendorError.message || "Failed to load vendors.");
+      setErrorWithIssues(vendorError.message || "Failed to load vendors.");
       return;
     }
 
     const parsed = vendorSchema.array().safeParse(data ?? []);
     if (!parsed.success) {
-      setError("Failed to parse vendor list.");
+      setErrorWithIssues("Failed to parse vendor list.");
       return;
     }
 
@@ -103,19 +129,19 @@ export default function NoteDetailPage() {
 
   const loadNote = async (id: string) => {
     if (!id) return;
-    setError(null);
+    setErrorWithIssues(null);
     const { data, error: noteError } = await supabase.rpc("erp_note_get", {
       p_note_id: id,
     });
 
     if (noteError) {
-      setError(noteError.message || "Failed to load note.");
+      setErrorWithIssues(noteError.message || "Failed to load note.");
       return;
     }
 
     const parsed = noteGetSchema.safeParse(data);
     if (!parsed.success) {
-      setError("Failed to parse note payload.");
+      setErrorWithIssues("Failed to parse note payload.");
       return;
     }
 
@@ -125,11 +151,11 @@ export default function NoteDetailPage() {
   const handleSave = async (payload: NoteFormPayload) => {
     if (!note) return;
     setIsWorking(true);
-    setError(null);
+    setErrorWithIssues(null);
 
     const accessToken = ctx?.session?.access_token;
     if (!accessToken) {
-      setError("Not authenticated.");
+      setErrorWithIssues("Not authenticated.");
       setIsWorking(false);
       return;
     }
@@ -145,11 +171,11 @@ export default function NoteDetailPage() {
 
     const result = (await response.json()) as
       | { ok: true; noteId: string }
-      | { ok: false; error: string; correlationId?: string };
+      | { ok: false; error: string; correlationId?: string; issues?: Issue[] };
 
     if (!result.ok) {
       const correlation = result.correlationId ? ` (ref: ${result.correlationId})` : "";
-      setError(`${result.error}${correlation}`);
+      setErrorWithIssues(`${result.error}${correlation}`, result.issues ?? []);
       setIsWorking(false);
       return;
     }
@@ -161,13 +187,13 @@ export default function NoteDetailPage() {
   const handleApprove = async () => {
     if (!note) return;
     setIsWorking(true);
-    setError(null);
+    setErrorWithIssues(null);
     const { error: approveError } = await supabase.rpc("erp_note_approve", {
       p_note_id: note.note.id,
     });
 
     if (approveError) {
-      setError(approveError.message);
+      setErrorWithIssues(approveError.message);
       setIsWorking(false);
       return;
     }
@@ -182,14 +208,14 @@ export default function NoteDetailPage() {
     if (reason === null) return;
 
     setIsWorking(true);
-    setError(null);
+    setErrorWithIssues(null);
     const { error: cancelError } = await supabase.rpc("erp_note_cancel", {
       p_note_id: note.note.id,
       p_reason: reason,
     });
 
     if (cancelError) {
-      setError(cancelError.message);
+      setErrorWithIssues(cancelError.message);
       setIsWorking(false);
       return;
     }
@@ -265,6 +291,21 @@ export default function NoteDetailPage() {
           }
         />
 
+        {error ? (
+          <div style={errorBannerStyle}>
+            <div>{error}</div>
+            {errorIssues.length > 0 ? (
+              <ul style={errorListStyle}>
+                {errorIssues.map((issue, index) => (
+                  <li key={`${issue.path}-${index}`}>
+                    {issue.path || "note"}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
         <NoteForm
           vendors={vendors}
           initialValues={{
@@ -296,7 +337,7 @@ export default function NoteDetailPage() {
           canWrite={canWrite}
           readOnly={!isDraft}
           onSubmit={handleSave}
-          error={error}
+          error={null}
         />
       </div>
     </ErpShell>
