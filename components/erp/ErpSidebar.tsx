@@ -127,11 +127,19 @@ const financeSidebarGroups: SidebarGroup[] = [
   },
 ];
 
+const omsSidebarGroups: SidebarGroup[] = [
+  {
+    label: "OMS",
+    items: [{ label: "Channels", href: "/erp/oms/channels", icon: "CH" }],
+  },
+];
+
 const moduleSidebarMap: Record<ErpModuleKey, SidebarGroup[]> = {
   workspace: workspaceSidebarGroups,
   hr: hrSidebarGroups,
   employee: employeeSidebarGroups,
   finance: financeSidebarGroups,
+  oms: omsSidebarGroups,
   admin: adminSidebarGroups,
 };
 

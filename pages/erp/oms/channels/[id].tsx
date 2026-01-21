@@ -483,14 +483,14 @@ export default function OmsChannelDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell>
+      <ErpShell activeModule="oms">
         <div style={pageContainerStyle}>Loading channel…</div>
       </ErpShell>
     );
   }
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="oms">
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
