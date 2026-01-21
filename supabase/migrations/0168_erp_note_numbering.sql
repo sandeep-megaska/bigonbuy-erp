@@ -1,4 +1,12 @@
 -- Proper CN/DN numbering with fiscal year sequences
+-- DROP old versions if they exist (return type changed)
+
+drop function if exists public.erp_note_get(uuid);
+drop function if exists public.erp_notes_list(
+  text, text, text, date, date, int, int
+);
+drop function if exists public.erp_note_approve(uuid);
+drop function if exists public.erp_finance_note_pdf_payload(uuid);
 
 alter table public.erp_notes
   add column if not exists note_number text null,
