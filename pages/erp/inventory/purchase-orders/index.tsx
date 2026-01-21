@@ -29,6 +29,7 @@ type VendorOption = {
 type PurchaseOrder = {
   id: string;
   doc_no: string | null;
+  po_no: string | null;
   vendor_id: string;
   status: string;
   order_date: string;
@@ -102,7 +103,7 @@ export default function PurchaseOrdersPage() {
     setError("");
     let orderQuery = supabase
       .from("erp_purchase_orders")
-      .select("id, doc_no, vendor_id, status, order_date, expected_delivery_date, created_at")
+      .select("id, doc_no, po_no, vendor_id, status, order_date, expected_delivery_date, created_at")
       .eq("company_id", companyId);
 
     if (docNoQuery.trim()) {
@@ -427,7 +428,7 @@ export default function PurchaseOrdersPage() {
                   return (
                     <tr key={order.id}>
                       <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{order.doc_no || `PO-${order.id.slice(0, 8)}`}</div>
+                        <div style={{ fontWeight: 600 }}>{order.doc_no || order.po_no || ""}</div>
                         <div style={{ color: "#6b7280", fontSize: 12 }}>{order.order_date}</div>
                       </td>
                       <td style={tableCellStyle}>{vendorMap.get(order.vendor_id) || order.vendor_id}</td>

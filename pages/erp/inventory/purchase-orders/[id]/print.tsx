@@ -7,6 +7,7 @@ import { useCompanyBranding } from "../../../../../lib/erp/useCompanyBranding";
 type PurchaseOrder = {
   id: string;
   doc_no: string | null;
+  po_no: string | null;
   vendor_id: string;
   status: string;
   order_date: string;
@@ -144,7 +145,7 @@ export default function PurchaseOrderPrintPage() {
     const poRes = await supabase
       .from("erp_purchase_orders")
       .select(
-        "id, doc_no, vendor_id, status, order_date, expected_delivery_date, notes, rfq_id, vendor_quote_id, quote_ref_no, deliver_to_warehouse_id"
+        "id, doc_no, po_no, vendor_id, status, order_date, expected_delivery_date, notes, rfq_id, vendor_quote_id, quote_ref_no, deliver_to_warehouse_id"
       )
       .eq("company_id", companyId)
       .eq("id", poId)
@@ -325,7 +326,7 @@ export default function PurchaseOrderPrintPage() {
           <div style={printMetaCardStyle}>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>PO Number</span>
-              <span style={printMetaValueStyle}>{po?.doc_no || (po ? `PO-${po.id.slice(0, 8)}` : "—")}</span>
+              <span style={printMetaValueStyle}>{po?.doc_no || po?.po_no || ""}</span>
             </div>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>PO Date</span>
@@ -477,7 +478,7 @@ export default function PurchaseOrderPrintPage() {
             {"\n"}GSTIN: {branding?.gstin || "—"}
           </div>
           <div style={printFooterPageStyle}>
-            {po?.doc_no || (po ? `PO-${po.id.slice(0, 8)}` : "—")} – Page <span className="pageNumber"></span> /{" "}
+            {po?.doc_no || po?.po_no || ""} – Page <span className="pageNumber"></span> /{" "}
             <span className="totalPages"></span>
           </div>
           {secondaryLogoUrl ? (

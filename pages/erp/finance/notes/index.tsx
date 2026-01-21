@@ -246,8 +246,7 @@ export default function NotesListPage() {
               notes.map((note) => (
                 <tr key={note.id}>
                   <td style={tableCellStyle}>
-                    {note.doc_no ||
-                      `${note.note_kind === "credit" ? "CN" : "DN"}-${note.id.slice(0, 8)}`}
+                    {note.note_number || ""}
                   </td>
                   <td style={tableCellStyle}>
                     {note.party_type === "customer" ? "Customer" : "Vendor"} · {note.note_kind === "credit" ? "Credit" : "Debit"}

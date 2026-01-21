@@ -20,7 +20,7 @@ export type NoteLine = z.infer<typeof noteLineSchema>;
 
 export const noteHeaderSchema = z.object({
   id: z.string().uuid(),
-  doc_no: z.string().nullable(),
+  note_number: z.string().nullable(),
   party_type: z.string(),
   note_kind: z.string(),
   status: z.string(),
@@ -55,7 +55,7 @@ export type NoteGetPayload = z.infer<typeof noteGetSchema>;
 
 export const noteListRowSchema = z.object({
   id: z.string().uuid(),
-  doc_no: z.string().nullable(),
+  note_number: z.string().nullable(),
   party_type: z.string(),
   note_kind: z.string(),
   status: z.string(),
