@@ -464,8 +464,11 @@ $$;
 
 revoke all on function public.erp_note_get(uuid) from public;
 grant execute on function public.erp_note_get(uuid) to authenticated;
+-- Must DROP before changing RETURNS TABLE (OUT columns)
+drop function if exists public.erp_notes_list(text,text,text,date,date,text,int,int);
+drop function if exists public.erp_notes_list(text,text,text,date,date,int,int); -- older signature (if any)
 
-create or replace function public.erp_notes_list(
+create function public.erp_notes_list(
   p_party_type text,
   p_note_kind text,
   p_status text,
@@ -476,6 +479,7 @@ create or replace function public.erp_notes_list(
   p_offset int
 )
 returns table (
+
   id uuid,
   note_number text,
   party_type text,
