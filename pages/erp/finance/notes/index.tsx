@@ -54,6 +54,7 @@ export default function NotesListPage() {
   const [partyType, setPartyType] = useState("");
   const [noteKind, setNoteKind] = useState("");
   const [status, setStatus] = useState("");
+  const [docNoQuery, setDocNoQuery] = useState("");
   const [fromDate, setFromDate] = useState(startOfMonth());
   const [toDate, setToDate] = useState(today());
 
@@ -105,6 +106,7 @@ export default function NotesListPage() {
       p_status: status || null,
       p_from: effectiveFrom || null,
       p_to: effectiveTo || null,
+      p_doc_no: docNoQuery || null,
       p_limit: 200,
       p_offset: 0,
     });
@@ -162,6 +164,15 @@ export default function NotesListPage() {
 
         <div style={cardStyle}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "#4b5563" }}>Doc Number</span>
+              <input
+                value={docNoQuery}
+                onChange={(event) => setDocNoQuery(event.target.value)}
+                placeholder="FY25-26/CN/000001"
+                style={inputStyle}
+              />
+            </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 12, color: "#4b5563" }}>Party Type</span>
               <select value={partyType} onChange={(event) => setPartyType(event.target.value)} style={inputStyle}>
@@ -234,7 +245,10 @@ export default function NotesListPage() {
             ) : (
               notes.map((note) => (
                 <tr key={note.id}>
-                  <td style={tableCellStyle}>{note.note_number || "DRAFT"}</td>
+                  <td style={tableCellStyle}>
+                    {note.doc_no ||
+                      `${note.note_kind === "credit" ? "CN" : "DN"}-${note.id.slice(0, 8)}`}
+                  </td>
                   <td style={tableCellStyle}>
                     {note.party_type === "customer" ? "Customer" : "Vendor"} · {note.note_kind === "credit" ? "Credit" : "Debit"}
                   </td>

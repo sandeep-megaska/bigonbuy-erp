@@ -22,7 +22,7 @@ import { useCompanyBranding } from "../../../../lib/erp/useCompanyBranding";
 
 type PurchaseOrder = {
   id: string;
-  po_no: string;
+  doc_no: string | null;
   vendor_id: string;
   status: string;
   order_date: string;
@@ -145,7 +145,7 @@ export default function PurchaseOrderDetailPage() {
     const [poRes, lineRes, vendorRes, variantRes, warehouseRes, grnRes] = await Promise.all([
       supabase
         .from("erp_purchase_orders")
-        .select("id, po_no, vendor_id, status, order_date, expected_delivery_date, notes, deliver_to_warehouse_id")
+        .select("id, doc_no, vendor_id, status, order_date, expected_delivery_date, notes, deliver_to_warehouse_id")
         .eq("company_id", companyId)
         .eq("id", poId)
         .single(),
@@ -434,7 +434,8 @@ export default function PurchaseOrderDetailPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `PO_${po.po_no || po.id}.pdf`;
+      const poLabel = po.doc_no || `PO-${po.id.slice(0, 8)}`;
+      link.download = `PO_${poLabel}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -452,7 +453,9 @@ export default function PurchaseOrderDetailPage() {
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>Inventory</p>
-            <h1 style={h1Style}>Purchase Order {po?.po_no || ""}</h1>
+            <h1 style={h1Style}>
+              Purchase Order {po?.doc_no || (po ? `PO-${po.id.slice(0, 8)}` : "")}
+            </h1>
             <p style={subtitleStyle}>Review PO details and receive goods.</p>
           </div>
           <div className="no-print" style={{ display: "flex", gap: 12 }}>

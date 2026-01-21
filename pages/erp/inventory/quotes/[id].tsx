@@ -202,32 +202,32 @@ export default function QuoteDetailPage() {
     }
 
     setError("");
-    const { data: po, error: poError } = await supabase
-      .from("erp_purchase_orders")
-      .insert({
-        company_id: ctx.companyId,
-        vendor_id: quote.vendor_id,
-        status: "draft",
-        order_date: new Date().toISOString().split("T")[0],
-        expected_delivery_date: null,
-        notes: null,
-        rfq_id: quote.rfq_id,
-        vendor_quote_id: quote.id,
-        quote_ref_no: quote.quote_no,
-        deliver_to_warehouse_id: rfq?.deliver_to_warehouse_id || null,
-      })
-      .select("id")
-      .single();
+    const { data: poId, error: poError } = await supabase.rpc("erp_po_create_draft", {
+      p_vendor_id: quote.vendor_id,
+      p_status: "draft",
+      p_order_date: new Date().toISOString().split("T")[0],
+      p_expected_delivery_date: null,
+      p_notes: null,
+      p_deliver_to_warehouse_id: rfq?.deliver_to_warehouse_id || null,
+      p_rfq_id: quote.rfq_id,
+      p_vendor_quote_id: quote.id,
+      p_quote_ref_no: quote.quote_no,
+    });
 
     if (poError) {
       setError(poError.message);
       return;
     }
 
+    if (typeof poId !== "string") {
+      setError("Failed to parse purchase order id.");
+      return;
+    }
+
     const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
       lines.map((line) => ({
         company_id: ctx.companyId,
-        purchase_order_id: po.id,
+        purchase_order_id: poId,
         variant_id: line.variant_id,
         ordered_qty: line.qty,
         unit_cost: line.unit_rate,
@@ -240,7 +240,7 @@ export default function QuoteDetailPage() {
     }
 
     setNotice("Purchase order draft created.");
-    router.push(`/erp/inventory/purchase-orders/${po.id}`);
+    router.push(`/erp/inventory/purchase-orders/${poId}`);
   }
 
   const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
