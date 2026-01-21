@@ -241,7 +241,7 @@ export default function NotePrintPage() {
           <div style={printMetaCardStyle}>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>Note Number</span>
-              <span style={printMetaValueStyle}>{noteHeader?.note_no || noteHeader?.id || "—"}</span>
+              <span style={printMetaValueStyle}>{noteHeader?.note_number || "DRAFT"}</span>
             </div>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>Date</span>
@@ -383,7 +383,7 @@ export default function NotePrintPage() {
             {"\n"}GSTIN: {branding?.gstin || "—"}
           </div>
           <div style={printFooterPageStyle}>
-            {noteHeader?.note_no || noteHeader?.id || "—"} – Page <span className="pageNumber"></span> /{" "}
+            {noteHeader?.note_number || "DRAFT"} – Page <span className="pageNumber"></span> /{" "}
             <span className="totalPages"></span>
           </div>
           {secondaryLogoUrl ? (
