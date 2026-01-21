@@ -21,12 +21,18 @@ type PartyDetails = {
   country: string | null;
 };
 
+type Issue = {
+  path: string;
+  message: string;
+};
+
 export default function NotePrintPage() {
   const router = useRouter();
   const { id } = router.query;
   const branding = useCompanyBranding();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [errorIssues, setErrorIssues] = useState<Issue[]>([]);
   const [note, setNote] = useState<NoteGetPayload | null>(null);
   const [party, setParty] = useState<PartyDetails | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
@@ -101,6 +107,7 @@ export default function NotePrintPage() {
 
   async function loadData(noteId: string, isActiveFetch = true) {
     setError("");
+    setErrorIssues([]);
     const { data, error: noteError } = await supabase.rpc("erp_note_get", {
       p_note_id: noteId,
     });
@@ -216,7 +223,20 @@ export default function NotePrintPage() {
   return (
     <div style={printPageStyle} className="note-print note-print-root">
       <div className="note-sheet print-page">
-        {error ? <div style={printErrorStyle}>{error}</div> : null}
+        {error ? (
+          <div style={printErrorStyle}>
+            <div>{error}</div>
+            {errorIssues.length > 0 ? (
+              <ul style={printErrorListStyle}>
+                {errorIssues.map((issue, index) => (
+                  <li key={`${issue.path}-${index}`}>
+                    {issue.path || "note"}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <header style={printHeaderRowStyle} className="note-header">
           <div style={printBrandBlockStyle}>
             {logoUrl ? (
@@ -590,6 +610,11 @@ const printErrorStyle = {
   backgroundColor: "#fef2f2",
   color: "#991b1b",
   fontSize: 12,
+};
+
+const printErrorListStyle = {
+  margin: "6px 0 0",
+  paddingLeft: 18,
 };
 
 const printHeaderRowStyle = {
