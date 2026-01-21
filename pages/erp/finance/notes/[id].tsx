@@ -127,15 +127,29 @@ export default function NoteDetailPage() {
     setIsWorking(true);
     setError(null);
 
-    const { error: saveError } = await supabase.rpc("erp_note_upsert", {
-      p_note: {
-        ...payload,
-        id: note.note.id,
+    const accessToken = ctx?.session?.access_token;
+    if (!accessToken) {
+      setError("Not authenticated.");
+      setIsWorking(false);
+      return;
+    }
+
+    const response = await fetch("/api/erp/finance/notes/upsert", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
+      body: JSON.stringify({ ...payload, id: note.note.id }),
     });
 
-    if (saveError) {
-      setError(saveError.message);
+    const result = (await response.json()) as
+      | { ok: true; noteId: string }
+      | { ok: false; error: string; correlationId?: string };
+
+    if (!result.ok) {
+      const correlation = result.correlationId ? ` (ref: ${result.correlationId})` : "";
+      setError(`${result.error}${correlation}`);
       setIsWorking(false);
       return;
     }
