@@ -51,6 +51,7 @@ export default function NoteDetailPage() {
   const [note, setNote] = useState<NoteGetPayload | null>(null);
   const [vendors, setVendors] = useState<Option[]>([]);
   const [isWorking, setIsWorking] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "downloading">("idle");
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -189,6 +190,39 @@ export default function NoteDetailPage() {
     setIsWorking(false);
   };
 
+  const handleDownloadPdf = async () => {
+    if (!ctx?.session?.access_token || !note?.note?.id) return;
+    setDownloadState("downloading");
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/finance/notes/${note.note.id}/pdf`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ctx.session.access_token}` },
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.error || "Failed to download PDF");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const prefix = note.note.note_kind === "credit" ? "CN" : "DN";
+      link.href = url;
+      link.download = `${prefix}-${note.note.note_no || note.note.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download PDF");
+    } finally {
+      setDownloadState("idle");
+    }
+  };
+
   if (loading) {
     return (
       <ErpShell activeModule="finance">
@@ -230,6 +264,14 @@ export default function NoteDetailPage() {
               <Link href="/erp/finance/notes" style={secondaryButtonStyle}>
                 Back to Notes
               </Link>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handleDownloadPdf}
+                disabled={downloadState !== "idle"}
+              >
+                {downloadState === "downloading" ? "Downloading…" : "Download PDF"}
+              </button>
               {isDraft && canWrite ? (
                 <button type="button" style={primaryButtonStyle} onClick={handleApprove} disabled={isWorking}>
                   Approve
