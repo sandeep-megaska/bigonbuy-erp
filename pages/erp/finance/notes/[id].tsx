@@ -15,12 +15,7 @@ import { noteGetSchema, type NoteFormPayload, type NoteGetPayload } from "../../
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
-type CompanyContext = {
-  companyId: string | null;
-  roleKey: string | null;
-  membershipError: string | null;
-  email: string | null;
-};
+type CompanyContext = Awaited<ReturnType<typeof getCompanyContext>>;
 
 type Option = {
   id: string;
