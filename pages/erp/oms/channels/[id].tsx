@@ -76,6 +76,24 @@ type JobRow = {
   error: string | null;
 };
 
+type CoverageRow = {
+  warehouse_id: string | null;
+  total_variants: number;
+  mapped_variants: number;
+  unmapped_variants: number;
+  coverage_pct: number | null;
+};
+
+type InventoryPreviewRow = {
+  variant_id: string;
+  internal_sku: string;
+  available: number;
+  channel_sku: string | null;
+  asin: string | null;
+  listing_id: string | null;
+  is_mapped: boolean;
+};
+
 type VariantSuggestion = {
   variant_id: string;
   sku: string;
@@ -121,8 +139,22 @@ export default function OmsChannelDetailPage() {
   const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [jobWarehouseId, setJobWarehouseId] = useState("");
+  const [coverage, setCoverage] = useState<CoverageRow | null>(null);
+  const [previewRows, setPreviewRows] = useState<InventoryPreviewRow[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [showUnmapped, setShowUnmapped] = useState(false);
+  const [creatingJob, setCreatingJob] = useState(false);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
+  const eligibleJobLocations = useMemo(
+    () => locations.filter((location) => location.is_active && location.fulfillment_type !== "fba"),
+    [locations],
+  );
+  const defaultJobWarehouseId = useMemo(() => {
+    const defaultLocation = eligibleJobLocations.find((location) => location.is_default);
+    return defaultLocation?.warehouse_id || eligibleJobLocations[0]?.warehouse_id || "";
+  }, [eligibleJobLocations]);
 
   useEffect(() => {
     let active = true;
@@ -157,6 +189,31 @@ export default function OmsChannelDetailPage() {
       active = false;
     };
   }, [router, channelId]);
+
+  useEffect(() => {
+    if (!defaultJobWarehouseId) return;
+    if (!jobWarehouseId || !eligibleJobLocations.some((location) => location.warehouse_id === jobWarehouseId)) {
+      setJobWarehouseId(defaultJobWarehouseId);
+    }
+  }, [defaultJobWarehouseId, eligibleJobLocations, jobWarehouseId]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (activeTab !== "jobs") {
+      return () => {
+        active = false;
+      };
+    }
+
+    (async () => {
+      await Promise.all([loadCoverage(active), loadPreview(active)]);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [activeTab, channelId, jobWarehouseId, showUnmapped]);
 
   async function loadAccount(isActive = true) {
     setError(null);
@@ -223,6 +280,47 @@ export default function OmsChannelDetailPage() {
       return;
     }
     if (isActive) setJobs((data || []) as JobRow[]);
+  }
+
+  async function loadCoverage(isActive = true) {
+    if (!channelId) return;
+    if (!jobWarehouseId) {
+      if (isActive) setCoverage(null);
+      return;
+    }
+    const { data, error: loadError } = await supabase.rpc("erp_oms_alias_coverage", {
+      p_channel_account_id: channelId,
+      p_warehouse_id: jobWarehouseId,
+    });
+    if (loadError) {
+      if (isActive) setError(loadError.message);
+      return;
+    }
+    const row = (data || [])[0] as CoverageRow | undefined;
+    if (isActive) setCoverage(row || null);
+  }
+
+  async function loadPreview(isActive = true) {
+    if (!channelId) return;
+    if (!jobWarehouseId) {
+      if (isActive) setPreviewRows([]);
+      return;
+    }
+    setPreviewLoading(true);
+    const { data, error: loadError } = await supabase.rpc("erp_oms_inventory_push_preview", {
+      p_channel_account_id: channelId,
+      p_warehouse_id: jobWarehouseId,
+      p_only_mapped: !showUnmapped,
+      p_limit: 200,
+      p_offset: 0,
+    });
+    if (loadError) {
+      if (isActive) setError(loadError.message);
+      setPreviewLoading(false);
+      return;
+    }
+    if (isActive) setPreviewRows((data || []) as InventoryPreviewRow[]);
+    setPreviewLoading(false);
   }
 
   function resetLocationForm() {
@@ -463,21 +561,28 @@ export default function OmsChannelDetailPage() {
       setError("Only owner/admin can create jobs.");
       return;
     }
+    if (!jobWarehouseId) {
+      setError("Select a warehouse for inventory push.");
+      return;
+    }
     setError(null);
     setNotice(null);
+    setCreatingJob(true);
 
-    const { error: createError } = await supabase.rpc("erp_channel_job_create", {
+    const { data, error: createError } = await supabase.rpc("erp_oms_inventory_push_job_create", {
       p_channel_account_id: channelId,
-      p_job_type: "inventory_push",
+      p_warehouse_id: jobWarehouseId,
       p_payload: { source: "manual" },
     });
 
     if (createError) {
       setError(createError.message);
+      setCreatingJob(false);
       return;
     }
 
-    setNotice("Inventory push job queued.");
+    setNotice(`Inventory push job queued${data ? ` (${data})` : ""}.`);
+    setCreatingJob(false);
     await loadJobs();
   }
 
@@ -808,15 +913,99 @@ export default function OmsChannelDetailPage() {
           <section style={cardStyle}>
             <h2 style={{ margin: "0 0 12px" }}>Channel jobs</h2>
             <p style={subtitleStyle}>Queue and track OMS sync jobs. External execution is not enabled in this sprint.</p>
-            <button type="button" onClick={handleCreateInventoryJob} style={primaryButtonStyle}>
-              Create Inventory Push Job
-            </button>
+            <div style={{ display: "grid", gap: 16 }}>
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                <div style={{ ...cardStyle, margin: 0 }}>
+                  <h3 style={{ margin: "0 0 8px" }}>Coverage</h3>
+                  {coverage ? (
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <span style={subtitleStyle}>Total variants: {coverage.total_variants}</span>
+                      <span style={subtitleStyle}>Mapped variants: {coverage.mapped_variants}</span>
+                      <span style={subtitleStyle}>Unmapped variants: {coverage.unmapped_variants}</span>
+                      <span style={subtitleStyle}>
+                        Coverage: {coverage.coverage_pct !== null ? `${coverage.coverage_pct.toFixed(1)}%` : "—"}
+                      </span>
+                    </div>
+                  ) : (
+                    <span style={subtitleStyle}>Select a warehouse to view coverage.</span>
+                  )}
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <label style={{ display: "grid", gap: 6 }}>
+                    <span style={subtitleStyle}>Warehouse</span>
+                    <select
+                      value={jobWarehouseId}
+                      onChange={(event) => setJobWarehouseId(event.target.value)}
+                      style={inputStyle}
+                    >
+                      <option value="">Select warehouse</option>
+                      {eligibleJobLocations.map((location) => (
+                        <option key={location.warehouse_id} value={location.warehouse_id}>
+                          {location.warehouse_name || location.warehouse_id} · {location.fulfillment_type}
+                          {location.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={showUnmapped}
+                      onChange={(event) => setShowUnmapped(event.target.checked)}
+                    />
+                    <span style={subtitleStyle}>Show unmapped SKUs</span>
+                  </label>
+                  <button type="button" onClick={handleCreateInventoryJob} style={primaryButtonStyle} disabled={creatingJob}>
+                    {creatingJob ? "Creating job…" : "Create Inventory Push Job"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 style={{ margin: "0 0 8px" }}>Preview</h3>
+                {previewLoading ? <p style={subtitleStyle}>Loading preview…</p> : null}
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Internal SKU</th>
+                      <th style={tableHeaderCellStyle}>Channel SKU</th>
+                      <th style={tableHeaderCellStyle}>Available</th>
+                      <th style={tableHeaderCellStyle}>ASIN</th>
+                      <th style={tableHeaderCellStyle}>Listing</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.length === 0 ? (
+                      <tr>
+                        <td style={tableCellStyle} colSpan={5}>
+                          {jobWarehouseId ? "No inventory preview rows." : "Select a warehouse to preview inventory."}
+                        </td>
+                      </tr>
+                    ) : (
+                      previewRows.map((row) => (
+                        <tr
+                          key={row.variant_id}
+                          style={row.is_mapped ? undefined : { backgroundColor: "#fef2f2" }}
+                        >
+                          <td style={tableCellStyle}>{row.internal_sku}</td>
+                          <td style={tableCellStyle}>{row.channel_sku || "—"}</td>
+                          <td style={tableCellStyle}>{Number(row.available).toLocaleString()}</td>
+                          <td style={tableCellStyle}>{row.asin || "—"}</td>
+                          <td style={tableCellStyle}>{row.listing_id || "—"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             <table style={{ ...tableStyle, marginTop: 16 }}>
               <thead>
                 <tr>
                   <th style={tableHeaderCellStyle}>Type</th>
                   <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Items</th>
                   <th style={tableHeaderCellStyle}>Requested</th>
                   <th style={tableHeaderCellStyle}>Started</th>
                   <th style={tableHeaderCellStyle}>Finished</th>
@@ -826,7 +1015,7 @@ export default function OmsChannelDetailPage() {
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={6}>
+                    <td style={tableCellStyle} colSpan={7}>
                       No jobs queued yet.
                     </td>
                   </tr>
@@ -835,6 +1024,11 @@ export default function OmsChannelDetailPage() {
                     <tr key={job.id}>
                       <td style={tableCellStyle}>{job.job_type}</td>
                       <td style={tableCellStyle}>{job.status}</td>
+                      <td style={tableCellStyle}>
+                        {typeof (job.payload as any)?.summary?.item_count === "number"
+                          ? (job.payload as any).summary.item_count
+                          : "—"}
+                      </td>
                       <td style={tableCellStyle}>{new Date(job.requested_at).toLocaleString()}</td>
                       <td style={tableCellStyle}>{job.started_at ? new Date(job.started_at).toLocaleString() : "—"}</td>
                       <td style={tableCellStyle}>{job.finished_at ? new Date(job.finished_at).toLocaleString() : "—"}</td>
