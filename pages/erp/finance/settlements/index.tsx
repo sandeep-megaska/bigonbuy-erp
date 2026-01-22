@@ -17,7 +17,7 @@ import {
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
-const statusColors = {
+const statusColors: Record<string, { backgroundColor: string; color: string }> = {
   Matched: { backgroundColor: "#dcfce7", color: "#166534" },
   Pending: { backgroundColor: "#fef3c7", color: "#92400e" },
   "Pending Bank": { backgroundColor: "#e0e7ff", color: "#3730a3" },
