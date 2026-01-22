@@ -230,7 +230,7 @@ export default function InvoiceForm({
       const { supabase } = await import("../../lib/supabaseClient");
       const [{ data: stateData, error: stateError }, { data: gstData }] = await Promise.all([
         supabase.rpc("erp_ref_india_states_list"),
-        supabase.rpc("erp_company_gst_state"),
+        supabase.rpc("erp_company_gst_profile"),
       ]);
 
       if (!active || stateError) return;
