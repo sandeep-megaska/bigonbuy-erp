@@ -526,7 +526,7 @@ export default function InvoiceForm({
               <div>
                 <VariantTypeahead
                   value={line.variant}
-                  onChange={(variant) => handleVariantSelect(index, variant)}
+                  onSelect={(variant) => handleVariantSelect(index, variant)}
                   disabled={isReadOnly}
                   placeholder="Search variants"
                 />
