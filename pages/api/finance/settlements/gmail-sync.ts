@@ -4,7 +4,6 @@ import {
   createServiceRoleClient,
   createUserClient,
   getBearerToken,
-  getSupabaseEnv,
 } from "../../../../lib/serverSupabase";
 
 type GmailSyncError = { messageId: string; error: string };
@@ -160,7 +159,13 @@ export default async function handler(
     });
   }
 
-  const { supabaseUrl, anonKey, serviceRoleKey, missing } = getSupabaseEnv();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+  const missing: string[] = [];
+  if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+  if (!anonKey) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  if (!serviceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
   if (missing.length) {
     return res.status(500).json({
       ok: false,
