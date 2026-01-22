@@ -126,7 +126,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     formData = await parseForm(req);
   } catch (error) {
-    return res.status(400).json({ ok: false, error: error?.message || "Invalid upload" });
+    const message = error instanceof Error ? error.message : "Invalid upload";
+    return res.status(400).json({ ok: false, error: message });
   }
 
   const uploadFile = getFileFromForm(formData.files);
