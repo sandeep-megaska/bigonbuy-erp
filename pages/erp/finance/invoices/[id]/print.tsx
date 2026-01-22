@@ -7,7 +7,7 @@ import { invoiceHeaderSchema, invoiceLineSchema } from "../../../../../lib/erp/i
 
 type InvoicePrintPayload = {
   invoice: ReturnType<typeof invoiceHeaderSchema.parse>;
-  lines: ReturnType<typeof invoiceLineSchema.array().parse>;
+  lines: ReturnType<typeof invoiceLineSchema.parse>[];
 };
 
 type Issue = {
