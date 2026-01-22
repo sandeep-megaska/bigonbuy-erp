@@ -1,0 +1,131 @@
+-- 0185_doc_sequences_normalize_all_fixed_v2.sql
+-- Normalize erp_doc_sequences legacy columns to canonical (fiscal_year, doc_key) and keep legacy NOT NULL columns satisfied.
+-- Key safety: trigger function is GENERATED dynamically so it never references columns that do not exist (e.g., fy_end).
+
+do $$
+declare
+  v_cols text;
+  has_doc_type boolean;
+  has_fy_label boolean;
+  has_fy_start boolean;
+  has_fy_end boolean;
+  has_updated_at boolean;
+
+  v_fn_sql text;
+  v_body text := '';
+begin
+  -- Log current columns for debugging (shows in supabase db push output)
+  select string_agg(format('%s %s%s',
+      c.column_name,
+      c.data_type,
+      case when c.is_nullable='NO' then ' not null' else '' end
+    ), ', ' order by c.ordinal_position)
+  into v_cols
+  from information_schema.columns c
+  where c.table_schema='public' and c.table_name='erp_doc_sequences';
+
+  raise notice 'erp_doc_sequences columns: %', v_cols;
+
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='erp_doc_sequences' and column_name='doc_type'
+  ) into has_doc_type;
+
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='erp_doc_sequences' and column_name='fy_label'
+  ) into has_fy_label;
+
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='erp_doc_sequences' and column_name='fy_start'
+  ) into has_fy_start;
+
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='erp_doc_sequences' and column_name='fy_end'
+  ) into has_fy_end;
+
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='erp_doc_sequences' and column_name='updated_at'
+  ) into has_updated_at;
+
+  -- Backfill legacy NOT NULL columns from canonical values where possible.
+  if has_doc_type then
+    execute 'update public.erp_doc_sequences set doc_type = doc_key where doc_type is null';
+  end if;
+
+  if has_fy_label then
+    execute 'update public.erp_doc_sequences set fy_label = fiscal_year where fy_label is null';
+    -- also keep fiscal_year filled if legacy exists but canonical is null (defensive)
+    execute 'update public.erp_doc_sequences set fiscal_year = fy_label where fiscal_year is null and fy_label is not null';
+  end if;
+
+  if has_fy_start then
+    -- Derive FY start from fiscal_year label like FY25-26 => 2025-04-01 (Indian FY start).
+    execute $q$
+      update public.erp_doc_sequences
+      set fy_start = make_date(2000 + substring(fiscal_year from 3 for 2)::int, 4, 1)
+      where fy_start is null
+        and fiscal_year ~ '^FY[0-9]{2}-[0-9]{2}$'
+    $q$;
+  end if;
+
+  if has_fy_end then
+    -- If fy_end exists, derive it as FY start + 1 year - 1 day.
+    execute $q$
+      update public.erp_doc_sequences
+      set fy_end = (make_date(2000 + substring(fiscal_year from 3 for 2)::int, 4, 1) + interval '1 year' - interval '1 day')::date
+      where fy_end is null
+        and fiscal_year ~ '^FY[0-9]{2}-[0-9]{2}$'
+    $q$;
+  end if;
+
+  if has_updated_at then
+    execute 'update public.erp_doc_sequences set updated_at = now() where updated_at is null';
+  end if;
+
+  -- Build trigger body ONLY with columns that exist (prevents "NEW has no field" compile errors).
+  if has_doc_type then
+    v_body := v_body || E'\n  if NEW.doc_type is null then NEW.doc_type := NEW.doc_key; end if;';
+  end if;
+
+  if has_fy_label then
+    v_body := v_body || E'\n  if NEW.fy_label is null then NEW.fy_label := NEW.fiscal_year; end if;';
+    v_body := v_body || E'\n  if NEW.fiscal_year is null and NEW.fy_label is not null then NEW.fiscal_year := NEW.fy_label; end if;';
+  end if;
+
+  if has_fy_start then
+    v_body := v_body || E"\n  if NEW.fy_start is null and NEW.fiscal_year ~ '^FY[0-9]{2}-[0-9]{2}$' then";
+    v_body := v_body || E"\n    NEW.fy_start := make_date(2000 + substring(NEW.fiscal_year from 3 for 2)::int, 4, 1);";
+    v_body := v_body || E"\n  end if;";
+  end if;
+
+  if has_fy_end then
+    v_body := v_body || E"\n  if NEW.fy_end is null and NEW.fiscal_year ~ '^FY[0-9]{2}-[0-9]{2}$' then";
+    v_body := v_body || E"\n    NEW.fy_end := (make_date(2000 + substring(NEW.fiscal_year from 3 for 2)::int, 4, 1) + interval '1 year' - interval '1 day')::date;";
+    v_body := v_body || E"\n  end if;";
+  end if;
+
+  if has_updated_at then
+    v_body := v_body || E'\n  NEW.updated_at := now();';
+  end if;
+
+  v_fn_sql :=
+    'create or replace function public.erp_doc_sequences_sync_legacy_all() ' ||
+    'returns trigger language plpgsql as $$ ' ||
+    'begin ' || v_body || E'\n  return NEW;\nend; $$;';
+
+  execute v_fn_sql;
+
+  -- Install trigger (idempotent)
+  execute 'drop trigger if exists trg_erp_doc_sequences_sync_legacy_all on public.erp_doc_sequences';
+  execute 'create trigger trg_erp_doc_sequences_sync_legacy_all ' ||
+          'before insert or update on public.erp_doc_sequences ' ||
+          'for each row execute function public.erp_doc_sequences_sync_legacy_all()';
+
+  -- Helpful index for allocator lookups
+  execute 'create index if not exists idx_erp_doc_sequences_company_fy_key on public.erp_doc_sequences(company_id, fiscal_year, doc_key)';
+
+end $$;
