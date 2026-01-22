@@ -136,7 +136,8 @@ export default function InvoiceDetailPage() {
       return;
     }
 
-    for (const [index, line] of payload.lines.entries()) {
+    for (let index = 0; index < payload.lines.length; index += 1) {
+      const line = payload.lines[index];
       const { error: lineError } = await supabase.rpc("erp_invoice_line_upsert", {
         p_line: {
           id: line.id ?? null,
