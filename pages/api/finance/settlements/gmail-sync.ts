@@ -325,7 +325,7 @@ export default async function handler(
   };
   const errors: GmailSyncError[] = [];
 
-  const serviceClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
+  const adminClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
   const companyTimeZone =
     companySettings.timezone ?? companySettings.time_zone ?? "Asia/Kolkata";
 
@@ -383,7 +383,7 @@ export default async function handler(
         const attachments = collectAttachments(payload);
         const attachmentNames = attachments.map((attachment) => attachment.filename);
 
-        const { data: ingestBatchId, error: ingestError } = await serviceClient.rpc(
+        const { data: ingestBatchId, error: ingestError } = await adminClient.rpc(
           "erp_email_ingest_batch_create_or_get",
           {
             p_gmail_message_id: messageResponse.data.id,
@@ -400,7 +400,7 @@ export default async function handler(
           throw new Error(ingestError?.message || "Unable to create ingest batch");
         }
 
-        const { data: existingBatch } = await serviceClient
+        const { data: existingBatch } = await adminClient
           .from("erp_email_ingest_batches")
           .select("id, status")
           .eq("id", ingestBatchId)
@@ -416,7 +416,7 @@ export default async function handler(
         const body = findBodyInParts(payload) ?? messageResponse.data.snippet ?? "";
         const amount = body ? extractAmount(body) : null;
         if (!amount || !receivedAtMs) {
-          await serviceClient.rpc("erp_email_ingest_batch_mark", {
+          await adminClient.rpc("erp_email_ingest_batch_mark", {
             p_id: ingestBatchId,
             p_status: "skipped",
             p_error: !receivedAtMs
@@ -429,7 +429,7 @@ export default async function handler(
           continue;
         }
 
-        const { data: settlementBatchId, error: batchError } = await serviceClient.rpc(
+        const { data: settlementBatchId, error: batchError } = await adminClient.rpc(
           "erp_settlement_batch_create",
           {
             p_source: "gmail_sync",
@@ -466,7 +466,7 @@ export default async function handler(
           platform = "indifi";
         }
 
-        const { error: eventError } = await serviceClient.rpc("erp_settlement_event_insert", {
+        const { error: eventError } = await adminClient.rpc("erp_settlement_event_insert", {
           p_batch_id: settlementBatchId,
           p_platform: platform,
           p_event_type: eventType,
@@ -485,7 +485,7 @@ export default async function handler(
 
         if (eventError) {
           if (eventError.code === "23505") {
-            await serviceClient.rpc("erp_email_ingest_batch_mark", {
+            await adminClient.rpc("erp_email_ingest_batch_mark", {
               p_id: ingestBatchId,
               p_status: "skipped",
               p_error: "Duplicate settlement event",
@@ -498,7 +498,7 @@ export default async function handler(
           throw new Error(eventError.message);
         }
 
-        await serviceClient.rpc("erp_email_ingest_batch_mark", {
+        await adminClient.rpc("erp_email_ingest_batch_mark", {
           p_id: ingestBatchId,
           p_status: "parsed",
           p_error: null,
@@ -511,7 +511,7 @@ export default async function handler(
         const messageText = error instanceof Error ? error.message : "Unknown error";
         errors.push({ messageId: message.id ?? "unknown", error: messageText });
         if (ingestId) {
-          await serviceClient.rpc("erp_email_ingest_batch_mark", {
+          await adminClient.rpc("erp_email_ingest_batch_mark", {
             p_id: ingestId,
             p_status: "error",
             p_error: messageText,
