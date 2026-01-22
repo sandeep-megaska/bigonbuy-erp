@@ -58,7 +58,7 @@ const sectionTitleStyle = {
 };
 
 const lineWrapStyle = {
-  overflowX: "auto",
+  overflowX: "auto" as const,
 };
 
 const lineInnerStyle = {
