@@ -89,7 +89,7 @@ export default function InvoiceDetailPage() {
     const { data, error: invoiceError } = await supabase
       .from("erp_invoices")
       .select(
-        `id, doc_no, status, invoice_date, customer_name, customer_gstin, place_of_supply, billing_address_line1, billing_address_line2, billing_city, billing_state, billing_pincode, billing_country, shipping_address_line1, shipping_address_line2, shipping_city, shipping_state, shipping_pincode, shipping_country, currency, subtotal, tax_total, igst_total, cgst_total, sgst_total, total, issued_at, issued_by, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, erp_invoice_lines(id, line_no, item_type, variant_id, sku, title, hsn, qty, unit_rate, tax_rate, line_subtotal, line_tax, line_total)`
+        `id, doc_no, status, invoice_date, customer_name, customer_gstin, place_of_supply, place_of_supply_state_code, place_of_supply_state_name, billing_address_line1, billing_address_line2, billing_city, billing_state, billing_state_code, billing_state_name, billing_pincode, billing_country, shipping_address_line1, shipping_address_line2, shipping_city, shipping_state, shipping_state_code, shipping_state_name, shipping_pincode, shipping_country, currency, subtotal, tax_total, igst_total, cgst_total, sgst_total, total, taxable_amount, cgst_amount, sgst_amount, igst_amount, gst_amount, total_amount, is_inter_state, issued_at, issued_by, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, erp_invoice_lines(id, line_no, item_type, variant_id, sku, title, hsn, qty, unit_rate, discount_percent, tax_percent, taxable_amount, cgst_amount, sgst_amount, igst_amount, line_total)`
       )
       .eq("id", id)
       .order("line_no", { foreignTable: "erp_invoice_lines", ascending: true })
@@ -150,7 +150,8 @@ export default function InvoiceDetailPage() {
           hsn: line.hsn,
           qty: line.qty,
           unit_rate: line.unit_rate,
-          tax_rate: line.tax_rate,
+          discount_percent: line.discount_percent ?? 0,
+          tax_percent: line.tax_percent ?? 0,
         },
       });
 
@@ -335,17 +336,23 @@ export default function InvoiceDetailPage() {
             customer_name: invoiceHeader.customer_name,
             customer_gstin: invoiceHeader.customer_gstin ?? "",
             place_of_supply: invoiceHeader.place_of_supply,
+            place_of_supply_state_code: invoiceHeader.place_of_supply_state_code ?? "",
+            place_of_supply_state_name: invoiceHeader.place_of_supply_state_name ?? "",
             currency: invoiceHeader.currency,
             billing_address_line1: invoiceHeader.billing_address_line1 ?? "",
             billing_address_line2: invoiceHeader.billing_address_line2 ?? "",
             billing_city: invoiceHeader.billing_city ?? "",
             billing_state: invoiceHeader.billing_state ?? "",
+            billing_state_code: invoiceHeader.billing_state_code ?? "",
+            billing_state_name: invoiceHeader.billing_state_name ?? "",
             billing_pincode: invoiceHeader.billing_pincode ?? "",
             billing_country: invoiceHeader.billing_country ?? "",
             shipping_address_line1: invoiceHeader.shipping_address_line1 ?? "",
             shipping_address_line2: invoiceHeader.shipping_address_line2 ?? "",
             shipping_city: invoiceHeader.shipping_city ?? "",
             shipping_state: invoiceHeader.shipping_state ?? "",
+            shipping_state_code: invoiceHeader.shipping_state_code ?? "",
+            shipping_state_name: invoiceHeader.shipping_state_name ?? "",
             shipping_pincode: invoiceHeader.shipping_pincode ?? "",
             shipping_country: invoiceHeader.shipping_country ?? "",
             lines: invoice.lines.map((line, index) => ({
@@ -359,7 +366,8 @@ export default function InvoiceDetailPage() {
               hsn: line.hsn ?? "",
               qty: line.qty,
               unit_rate: line.unit_rate,
-              tax_rate: line.tax_rate,
+              discount_percent: line.discount_percent ?? 0,
+              tax_percent: line.tax_percent ?? 0,
             })),
           }}
           submitLabel={isWorking ? "Saving…" : "Save Draft"}
