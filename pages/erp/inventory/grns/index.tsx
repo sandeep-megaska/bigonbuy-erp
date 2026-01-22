@@ -139,11 +139,11 @@ export default function GrnListPage() {
               ) : (
                 grns.map((grn) => {
                   const po = poMap.get(grn.purchase_order_id);
-                  const grnLabel = grn.grn_no || `GRN-${grn.id.slice(0, 8)}`;
+                  const grnLabel = grn.grn_no || "—";
                   return (
                     <tr key={grn.id}>
                       <td style={tableCellStyle}>{grnLabel}</td>
-                      <td style={tableCellStyle}>{po?.doc_no || po?.po_no || ""}</td>
+                      <td style={tableCellStyle}>{po?.doc_no || "—"}</td>
                       <td style={tableCellStyle}>{vendorMap.get(po?.vendor_id || "") || "—"}</td>
                       <td style={tableCellStyle}>{grn.status}</td>
                       <td style={tableCellStyle}>{new Date(grn.received_at).toLocaleString()}</td>

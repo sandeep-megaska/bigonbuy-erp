@@ -428,7 +428,7 @@ export default function PurchaseOrdersPage() {
                   return (
                     <tr key={order.id}>
                       <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{order.doc_no || order.po_no || ""}</div>
+                        <div style={{ fontWeight: 600 }}>{order.doc_no || "—"}</div>
                         <div style={{ color: "#6b7280", fontSize: 12 }}>{order.order_date}</div>
                       </td>
                       <td style={tableCellStyle}>{vendorMap.get(order.vendor_id) || order.vendor_id}</td>
