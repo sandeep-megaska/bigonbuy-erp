@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { google } from "googleapis";
-import Papa from "papaparse";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -14,163 +13,21 @@ type GmailSyncResponse = {
   scanned: number;
   imported: number;
   skipped: number;
+  totals: {
+    amazon: number;
+    indifi_in: number;
+    indifi_out: number;
+    deduped: number;
+  };
   errors: GmailSyncError[];
   last_synced_at: string | null;
   error?: string;
 };
 
-const DEFAULT_QUERY = "subject:(Settlement OR disbursement OR payout) newer_than:30d";
-const MAX_MESSAGES = 50;
+const MAX_MESSAGES = 300;
+const AMOUNT_REGEX = /INR\s*([0-9][0-9,]*\.\d{2})/i;
 
-type CsvEvent = {
-  event_type: "AMAZON_SETTLEMENT" | "INDIFI_DISBURSEMENT";
-  event_date: string;
-  amount: number;
-  reference_no: string | null;
-  payload: Record<string, string>;
-  platform: "amazon" | "indifi";
-  party: "amazon" | "indifi";
-};
-
-const amazonHeaderAliases = {
-  date: ["settlement date", "settlement_date", "transaction date", "posted date", "date"],
-  amount: ["amount", "total amount", "net amount", "total", "payout amount", "settlement amount"],
-  credit: ["credit", "credit amount", "credit_amount"],
-  debit: ["debit", "debit amount", "debit_amount"],
-  creditDebit: ["credit/debit", "crdr", "drcr", "type", "transaction type"],
-  reference: ["settlement id", "settlement_id", "settlementid", "reference", "reference_no"],
-};
-
-const indifiHeaderAliases = {
-  date: ["disbursement date", "date", "transaction date", "value date"],
-  amount: ["amount", "disbursement amount", "loan amount", "payout amount", "net amount"],
-  credit: ["credit", "credit amount", "credit_amount"],
-  debit: ["debit", "debit amount", "debit_amount"],
-  creditDebit: ["credit/debit", "crdr", "drcr", "type", "transaction type"],
-  reference: ["utr", "reference", "reference no", "reference_no", "payout id", "disbursement id"],
-};
-
-function normalizeHeader(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function findHeader(headers: string[], aliases: string[]) {
-  const normalized = headers.map(normalizeHeader);
-  for (const alias of aliases) {
-    const aliasKey = normalizeHeader(alias);
-    const index = normalized.indexOf(aliasKey);
-    if (index >= 0) return headers[index];
-  }
-  return null;
-}
-
-function parseAmount(value: unknown) {
-  if (value === null || value === undefined) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-  const cleaned = raw.replace(/[^0-9.-]/g, "");
-  const parsed = Number.parseFloat(cleaned);
-  if (Number.isNaN(parsed)) return null;
-  return parsed;
-}
-
-function parseDateValue(value: unknown) {
-  if (!value) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  const match = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-  if (match) {
-    const day = Number.parseInt(match[1], 10);
-    const month = Number.parseInt(match[2], 10);
-    let year = Number.parseInt(match[3], 10);
-    if (year < 100) year += 2000;
-    const iso = new Date(Date.UTC(year, month - 1, day));
-    if (!Number.isNaN(iso.getTime())) {
-      return iso.toISOString().slice(0, 10);
-    }
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
-}
-
-function isCreditIndicator(value: unknown) {
-  if (!value) return null;
-  const normalized = String(value).trim().toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes("credit") || normalized === "cr" || normalized === "c") return true;
-  if (normalized.includes("debit") || normalized === "dr" || normalized === "d") return false;
-  return null;
-}
-
-function parseCsvEvents(
-  rows: Record<string, string>[],
-  headers: string[],
-  filename: string | null,
-  type: "amazon" | "indifi",
-): CsvEvent[] {
-  const aliases = type === "amazon" ? amazonHeaderAliases : indifiHeaderAliases;
-  const dateHeader = findHeader(headers, aliases.date);
-  const amountHeader = findHeader(headers, aliases.amount);
-  const creditHeader = findHeader(headers, aliases.credit);
-  const debitHeader = findHeader(headers, aliases.debit);
-  const creditDebitHeader = findHeader(headers, aliases.creditDebit);
-  const referenceHeader = findHeader(headers, aliases.reference);
-
-  if (!dateHeader || (!amountHeader && !creditHeader && !debitHeader)) {
-    return [];
-  }
-
-  const eventType = type === "amazon" ? "AMAZON_SETTLEMENT" : "INDIFI_DISBURSEMENT";
-  const party = type === "amazon" ? "amazon" : "indifi";
-
-  return rows.flatMap((row) => {
-    const eventDate = parseDateValue(row[dateHeader]);
-    if (!eventDate) return [];
-
-    const creditIndicator = creditDebitHeader ? isCreditIndicator(row[creditDebitHeader]) : null;
-    const creditAmount = creditHeader ? parseAmount(row[creditHeader]) : null;
-    const debitAmount = debitHeader ? parseAmount(row[debitHeader]) : null;
-    const baseAmount = amountHeader ? parseAmount(row[amountHeader]) : null;
-    let amount = creditAmount ?? baseAmount ?? debitAmount;
-
-    if (amount === null) return [];
-    if (creditIndicator === false) return [];
-    if (amount < 0) amount = Math.abs(amount);
-    if (!Number.isFinite(amount) || amount <= 0) return [];
-
-    const referenceNo = referenceHeader ? String(row[referenceHeader] ?? "").trim() : "";
-
-    return [
-      {
-        event_type: eventType,
-        event_date: eventDate,
-        amount,
-        reference_no: referenceNo || null,
-        payload: { ...row, _filename: filename ?? "" },
-        platform: type,
-        party,
-      },
-    ];
-  });
-}
-
-function hasHeaderMatch(headers: string[], candidates: string[]) {
-  const normalized = headers.map(normalizeHeader);
-  return candidates.some((candidate) => normalized.includes(normalizeHeader(candidate)));
-}
-
-function isLikelyAmazon(headers: string[], filename: string | null) {
-  if (filename && filename.toLowerCase().includes("amazon")) return true;
-  return hasHeaderMatch(headers, ["settlement id", "settlement", "amazon"]);
-}
-
-function isLikelyIndifi(headers: string[], filename: string | null) {
-  if (filename && filename.toLowerCase().includes("indifi")) return true;
-  return hasHeaderMatch(headers, ["disbursement", "utr", "payout id", "indifi"]);
-}
+type GmailKind = "AMAZON" | "INDIFI_IN" | "INDIFI_OUT";
 
 function decodeBase64Url(data: string) {
   const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
@@ -207,18 +64,82 @@ function collectAttachments(payload?: GmailPart | null, acc: AttachmentInfo[] = 
   return acc;
 }
 
-function isCsvAttachment(attachment: AttachmentInfo) {
-  const filename = attachment.filename.toLowerCase();
-  if (filename.endsWith(".csv")) return true;
-  if (attachment.mimeType?.toLowerCase().includes("csv")) return true;
-  return false;
+function findBodyInParts(
+  payload?: GmailPart | null,
+  preferredMime: string[] = ["text/plain", "text/html"],
+): string | null {
+  if (!payload) return null;
+  if (payload.body?.data && payload.mimeType && preferredMime.includes(payload.mimeType)) {
+    return decodeBase64Url(payload.body.data).toString("utf8");
+  }
+  if (payload.parts?.length) {
+    for (const mime of preferredMime) {
+      for (const part of payload.parts) {
+        const found = findBodyInParts(part, [mime]);
+        if (found) return found;
+      }
+    }
+    for (const part of payload.parts) {
+      const found = findBodyInParts(part, preferredMime);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
-function buildQuery(lastSyncedAt: string | null) {
-  if (!lastSyncedAt) return DEFAULT_QUERY;
-  const timestamp = Math.floor(new Date(lastSyncedAt).getTime() / 1000);
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return DEFAULT_QUERY;
-  return `${DEFAULT_QUERY} after:${timestamp}`;
+function formatGmailDate(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}/${month}/${day}`;
+}
+
+function parseDateParam(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function extractAmount(body: string) {
+  const match = body.match(AMOUNT_REGEX);
+  if (!match) return null;
+  const numeric = match[1].replace(/,/g, "");
+  const parsed = Number.parseFloat(numeric);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+}
+
+function toCompanyDate(internalDateMs: string, timeZone: string) {
+  const date = new Date(Number(internalDateMs));
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  return `${year}-${month}-${day}`;
 }
 
 export default async function handler(
@@ -232,6 +153,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
       error: "Method not allowed",
@@ -245,6 +167,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
       error: `Missing Supabase env vars: ${missing.join(", ")}`,
@@ -258,6 +181,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
       error: "Not authenticated",
@@ -272,6 +196,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
       error: "Not authorized",
@@ -287,6 +212,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
       error: settingsError?.message || "Unable to load company settings",
@@ -306,6 +232,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
       error: "Gmail token not configured. Set GMAIL_REFRESH_TOKEN in Vercel.",
@@ -318,6 +245,7 @@ export default async function handler(
       scanned: 0,
       imported: 0,
       skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
       error: "Missing Gmail OAuth env vars",
@@ -337,6 +265,7 @@ export default async function handler(
         scanned: 0,
         imported: 0,
         skipped: 0,
+        totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
         errors: [],
         last_synced_at: companySettings.gmail_last_synced_at ?? null,
         error: connectError.message || "Unable to update Gmail connection status",
@@ -347,23 +276,86 @@ export default async function handler(
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
   oauth2Client.setCredentials({ refresh_token: refreshToken });
   const gmailClient = google.gmail({ version: "v1", auth: oauth2Client });
-  const query = buildQuery(companySettings.gmail_last_synced_at ?? null);
+
+  const startParam = Array.isArray(req.query.start) ? req.query.start[0] : req.query.start;
+  const endParam = Array.isArray(req.query.end) ? req.query.end[0] : req.query.end;
+  if (!startParam || !endParam || typeof startParam !== "string" || typeof endParam !== "string") {
+    return res.status(400).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      error: "Missing start or end date",
+    });
+  }
+
+  const startDate = parseDateParam(startParam);
+  const endDate = parseDateParam(endParam);
+  if (!startDate || !endDate) {
+    return res.status(400).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      error: "Invalid date format. Use YYYY-MM-DD.",
+    });
+  }
+
+  const startQ = formatGmailDate(startDate);
+  const endPlus1Q = formatGmailDate(addDays(endDate, 1));
+
+  const qAmazon = `after:${startQ} before:${endPlus1Q} subject:"Your payment is on the way"`;
+  const qIndifiIn = `after:${startQ} before:${endPlus1Q} subject:"Payment received in virtual account"`;
+  const qOutBoth = `after:${startQ} before:${endPlus1Q} subject:"Payment release successful"`;
 
   let scanned = 0;
   let imported = 0;
   let skipped = 0;
+  const totals = {
+    amazon: 0,
+    indifi_in: 0,
+    indifi_out: 0,
+    deduped: 0,
+  };
   const errors: GmailSyncError[] = [];
 
   const serviceClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
+  const companyTimeZone =
+    companySettings.timezone ?? companySettings.time_zone ?? "Asia/Kolkata";
 
   try {
-    const listResponse = await gmailClient.users.messages.list({
-      userId: "me",
-      q: query,
-      maxResults: MAX_MESSAGES,
+    const [amazonList, indifiInList, indifiOutList] = await Promise.all([
+      gmailClient.users.messages.list({ userId: "me", q: qAmazon, maxResults: MAX_MESSAGES }),
+      gmailClient.users.messages.list({ userId: "me", q: qIndifiIn, maxResults: MAX_MESSAGES }),
+      gmailClient.users.messages.list({ userId: "me", q: qOutBoth, maxResults: MAX_MESSAGES }),
+    ]);
+
+    const amazonMessages = amazonList.data.messages || [];
+    const indifiInMessages = indifiInList.data.messages || [];
+    const indifiOutMessages = indifiOutList.data.messages || [];
+    totals.amazon = amazonMessages.length;
+    totals.indifi_in = indifiInMessages.length;
+    totals.indifi_out = indifiOutMessages.length;
+
+    const queued = new Map<string, GmailKind>();
+    amazonMessages.forEach((message) => {
+      if (message.id) queued.set(message.id, "AMAZON");
+    });
+    indifiInMessages.forEach((message) => {
+      if (message.id && !queued.has(message.id)) queued.set(message.id, "INDIFI_IN");
+    });
+    indifiOutMessages.forEach((message) => {
+      if (message.id && !queued.has(message.id)) queued.set(message.id, "INDIFI_OUT");
     });
 
-    const messages = listResponse.data.messages || [];
+    const messages = Array.from(queued.entries()).map(([id, kind]) => ({ id, kind }));
+    totals.deduped = messages.length;
     scanned = messages.length;
 
     for (const message of messages) {
@@ -386,10 +378,8 @@ export default async function handler(
 
         const subject = headerMap.Subject ?? null;
         const fromEmail = headerMap.From ?? null;
-        const receivedAt = messageResponse.data.internalDate
-          ? new Date(Number(messageResponse.data.internalDate)).toISOString()
-          : null;
-
+        const receivedAtMs = messageResponse.data.internalDate ?? null;
+        const receivedAt = receivedAtMs ? new Date(Number(receivedAtMs)).toISOString() : null;
         const attachments = collectAttachments(payload);
         const attachmentNames = attachments.map((attachment) => attachment.filename);
 
@@ -410,8 +400,6 @@ export default async function handler(
           throw new Error(ingestError?.message || "Unable to create ingest batch");
         }
 
-        ingestId = ingestBatchId;
-
         const { data: existingBatch } = await serviceClient
           .from("erp_email_ingest_batches")
           .select("id, status")
@@ -423,57 +411,17 @@ export default async function handler(
           continue;
         }
 
-        const csvAttachments = attachments.filter(isCsvAttachment);
-        if (!csvAttachments.length) {
+        ingestId = ingestBatchId;
+
+        const body = findBodyInParts(payload) ?? messageResponse.data.snippet ?? "";
+        const amount = body ? extractAmount(body) : null;
+        if (!amount || !receivedAtMs) {
           await serviceClient.rpc("erp_email_ingest_batch_mark", {
             p_id: ingestBatchId,
             p_status: "skipped",
-            p_error: "No CSV attachments found",
-            p_parsed_event_count: 0,
-            p_settlement_batch_id: null,
-          });
-          skipped += 1;
-          continue;
-        }
-
-        let events: CsvEvent[] = [];
-        for (const attachment of csvAttachments) {
-          let data = attachment.data;
-          if (!data && attachment.attachmentId) {
-            const attachmentResponse = await gmailClient.users.messages.attachments.get({
-              userId: "me",
-              messageId: message.id,
-              id: attachment.attachmentId,
-            });
-            data = attachmentResponse.data.data ?? null;
-          }
-
-          if (!data) continue;
-          const csvText = decodeBase64Url(data).toString("utf8");
-          const parsed = Papa.parse<Record<string, string>>(csvText, {
-            header: true,
-            skipEmptyLines: true,
-          });
-          if (parsed.errors?.length) {
-            continue;
-          }
-          const rows = parsed.data || [];
-          if (!rows.length) continue;
-          const headers = Object.keys(rows[0] || {});
-
-          if (isLikelyAmazon(headers, attachment.filename)) {
-            events = events.concat(parseCsvEvents(rows, headers, attachment.filename, "amazon"));
-          }
-          if (isLikelyIndifi(headers, attachment.filename)) {
-            events = events.concat(parseCsvEvents(rows, headers, attachment.filename, "indifi"));
-          }
-        }
-
-        if (!events.length) {
-          await serviceClient.rpc("erp_email_ingest_batch_mark", {
-            p_id: ingestBatchId,
-            p_status: "skipped",
-            p_error: "No settlement rows parsed from CSV",
+            p_error: !receivedAtMs
+              ? "Missing internal date"
+              : "Unable to parse INR amount",
             p_parsed_event_count: 0,
             p_settlement_batch_id: null,
           });
@@ -490,6 +438,8 @@ export default async function handler(
             p_raw: {
               gmail_message_id: messageResponse.data.id,
               subject,
+              body,
+              kind: message.kind,
               attachment_names: attachmentNames,
               headers: headerMap,
             },
@@ -500,38 +450,63 @@ export default async function handler(
           throw new Error(batchError?.message || "Unable to create settlement batch");
         }
 
-        let insertedCount = 0;
-        for (const event of events) {
-          const { error: eventError } = await serviceClient.rpc("erp_settlement_event_insert", {
-            p_batch_id: settlementBatchId,
-            p_platform: event.platform,
-            p_event_type: event.event_type,
-            p_event_date: event.event_date,
-            p_amount: event.amount,
-            p_currency: "INR",
-            p_reference_no: event.reference_no,
-            p_party: event.party,
-            p_payload: event.payload,
-          });
+        const eventDate = toCompanyDate(receivedAtMs, companyTimeZone);
+        let eventType = "AMAZON_SETTLEMENT";
+        let party: "amazon" | "indifi" = "amazon";
+        let platform: "amazon" | "indifi" = "amazon";
+        if (message.kind === "INDIFI_IN") {
+          eventType = "INDIFI_VIRTUAL_RECEIPT";
+          party = "indifi";
+          platform = "indifi";
+        } else if (message.kind === "INDIFI_OUT") {
+          eventType = /Indifi\s+Capital\s+Pvt\s+Ltd/i.test(body)
+            ? "INDIFI_RELEASE_TO_INDIFI"
+            : "INDIFI_RELEASE_TO_BANK";
+          party = "indifi";
+          platform = "indifi";
+        }
 
-          if (eventError) {
-            if (eventError.code === "23505") {
-              continue;
-            }
-            throw new Error(eventError.message);
+        const { error: eventError } = await serviceClient.rpc("erp_settlement_event_insert", {
+          p_batch_id: settlementBatchId,
+          p_platform: platform,
+          p_event_type: eventType,
+          p_event_date: eventDate,
+          p_amount: amount,
+          p_currency: "INR",
+          p_reference_no: null,
+          p_party: party,
+          p_payload: {
+            gmail_message_id: messageResponse.data.id,
+            subject,
+            body,
+            kind: message.kind,
+          },
+        });
+
+        if (eventError) {
+          if (eventError.code === "23505") {
+            await serviceClient.rpc("erp_email_ingest_batch_mark", {
+              p_id: ingestBatchId,
+              p_status: "skipped",
+              p_error: "Duplicate settlement event",
+              p_parsed_event_count: 0,
+              p_settlement_batch_id: settlementBatchId,
+            });
+            skipped += 1;
+            continue;
           }
-          insertedCount += 1;
+          throw new Error(eventError.message);
         }
 
         await serviceClient.rpc("erp_email_ingest_batch_mark", {
           p_id: ingestBatchId,
           p_status: "parsed",
           p_error: null,
-          p_parsed_event_count: insertedCount,
+          p_parsed_event_count: 1,
           p_settlement_batch_id: settlementBatchId,
         });
 
-        imported += insertedCount > 0 ? 1 : 0;
+        imported += 1;
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Unknown error";
         errors.push({ messageId: message.id ?? "unknown", error: messageText });
@@ -553,6 +528,7 @@ export default async function handler(
       scanned,
       imported,
       skipped,
+      totals,
       errors,
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
       error: message,
@@ -578,6 +554,7 @@ export default async function handler(
     scanned,
     imported,
     skipped,
+    totals,
     errors,
     last_synced_at: lastSyncedAt,
   });

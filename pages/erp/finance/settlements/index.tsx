@@ -221,7 +221,8 @@ export default function FinanceSettlementsPage() {
       return;
     }
 
-    const response = await fetch("/api/finance/settlements/gmail-sync", {
+    const query = new URLSearchParams({ start: fromDate, end: toDate });
+    const response = await fetch(`/api/finance/settlements/gmail-sync?${query.toString()}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -236,7 +237,7 @@ export default function FinanceSettlementsPage() {
     } else {
       setGmailToast({
         type: "success",
-        message: `Gmail sync complete. Imported ${result.imported} emails.`,
+        message: `Gmail sync complete. Scanned ${result.scanned}, imported ${result.imported}, skipped ${result.skipped}.`,
       });
       await fetchSettlementData();
     }
@@ -372,6 +373,13 @@ export default function FinanceSettlementsPage() {
                 Scanned {gmailResult.scanned} emails • Imported {gmailResult.imported} • Skipped{" "}
                 {gmailResult.skipped}
               </p>
+              {gmailResult.totals ? (
+                <p style={{ margin: 0, color: "#6b7280" }}>
+                  Amazon matches {gmailResult.totals.amazon} • Indifi incoming{" "}
+                  {gmailResult.totals.indifi_in} • Indifi outgoing{" "}
+                  {gmailResult.totals.indifi_out} • Deduped {gmailResult.totals.deduped}
+                </p>
+              ) : null}
               {gmailResult.errors?.length ? (
                 <div>
                   <p style={{ margin: "0 0 6px", color: "#991b1b", fontWeight: 600 }}>
