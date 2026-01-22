@@ -3,12 +3,13 @@
 
 -- HR: Employee titles
 create or replace function public.erp_hr_employee_title_upsert(
-  p_id uuid default null,
   p_code text,
   p_name text,
+  p_id uuid default null,
   p_sort_order int default 0,
   p_is_active boolean default true
-) returns jsonb
+)
+ returns jsonb
 language plpgsql
 security definer
 set search_path = public
@@ -93,9 +94,9 @@ $$;
 
 -- HR: Employee genders
 create or replace function public.erp_hr_employee_gender_upsert(
-  p_id uuid default null,
   p_code text,
-  p_name text,
+   p_name text,
+  p_id uuid default null,  
   p_sort_order int default 0,
   p_is_active boolean default true
 ) returns jsonb
@@ -183,10 +184,10 @@ $$;
 
 -- HR: Exit types
 create or replace function public.erp_hr_employee_exit_type_upsert(
-  p_id uuid default null,
   p_code text,
   p_name text,
-  p_sort_order int default 0,
+  p_id uuid default null,
+   p_sort_order int default 0,
   p_is_active boolean default true
 ) returns jsonb
 language plpgsql
@@ -273,10 +274,10 @@ $$;
 
 -- HR: Exit reasons
 create or replace function public.erp_hr_employee_exit_reason_upsert(
-  p_id uuid default null,
   p_code text,
   p_name text,
-  p_sort_order int default 0,
+  p_id uuid default null,
+   p_sort_order int default 0,
   p_is_active boolean default true
 ) returns jsonb
 language plpgsql
@@ -363,10 +364,10 @@ $$;
 
 -- HR: Leave types
 create or replace function public.erp_hr_leave_type_upsert(
-  p_id uuid default null,
-  p_key text,
+   p_key text,
   p_name text,
-  p_is_paid boolean default true,
+  p_id uuid default null,
+   p_is_paid boolean default true,
   p_is_active boolean default true,
   p_allows_half_day boolean default false,
   p_requires_approval boolean default true,
@@ -443,12 +444,12 @@ $$;
 
 -- HR: Shifts
 create or replace function public.erp_hr_shift_upsert(
-  p_id uuid default null,
   p_code text,
   p_name text,
   p_start_time time,
   p_end_time time,
-  p_break_minutes int default 0,
+  p_id uuid default null,
+   p_break_minutes int default 0,
   p_grace_minutes int default 0,
   p_min_half_day_minutes int default 240,
   p_min_full_day_minutes int default 480,
@@ -575,12 +576,12 @@ $$;
 -- HR: Weekly off rules
 create or replace function public.erp_hr_weekly_off_rule_create(
   p_scope_type text,
+  p_weekday int,
+   p_effective_from date,
+  p_is_off boolean default true,
   p_employee_id uuid default null,
   p_location_id uuid default null,
-  p_weekday int,
   p_week_of_month int default null,
-  p_is_off boolean default true,
-  p_effective_from date,
   p_effective_to date default null
 ) returns jsonb
 language plpgsql
@@ -651,12 +652,12 @@ $$;
 
 -- HR: Leave request draft upsert
 create or replace function public.erp_hr_leave_request_draft_upsert(
-  p_id uuid default null,
-  p_employee_id uuid,
+   p_employee_id uuid,
   p_leave_type_id uuid,
   p_date_from date,
   p_date_to date,
-  p_reason text default null,
+  p_id uuid default null,
+   p_reason text default null,
   p_start_session text default 'full',
   p_end_session text default 'full'
 ) returns jsonb
@@ -810,10 +811,10 @@ $$;
 
 -- HR: Calendars
 create or replace function public.erp_hr_calendar_upsert(
-  p_id uuid default null,
-  p_code text,
+   p_code text,
   p_name text,
   p_timezone text,
+  p_id uuid default null,
   p_is_default boolean default false
 ) returns jsonb
 language plpgsql
@@ -1255,9 +1256,9 @@ $$;
 
 -- Inventory: Variants
 create or replace function public.erp_inventory_variant_upsert(
-  p_id uuid default null,
-  p_product_id uuid,
   p_sku text,
+  p_product_id uuid,
+  p_id uuid default null,
   p_size text default null,
   p_color text default null,
   p_cost_price numeric default null,
@@ -1381,8 +1382,8 @@ $$;
 
 -- Inventory: Warehouses
 create or replace function public.erp_inventory_warehouse_upsert(
-  p_id uuid default null,
   p_name text,
+  p_id uuid default null,
   p_code text default null
 ) returns jsonb
 language plpgsql
@@ -1430,9 +1431,9 @@ $$;
 
 -- Inventory: Vendors
 create or replace function public.erp_inventory_vendor_upsert(
-  p_id uuid default null,
-  p_vendor_type text,
+   p_vendor_type text,
   p_legal_name text,
+  p_id uuid default null,
   p_gstin text default null,
   p_contact_person text default null,
   p_phone text default null,
