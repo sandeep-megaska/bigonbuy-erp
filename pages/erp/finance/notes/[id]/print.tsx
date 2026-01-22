@@ -272,6 +272,10 @@ export default function NotePrintPage() {
               <span style={printMetaLabelStyle}>Party</span>
               <span style={printMetaValueStyle}>{partyLabel}</span>
             </div>
+            <div style={printMetaRowStyle}>
+              <span style={printMetaLabelStyle}>Place of Supply</span>
+              <span style={printMetaValueStyle}>{noteHeader?.place_of_supply || "—"}</span>
+            </div>
             {noteHeader?.status ? (
               <div style={printMetaRowStyle}>
                 <span style={printMetaLabelStyle}>Status</span>
