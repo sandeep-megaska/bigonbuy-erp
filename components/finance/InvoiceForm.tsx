@@ -359,7 +359,9 @@ export default function InvoiceForm({
       invoice_date: invoiceDate,
       customer_name: customerName.trim(),
       customer_gstin: customerGstin.trim() || null,
-      place_of_supply: placeOfSupply.trim() || (placeOfSupplyStateName ? `${placeOfSupplyStateName} (${placeOfSupplyStateCode})` : null),
+      place_of_supply:
+        placeOfSupply.trim() ||
+        (placeOfSupplyStateName ? `${placeOfSupplyStateName} (${placeOfSupplyStateCode})` : placeOfSupplyStateCode),
       place_of_supply_state_code: placeOfSupplyStateCode || null,
       place_of_supply_state_name: placeOfSupplyStateName || null,
       currency,
