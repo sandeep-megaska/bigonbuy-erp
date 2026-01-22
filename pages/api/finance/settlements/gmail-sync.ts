@@ -1,10 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { google } from "googleapis";
-import {
-  createServiceRoleClient,
-  createUserClient,
-  getBearerToken,
-} from "../../../../lib/serverSupabase";
+import { createClient } from "@supabase/supabase-js";
+import { getBearerToken } from "../../../../lib/serverSupabase";
 
 type GmailSyncError = { messageId: string; error: string };
 type GmailSyncResponse = {
@@ -160,12 +157,22 @@ export default async function handler(
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+  if (!serviceRoleKey) {
+    return res.status(500).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: null,
+      error: "Missing Supabase service role key",
+    });
+  }
+
   const missing: string[] = [];
   if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
-  if (!anonKey) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  if (!serviceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
   if (missing.length) {
     return res.status(500).json({
       ok: false,
@@ -193,7 +200,10 @@ export default async function handler(
     });
   }
 
-  const userClient = createUserClient(supabaseUrl!, anonKey!, accessToken);
+  const userClient = createClient(supabaseUrl!, serviceRoleKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const { error: writerError } = await userClient.rpc("erp_require_finance_writer");
   if (writerError) {
     return res.status(403).json({
@@ -330,7 +340,11 @@ export default async function handler(
   };
   const errors: GmailSyncError[] = [];
 
-  const adminClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
+  const adminClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
   const companyTimeZone =
     companySettings.timezone ?? companySettings.time_zone ?? "Asia/Kolkata";
 
