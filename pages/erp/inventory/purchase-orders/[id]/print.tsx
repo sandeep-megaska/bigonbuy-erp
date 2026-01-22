@@ -326,7 +326,7 @@ export default function PurchaseOrderPrintPage() {
           <div style={printMetaCardStyle}>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>PO Number</span>
-              <span style={printMetaValueStyle}>{po?.doc_no || po?.po_no || ""}</span>
+              <span style={printMetaValueStyle}>{po?.doc_no || "—"}</span>
             </div>
             <div style={printMetaRowStyle}>
               <span style={printMetaLabelStyle}>PO Date</span>
@@ -478,7 +478,7 @@ export default function PurchaseOrderPrintPage() {
             {"\n"}GSTIN: {branding?.gstin || "—"}
           </div>
           <div style={printFooterPageStyle}>
-            {po?.doc_no || po?.po_no || ""} – Page <span className="pageNumber"></span> /{" "}
+            {po?.doc_no || "—"} – Page <span className="pageNumber"></span> /{" "}
             <span className="totalPages"></span>
           </div>
           {secondaryLogoUrl ? (

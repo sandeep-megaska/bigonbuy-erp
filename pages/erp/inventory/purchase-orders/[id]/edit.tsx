@@ -284,7 +284,7 @@ export default function PurchaseOrderEditPage() {
           <div>
             <p style={eyebrowStyle}>Inventory</p>
             <h1 style={h1Style}>
-              Edit Purchase Order {po?.doc_no || po?.po_no || ""}
+              Edit Purchase Order {po?.doc_no || "—"}
             </h1>
             <p style={subtitleStyle}>Update the draft purchase order before approval.</p>
           </div>

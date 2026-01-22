@@ -324,7 +324,7 @@ export default function PurchaseOrderDetailPage() {
 
     try {
       const grn = await createDraftGrn(linesToReceive);
-      const grnLabel = grn.grn_no || `GRN-${grn.id.slice(0, 8)}`;
+      const grnLabel = grn.grn_no || "—";
       setNotice(`Draft GRN ${grnLabel} saved.`);
       setReceiptNotes("");
       await loadData(ctx.companyId, po.id);
@@ -435,7 +435,7 @@ export default function PurchaseOrderDetailPage() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      const poLabel = po.doc_no || po.po_no || "";
+      const poLabel = po.doc_no || "";
       link.download = `PO_${poLabel}.pdf`;
       document.body.appendChild(link);
       link.click();
@@ -455,7 +455,7 @@ export default function PurchaseOrderDetailPage() {
           <div>
             <p style={eyebrowStyle}>Inventory</p>
             <h1 style={h1Style}>
-              Purchase Order {po?.doc_no || po?.po_no || ""}
+              Purchase Order {po?.doc_no || "—"}
             </h1>
             <p style={subtitleStyle}>Review PO details and receive goods.</p>
           </div>
@@ -672,7 +672,7 @@ export default function PurchaseOrderDetailPage() {
               ) : (
                 grns.map((grn) => (
                   <tr key={grn.id}>
-                    <td style={tableCellStyle}>{grn.grn_no || `GRN-${grn.id.slice(0, 8)}`}</td>
+                    <td style={tableCellStyle}>{grn.grn_no || "—"}</td>
                     <td style={tableCellStyle}>{grn.status}</td>
                     <td style={tableCellStyle}>{new Date(grn.received_at).toLocaleString()}</td>
                   </tr>
