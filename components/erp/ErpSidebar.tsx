@@ -114,6 +114,8 @@ const financeSidebarGroups: SidebarGroup[] = [
     label: "Finance",
     items: [
       { label: "Finance Home", href: "/erp/finance", icon: "FI" },
+      { label: "Invoices", href: "/erp/finance/invoices", icon: "IN" },
+      { label: "Credit / Debit Notes", href: "/erp/finance/notes", icon: "NT" },
       { label: "Expenses", href: "/erp/finance/expenses", icon: "EX" },
       { label: "Recurring Expenses", href: "/erp/finance/expenses/recurring", icon: "RE" },
       { label: "Expense Reports", href: "/erp/finance/expenses/reports", icon: "ER" },
