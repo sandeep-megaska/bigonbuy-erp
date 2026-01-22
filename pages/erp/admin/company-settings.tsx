@@ -154,10 +154,14 @@ export default function CompanySettingsPage() {
         name: company.legal_name || company.brand_name || company.name || null,
       };
 
-      const { error: updateError } = await supabase
-        .from("erp_companies")
-        .update(payload)
-        .eq("id", ctx.companyId);
+      const { error: updateError } = await supabase.rpc("erp_company_update_profile", {
+        p_company_id: ctx.companyId,
+        p_name: payload.name,
+        p_legal_name: payload.legal_name,
+        p_brand_name: payload.brand_name,
+        p_country_code: payload.country_code,
+        p_currency_code: payload.currency_code,
+      });
 
       if (updateError) {
         throw new Error(updateError.message);

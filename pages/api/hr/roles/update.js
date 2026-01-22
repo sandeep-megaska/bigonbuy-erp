@@ -30,19 +30,13 @@ export default async function handler(req, res) {
 
   const adminClient = createServiceClient(supabaseUrl, serviceKey);
 
-  const { data, error } = await adminClient
-    .from("erp_roles")
-    .update({ name: nameTrimmed })
-    .eq("key", keyTrimmed)
-    .select("key")
-    .maybeSingle();
+  const { error } = await adminClient.rpc("erp_hr_role_update", {
+    p_key: keyTrimmed,
+    p_name: nameTrimmed,
+  });
 
   if (error) {
     return res.status(500).json({ ok: false, error: error.message });
-  }
-
-  if (!data) {
-    return res.status(404).json({ ok: false, error: "Role not found" });
   }
 
   return res.status(200).json({ ok: true });

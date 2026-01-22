@@ -205,45 +205,45 @@ export default function QuoteCreatePage() {
     }
 
     setError("");
-    const { data: quote, error: quoteError } = await supabase
-      .from("erp_vendor_quotes")
-      .insert({
-        company_id: ctx.companyId,
-        rfq_id: rfq.id,
-        vendor_id: rfq.vendor_id,
-        received_on: receivedOn,
-        validity_until: validityUntil || null,
-        lead_time_days: leadTimeDays ? Number(leadTimeDays) : null,
-        payment_terms_days: paymentTermsDays ? Number(paymentTermsDays) : null,
-        status: "received",
-        notes: notes.trim() || null,
-      })
-      .select("id")
-      .single();
+    const { data: quote, error: quoteError } = await supabase.rpc("erp_inventory_vendor_quote_create", {
+      p_rfq_id: rfq.id,
+      p_vendor_id: rfq.vendor_id,
+      p_received_on: receivedOn,
+      p_validity_until: validityUntil || null,
+      p_lead_time_days: leadTimeDays ? Number(leadTimeDays) : null,
+      p_payment_terms_days: paymentTermsDays ? Number(paymentTermsDays) : null,
+      p_status: "received",
+      p_notes: notes.trim() || null,
+    });
 
     if (quoteError) {
       setError(quoteError.message);
       return;
     }
 
-    const { error: lineError } = await supabase.from("erp_vendor_quote_lines").insert(
-      normalizedLines.map((line) => ({
-        company_id: ctx.companyId,
-        quote_id: quote.id,
+    const quoteId = typeof quote === "object" && quote ? (quote as { id?: string }).id : null;
+    if (!quoteId) {
+      setError("Failed to create vendor quote.");
+      return;
+    }
+
+    const { error: lineError } = await supabase.rpc("erp_inventory_vendor_quote_lines_insert", {
+      p_quote_id: quoteId,
+      p_lines: normalizedLines.map((line) => ({
         variant_id: line.variant_id,
         qty: line.qty,
         unit_rate: line.unit_rate,
         gst_note: line.gst_note,
         notes: line.notes,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);
       return;
     }
 
-    router.push(`/erp/inventory/quotes/${quote.id}`);
+    router.push(`/erp/inventory/quotes/${quoteId}`);
   }
 
   const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);

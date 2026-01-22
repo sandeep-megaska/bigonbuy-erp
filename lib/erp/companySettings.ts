@@ -35,18 +35,14 @@ export async function getCompanySettings() {
 }
 
 export async function updateCompanySettings(payload: Partial<CompanySettings>) {
-  const companyId = await getCurrentCompanyId();
-  const { data, error } = await supabase
-    .from("erp_company_settings")
-    .update(payload)
-    .eq("company_id", companyId)
-    .select(
-      "company_id, bigonbuy_logo_path, megaska_logo_path, legal_name, gstin, address_text, po_terms_text, po_footer_address_text, setup_completed, setup_completed_at"
-    )
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("erp_company_settings_update", {
+    p_payload: payload,
+  });
 
   if (error) throw new Error(error.message);
-  return data as CompanySettings | null;
+  if (!data) return null;
+
+  return getCompanySettings();
 }
 
 export async function uploadCompanyLogo(kind: CompanyLogoKind, file: File) {

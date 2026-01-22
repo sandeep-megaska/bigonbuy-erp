@@ -114,18 +114,21 @@ export default function ErpInventoryPage() {
     }
 
     setErr("");
-    const payload = {
-      company_id: ctx.companyId,
-      warehouse_id: warehouseId,
-      variant_id: variantId,
-      qty: q, // +in, -out
-      type,
-      reason: reason || null,
-      ref: ref || null,
-      created_by: ctx.userId,
-    };
+    const payload = [
+      {
+        warehouse_id: warehouseId,
+        variant_id: variantId,
+        qty: q, // +in, -out
+        type,
+        reason: reason || null,
+        ref: ref || null,
+        created_by: ctx.userId,
+      },
+    ];
 
-    const { error } = await supabase.from("erp_inventory_ledger").insert(payload);
+    const { error } = await supabase.rpc("erp_inventory_ledger_insert", {
+      p_entries: payload,
+    });
     if (error) {
       setErr(error.message);
       return;

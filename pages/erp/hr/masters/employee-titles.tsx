@@ -145,9 +145,13 @@ export default function HrEmployeeTitlesPage() {
       is_active: form.is_active,
     };
 
-    const { error } = form.id
-      ? await supabase.from("erp_hr_employee_titles").update(payload).eq("id", form.id)
-      : await supabase.from("erp_hr_employee_titles").insert(payload);
+    const { error } = await supabase.rpc("erp_hr_employee_title_upsert", {
+      p_id: form.id || null,
+      p_code: payload.code,
+      p_name: payload.name,
+      p_sort_order: payload.sort_order,
+      p_is_active: payload.is_active,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -170,10 +174,10 @@ export default function HrEmployeeTitlesPage() {
 
   async function handleToggleStatus(title: EmployeeTitle) {
     if (!canManage) return;
-    const { error } = await supabase
-      .from("erp_hr_employee_titles")
-      .update({ is_active: !title.is_active })
-      .eq("id", title.id);
+    const { error } = await supabase.rpc("erp_hr_employee_title_set_active", {
+      p_id: title.id,
+      p_is_active: !title.is_active,
+    });
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to update title." });
       return;

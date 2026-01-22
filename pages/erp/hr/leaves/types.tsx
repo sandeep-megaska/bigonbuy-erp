@@ -167,9 +167,18 @@ export default function HrLeaveTypesPage() {
       display_order: form.display_order,
     };
 
-    const { error } = form.id
-      ? await supabase.from("erp_hr_leave_types").update(payload).eq("id", form.id)
-      : await supabase.from("erp_hr_leave_types").insert(payload);
+    const { error } = await supabase.rpc("erp_hr_leave_type_upsert", {
+      p_id: form.id || null,
+      p_key: payload.key,
+      p_name: payload.name,
+      p_is_paid: payload.is_paid,
+      p_is_active: payload.is_active,
+      p_allows_half_day: payload.allows_half_day,
+      p_requires_approval: payload.requires_approval,
+      p_counts_weekly_off: payload.counts_weekly_off,
+      p_counts_holiday: payload.counts_holiday,
+      p_display_order: payload.display_order,
+    });
 
     if (error) {
       if (error.code === "23505") {

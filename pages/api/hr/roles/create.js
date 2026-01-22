@@ -41,9 +41,9 @@ export default async function handler(req, res) {
 
   const adminClient = createServiceClient(supabaseUrl, serviceKey);
 
-  const { error } = await adminClient.from("erp_roles").insert({
-    key: keyTrimmed,
-    name: nameTrimmed,
+  const { error } = await adminClient.rpc("erp_hr_role_create", {
+    p_key: keyTrimmed,
+    p_name: nameTrimmed,
   });
 
   if (error) {

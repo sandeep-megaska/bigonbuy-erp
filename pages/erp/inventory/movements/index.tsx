@@ -193,18 +193,21 @@ export default function InventoryMovementsPage() {
     }
 
     setError("");
-    const payload = {
-      company_id: ctx.companyId,
-      warehouse_id: adjustWarehouseId,
-      variant_id: adjustVariantId,
-      qty,
-      type: "adjustment",
-      reason: adjustReason.trim() || null,
-      ref: null,
-      created_by: ctx.userId,
-    };
+    const payload = [
+      {
+        warehouse_id: adjustWarehouseId,
+        variant_id: adjustVariantId,
+        qty,
+        type: "adjustment",
+        reason: adjustReason.trim() || null,
+        ref: null,
+        created_by: ctx.userId,
+      },
+    ];
 
-    const { error: insertError } = await supabase.from("erp_inventory_ledger").insert(payload);
+    const { error: insertError } = await supabase.rpc("erp_inventory_ledger_insert", {
+      p_entries: payload,
+    });
     if (insertError) {
       setError(insertError.message);
       return;
@@ -255,7 +258,9 @@ export default function InventoryMovementsPage() {
       type: "transfer_in",
     };
 
-    const { error: insertError } = await supabase.from("erp_inventory_ledger").insert([outPayload, inPayload]);
+    const { error: insertError } = await supabase.rpc("erp_inventory_ledger_insert", {
+      p_entries: [outPayload, inPayload],
+    });
     if (insertError) {
       setError(insertError.message);
       return;

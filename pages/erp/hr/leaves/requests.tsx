@@ -404,31 +404,16 @@ export default function HrLeaveRequestsPage() {
 
     setSaving(true);
 
-    if (draftId) {
-      const { data, error } = await supabase
-        .from("erp_hr_leave_requests")
-        .update(payload)
-        .eq("id", draftId)
-        .select("id")
-        .maybeSingle();
-
-      if (error) {
-        setToast({ type: "error", message: error.message });
-        setSaving(false);
-        return null;
-      }
-
-      setToast({ type: "success", message: "Draft updated." });
-      setSaving(false);
-      await loadRequests();
-      return data?.id ?? draftId;
-    }
-
-    const { data, error } = await supabase
-      .from("erp_hr_leave_requests")
-      .insert(payload)
-      .select("id")
-      .single();
+    const { data, error } = await supabase.rpc("erp_hr_leave_request_draft_upsert", {
+      p_id: draftId || null,
+      p_employee_id: payload.employee_id,
+      p_leave_type_id: payload.leave_type_id,
+      p_date_from: payload.date_from,
+      p_date_to: payload.date_to,
+      p_reason: payload.reason,
+      p_start_session: payload.start_session,
+      p_end_session: payload.end_session,
+    });
 
     if (error) {
       setToast({ type: "error", message: error.message });
@@ -436,11 +421,18 @@ export default function HrLeaveRequestsPage() {
       return null;
     }
 
-    setToast({ type: "success", message: "Draft saved." });
+    const requestId = typeof data === "object" && data ? (data as { id?: string }).id : draftId;
+    if (!requestId) {
+      setToast({ type: "error", message: "Unable to save draft." });
+      setSaving(false);
+      return null;
+    }
+
+    setToast({ type: "success", message: draftId ? "Draft updated." : "Draft saved." });
     setSaving(false);
-    setDraftId(data.id);
+    setDraftId(requestId);
     await loadRequests();
-    return data.id;
+    return requestId;
   }
 
   async function submitDraft() {

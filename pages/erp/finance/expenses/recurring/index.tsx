@@ -116,10 +116,10 @@ export default function RecurringExpensesPage() {
     }
 
     setError(null);
-    const { error: updateError } = await supabase
-      .from("erp_recurring_expense_templates")
-      .update({ is_active: nextActive, updated_at: new Date().toISOString() })
-      .eq("id", templateId);
+    const { error: updateError } = await supabase.rpc("erp_recurring_expense_template_set_active", {
+      p_template_id: templateId,
+      p_is_active: nextActive,
+    });
 
     if (updateError) {
       setError(updateError.message);

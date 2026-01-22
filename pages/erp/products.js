@@ -75,12 +75,11 @@ export default function ErpProductsPage() {
     }
 
     setErr("");
-    const { error } = await supabase.from("erp_products").insert({
-      company_id: ctx.companyId,
-      title: title.trim(),
-      style_code: styleCode.trim(),
-      hsn_code: hsnCode.trim() || null,
-      status,
+    const { error } = await supabase.rpc("erp_inventory_product_create", {
+      p_title: title.trim(),
+      p_style_code: styleCode.trim(),
+      p_hsn_code: hsnCode.trim() || null,
+      p_status: status,
     });
 
     if (error) {
@@ -101,11 +100,10 @@ export default function ErpProductsPage() {
       return;
     }
     setErr("");
-    const { error } = await supabase
-      .from("erp_products")
-      .update({ status: nextStatus })
-      .eq("id", id)
-      .eq("company_id", ctx.companyId);
+    const { error } = await supabase.rpc("erp_inventory_product_update_status", {
+      p_id: id,
+      p_status: nextStatus,
+    });
 
     if (error) setErr(error.message);
     await load(ctx.companyId);
@@ -120,11 +118,9 @@ export default function ErpProductsPage() {
     }
 
     setErr("");
-    const { error } = await supabase
-      .from("erp_products")
-      .delete()
-      .eq("id", id)
-      .eq("company_id", ctx.companyId);
+    const { error } = await supabase.rpc("erp_inventory_product_delete", {
+      p_id: id,
+    });
 
     if (error) setErr(error.message);
     await load(ctx.companyId);

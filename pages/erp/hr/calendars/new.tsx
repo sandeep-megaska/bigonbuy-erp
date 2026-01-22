@@ -91,40 +91,16 @@ export default function HrCalendarCreatePage() {
     setFormError("");
     setDefaultConflict({ message: "", active: false });
 
-    if (options?.unsetDefault) {
-      const { error: unsetError } = await supabase
-        .from("erp_calendars")
-        .update({ is_default: false })
-        .eq("is_default", true);
-      if (unsetError) {
-        setFormError(unsetError.message || "Unable to clear existing default calendar.");
-        setSaving(false);
-        return;
-      }
-    }
-
-    const { data, error } = await supabase
-      .from("erp_calendars")
-      .insert({
-        code: form.code.trim(),
-        name: form.name.trim(),
-        timezone: form.timezone.trim() || null,
-        is_default: form.is_default,
-      })
-      .select("id")
-      .single();
+    const { data, error } = await supabase.rpc("erp_hr_calendar_upsert", {
+      p_id: null,
+      p_code: form.code.trim(),
+      p_name: form.name.trim(),
+      p_timezone: form.timezone.trim() || null,
+      p_is_default: false,
+    });
 
     if (error) {
       const message = error.message || "Unable to create calendar.";
-      if (error.code === "23505" && form.is_default) {
-        setDefaultConflict({
-          message:
-            "Another calendar is already marked as default. You can unset the existing default and retry.",
-          active: true,
-        });
-        setSaving(false);
-        return;
-      }
       if (error.code === "23505" && message.includes("erp_calendars_company_code_key")) {
         setFormError("Calendar code must be unique.");
       } else {
@@ -134,13 +110,27 @@ export default function HrCalendarCreatePage() {
       return;
     }
 
+    const calendarId = typeof data === "object" && data ? (data as { id?: string }).id : null;
+    if (!calendarId) {
+      setFormError("Unable to create calendar.");
+      setSaving(false);
+      return;
+    }
+
+    if (form.is_default) {
+      const { error: defaultError } = await supabase.rpc("erp_hr_calendar_set_default", {
+        p_calendar_id: calendarId,
+      });
+      if (defaultError) {
+        setFormError(defaultError.message || "Unable to set default calendar.");
+        setSaving(false);
+        return;
+      }
+    }
+
     setToast({ type: "success", message: "Calendar created successfully." });
     setSaving(false);
-    if (data?.id) {
-      router.push(`/erp/hr/calendars/${data.id}`);
-    } else {
-      router.push("/erp/hr/calendars");
-    }
+    router.push(`/erp/hr/calendars/${calendarId}`);
   }
 
   async function handleSave(event: FormEvent) {

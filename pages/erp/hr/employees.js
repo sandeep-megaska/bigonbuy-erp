@@ -327,14 +327,12 @@ useEffect(() => {
 
     const employeeId = employeeForm.id || upsertedId;
     if (employeeId) {
-      const { error: joinDateError } = await supabase
-        .from("erp_employees")
-        .update({
-          joining_date: employeeForm.join_date || null,
-          title_id: employeeForm.title_id || null,
-          gender_id: employeeForm.gender_id || null,
-        })
-        .eq("id", employeeId);
+      const { error: joinDateError } = await supabase.rpc("erp_hr_employee_profile_update", {
+        p_employee_id: employeeId,
+        p_joining_date: employeeForm.join_date || null,
+        p_title_id: employeeForm.title_id || null,
+        p_gender_id: employeeForm.gender_id || null,
+      });
       if (joinDateError) {
         setError(joinDateError.message || "Employee saved, but profile update failed.");
       }

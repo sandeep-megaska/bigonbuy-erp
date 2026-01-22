@@ -132,16 +132,13 @@ export default function InventoryProductsPage() {
     }
 
     if (editingId) {
-      const { error: updateError } = await supabase
-        .from("erp_products")
-        .update({
-          title: title.trim(),
-          style_code: trimmedStyleCode,
-          hsn_code: trimmedHsnCode || null,
-          status,
-        })
-        .eq("company_id", ctx.companyId)
-        .eq("id", editingId);
+      const { error: updateError } = await supabase.rpc("erp_inventory_product_update", {
+        p_id: editingId,
+        p_title: title.trim(),
+        p_style_code: trimmedStyleCode,
+        p_hsn_code: trimmedHsnCode || null,
+        p_status: status,
+      });
       if (updateError) {
         setError(updateError.message);
         return;
@@ -153,44 +150,38 @@ export default function InventoryProductsPage() {
           setError(uploadError.message);
           return;
         }
-        const { error: imageError } = await supabase
-          .from("erp_products")
-          .update({ image_url: path })
-          .eq("company_id", ctx.companyId)
-          .eq("id", editingId);
+        const { error: imageError } = await supabase.rpc("erp_inventory_product_set_image", {
+          p_id: editingId,
+          p_image_url: path,
+        });
         if (imageError) {
           setError(imageError.message);
           return;
         }
       }
     } else {
-      const { data: newProduct, error: insertError } = await supabase
-        .from("erp_products")
-        .insert({
-          company_id: ctx.companyId,
-          title: title.trim(),
-          style_code: trimmedStyleCode,
-          hsn_code: trimmedHsnCode || null,
-          status,
-        })
-        .select("id")
-        .single();
+      const { data: newProduct, error: insertError } = await supabase.rpc("erp_inventory_product_create", {
+        p_title: title.trim(),
+        p_style_code: trimmedStyleCode,
+        p_hsn_code: trimmedHsnCode || null,
+        p_status: status,
+      });
       if (insertError) {
         setError(insertError.message);
         return;
       }
-      if (imageFile && newProduct?.id) {
-        const path = `company/${ctx.companyId}/products/${newProduct.id}/${Date.now()}-${imageFile.name}`;
+      const productId = typeof newProduct === "object" && newProduct ? (newProduct as { id?: string }).id : null;
+      if (imageFile && productId) {
+        const path = `company/${ctx.companyId}/products/${productId}/${Date.now()}-${imageFile.name}`;
         const { error: uploadError } = await uploadErpAsset(path, imageFile);
         if (uploadError) {
           setError(uploadError.message);
           return;
         }
-        const { error: imageError } = await supabase
-          .from("erp_products")
-          .update({ image_url: path })
-          .eq("company_id", ctx.companyId)
-          .eq("id", newProduct.id);
+        const { error: imageError } = await supabase.rpc("erp_inventory_product_set_image", {
+          p_id: productId,
+          p_image_url: path,
+        });
         if (imageError) {
           setError(imageError.message);
           return;

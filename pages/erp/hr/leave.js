@@ -106,12 +106,19 @@ export default function HrLeavePage() {
       setErr("Leave type name required.");
       return;
     }
-    const payload = {
-      company_id: ctx.companyId,
-      name: ltName.trim(),
-      description: ltDesc.trim() || null,
-    };
-    const { error } = await supabase.from("erp_leave_types").insert(payload);
+    const normalizedName = ltName.trim();
+    const normalizedCode = normalizedName
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const { error } = await supabase.rpc("erp_leave_type_upsert", {
+      p_code: normalizedCode || normalizedName.toUpperCase(),
+      p_name: normalizedName,
+      p_is_paid: true,
+      p_is_active: true,
+      p_notes: ltDesc.trim() || null,
+      p_id: null,
+    });
     if (error) {
       setErr(error.message);
       return;
@@ -128,17 +135,17 @@ export default function HrLeavePage() {
       setErr("Choose employee and leave type.");
       return;
     }
-    const payload = {
-      company_id: ctx.companyId,
-      employee_id: reqEmployee,
-      leave_type_id: reqType,
-      start_date: startDate || null,
-      end_date: endDate || null,
-      days: days ? Number(days) : null,
-      reason: reason.trim() || null,
-      status: "requested",
-    };
-    const { error } = await supabase.from("erp_leave_requests").insert(payload);
+    if (!startDate || !endDate) {
+      setErr("Start and end dates are required.");
+      return;
+    }
+    const { error } = await supabase.rpc("erp_leave_request_submit", {
+      p_employee_id: reqEmployee,
+      p_leave_type_id: reqType,
+      p_start_date: startDate,
+      p_end_date: endDate,
+      p_reason: reason.trim() || null,
+    });
     if (error) {
       setErr(error.message);
       return;
@@ -156,16 +163,11 @@ export default function HrLeavePage() {
       setErr("Only HR/admin/owner can update leave requests.");
       return;
     }
-    const payload = {
-      status,
-      approved_by: ctx.userId,
-      approved_at: new Date().toISOString(),
-    };
-    const { error } = await supabase
-      .from("erp_leave_requests")
-      .update(payload)
-      .eq("id", id)
-      .eq("company_id", ctx.companyId);
+    const { error } = await supabase.rpc("erp_leave_request_set_status", {
+      p_request_id: id,
+      p_status: status,
+      p_reviewer_notes: null,
+    });
     if (error) {
       setErr(error.message);
       return;

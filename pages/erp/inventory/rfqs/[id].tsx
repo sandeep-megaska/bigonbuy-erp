@@ -242,43 +242,28 @@ export default function RfqDetailPage() {
     setError("");
     setNotice("");
 
-    const { error: rfqError } = await supabase
-      .from("erp_rfq")
-      .update({
-        vendor_id: vendorId,
-        requested_on: requestedOn,
-        needed_by: neededBy || null,
-        deliver_to_warehouse_id: deliverToWarehouseId || null,
-        notes: notes.trim() || null,
-      })
-      .eq("company_id", ctx.companyId)
-      .eq("id", rfq.id);
+    const { error: rfqError } = await supabase.rpc("erp_inventory_rfq_update", {
+      p_rfq_id: rfq.id,
+      p_vendor_id: vendorId,
+      p_requested_on: requestedOn,
+      p_needed_by: neededBy || null,
+      p_deliver_to_warehouse_id: deliverToWarehouseId || null,
+      p_notes: notes.trim() || null,
+    });
 
     if (rfqError) {
       setError(rfqError.message);
       return;
     }
 
-    const { error: deleteError } = await supabase
-      .from("erp_rfq_lines")
-      .delete()
-      .eq("company_id", ctx.companyId)
-      .eq("rfq_id", rfq.id);
-
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
-    }
-
-    const { error: lineError } = await supabase.from("erp_rfq_lines").insert(
-      normalizedLines.map((line) => ({
-        company_id: ctx.companyId,
-        rfq_id: rfq.id,
+    const { error: lineError } = await supabase.rpc("erp_inventory_rfq_lines_replace", {
+      p_rfq_id: rfq.id,
+      p_lines: normalizedLines.map((line) => ({
         variant_id: line.variant_id,
         qty: line.qty,
         notes: line.notes,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);
@@ -297,11 +282,9 @@ export default function RfqDetailPage() {
     }
 
     setError("");
-    const { error: updateError } = await supabase
-      .from("erp_rfq")
-      .update({ status: "sent" })
-      .eq("company_id", ctx.companyId)
-      .eq("id", rfq.id);
+    const { error: updateError } = await supabase.rpc("erp_inventory_rfq_mark_sent", {
+      p_rfq_id: rfq.id,
+    });
 
     if (updateError) {
       setError(updateError.message);

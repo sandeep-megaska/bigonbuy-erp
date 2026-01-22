@@ -167,34 +167,33 @@ export default function RfqCreatePage() {
     }
 
     setError("");
-    const { data: rfq, error: rfqError } = await supabase
-      .from("erp_rfq")
-      .insert({
-        company_id: ctx.companyId,
-        vendor_id: vendorId,
-        requested_on: requestedOn,
-        needed_by: neededBy || null,
-        deliver_to_warehouse_id: deliverToWarehouseId || null,
-        status: "draft",
-        notes: notes.trim() || null,
-      })
-      .select("id")
-      .single();
+    const { data: rfq, error: rfqError } = await supabase.rpc("erp_inventory_rfq_create", {
+      p_vendor_id: vendorId,
+      p_requested_on: requestedOn,
+      p_needed_by: neededBy || null,
+      p_deliver_to_warehouse_id: deliverToWarehouseId || null,
+      p_notes: notes.trim() || null,
+    });
 
     if (rfqError) {
       setError(rfqError.message);
       return;
     }
 
-    const { error: lineError } = await supabase.from("erp_rfq_lines").insert(
-      validLines.map((line) => ({
-        company_id: ctx.companyId,
-        rfq_id: rfq.id,
+    const rfqId = typeof rfq === "object" && rfq ? (rfq as { id?: string }).id : null;
+    if (!rfqId) {
+      setError("Failed to create RFQ.");
+      return;
+    }
+
+    const { error: lineError } = await supabase.rpc("erp_inventory_rfq_lines_replace", {
+      p_rfq_id: rfqId,
+      p_lines: validLines.map((line) => ({
         variant_id: line.variant_id,
         qty: line.qty,
         notes: line.notes,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);
@@ -202,7 +201,7 @@ export default function RfqCreatePage() {
     }
 
     resetForm();
-    router.push(`/erp/inventory/rfqs/${rfq.id}`);
+    router.push(`/erp/inventory/rfqs/${rfqId}`);
   }
 
 
