@@ -170,6 +170,12 @@ const linkButtonStyle = {
 
 const navItems = [
   {
+    title: "Invoices",
+    description: "Create draft invoices and issue FY-based document numbers.",
+    href: "/erp/finance/invoices",
+    icon: "🧾",
+  },
+  {
     title: "Credit / Debit Notes",
     description: "Issue customer and vendor credit/debit notes.",
     href: "/erp/finance/notes",
