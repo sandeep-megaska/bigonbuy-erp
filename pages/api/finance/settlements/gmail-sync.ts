@@ -149,7 +149,7 @@ function parseCsvEvents(
         event_date: eventDate,
         amount,
         reference_no: referenceNo || null,
-        payload: { ...row, _filename: filename ?? undefined },
+        payload: { ...row, _filename: filename ?? "" },
         platform: type,
         party,
       },
