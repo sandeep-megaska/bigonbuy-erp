@@ -192,7 +192,7 @@ export default function InventorySkusPage() {
       p_selling_price: null,
     };
 
-    if (costPrice && Number.isNaN(payload.cost_price)) {
+    if (costPrice && Number.isNaN(payload.p_cost_price)) {
       setError("Cost price must be a number.");
       return;
     }
