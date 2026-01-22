@@ -294,24 +294,25 @@ export default async function handler(
   }
 
   const companySettings = settings[0];
-  if (!companySettings.gmail_connected) {
-    return res.status(400).json({
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  const redirectUri = process.env.GMAIL_REDIRECT_URI;
+  const gmailUserEnv = process.env.GMAIL_USER?.trim() || null;
+
+  if (!refreshToken) {
+    return res.status(500).json({
       ok: false,
       scanned: 0,
       imported: 0,
       skipped: 0,
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
-      error: "Gmail is not connected in Company Settings",
+      error: "Gmail token not configured. Set GMAIL_REFRESH_TOKEN in Vercel.",
     });
   }
 
-  const clientId = process.env.GMAIL_CLIENT_ID;
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
-  const redirectUri = process.env.GMAIL_REDIRECT_URI;
-
-  if (!clientId || !clientSecret || !refreshToken || !redirectUri) {
+  if (!clientId || !clientSecret || !redirectUri) {
     return res.status(500).json({
       ok: false,
       scanned: 0,
@@ -321,6 +322,26 @@ export default async function handler(
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
       error: "Missing Gmail OAuth env vars",
     });
+  }
+
+  if (!companySettings.gmail_connected) {
+    const { error: connectError } = await userClient.rpc("erp_company_settings_update_gmail", {
+      p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
+      p_connected: true,
+      p_last_synced_at: companySettings.gmail_last_synced_at ?? null,
+    });
+
+    if (connectError) {
+      return res.status(500).json({
+        ok: false,
+        scanned: 0,
+        imported: 0,
+        skipped: 0,
+        errors: [],
+        last_synced_at: companySettings.gmail_last_synced_at ?? null,
+        error: connectError.message || "Unable to update Gmail connection status",
+      });
+    }
   }
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
@@ -540,7 +561,7 @@ export default async function handler(
 
   const lastSyncedAt = new Date().toISOString();
   const { error: syncUpdateError } = await userClient.rpc("erp_company_settings_update_gmail", {
-    p_gmail_user: companySettings.gmail_user ?? null,
+    p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
     p_connected: true,
     p_last_synced_at: lastSyncedAt,
   });
