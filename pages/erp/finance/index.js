@@ -199,4 +199,10 @@ const navItems = [
     href: "/erp/finance/marketplace-margin",
     icon: "📊",
   },
+  {
+    title: "Settlements",
+    description: "Reconcile Amazon settlements through Indifi to bank credits.",
+    href: "/erp/finance/settlements",
+    icon: "🧾",
+  },
 ];
