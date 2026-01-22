@@ -23,12 +23,21 @@ const statusColors: Record<string, { backgroundColor: string; color: string }> =
   "Pending Bank": { backgroundColor: "#e0e7ff", color: "#3730a3" },
 };
 
+type GmailToast = { type: "success" | "error"; message: string } | null;
+
 function formatDateInput(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
 function formatCurrency(value: number) {
   return value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Never";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default function FinanceSettlementsPage() {
@@ -42,6 +51,11 @@ export default function FinanceSettlementsPage() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [gmailSettings, setGmailSettings] = useState<any>(null);
+  const [gmailBatches, setGmailBatches] = useState<any[]>([]);
+  const [gmailSyncing, setGmailSyncing] = useState(false);
+  const [gmailToast, setGmailToast] = useState<GmailToast>(null);
+  const [gmailResult, setGmailResult] = useState<any>(null);
 
   const today = useMemo(() => new Date(), []);
   const defaultFrom = useMemo(() => {
@@ -107,9 +121,30 @@ export default function FinanceSettlementsPage() {
     setRows(listData || []);
   };
 
+  const fetchGmailData = async () => {
+    const [{ data: settingsData, error: settingsError }, { data: batchesData, error: batchesError }] =
+      await Promise.all([
+        supabase.rpc("erp_company_settings_get"),
+        supabase.rpc("erp_email_ingest_batches_recent", { p_limit: 10 }),
+      ]);
+
+    if (settingsError) {
+      setGmailToast({ type: "error", message: settingsError.message });
+    } else {
+      setGmailSettings(settingsData?.[0] ?? null);
+    }
+
+    if (batchesError) {
+      setGmailToast({ type: "error", message: batchesError.message });
+    } else {
+      setGmailBatches(batchesData || []);
+    }
+  };
+
   useEffect(() => {
     if (!ctx?.companyId) return;
     fetchSettlementData();
+    fetchGmailData();
   }, [ctx?.companyId, fromDate, toDate]);
 
   const handleRunReconcile = async () => {
@@ -171,6 +206,43 @@ export default function FinanceSettlementsPage() {
     }
 
     setUploading(false);
+  };
+
+  const handleGmailSync = async () => {
+    setGmailSyncing(true);
+    setGmailToast(null);
+    setGmailResult(null);
+
+    const session = await supabase.auth.getSession();
+    const accessToken = session.data.session?.access_token;
+    if (!accessToken) {
+      setGmailToast({ type: "error", message: "You must be signed in to sync Gmail." });
+      setGmailSyncing(false);
+      return;
+    }
+
+    const response = await fetch("/api/finance/settlements/gmail-sync", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const result = await response.json();
+    setGmailResult(result);
+
+    if (!response.ok || !result?.ok) {
+      setGmailToast({ type: "error", message: result?.error || "Gmail sync failed." });
+    } else {
+      setGmailToast({
+        type: "success",
+        message: `Gmail sync complete. Imported ${result.imported} emails.`,
+      });
+      await fetchSettlementData();
+    }
+
+    await fetchGmailData();
+    setGmailSyncing(false);
   };
 
   const handleSignOut = async () => {
@@ -256,6 +328,68 @@ export default function FinanceSettlementsPage() {
 
         {statusMessage ? <p style={{ margin: 0, color: "#b45309" }}>{statusMessage}</p> : null}
 
+        <section style={{ ...cardStyle, padding: 16 }}>
+          <h3 style={{ margin: "0 0 12px" }}>Gmail Sync</h3>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Gmail</p>
+              <p style={{ margin: "4px 0 0", fontWeight: 600 }}>
+                {gmailSettings?.gmail_connected ? "Connected" : "Not connected"}
+              </p>
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Last Gmail Sync</p>
+              <p style={{ margin: "4px 0 0", fontWeight: 600 }}>
+                {formatDateTime(gmailSettings?.gmail_last_synced_at)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleGmailSync}
+              style={primaryButtonStyle}
+              disabled={gmailSyncing}
+            >
+              {gmailSyncing ? "Syncing…" : "Sync from Gmail"}
+            </button>
+          </div>
+          {gmailToast ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: gmailToast.type === "error" ? "#fef2f2" : "#ecfdf5",
+                color: gmailToast.type === "error" ? "#991b1b" : "#065f46",
+                border: `1px solid ${gmailToast.type === "error" ? "#fecaca" : "#a7f3d0"}`,
+              }}
+            >
+              {gmailToast.message}
+            </div>
+          ) : null}
+          {gmailResult ? (
+            <div style={{ marginTop: 12, fontSize: 14 }}>
+              <p style={{ margin: "0 0 6px" }}>
+                Scanned {gmailResult.scanned} emails • Imported {gmailResult.imported} • Skipped{" "}
+                {gmailResult.skipped}
+              </p>
+              {gmailResult.errors?.length ? (
+                <div>
+                  <p style={{ margin: "0 0 6px", color: "#991b1b", fontWeight: 600 }}>
+                    Errors
+                  </p>
+                  <ul style={{ margin: 0, paddingLeft: 20, color: "#991b1b" }}>
+                    {gmailResult.errors.map((err: any, index: number) => (
+                      <li key={`${err.messageId}-${index}`}>
+                        {err.messageId}: {err.error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+
         <section style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
           {[
             { label: "Settlements", value: summary?.settlements_total ?? 0 },
@@ -281,6 +415,40 @@ export default function FinanceSettlementsPage() {
             </button>
           </form>
           {uploadMessage ? <p style={{ margin: "12px 0 0" }}>{uploadMessage}</p> : null}
+        </section>
+
+        <section style={{ ...cardStyle, padding: 16 }}>
+          <h3 style={{ margin: "0 0 12px" }}>Recent Gmail Imports</h3>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeaderCellStyle}>Received</th>
+                <th style={tableHeaderCellStyle}>Subject</th>
+                <th style={tableHeaderCellStyle}>Status</th>
+                <th style={tableHeaderCellStyle}>Parsed Events</th>
+                <th style={tableHeaderCellStyle}>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gmailBatches.length === 0 ? (
+                <tr>
+                  <td style={tableCellStyle} colSpan={5}>
+                    No Gmail imports yet.
+                  </td>
+                </tr>
+              ) : (
+                gmailBatches.map((batch) => (
+                  <tr key={batch.id}>
+                    <td style={tableCellStyle}>{formatDateTime(batch.received_at)}</td>
+                    <td style={tableCellStyle}>{batch.subject || "—"}</td>
+                    <td style={tableCellStyle}>{batch.status}</td>
+                    <td style={tableCellStyle}>{batch.parsed_event_count ?? 0}</td>
+                    <td style={tableCellStyle}>{batch.error_text || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </section>
 
         <section>
