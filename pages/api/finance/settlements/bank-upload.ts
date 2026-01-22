@@ -81,7 +81,15 @@ function parseForm(req: NextApiRequest) {
   return new Promise<{ fields: Record<string, string>; files: Record<string, any> }>((resolve, reject) => {
     form.parse(req, (err, fields, files) => {
       if (err) reject(err);
-      else resolve({ fields: fields as Record<string, string>, files });
+      else {
+        const normalizedFields = Object.fromEntries(
+          Object.entries(fields).map(([key, value]) => [
+            key,
+            Array.isArray(value) ? value[0] ?? "" : value ?? "",
+          ]),
+        );
+        resolve({ fields: normalizedFields, files });
+      }
     });
   });
 }
