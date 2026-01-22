@@ -419,14 +419,12 @@ export default function HrAttendancePage() {
 
     const isLeaveRow = editorRow?.status === "leave" || editorRow?.source === "leave";
     if (!isLeaveRow) {
-      const { error: statusError } = await supabase
-        .from("erp_hr_attendance_days")
-        .update({
-          status: editorForm.statusOverride,
-          source: "manual",
-        })
-        .eq("employee_id", editorEmployee.id)
-        .eq("day", editorDay);
+      const { error: statusError } = await supabase.rpc("erp_hr_attendance_day_status_update", {
+        p_employee_id: editorEmployee.id,
+        p_day: editorDay,
+        p_status: editorForm.statusOverride,
+        p_source: "manual",
+      });
 
       if (statusError) {
         setToast({ type: "error", message: statusError.message });

@@ -146,9 +146,13 @@ export default function HrEmployeeExitReasonsPage() {
       is_active: form.is_active,
     };
 
-    const { error } = form.id
-      ? await supabase.from("erp_hr_employee_exit_reasons").update(payload).eq("id", form.id)
-      : await supabase.from("erp_hr_employee_exit_reasons").insert(payload);
+    const { error } = await supabase.rpc("erp_hr_employee_exit_reason_upsert", {
+      p_id: form.id || null,
+      p_code: payload.code,
+      p_name: payload.name,
+      p_sort_order: payload.sort_order,
+      p_is_active: payload.is_active,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -171,10 +175,10 @@ export default function HrEmployeeExitReasonsPage() {
 
   async function handleToggleStatus(exitReason: EmployeeExitReason) {
     if (!canManage) return;
-    const { error } = await supabase
-      .from("erp_hr_employee_exit_reasons")
-      .update({ is_active: !exitReason.is_active })
-      .eq("id", exitReason.id);
+    const { error } = await supabase.rpc("erp_hr_employee_exit_reason_set_active", {
+      p_id: exitReason.id,
+      p_is_active: !exitReason.is_active,
+    });
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to update exit reason." });
       return;

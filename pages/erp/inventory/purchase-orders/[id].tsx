@@ -272,31 +272,30 @@ export default function PurchaseOrderDetailPage() {
       throw new Error("Purchase order context is missing.");
     }
 
-    const { data: grn, error: grnError } = await supabase
-      .from("erp_grns")
-      .insert({
-        company_id: ctx.companyId,
-        purchase_order_id: po.id,
-        notes: receiptNotes.trim() || null,
-      })
-      .select("id, grn_no")
-      .single();
+    const { data: grn, error: grnError } = await supabase.rpc("erp_inventory_grn_create", {
+      p_purchase_order_id: po.id,
+      p_notes: receiptNotes.trim() || null,
+    });
 
     if (grnError) {
       throw new Error(grnError.message);
     }
 
-    const { error: lineError } = await supabase.from("erp_grn_lines").insert(
-      linesToReceive.map((line) => ({
-        company_id: ctx.companyId,
-        grn_id: grn.id,
+    const grnId = typeof grn === "object" && grn ? (grn as { id?: string }).id : null;
+    if (!grnId) {
+      throw new Error("Failed to parse GRN id.");
+    }
+
+    const { error: lineError } = await supabase.rpc("erp_inventory_grn_lines_insert", {
+      p_grn_id: grnId,
+      p_lines: linesToReceive.map((line) => ({
         purchase_order_line_id: line.lineId,
         variant_id: line.variantId,
         warehouse_id: line.warehouseId,
         received_qty: line.receiveQtyNum,
         unit_cost: line.unitCost,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       throw new Error(lineError.message);

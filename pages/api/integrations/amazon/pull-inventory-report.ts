@@ -125,20 +125,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       serviceRoleKey
     );
 
-    const { data: batch, error: batchError } = await client
-      .from("erp_external_inventory_batches")
-      .insert({
-        company_id: companyId,
-        channel_key: "amazon",
-        marketplace_id: marketplaceId,
-        type: "report",
-        status: "requested",
-        report_type: PRIMARY_REPORT_TYPE,
-      })
-      .select("id")
-      .single();
+    const { data: batch, error: batchError } = await client.rpc("erp_inventory_external_batch_create", {
+      p_channel_key: "amazon",
+      p_marketplace_id: marketplaceId,
+      p_type: "report",
+      p_status: "requested",
+      p_report_type: PRIMARY_REPORT_TYPE,
+    });
 
-    if (batchError || !batch) {
+    const batchId = typeof batch === "object" && batch ? (batch as { id?: string }).id : null;
+    if (batchError || !batchId) {
       return res.status(500).json({ ok: false, error: batchError?.message || "Failed to create batch" });
     }
 
@@ -175,26 +171,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const createResult = await createReport(reportType);
 
     if (!createResult.ok) {
-      await client
-        .from("erp_external_inventory_batches")
-        .update({
-          status: "fatal",
-          error: createResult.error,
-        })
-        .eq("id", batch.id);
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batchId,
+        p_status: "fatal",
+        p_error: createResult.error,
+      });
 
       return res.status(500).json({ ok: false, error: createResult.error });
     }
 
-    const updateResult = await client
-      .from("erp_external_inventory_batches")
-      .update({
-        report_id: createResult.reportId,
-        report_type: reportType,
-        external_report_id: createResult.reportId,
-        status: "requested",
-      })
-      .eq("id", batch.id);
+    const updateResult = await client.rpc("erp_inventory_external_batch_update", {
+      p_batch_id: batchId,
+      p_status: "requested",
+      p_report_id: createResult.reportId,
+      p_report_type: reportType,
+      p_external_report_id: createResult.reportId,
+    });
 
     if (updateResult.error) {
       return res
@@ -202,7 +194,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         .json({ ok: false, error: updateResult.error.message || "Failed to update report batch" });
     }
 
-    return res.status(200).json({ ok: true, batchId: batch.id });
+    return res.status(200).json({ ok: true, batchId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });

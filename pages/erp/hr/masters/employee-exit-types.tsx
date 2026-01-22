@@ -156,9 +156,13 @@ const insertPayload = {
   ...payload,
 };
 
-const { error } = form.id
-  ? await supabase.from("erp_hr_employee_exit_types").update(payload).eq("id", form.id)
-  : await supabase.from("erp_hr_employee_exit_types").insert(insertPayload);
+  const { error } = await supabase.rpc("erp_hr_employee_exit_type_upsert", {
+    p_id: form.id || null,
+    p_code: insertPayload.code,
+    p_name: insertPayload.name,
+    p_sort_order: insertPayload.sort_order,
+    p_is_active: insertPayload.is_active,
+  });
 
 
     if (error) {
@@ -182,10 +186,10 @@ const { error } = form.id
 
   async function handleToggleStatus(exitType: EmployeeExitType) {
     if (!canManage) return;
-    const { error } = await supabase
-      .from("erp_hr_employee_exit_types")
-      .update({ is_active: !exitType.is_active })
-      .eq("id", exitType.id);
+    const { error } = await supabase.rpc("erp_hr_employee_exit_type_set_active", {
+      p_id: exitType.id,
+      p_is_active: !exitType.is_active,
+    });
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to update exit type." });
       return;

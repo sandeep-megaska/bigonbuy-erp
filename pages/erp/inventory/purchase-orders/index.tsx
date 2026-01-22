@@ -219,15 +219,14 @@ export default function PurchaseOrdersPage() {
       return;
     }
 
-    const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
-      validLines.map((line) => ({
-        company_id: ctx.companyId,
-        purchase_order_id: parsedPoId,
+    const { error: lineError } = await supabase.rpc("erp_inventory_purchase_order_lines_insert", {
+      p_purchase_order_id: parsedPoId,
+      p_lines: validLines.map((line) => ({
         variant_id: line.variant_id,
         ordered_qty: line.ordered_qty,
         unit_cost: line.unit_cost,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);

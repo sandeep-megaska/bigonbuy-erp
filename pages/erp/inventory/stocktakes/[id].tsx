@@ -287,18 +287,13 @@ export default function StocktakeDetailPage() {
       return false;
     }
 
-    const headerRes = await supabase
-      .from("erp_stocktakes")
-      .update({
-        warehouse_id: stocktake.warehouse_id,
-        stocktake_date: stocktake.stocktake_date,
-        reference: stocktake.reference,
-        notes: stocktake.notes,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", stocktake.id)
-      .eq("company_id", ctx.companyId)
-      .eq("status", "draft");
+    const headerRes = await supabase.rpc("erp_inventory_stocktake_update_header", {
+      p_stocktake_id: stocktake.id,
+      p_warehouse_id: stocktake.warehouse_id,
+      p_stocktake_date: stocktake.stocktake_date,
+      p_reference: stocktake.reference,
+      p_notes: stocktake.notes,
+    });
 
     if (headerRes.error) {
       setError(headerRes.error.message || "Failed to update stocktake header.");

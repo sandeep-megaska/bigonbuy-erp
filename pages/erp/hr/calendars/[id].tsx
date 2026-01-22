@@ -184,40 +184,16 @@ export default function HrCalendarDetailPage() {
     setFormError("");
     setDefaultConflict({ message: "", active: false });
 
-    if (options?.unsetDefault) {
-      const { error: unsetError } = await supabase
-        .from("erp_calendars")
-        .update({ is_default: false })
-        .eq("is_default", true)
-        .neq("id", calendarId);
-      if (unsetError) {
-        setFormError(unsetError.message || "Unable to clear existing default calendar.");
-        setSaving(false);
-        return;
-      }
-    }
-
-    const { error } = await supabase
-      .from("erp_calendars")
-      .update({
-        code: form.code.trim(),
-        name: form.name.trim(),
-        timezone: form.timezone.trim() || null,
-        is_default: form.is_default,
-      })
-      .eq("id", calendarId);
+    const { error } = await supabase.rpc("erp_hr_calendar_upsert", {
+      p_id: calendarId,
+      p_code: form.code.trim(),
+      p_name: form.name.trim(),
+      p_timezone: form.timezone.trim() || null,
+      p_is_default: false,
+    });
 
     if (error) {
       const message = error.message || "Unable to update calendar.";
-      if (error.code === "23505" && form.is_default) {
-        setDefaultConflict({
-          message:
-            "Another calendar is already marked as default. You can unset the existing default and retry.",
-          active: true,
-        });
-        setSaving(false);
-        return;
-      }
       if (error.code === "23505" && message.includes("erp_calendars_company_code_key")) {
         setFormError("Calendar code must be unique.");
       } else {
@@ -225,6 +201,17 @@ export default function HrCalendarDetailPage() {
       }
       setSaving(false);
       return;
+    }
+
+    if (form.is_default) {
+      const { error: defaultError } = await supabase.rpc("erp_hr_calendar_set_default", {
+        p_calendar_id: calendarId,
+      });
+      if (defaultError) {
+        setFormError(defaultError.message || "Unable to set default calendar.");
+        setSaving(false);
+        return;
+      }
     }
 
     setToast({ type: "success", message: "Calendar updated successfully." });
@@ -278,17 +265,13 @@ export default function HrCalendarDetailPage() {
     setHolidaySaving(true);
     setHolidayError("");
 
-    const { data, error } = await supabase
-      .from("erp_calendar_holidays")
-      .insert({
-        calendar_id: calendarId,
-        holiday_date: holidayForm.holiday_date,
-        name: holidayForm.name.trim(),
-        holiday_type: holidayForm.holiday_type,
-        is_optional: holidayForm.is_optional,
-      })
-      .select("id, holiday_date, name, holiday_type, is_optional")
-      .single();
+    const { data, error } = await supabase.rpc("erp_hr_calendar_holiday_create", {
+      p_calendar_id: calendarId,
+      p_holiday_date: holidayForm.holiday_date,
+      p_name: holidayForm.name.trim(),
+      p_holiday_type: holidayForm.holiday_type,
+      p_is_optional: holidayForm.is_optional,
+    });
 
     if (error) {
       const message = error.message || "Unable to add holiday.";
@@ -301,7 +284,21 @@ export default function HrCalendarDetailPage() {
       return;
     }
 
-    setHolidays((prev) => [...prev, data as HolidayRow].sort((a, b) => a.holiday_date.localeCompare(b.holiday_date)));
+    const holidayId = typeof data === "object" && data ? (data as { id?: string }).id : null;
+    if (holidayId) {
+      setHolidays((prev) =>
+        [
+          ...prev,
+          {
+            id: holidayId,
+            holiday_date: holidayForm.holiday_date,
+            name: holidayForm.name.trim(),
+            holiday_type: holidayForm.holiday_type,
+            is_optional: holidayForm.is_optional,
+          } as HolidayRow,
+        ].sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))
+      );
+    }
     setHolidaySaving(false);
     closeHolidayModal();
   }
@@ -313,11 +310,9 @@ export default function HrCalendarDetailPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("erp_calendar_holidays")
-      .delete()
-      .eq("id", holidayId)
-      .eq("calendar_id", calendarId);
+    const { error } = await supabase.rpc("erp_hr_calendar_holiday_delete", {
+      p_holiday_id: holidayId,
+    });
 
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to delete holiday." });
@@ -345,28 +340,29 @@ export default function HrCalendarDetailPage() {
     setMappingSaving(true);
     setMappingError("");
 
-    const { data, error } = await supabase
-      .from("erp_calendar_locations")
-      .insert(
-        newIds.map((locationId) => ({
-          calendar_id: calendarId,
-          work_location_id: locationId,
-        }))
-      )
-      .select("id, work_location_id");
-
-    if (error) {
-      const message = error.message || "Unable to assign locations.";
-      if (error.code === "23505") {
-        setMappingError("Some locations are already assigned to this calendar.");
-      } else {
-        setMappingError(message);
+    const createdMappings: MappingRow[] = [];
+    for (const locationId of newIds) {
+      const { data, error } = await supabase.rpc("erp_hr_calendar_location_add", {
+        p_calendar_id: calendarId,
+        p_work_location_id: locationId,
+      });
+      if (error) {
+        const message = error.message || "Unable to assign locations.";
+        if (error.code === "23505") {
+          setMappingError("Some locations are already assigned to this calendar.");
+        } else {
+          setMappingError(message);
+        }
+        setMappingSaving(false);
+        return;
       }
-      setMappingSaving(false);
-      return;
+      const mappingId = typeof data === "object" && data ? (data as { id?: string }).id : null;
+      if (mappingId) {
+        createdMappings.push({ id: mappingId, work_location_id: locationId, calendar_id: calendarId } as MappingRow);
+      }
     }
 
-    setMappings((prev) => [...prev, ...(data as MappingRow[])]);
+    setMappings((prev) => [...prev, ...createdMappings]);
     setLocationSelections([]);
     setMappingSaving(false);
   }
@@ -378,11 +374,9 @@ export default function HrCalendarDetailPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("erp_calendar_locations")
-      .delete()
-      .eq("id", mappingId)
-      .eq("calendar_id", calendarId);
+    const { error } = await supabase.rpc("erp_hr_calendar_location_delete", {
+      p_calendar_location_id: mappingId,
+    });
 
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to remove mapping." });

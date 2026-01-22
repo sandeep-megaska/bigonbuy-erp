@@ -222,12 +222,12 @@ export default function HrLocationShiftsPage() {
     setSaving(true);
     setFormError("");
 
-    const { error } = await supabase.from("erp_hr_location_shifts").insert({
-      location_id: form.location_id,
-      shift_id: form.shift_id,
-      effective_from: normalizeDate(form.effective_from),
-      effective_to: form.effective_to ? normalizeDate(form.effective_to) : null,
-      is_default: form.is_default,
+    const { error } = await supabase.rpc("erp_hr_location_shift_create", {
+      p_location_id: form.location_id,
+      p_shift_id: form.shift_id,
+      p_effective_from: normalizeDate(form.effective_from),
+      p_effective_to: form.effective_to ? normalizeDate(form.effective_to) : null,
+      p_is_default: form.is_default,
     });
 
     if (error) {

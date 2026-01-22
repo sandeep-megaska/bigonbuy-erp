@@ -176,11 +176,10 @@ export default function QuoteDetailPage() {
     }
 
     setError("");
-    const { error: updateError } = await supabase
-      .from("erp_vendor_quotes")
-      .update({ status: nextStatus })
-      .eq("company_id", ctx.companyId)
-      .eq("id", quote.id);
+    const { error: updateError } = await supabase.rpc("erp_inventory_vendor_quote_update_status", {
+      p_quote_id: quote.id,
+      p_status: nextStatus,
+    });
 
     if (updateError) {
       setError(updateError.message);
@@ -224,15 +223,14 @@ export default function QuoteDetailPage() {
       return;
     }
 
-    const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
-      lines.map((line) => ({
-        company_id: ctx.companyId,
-        purchase_order_id: poId,
+    const { error: lineError } = await supabase.rpc("erp_inventory_purchase_order_lines_insert", {
+      p_purchase_order_id: poId,
+      p_lines: lines.map((line) => ({
         variant_id: line.variant_id,
         ordered_qty: line.qty,
         unit_cost: line.unit_rate,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);

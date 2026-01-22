@@ -36,7 +36,6 @@ type VariantRow = {
 type InventorySummary = z.infer<typeof inventorySummarySchema>;
 
 type ExternalRowInsert = {
-  company_id: string;
   batch_id: string;
   channel_key: string;
   marketplace_id: string | null;
@@ -354,17 +353,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       typeof summaries[0]?.inventoryDetails?.reservedQuantity
     );
 
-    const { data: batch, error: batchError } = await dataClient
-      .from("erp_external_inventory_batches")
-      .insert({
-        company_id: companyId,
-        channel_key: "amazon",
-        marketplace_id: marketplaceId,
-      })
-      .select("id, channel_key, marketplace_id, pulled_at")
-      .single();
+    const { data: batch, error: batchError } = await dataClient.rpc("erp_inventory_external_batch_create", {
+      p_channel_key: "amazon",
+      p_marketplace_id: marketplaceId,
+      p_type: "summary",
+      p_status: "completed",
+      p_report_type: null,
+    });
 
-    if (batchError || !batch) {
+    const batchId = typeof batch === "object" && batch ? (batch as { id?: string }).id : null;
+    if (batchError || !batchId) {
       throw new Error(batchError?.message || "Failed to create inventory batch");
     }
 
@@ -383,8 +381,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
 
       return {
-        company_id: companyId,
-        batch_id: batch.id,
+        batch_id: batchId,
         channel_key: "amazon",
         marketplace_id: marketplaceId,
         external_sku: summary.sellerSku,
@@ -408,7 +405,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     for (let i = 0; i < rows.length; i += chunkSize) {
       const chunk = rows.slice(i, i + chunkSize);
       if (chunk.length === 0) continue;
-      const { error } = await dataClient.from("erp_external_inventory_rows").insert(chunk);
+      const { error } = await dataClient.rpc("erp_inventory_external_rows_upsert", {
+        p_rows: chunk,
+      });
       if (error) {
         throw new Error(error.message || "Failed to insert inventory rows");
       }
@@ -417,7 +416,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { count: rowCount, error: rowCountError } = await dataClient
       .from("erp_external_inventory_rows")
       .select("id", { count: "exact", head: true })
-      .eq("batch_id", batch.id);
+      .eq("batch_id", batchId);
 
     if (rowCountError) {
       throw new Error(rowCountError.message || "Failed to count inventory rows");

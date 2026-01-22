@@ -93,23 +93,19 @@ export default function InventoryWarehousesPage() {
 
     setError("");
     const payload = {
-      company_id: ctx.companyId,
-      name: name.trim(),
-      code: code.trim() || null,
+      p_id: editingId || null,
+      p_name: name.trim(),
+      p_code: code.trim() || null,
     };
 
     if (editingId) {
-      const { error: updateError } = await supabase
-        .from("erp_warehouses")
-        .update(payload)
-        .eq("company_id", ctx.companyId)
-        .eq("id", editingId);
+      const { error: updateError } = await supabase.rpc("erp_inventory_warehouse_upsert", payload);
       if (updateError) {
         setError(updateError.message);
         return;
       }
     } else {
-      const { error: insertError } = await supabase.from("erp_warehouses").insert(payload);
+      const { error: insertError } = await supabase.rpc("erp_inventory_warehouse_upsert", payload);
       if (insertError) {
         setError(insertError.message);
         return;

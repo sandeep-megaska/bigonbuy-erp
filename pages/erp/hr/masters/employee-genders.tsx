@@ -145,9 +145,13 @@ export default function HrEmployeeGendersPage() {
       is_active: form.is_active,
     };
 
-    const { error } = form.id
-      ? await supabase.from("erp_hr_employee_genders").update(payload).eq("id", form.id)
-      : await supabase.from("erp_hr_employee_genders").insert(payload);
+    const { error } = await supabase.rpc("erp_hr_employee_gender_upsert", {
+      p_id: form.id || null,
+      p_code: payload.code,
+      p_name: payload.name,
+      p_sort_order: payload.sort_order,
+      p_is_active: payload.is_active,
+    });
 
     if (error) {
       if (error.code === "23505") {
@@ -170,10 +174,10 @@ export default function HrEmployeeGendersPage() {
 
   async function handleToggleStatus(gender: EmployeeGender) {
     if (!canManage) return;
-    const { error } = await supabase
-      .from("erp_hr_employee_genders")
-      .update({ is_active: !gender.is_active })
-      .eq("id", gender.id);
+    const { error } = await supabase.rpc("erp_hr_employee_gender_set_active", {
+      p_id: gender.id,
+      p_is_active: !gender.is_active,
+    });
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to update gender." });
       return;

@@ -88,16 +88,16 @@ export default function ErpVariantsPage() {
 
     setErr("");
     const payload = {
-      company_id: ctx.companyId,
-      product_id: productId,
-      sku: sku.trim(),
-      size: size.trim() || null,
-      color: color.trim() || null,
-      cost_price: costPrice ? Number(costPrice) : null,
-      selling_price: sellingPrice ? Number(sellingPrice) : null,
+      p_id: null,
+      p_product_id: productId,
+      p_sku: sku.trim(),
+      p_size: size.trim() || null,
+      p_color: color.trim() || null,
+      p_cost_price: costPrice ? Number(costPrice) : null,
+      p_selling_price: sellingPrice ? Number(sellingPrice) : null,
     };
 
-    const { error } = await supabase.from("erp_variants").insert(payload);
+    const { error } = await supabase.rpc("erp_inventory_variant_upsert", payload);
     if (error) {
       setErr(error.message);
       return;
@@ -120,11 +120,9 @@ export default function ErpVariantsPage() {
     }
 
     setErr("");
-    const { error } = await supabase
-      .from("erp_variants")
-      .delete()
-      .eq("id", id)
-      .eq("company_id", ctx.companyId);
+    const { error } = await supabase.rpc("erp_inventory_variant_delete", {
+      p_id: id,
+    });
 
     if (error) setErr(error.message);
     await loadAll(ctx.companyId);

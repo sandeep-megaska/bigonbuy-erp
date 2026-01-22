@@ -394,13 +394,11 @@ export default function PayrollRunDetailPage() {
     }
     setOverrideSaving((prev) => ({ ...prev, [item.id]: true }));
     try {
-      const { error } = await supabase
-        .from("erp_payroll_items")
-        .update({
-          payable_days_override: payableValue,
-          lop_days_override: lopValue,
-        })
-        .eq("id", item.id);
+      const { error } = await supabase.rpc("erp_payroll_item_override_update", {
+        p_item_id: item.id,
+        p_payable_days_override: payableValue,
+        p_lop_days_override: lopValue,
+      });
       if (error) throw error;
       await refreshItems();
       showToast("Overrides saved");

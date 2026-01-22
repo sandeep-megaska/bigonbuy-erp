@@ -144,38 +144,34 @@ export default function InventoryVendorsPage() {
 
     setError("");
     const payload = {
-      company_id: ctx.companyId,
-      vendor_type: vendorType.trim(),
-      legal_name: legalName.trim(),
-      gstin: gstin.trim() || null,
-      contact_person: contactPerson.trim() || null,
-      phone: phone.trim() || null,
-      email: email.trim() || null,
-      address: address.trim() || null,
-      address_line1: addressLine1.trim() || null,
-      address_line2: addressLine2.trim() || null,
-      city: city.trim() || null,
-      state: stateValue.trim() || null,
-      pincode: pincode.trim() || null,
-      country: country.trim() || null,
-      payment_terms_days: Number(paymentTermsDays) || 0,
-      notes: notes.trim() || null,
-      is_active: isActive,
-      updated_by: ctx.userId,
+      p_id: editingId || null,
+      p_vendor_type: vendorType.trim(),
+      p_legal_name: legalName.trim(),
+      p_gstin: gstin.trim() || null,
+      p_contact_person: contactPerson.trim() || null,
+      p_phone: phone.trim() || null,
+      p_email: email.trim() || null,
+      p_address: address.trim() || null,
+      p_address_line1: addressLine1.trim() || null,
+      p_address_line2: addressLine2.trim() || null,
+      p_city: city.trim() || null,
+      p_state: stateValue.trim() || null,
+      p_pincode: pincode.trim() || null,
+      p_country: country.trim() || null,
+      p_payment_terms_days: Number(paymentTermsDays) || 0,
+      p_notes: notes.trim() || null,
+      p_is_active: isActive,
+      p_updated_by: ctx.userId,
     };
 
     if (editingId) {
-      const { error: updateError } = await supabase
-        .from("erp_vendors")
-        .update(payload)
-        .eq("company_id", ctx.companyId)
-        .eq("id", editingId);
+      const { error: updateError } = await supabase.rpc("erp_inventory_vendor_upsert", payload);
       if (updateError) {
         setError(updateError.message);
         return;
       }
     } else {
-      const { error: insertError } = await supabase.from("erp_vendors").insert(payload);
+      const { error: insertError } = await supabase.rpc("erp_inventory_vendor_upsert", payload);
       if (insertError) {
         setError(insertError.message);
         return;

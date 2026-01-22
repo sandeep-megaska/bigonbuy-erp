@@ -231,14 +231,14 @@ export default function HrWeeklyOffRulesPage() {
       return;
     }
 
-    const { error } = await supabase.from("erp_weekly_off_rules").insert({
-      scope_type: "location",
-      location_id: selectedLocationId,
-      weekday: Number(locationForm.weekday),
-      week_of_month: locationForm.weekOfMonth ? Number(locationForm.weekOfMonth) : null,
-      is_off: locationForm.isOff,
-      effective_from: locationForm.effectiveFrom,
-      effective_to: locationForm.effectiveTo || null,
+    const { error } = await supabase.rpc("erp_hr_weekly_off_rule_create", {
+      p_scope_type: "location",
+      p_location_id: selectedLocationId,
+      p_weekday: Number(locationForm.weekday),
+      p_week_of_month: locationForm.weekOfMonth ? Number(locationForm.weekOfMonth) : null,
+      p_is_off: locationForm.isOff,
+      p_effective_from: locationForm.effectiveFrom,
+      p_effective_to: locationForm.effectiveTo || null,
     });
 
     if (error) {
@@ -257,14 +257,14 @@ export default function HrWeeklyOffRulesPage() {
       return;
     }
 
-    const { error } = await supabase.from("erp_weekly_off_rules").insert({
-      scope_type: "employee",
-      employee_id: selectedEmployeeId,
-      weekday: Number(employeeForm.weekday),
-      week_of_month: employeeForm.weekOfMonth ? Number(employeeForm.weekOfMonth) : null,
-      is_off: employeeForm.isOff,
-      effective_from: employeeForm.effectiveFrom,
-      effective_to: employeeForm.effectiveTo || null,
+    const { error } = await supabase.rpc("erp_hr_weekly_off_rule_create", {
+      p_scope_type: "employee",
+      p_employee_id: selectedEmployeeId,
+      p_weekday: Number(employeeForm.weekday),
+      p_week_of_month: employeeForm.weekOfMonth ? Number(employeeForm.weekOfMonth) : null,
+      p_is_off: employeeForm.isOff,
+      p_effective_from: employeeForm.effectiveFrom,
+      p_effective_to: employeeForm.effectiveTo || null,
     });
 
     if (error) {
@@ -277,7 +277,9 @@ export default function HrWeeklyOffRulesPage() {
   }
 
   async function handleDeleteRule(ruleId: string, scope: "location" | "employee") {
-    const { error } = await supabase.from("erp_weekly_off_rules").delete().eq("id", ruleId);
+    const { error } = await supabase.rpc("erp_hr_weekly_off_rule_delete", {
+      p_rule_id: ruleId,
+    });
     if (error) {
       setToast({ type: "error", message: error.message || "Unable to delete rule." });
       return;

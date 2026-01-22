@@ -243,16 +243,13 @@ export default function PurchaseOrderEditPage() {
     setNotice("");
     setSaving(true);
 
-    const { error: updateError } = await supabase
-      .from("erp_purchase_orders")
-      .update({
-        vendor_id: vendorId,
-        order_date: orderDate || null,
-        expected_delivery_date: expectedDate || null,
-        notes: notes.trim() || null,
-      })
-      .eq("company_id", ctx.companyId)
-      .eq("id", po.id);
+    const { error: updateError } = await supabase.rpc("erp_inventory_purchase_order_update", {
+      p_purchase_order_id: po.id,
+      p_vendor_id: vendorId,
+      p_order_date: orderDate || null,
+      p_expected_delivery_date: expectedDate || null,
+      p_notes: notes.trim() || null,
+    });
 
     if (updateError) {
       setError(updateError.message);
@@ -260,27 +257,14 @@ export default function PurchaseOrderEditPage() {
       return;
     }
 
-    const { error: deleteError } = await supabase
-      .from("erp_purchase_order_lines")
-      .delete()
-      .eq("company_id", ctx.companyId)
-      .eq("purchase_order_id", po.id);
-
-    if (deleteError) {
-      setError(deleteError.message);
-      setSaving(false);
-      return;
-    }
-
-    const { error: lineError } = await supabase.from("erp_purchase_order_lines").insert(
-      validLines.map((line) => ({
-        company_id: ctx.companyId,
-        purchase_order_id: po.id,
+    const { error: lineError } = await supabase.rpc("erp_inventory_purchase_order_lines_replace", {
+      p_purchase_order_id: po.id,
+      p_lines: validLines.map((line) => ({
         variant_id: line.variant_id,
         ordered_qty: line.ordered_qty,
         unit_cost: line.unit_cost,
-      }))
-    );
+      })),
+    });
 
     if (lineError) {
       setError(lineError.message);

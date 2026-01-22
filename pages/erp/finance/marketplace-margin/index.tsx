@@ -622,10 +622,10 @@ export default function MarketplaceMarginPage() {
       return;
     }
 
-    const { error: saveError } = await supabase.from("erp_sku_cost_overrides").insert({
-      sku: skuValue,
-      unit_cost: costValue,
-      effective_from: overrideDate,
+    const { error: saveError } = await supabase.rpc("erp_marketplace_sku_cost_override_create", {
+      p_sku: skuValue,
+      p_unit_cost: costValue,
+      p_effective_from: overrideDate,
     });
 
     if (saveError) {

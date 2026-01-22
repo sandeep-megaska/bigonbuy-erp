@@ -99,17 +99,17 @@ export default function EmployeeLeavePage() {
       setErr("Select a leave type.");
       return;
     }
-    const payload = {
-      company_id: ctx.companyId,
-      employee_id: ctx.employeeId,
-      leave_type_id: leaveTypeId,
-      start_date: startDate || null,
-      end_date: endDate || null,
-      days: days ? Number(days) : null,
-      reason: reason.trim() || null,
-      status: "pending",
-    };
-    const { error } = await supabase.from("erp_leave_requests").insert(payload);
+    if (!startDate || !endDate) {
+      setErr("Start and end dates are required.");
+      return;
+    }
+    const { error } = await supabase.rpc("erp_leave_request_submit", {
+      p_employee_id: ctx.employeeId,
+      p_leave_type_id: leaveTypeId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+      p_reason: reason.trim() || null,
+    });
     if (error) {
       setErr(error.message);
       return;

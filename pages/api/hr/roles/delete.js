@@ -43,7 +43,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ ok: false, error: "Cannot delete a role that is in use" });
   }
 
-  const { error } = await adminClient.from("erp_roles").delete().eq("key", keyTrimmed);
+  const { error } = await adminClient.rpc("erp_hr_role_delete", {
+    p_key: keyTrimmed,
+  });
   if (error) {
     return res.status(500).json({ ok: false, error: error.message });
   }

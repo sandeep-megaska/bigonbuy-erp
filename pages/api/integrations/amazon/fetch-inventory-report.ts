@@ -30,7 +30,6 @@ type VariantRow = {
 };
 
 type ExternalRowInsert = {
-  company_id: string;
   batch_id: string;
   channel_key: string;
   marketplace_id: string | null;
@@ -53,7 +52,7 @@ type ExternalRowInsert = {
   matched_variant_id: string | null;
   erp_warehouse_id: string | null;
   match_status: "matched" | "unmatched" | "ambiguous";
-  raw_row: unknown;
+  raw: unknown;
 };
 
 const querySchema = z.object({
@@ -350,10 +349,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     if (["CANCELLED", "FATAL", "DONE_NO_DATA"].includes(normalizedStatus)) {
       const fatalMessage = `Report status: ${normalizedStatus}`;
-      await client
-        .from("erp_external_inventory_batches")
-        .update({ status: "fatal", error: fatalMessage })
-        .eq("id", batch.id);
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "fatal",
+        p_error: fatalMessage,
+      });
 
       return res.status(200).json({
         ok: true,
@@ -363,10 +363,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (["IN_QUEUE", "IN_PROGRESS"].includes(normalizedStatus)) {
-      await client
-        .from("erp_external_inventory_batches")
-        .update({ status: "in_progress" })
-        .eq("id", batch.id);
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "in_progress",
+      });
       return res.status(200).json({
         ok: true,
         status: "processing",
@@ -394,10 +394,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    await client
-      .from("erp_external_inventory_batches")
-      .update({ report_document_id: reportDocumentId })
-      .eq("id", batch.id);
+    await client.rpc("erp_inventory_external_batch_update", {
+      p_batch_id: batch.id,
+      p_report_document_id: reportDocumentId,
+    });
 
     const documentResponse = await spApiSignedFetch({
       method: "GET",
@@ -438,16 +438,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const rows = parseReportText(text);
     if (rows.length === 0) {
-      await client
-        .from("erp_external_inventory_batches")
-        .update({
-          status: "done",
-          pulled_at: new Date().toISOString(),
-          rows_total: 0,
-          matched_count: 0,
-          unmatched_count: 0,
-        })
-        .eq("id", batch.id);
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "done",
+        p_pulled_at: new Date().toISOString(),
+        p_rows_total: 0,
+        p_matched_count: 0,
+        p_unmatched_count: 0,
+      });
       return res.status(200).json({
         ok: true,
         status: "completed",
@@ -495,13 +493,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     if (!skuHeader) {
       const fatalMessage = "Missing seller-sku column in report";
-      await client
-        .from("erp_external_inventory_batches")
-        .update({
-          status: "fatal",
-          error: fatalMessage,
-        })
-        .eq("id", batch.id);
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "fatal",
+        p_error: fatalMessage,
+      });
 
       return res.status(200).json({
         ok: true,
@@ -559,7 +555,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         const location = getCell(row, locationHeader) || null;
 
         inserts.push({
-          company_id: companyId,
           batch_id: batch.id,
           channel_key: "amazon",
           marketplace_id: batch.marketplace_id ?? null,
@@ -582,7 +577,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           matched_variant_id: erpVariantId,
           erp_warehouse_id: null,
           match_status: matchStatus,
-          raw_row: buildRawRecord(normalizedHeaders, row),
+          raw: buildRawRecord(normalizedHeaders, row),
         });
       });
 
@@ -591,10 +586,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       for (let i = 0; i < inserts.length; i += chunkSize) {
         const chunk = inserts.slice(i, i + chunkSize);
         if (chunk.length === 0) continue;
-        const { error } = await client.from("erp_external_inventory_rows").upsert(chunk, {
-          onConflict:
-            "batch_id,external_sku,external_location_code,asin,fnsku,condition",
-          ignoreDuplicates: true,
+        const { error } = await client.rpc("erp_inventory_external_rows_upsert", {
+          p_rows: chunk,
         });
         if (error) {
           throw new Error(error.message || "Failed to insert inventory rows");
@@ -604,20 +597,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const summary = await fetchBatchSummary(client, batch.id);
 
-    const updatedBatch = await client
-      .from("erp_external_inventory_batches")
-      .update({
-        status: "done",
-        pulled_at: new Date().toISOString(),
-        rows_total: summary.row_count,
-        matched_count: summary.matched_count,
-        unmatched_count: summary.unmatched_count,
-      })
-      .eq("id", batch.id)
-      .select("id")
-      .single();
+    const updatedBatch = await client.rpc("erp_inventory_external_batch_update", {
+      p_batch_id: batch.id,
+      p_status: "done",
+      p_pulled_at: new Date().toISOString(),
+      p_rows_total: summary.row_count,
+      p_matched_count: summary.matched_count,
+      p_unmatched_count: summary.unmatched_count,
+    });
 
-    if (updatedBatch.error || !updatedBatch.data) {
+    if (updatedBatch.error) {
       throw new Error(updatedBatch.error?.message || "Failed to update batch status");
     }
 

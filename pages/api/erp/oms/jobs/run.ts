@@ -180,14 +180,13 @@ export default async function handler(
 
     activeJobId = job.id;
 
-    const { error: startError } = await userClient
-      .from("erp_channel_jobs")
-      .update({
-        status: "running",
-        started_at: new Date().toISOString(),
-        error: null,
-      })
-      .eq("id", job.id);
+    const { error: startError } = await userClient.rpc("erp_oms_channel_job_update", {
+      p_job_id: job.id,
+      p_status: "running",
+      p_started_at: new Date().toISOString(),
+      p_finished_at: null,
+      p_error: null,
+    });
 
     if (startError) {
       return res.status(500).json({
@@ -298,14 +297,13 @@ export default async function handler(
     const finishError =
       failedCount > 0 ? `${failedCount} job item(s) failed` : null;
 
-    const { error: finishErrorResult } = await userClient
-      .from("erp_channel_jobs")
-      .update({
-        status: jobStatus,
-        finished_at: new Date().toISOString(),
-        error: finishError,
-      })
-      .eq("id", job.id);
+    const { error: finishErrorResult } = await userClient.rpc("erp_oms_channel_job_update", {
+      p_job_id: job.id,
+      p_status: jobStatus,
+      p_started_at: null,
+      p_finished_at: new Date().toISOString(),
+      p_error: finishError,
+    });
 
     if (finishErrorResult) {
       return res.status(500).json({
@@ -334,14 +332,13 @@ export default async function handler(
     const message = err instanceof Error ? err.message : "Unknown error";
     if (userClient && activeJobId) {
       try {
-        await userClient
-          .from("erp_channel_jobs")
-          .update({
-            status: "failed",
-            finished_at: new Date().toISOString(),
-            error: message,
-          })
-          .eq("id", activeJobId);
+        await userClient.rpc("erp_oms_channel_job_update", {
+          p_job_id: activeJobId,
+          p_status: "failed",
+          p_started_at: null,
+          p_finished_at: new Date().toISOString(),
+          p_error: message,
+        });
       } catch (updateError) {
         console.error("Failed to mark job as failed", updateError);
       }
@@ -357,9 +354,12 @@ async function logJob(
   message: string,
   context: Record<string, unknown>
 ) {
-  const { error } = await client
-    .from("erp_channel_job_logs")
-    .insert({ job_id: jobId, level, message, context });
+  const { error } = await client.rpc("erp_oms_channel_job_log_create", {
+    p_job_id: jobId,
+    p_level: level,
+    p_message: message,
+    p_context: context,
+  });
   if (error) {
     throw new Error(`Failed to write job log: ${error.message}`);
   }
@@ -369,14 +369,12 @@ async function markJobItemSucceeded(
   client: SupabaseClient,
   item: JobItemRow
 ) {
-  const { error } = await client
-    .from("erp_channel_job_items")
-    .update({
-      status: "succeeded",
-      last_error: null,
-      attempt_count: item.attempt_count + 1,
-    })
-    .eq("id", item.id);
+  const { error } = await client.rpc("erp_oms_channel_job_item_update", {
+    p_item_id: item.id,
+    p_status: "succeeded",
+    p_last_error: null,
+    p_attempt_count: item.attempt_count + 1,
+  });
 
   if (error) {
     throw new Error(`Failed to update job item: ${error.message}`);
@@ -388,14 +386,12 @@ async function markJobItemFailed(
   item: JobItemRow,
   message: string
 ) {
-  const { error } = await client
-    .from("erp_channel_job_items")
-    .update({
-      status: "failed",
-      last_error: message,
-      attempt_count: item.attempt_count + 1,
-    })
-    .eq("id", item.id);
+  const { error } = await client.rpc("erp_oms_channel_job_item_update", {
+    p_item_id: item.id,
+    p_status: "failed",
+    p_last_error: message,
+    p_attempt_count: item.attempt_count + 1,
+  });
 
   if (error) {
     throw new Error(`Failed to update job item: ${error.message}`);

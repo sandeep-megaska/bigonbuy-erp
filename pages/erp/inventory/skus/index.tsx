@@ -184,12 +184,12 @@ export default function InventorySkusPage() {
 
     setError("");
     const payload = {
-      company_id: ctx.companyId,
-      product_id: productId,
-      sku: sku.trim(),
-      size: size.trim() || null,
-      color: color.trim() || null,
-      cost_price: costPrice ? Number(costPrice) : null,
+      p_product_id: productId,
+      p_sku: sku.trim(),
+      p_size: size.trim() || null,
+      p_color: color.trim() || null,
+      p_cost_price: costPrice ? Number(costPrice) : null,
+      p_selling_price: null,
     };
 
     if (costPrice && Number.isNaN(payload.cost_price)) {
@@ -198,11 +198,10 @@ export default function InventorySkusPage() {
     }
 
     if (editingId) {
-      const { error: updateError } = await supabase
-        .from("erp_variants")
-        .update(payload)
-        .eq("company_id", ctx.companyId)
-        .eq("id", editingId);
+      const { error: updateError } = await supabase.rpc("erp_inventory_variant_upsert", {
+        p_id: editingId,
+        ...payload,
+      });
       if (updateError) {
         setError(updateError.message);
         return;
@@ -214,38 +213,36 @@ export default function InventorySkusPage() {
           setError(uploadError.message);
           return;
         }
-        const { error: imageError } = await supabase
-          .from("erp_variants")
-          .update({ image_url: path })
-          .eq("company_id", ctx.companyId)
-          .eq("id", editingId);
+        const { error: imageError } = await supabase.rpc("erp_inventory_variant_set_image", {
+          p_id: editingId,
+          p_image_url: path,
+        });
         if (imageError) {
           setError(imageError.message);
           return;
         }
       }
     } else {
-      const { data: newVariant, error: insertError } = await supabase
-        .from("erp_variants")
-        .insert(payload)
-        .select("id")
-        .single();
+      const { data: newVariant, error: insertError } = await supabase.rpc("erp_inventory_variant_upsert", {
+        p_id: null,
+        ...payload,
+      });
       if (insertError) {
         setError(insertError.message);
         return;
       }
-      if (variantImageFile && newVariant?.id) {
-        const path = `company/${ctx.companyId}/variants/${newVariant.id}/${Date.now()}-${variantImageFile.name}`;
+      const variantId = typeof newVariant === "object" && newVariant ? (newVariant as { id?: string }).id : null;
+      if (variantImageFile && variantId) {
+        const path = `company/${ctx.companyId}/variants/${variantId}/${Date.now()}-${variantImageFile.name}`;
         const { error: uploadError } = await uploadErpAsset(path, variantImageFile);
         if (uploadError) {
           setError(uploadError.message);
           return;
         }
-        const { error: imageError } = await supabase
-          .from("erp_variants")
-          .update({ image_url: path })
-          .eq("company_id", ctx.companyId)
-          .eq("id", newVariant.id);
+        const { error: imageError } = await supabase.rpc("erp_inventory_variant_set_image", {
+          p_id: variantId,
+          p_image_url: path,
+        });
         if (imageError) {
           setError(imageError.message);
           return;
@@ -497,21 +494,23 @@ export default function InventorySkusPage() {
           createdProducts += 1;
           productMap.set(styleCode.toLowerCase(), { id: `dry-${styleCode}`, title, style_code: styleCode });
         } else {
-          const { data, error: insertError } = await supabase
-            .from("erp_products")
-            .insert({
-              company_id: ctx.companyId,
-              style_code: styleCode,
-              title,
-            })
-            .select("id, title, style_code")
-            .single();
-          if (insertError || !data) {
+          const { data, error: insertError } = await supabase.rpc("erp_inventory_product_create", {
+            p_title: title,
+            p_style_code: styleCode,
+            p_hsn_code: null,
+            p_status: "draft",
+          });
+          const productId = typeof data === "object" && data ? (data as { id?: string }).id : null;
+          if (insertError || !productId) {
             productCreationIssues.push(styleCode);
             continue;
           }
           createdProducts += 1;
-          productMap.set(styleCode.toLowerCase(), data as ProductOption);
+          productMap.set(styleCode.toLowerCase(), {
+            id: productId,
+            title,
+            style_code: styleCode,
+          } as ProductOption);
         }
       }
     }
@@ -574,14 +573,15 @@ export default function InventorySkusPage() {
           continue;
         }
         const payload = {
-          company_id: ctx.companyId,
-          product_id: product.id,
-          sku: row.skuTrim,
-          size: row.sizeValue,
-          color: row.colorValue,
-          cost_price: row.costRaw.trim() ? Number(row.costRaw.trim()) : null,
+          p_id: null,
+          p_product_id: product.id,
+          p_sku: row.skuTrim,
+          p_size: row.sizeValue,
+          p_color: row.colorValue,
+          p_cost_price: row.costRaw.trim() ? Number(row.costRaw.trim()) : null,
+          p_selling_price: null,
         };
-        const { error: insertError } = await supabase.from("erp_variants").insert(payload);
+        const { error: insertError } = await supabase.rpc("erp_inventory_variant_upsert", payload);
         if (insertError) {
           addRowError(insertError.message, row.rowNumber);
           continue;

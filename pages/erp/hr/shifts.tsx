@@ -218,11 +218,20 @@ export default function HrShiftsPage() {
       is_active: form.is_active,
     };
 
-    const query = form.id
-      ? supabase.from("erp_hr_shifts").update(payload).eq("id", form.id)
-      : supabase.from("erp_hr_shifts").insert(payload);
-
-    const { error } = await query;
+    const { error } = await supabase.rpc("erp_hr_shift_upsert", {
+      p_id: form.id || null,
+      p_code: payload.code,
+      p_name: payload.name,
+      p_start_time: payload.start_time,
+      p_end_time: payload.end_time,
+      p_break_minutes: payload.break_minutes,
+      p_grace_minutes: payload.grace_minutes,
+      p_min_half_day_minutes: payload.min_half_day_minutes,
+      p_min_full_day_minutes: payload.min_full_day_minutes,
+      p_ot_after_minutes: payload.ot_after_minutes,
+      p_is_night_shift: payload.is_night_shift,
+      p_is_active: payload.is_active,
+    });
 
     if (error) {
       if (error.code === "23505") {
