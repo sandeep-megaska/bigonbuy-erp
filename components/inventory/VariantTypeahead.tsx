@@ -63,6 +63,8 @@ const inputFieldStyle = {
   fontSize: 14,
   flex: 1,
   minWidth: 120,
+  width: "100%",
+  boxSizing: "border-box" as const,
 };
 
 const dropdownStyle = {
