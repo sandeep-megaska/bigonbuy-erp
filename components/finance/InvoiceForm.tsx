@@ -57,11 +57,31 @@ const sectionTitleStyle = {
   color: "#111827",
 };
 
+const lineWrapStyle = {
+  overflowX: "auto",
+};
+
+const lineInnerStyle = {
+  minWidth: 980,
+};
+
 const lineGridStyle = {
   display: "grid",
   gridTemplateColumns: "160px 180px 1fr 1fr 1fr 120px 120px 120px 80px",
-  gap: 10,
-  alignItems: "center",
+  gap: 8,
+  alignItems: "end",
+  width: "100%",
+  minWidth: 0,
+};
+
+const lineCellStyle = {
+  minWidth: 0,
+};
+
+const lineInputStyle = {
+  ...inputStyle,
+  width: "100%",
+  boxSizing: "border-box" as const,
 };
 
 const lineHeaderStyle = {
@@ -477,102 +497,122 @@ export default function InvoiceForm({
 
         <div>
           <h3 style={sectionTitleStyle}>Line Items</h3>
-          <div style={{ ...lineGridStyle, ...lineHeaderStyle }}>
-            <div>Type</div>
-            <div>SKU</div>
-            <div>Description</div>
-            <div>HSN</div>
-            <div>Variant</div>
-            <div>Qty</div>
-            <div>Unit Rate</div>
-            <div>Tax %</div>
-            <div></div>
-          </div>
-          {lines.map((line, index) => (
-            <div key={line.id ?? index} style={{ ...lineGridStyle, ...lineRowStyle }}>
-              <select
-                value={line.item_type}
-                onChange={(event) => handleLineChange(index, { item_type: event.target.value as "manual" | "variant" })}
-                disabled={isReadOnly}
-                style={inputStyle}
-              >
-                <option value="manual">Manual</option>
-                <option value="variant">Variant</option>
-              </select>
-              <input
-                type="text"
-                value={line.sku}
-                onChange={(event) => handleLineChange(index, { sku: event.target.value })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                placeholder="SKU"
-              />
-              <input
-                type="text"
-                value={line.title}
-                onChange={(event) => handleLineChange(index, { title: event.target.value })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                placeholder="Item description"
-              />
-              <input
-                type="text"
-                value={line.hsn}
-                onChange={(event) => handleLineChange(index, { hsn: event.target.value })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                placeholder="HSN"
-              />
-              <div>
-                <VariantTypeahead
-                  value={line.variant}
-                  onSelect={(variant) => handleVariantSelect(index, variant)}
-                  disabled={isReadOnly}
-                  placeholder="Search variants"
-                />
+          <div style={lineWrapStyle}>
+            <div style={lineInnerStyle}>
+              <div style={{ ...lineGridStyle, ...lineHeaderStyle }}>
+                <div style={lineCellStyle}>Type</div>
+                <div style={lineCellStyle}>SKU</div>
+                <div style={lineCellStyle}>Description</div>
+                <div style={lineCellStyle}>HSN</div>
+                <div style={lineCellStyle}>Variant</div>
+                <div style={lineCellStyle}>Qty</div>
+                <div style={lineCellStyle}>Unit Rate</div>
+                <div style={lineCellStyle}>Tax %</div>
+                <div style={lineCellStyle}></div>
               </div>
-              <input
-                type="number"
-                value={line.qty}
-                onChange={(event) => handleLineChange(index, { qty: Number(event.target.value) })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                min={0}
-                step={1}
-              />
-              <input
-                type="number"
-                value={line.unit_rate}
-                onChange={(event) => handleLineChange(index, { unit_rate: Number(event.target.value) })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                min={0}
-                step={0.01}
-              />
-              <input
-                type="number"
-                value={line.tax_rate}
-                onChange={(event) => handleLineChange(index, { tax_rate: Number(event.target.value) })}
-                disabled={isReadOnly}
-                style={inputStyle}
-                min={0}
-                step={0.01}
-              />
-              <div>
-                {!isReadOnly && !line.id ? (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveLine(index)}
-                    style={{ ...secondaryButtonStyle, padding: "6px 10px" }}
-                  >
-                    Remove
-                  </button>
-                ) : (
-                  <span style={badgeMutedStyle}>{line.id ? "Saved" : "Draft"}</span>
-                )}
-              </div>
+              {lines.map((line, index) => (
+                <div key={line.id ?? index} style={{ ...lineGridStyle, ...lineRowStyle }}>
+                  <div style={lineCellStyle}>
+                    <select
+                      value={line.item_type}
+                      onChange={(event) =>
+                        handleLineChange(index, { item_type: event.target.value as "manual" | "variant" })
+                      }
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                    >
+                      <option value="manual">Manual</option>
+                      <option value="variant">Variant</option>
+                    </select>
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="text"
+                      value={line.sku}
+                      onChange={(event) => handleLineChange(index, { sku: event.target.value })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      placeholder="SKU"
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="text"
+                      value={line.title}
+                      onChange={(event) => handleLineChange(index, { title: event.target.value })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      placeholder="Item description"
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="text"
+                      value={line.hsn}
+                      onChange={(event) => handleLineChange(index, { hsn: event.target.value })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      placeholder="HSN"
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <VariantTypeahead
+                      value={line.variant}
+                      onSelect={(variant) => handleVariantSelect(index, variant)}
+                      disabled={isReadOnly}
+                      placeholder="Search variants"
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="number"
+                      value={line.qty}
+                      onChange={(event) => handleLineChange(index, { qty: Number(event.target.value) })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      min={0}
+                      step={1}
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="number"
+                      value={line.unit_rate}
+                      onChange={(event) => handleLineChange(index, { unit_rate: Number(event.target.value) })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      min={0}
+                      step={0.01}
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    <input
+                      type="number"
+                      value={line.tax_rate}
+                      onChange={(event) => handleLineChange(index, { tax_rate: Number(event.target.value) })}
+                      disabled={isReadOnly}
+                      style={lineInputStyle}
+                      min={0}
+                      step={0.01}
+                    />
+                  </div>
+                  <div style={lineCellStyle}>
+                    {!isReadOnly && !line.id ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLine(index)}
+                        style={{ ...secondaryButtonStyle, padding: "6px 10px" }}
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <span style={badgeMutedStyle}>{line.id ? "Saved" : "Draft"}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
 
           {!isReadOnly ? (
             <button type="button" onClick={handleAddLine} style={secondaryButtonStyle}>
