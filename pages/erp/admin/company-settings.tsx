@@ -34,6 +34,11 @@ type CompanyProfile = {
   currency_code?: string | null;
 };
 
+type GstStateOption = {
+  code: string;
+  name: string;
+};
+
 export default function CompanySettingsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -55,16 +60,21 @@ export default function CompanySettingsPage() {
   const [bigonbuyPreview, setBigonbuyPreview] = useState<string | null>(null);
   const [megaskaPreview, setMegaskaPreview] = useState<string | null>(null);
   const [poLegalName, setPoLegalName] = useState("");
-  const [poGstin, setPoGstin] = useState("");
+  const [companyGstin, setCompanyGstin] = useState("");
   const [poAddressText, setPoAddressText] = useState("");
   const [poTermsText, setPoTermsText] = useState("");
+  const [gstStateOptions, setGstStateOptions] = useState<GstStateOption[]>([]);
+  const [gstStateCode, setGstStateCode] = useState("");
+  const [gstStateName, setGstStateName] = useState("");
+  const [gstSaving, setGstSaving] = useState(false);
+  const [gstToast, setGstToast] = useState<string | null>(null);
 
   const canEdit = useMemo(() => isAdmin(ctx?.roleKey || access.roleKey), [access.roleKey, ctx?.roleKey]);
   const gstinIsValid = useMemo(() => {
-    if (!poGstin.trim()) return true;
-    const normalized = poGstin.trim().toUpperCase();
+    if (!companyGstin.trim()) return true;
+    const normalized = companyGstin.trim().toUpperCase();
     return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(normalized);
-  }, [poGstin]);
+  }, [companyGstin]);
 
   useEffect(() => {
     let active = true;
@@ -104,10 +114,16 @@ export default function CompanySettingsPage() {
     void loadCompanyData(ctx.companyId);
   }, [ctx?.companyId, canEdit]);
 
+  useEffect(() => {
+    if (!gstToast) return;
+    const timer = window.setTimeout(() => setGstToast(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [gstToast]);
+
   async function loadCompanyData(companyId: string) {
     setError("");
     try {
-      const [companyRes, settingsRes, logoRes, designationRes] = await Promise.all([
+      const [companyRes, settingsRes, logoRes, designationRes, statesRes, gstRes] = await Promise.all([
         supabase
           .from("erp_companies")
           .select("id, name, legal_name, brand_name, country_code, currency_code")
@@ -116,10 +132,18 @@ export default function CompanySettingsPage() {
         getCompanySettings(),
         getCompanyLogosSignedUrlsIfNeeded(),
         supabase.from("erp_designations").select("id", { count: "exact", head: true }),
+        supabase.rpc("erp_ref_india_states_list"),
+        supabase.rpc("erp_company_gst_profile"),
       ]);
 
       if (companyRes.error) {
         throw new Error(companyRes.error.message);
+      }
+      if (statesRes.error) {
+        throw new Error(statesRes.error.message);
+      }
+      if (gstRes.error) {
+        throw new Error(gstRes.error.message);
       }
 
       setCompany(companyRes.data as CompanyProfile);
@@ -132,7 +156,19 @@ export default function CompanySettingsPage() {
       setBigonbuyPreview(logoRes.bigonbuyUrl);
       setMegaskaPreview(logoRes.megaskaUrl);
       setPoLegalName(settingsRes?.legal_name || "");
-      setPoGstin(settingsRes?.gstin || "");
+      const stateOptions = (statesRes.data ?? []) as GstStateOption[];
+      const gstProfile = (gstRes.data ?? null) as {
+        gst_state_code?: string | null;
+        gst_state_name?: string | null;
+        gstin?: string | null;
+      } | null;
+      const resolvedStateCode = gstProfile?.gst_state_code ?? "";
+      const resolvedStateName =
+        gstProfile?.gst_state_name ?? stateOptions.find((state) => state.code === resolvedStateCode)?.name ?? "";
+      setGstStateOptions(stateOptions);
+      setGstStateCode(resolvedStateCode);
+      setGstStateName(resolvedStateName);
+      setCompanyGstin(gstProfile?.gstin ?? settingsRes?.gstin ?? "");
       setPoAddressText(settingsRes?.address_text || settingsRes?.po_footer_address_text || "");
       setPoTermsText(settingsRes?.po_terms_text || "");
     } catch (err) {
@@ -235,7 +271,7 @@ export default function CompanySettingsPage() {
     try {
       const updated = await updateCompanySettings({
         legal_name: poLegalName.trim() || null,
-        gstin: poGstin.trim() || null,
+        gstin: companyGstin.trim() || null,
         address_text: poAddressText.trim() || null,
         po_terms_text: poTermsText.trim() || null,
         updated_by: ctx?.userId ?? null,
@@ -245,6 +281,33 @@ export default function CompanySettingsPage() {
       setError(err instanceof Error ? err.message : "Failed to update purchase order branding.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveGstSettings() {
+    setGstSaving(true);
+    setError("");
+    setGstToast(null);
+
+    try {
+      const selectedState = gstStateOptions.find((state) => state.code === gstStateCode);
+      const resolvedStateName = gstStateName || selectedState?.name || "";
+      const { error: updateError } = await supabase.rpc("erp_company_update_gst", {
+        p_gst_state_code: gstStateCode || null,
+        p_gst_state_name: resolvedStateName || null,
+        p_gstin: companyGstin.trim() || null,
+      });
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      setGstStateName(resolvedStateName);
+      setGstToast("Saved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update GST settings.");
+    } finally {
+      setGstSaving(false);
     }
   }
 
@@ -428,6 +491,49 @@ export default function CompanySettingsPage() {
       </section>
 
       <section style={cardStyle}>
+        <h2 style={h2Style}>GST Settings</h2>
+        <p style={{ marginTop: 4, color: "#6b7280" }}>
+          Used for invoice GST calculations and printed invoice details.
+        </p>
+        <div style={gridStyle}>
+          <div>
+            <label style={labelStyle}>GST State</label>
+            <select
+              style={inputStyle}
+              value={gstStateCode}
+              onChange={(event) => {
+                const nextCode = event.target.value;
+                const selectedState = gstStateOptions.find((state) => state.code === nextCode);
+                setGstStateCode(nextCode);
+                setGstStateName(selectedState?.name ?? "");
+                setGstToast(null);
+              }}
+            >
+              <option value="">Select a state</option>
+              {gstStateOptions.map((state) => (
+                <option key={state.code} value={state.code}>
+                  {state.code} - {state.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>GSTIN (optional)</label>
+            <input
+              style={inputStyle}
+              value={companyGstin}
+              onChange={(event) => setCompanyGstin(event.target.value)}
+              placeholder="22AAAAA0000A1Z5"
+            />
+          </div>
+        </div>
+        {gstToast ? <div style={successToastStyle}>{gstToast}</div> : null}
+        <button type="button" style={primaryButtonStyle} onClick={handleSaveGstSettings} disabled={gstSaving}>
+          {gstSaving ? "Saving…" : "Save GST Settings"}
+        </button>
+      </section>
+
+      <section style={cardStyle}>
         <h2 style={h2Style}>Purchase Order Branding</h2>
         <p style={{ marginTop: 4, color: "#6b7280" }}>
           These details appear on vendor-facing purchase orders and PDFs.
@@ -446,8 +552,8 @@ export default function CompanySettingsPage() {
             <label style={labelStyle}>GSTIN</label>
             <input
               style={inputStyle}
-              value={poGstin}
-              onChange={(event) => setPoGstin(event.target.value)}
+              value={companyGstin}
+              onChange={(event) => setCompanyGstin(event.target.value)}
               placeholder="22AAAAA0000A1Z5"
             />
             {!gstinIsValid ? (
@@ -475,7 +581,7 @@ export default function CompanySettingsPage() {
           <p style={{ margin: "0 0 6px", fontWeight: 600, color: "#111827" }}>Preview</p>
           <p style={{ margin: 0, color: "#111827", fontWeight: 600 }}>{poLegalName || "Legal name"}</p>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>
-            GSTIN: {poGstin || "—"}
+            GSTIN: {companyGstin || "—"}
           </p>
           <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280", whiteSpace: "pre-line" }}>
             {poAddressText || "Address line 1\nCity, State ZIP\nCountry"}
@@ -552,6 +658,16 @@ const inputStyle: CSSProperties = {
   padding: 10,
   borderRadius: 8,
   border: "1px solid #d1d5db",
+};
+
+const successToastStyle: CSSProperties = {
+  margin: "0 0 12px",
+  padding: "8px 12px",
+  borderRadius: 8,
+  backgroundColor: "#dcfce7",
+  color: "#166534",
+  fontSize: 13,
+  fontWeight: 600,
 };
 
 const logoGridStyle: CSSProperties = {
