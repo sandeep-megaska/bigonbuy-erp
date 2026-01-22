@@ -38,7 +38,7 @@ const statusBadgeStyle = (status: string) => {
 
 type InvoiceDetailState = {
   header: ReturnType<typeof invoiceHeaderSchema.parse>;
-  lines: ReturnType<typeof invoiceLineSchema.array().parse>;
+  lines: ReturnType<typeof invoiceLineSchema.parse>[];
 };
 
 export default function InvoiceDetailPage() {
