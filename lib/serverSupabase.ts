@@ -28,6 +28,18 @@ export function getBearerToken(req: NextApiRequest): string | null {
   return authHeader.slice(7).trim() || null;
 }
 
+export function getCookieAccessToken(req: NextApiRequest): string | null {
+  const token = req.cookies?.["sb-access-token"];
+  if (token) return token;
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";").map((part) => part.trim());
+  const tokenPart = parts.find((part) => part.startsWith("sb-access-token="));
+  if (!tokenPart) return null;
+  const value = tokenPart.slice("sb-access-token=".length);
+  return value ? decodeURIComponent(value) : null;
+}
+
 export function createUserClient(
   supabaseUrl: string,
   anonKey: string,

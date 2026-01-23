@@ -54,6 +54,7 @@ export default function FinanceSettlementsPage() {
   const [gmailSettings, setGmailSettings] = useState<any>(null);
   const [gmailBatches, setGmailBatches] = useState<any[]>([]);
   const [gmailSyncing, setGmailSyncing] = useState(false);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
   const [gmailToast, setGmailToast] = useState<GmailToast>(null);
   const [gmailResult, setGmailResult] = useState<any>(null);
 
@@ -246,6 +247,36 @@ export default function FinanceSettlementsPage() {
     setGmailSyncing(false);
   };
 
+  const handleGmailConnect = async () => {
+    setGmailConnecting(true);
+    setGmailToast(null);
+
+    const session = await supabase.auth.getSession();
+    if (!session.data.session) {
+      setGmailToast({ type: "error", message: "You must be signed in to connect Gmail." });
+      setGmailConnecting(false);
+      return;
+    }
+
+    const response = await fetch("/api/finance/settlements/gmail-connect", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      setGmailToast({ type: "error", message: result?.error || "Gmail connect failed." });
+    } else {
+      setGmailToast({ type: "success", message: "Gmail connected." });
+      await fetchGmailData();
+    }
+
+    setGmailConnecting(false);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/");
@@ -339,11 +370,27 @@ export default function FinanceSettlementsPage() {
               </p>
             </div>
             <div>
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Gmail User</p>
+              <p style={{ margin: "4px 0 0", fontWeight: 600 }}>
+                {gmailSettings?.gmail_user || "Not set"}
+              </p>
+            </div>
+            <div>
               <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Last Gmail Sync</p>
               <p style={{ margin: "4px 0 0", fontWeight: 600 }}>
                 {formatDateTime(gmailSettings?.gmail_last_synced_at)}
               </p>
             </div>
+            {!gmailSettings?.gmail_connected ? (
+              <button
+                type="button"
+                onClick={handleGmailConnect}
+                style={secondaryButtonStyle}
+                disabled={gmailConnecting}
+              >
+                {gmailConnecting ? "Connecting…" : "Connect Gmail"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={handleGmailSync}
