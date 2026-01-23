@@ -214,12 +214,15 @@ export default function FinanceSettlementsPage() {
     setGmailToast(null);
     setGmailResult(null);
 
-    const session = await supabase.auth.getSession();
-    if (!session.data.session) {
+    const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) {
       setGmailToast({ type: "error", message: "You must be signed in to sync Gmail." });
       setGmailSyncing(false);
       return;
     }
+
+    console.log("gmail sync token?", { has: Boolean(token), err: sessErr?.message });
 
     const query = new URLSearchParams({ start: fromDate, end: toDate });
     const response = await fetch(
@@ -227,9 +230,7 @@ export default function FinanceSettlementsPage() {
       {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       },
     );
 
