@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
-  createServiceRoleClient,
   createUserClient,
   getBearerToken,
   getSupabaseEnv,
@@ -12,7 +11,9 @@ type BackfillResponse = {
   ok: boolean;
   fetched?: number;
   upserted?: number;
+  lines_upserted?: number;
   errors?: number;
+  error_details?: string[];
   error?: string;
   details?: string | null;
 };
@@ -23,12 +24,9 @@ type ShopifyEnv = {
 };
 
 function getShopifyEnv(): ShopifyEnv {
-  const shopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
-  const adminToken = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
-  if (!shopDomain || !adminToken) {
-    throw new Error("Missing Shopify env vars: SHOPIFY_SHOP_DOMAIN, SHOPIFY_ADMIN_ACCESS_TOKEN");
-  }
-  return { shopDomain, adminToken };
+  const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
+  const adminToken = process.env.SHOPIFY_ACCESS_TOKEN;
+  return { shopDomain: shopDomain ?? "", adminToken: adminToken ?? "" };
 }
 
 function buildShopifyBaseUrl(domain: string): string {
@@ -71,6 +69,8 @@ async function fetchShopifyOrders(from: string, to: string): Promise<any[]> {
     limit: "250",
     created_at_min: from,
     created_at_max: to,
+    fields:
+      "id,name,order_number,created_at,processed_at,financial_status,fulfillment_status,currency,subtotal_price,total_discounts,total_shipping_price_set,total_tax,total_price,cancelled_at,cancel_reason,shipping_address,customer,line_items",
   });
 
   let nextUrl: string | null = `${baseUrl}/admin/api/${SHOPIFY_API_VERSION}/orders.json?${params.toString()}`;
@@ -100,13 +100,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, serviceRoleKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey) {
     return res.status(500).json({
       ok: false,
       error: "Missing Supabase env vars",
-      details: missing.join(", ") || null,
+      details: missing.filter((item) => item !== "SUPABASE_SERVICE_ROLE_KEY").join(", ") || null,
     });
+  }
+
+  const { shopDomain, adminToken } = getShopifyEnv();
+  if (!shopDomain) {
+    return res.status(500).json({ ok: false, error: "Missing env SHOPIFY_STORE_DOMAIN" });
+  }
+  if (!adminToken) {
+    return res.status(500).json({ ok: false, error: "Missing env SHOPIFY_ACCESS_TOKEN" });
   }
 
   let fromIso: string | null = null;
@@ -146,32 +154,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
-
   try {
     const orders = await fetchShopifyOrders(fromIso, toIso);
     let upserted = 0;
+    let linesUpserted = 0;
     let errors = 0;
+    const errorDetails: string[] = [];
 
     for (const order of orders) {
-      const { data: orderId, error } = await serviceClient.rpc("erp_shopify_order_upsert", {
+      const { data: orderId, error } = await userClient.rpc("erp_shopify_order_upsert", {
         p_company_id: companyId,
         p_order: order,
       });
 
       if (error || !orderId) {
         errors += 1;
+        if (error?.message) {
+          errorDetails.push(error.message);
+        }
         continue;
       }
 
       upserted += 1;
+      if (Array.isArray(order?.line_items)) {
+        linesUpserted += order.line_items.length;
+      }
     }
 
     return res.status(200).json({
       ok: true,
       fetched: orders.length,
       upserted,
+      lines_upserted: linesUpserted,
       errors,
+      error_details: errorDetails.slice(0, 10),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Shopify backfill failed";
