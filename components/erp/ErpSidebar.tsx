@@ -124,6 +124,7 @@ const moduleSidebarMap: Record<ErpModuleKey, SidebarGroup[]> = {
   employee: employeeSidebarGroups,
   oms: omsSidebarGroups,
   admin: adminSidebarGroups,
+  finance: [],
 };
 
 export default function ErpSidebar({
