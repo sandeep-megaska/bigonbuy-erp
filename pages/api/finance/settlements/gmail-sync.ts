@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
-import { createUserClient, getBearerToken } from "../../../../lib/serverSupabase";
+import { createUserClient } from "../../../../lib/serverSupabase";
 
 type GmailSyncError = { messageId: string; error: string };
 type GmailSyncResponse = {
@@ -142,6 +142,15 @@ function toCompanyDate(internalDateMs: string, timeZone: string) {
   return `${year}-${month}-${day}`;
 }
 
+function getAccessTokenFromCookieHeader(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";").map((part) => part.trim());
+  const tokenPart = parts.find((part) => part.startsWith("sb-access-token="));
+  if (!tokenPart) return null;
+  const token = tokenPart.slice("sb-access-token=".length);
+  return token ? decodeURIComponent(token) : null;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<GmailSyncResponse>,
@@ -204,7 +213,7 @@ export default async function handler(
     });
   }
 
-  const accessToken = getBearerToken(req) ?? req.cookies?.["sb-access-token"] ?? null;
+  const accessToken = getAccessTokenFromCookieHeader(req.headers.cookie);
   if (!accessToken) {
     return res.status(401).json({
       ok: false,
@@ -215,7 +224,7 @@ export default async function handler(
       errors: [],
       last_synced_at: null,
       debug,
-      error: "Not authorized",
+      error: "Not authenticated",
     });
   }
 
@@ -231,7 +240,7 @@ export default async function handler(
       errors: [],
       last_synced_at: null,
       debug,
-      error: "Not authorized",
+      error: "Not authenticated",
     });
   }
 

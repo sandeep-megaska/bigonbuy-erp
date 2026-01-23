@@ -214,8 +214,7 @@ export default function FinanceSettlementsPage() {
     setGmailResult(null);
 
     const session = await supabase.auth.getSession();
-    const accessToken = session.data.session?.access_token;
-    if (!accessToken) {
+    if (!session.data.session) {
       setGmailToast({ type: "error", message: "You must be signed in to sync Gmail." });
       setGmailSyncing(false);
       return;
@@ -226,7 +225,7 @@ export default function FinanceSettlementsPage() {
       method: "POST",
       credentials: "include",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
       },
     });
 
