@@ -35,6 +35,33 @@ type MissingSkuRow = {
   last_seen_at: string | null;
 };
 
+const formatCsvValue = (value: unknown) =>
+  `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const buildCsvFromRows = (rows: unknown[]) => {
+  if (rows.length === 0) return "";
+
+  const first = rows[0];
+  if (Array.isArray(first)) {
+    return rows
+      .map((row) =>
+        (Array.isArray(row) ? row : [row]).map((cell) => formatCsvValue(cell)).join(",")
+      )
+      .join("\n");
+  }
+
+  if (first && typeof first === "object") {
+    const headers = Object.keys(first as Record<string, unknown>);
+    const lines = rows.map((row) => {
+      const record = (row ?? {}) as Record<string, unknown>;
+      return headers.map((header) => formatCsvValue(record[header])).join(",");
+    });
+    return [headers.join(","), ...lines].join("\n");
+  }
+
+  return rows.map((row) => formatCsvValue(row)).join("\n");
+};
+
 export default function GstShopifyPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -126,8 +153,9 @@ export default function GstShopifyPage() {
       return;
     }
 
-    const blob = createCsvBlob(rows);
-    triggerDownload(blob, filename);
+    const csv = buildCsvFromRows(rows);
+    const blob = createCsvBlob(csv);
+    triggerDownload(filename, blob);
   };
 
   if (loading) {
