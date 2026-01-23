@@ -240,11 +240,11 @@ export default function GstShopifyPage() {
         </section>
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Missing SKU Mappings</h3>
+          <h3 style={{ marginTop: 0 }}>Missing Style Tax Profiles</h3>
           {missingSkus.length ? (
             <>
               <p style={{ marginTop: 0, color: "#b91c1c" }}>
-                {missingSkus.length} style(s) are missing GST mappings. Update them in Inventory SKUs.
+                {missingSkus.length} style(s) are missing tax profiles. Add them to Style Tax Profiles.
               </p>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {missingSkus.map((row) => (
@@ -257,13 +257,13 @@ export default function GstShopifyPage() {
                 ))}
               </ul>
               <div style={{ marginTop: 12 }}>
-                <Link href="/erp/inventory/skus" style={secondaryButtonStyle}>
-                  Go to Inventory SKUs
+                <Link href="/erp/finance/gst/sku-master" style={secondaryButtonStyle}>
+                  Go to Style Tax Profiles
                 </Link>
               </div>
             </>
           ) : (
-            <p style={{ margin: 0, color: "#6b7280" }}>No missing SKU mappings detected.</p>
+            <p style={{ margin: 0, color: "#6b7280" }}>No missing style tax profiles detected.</p>
           )}
         </section>
 
