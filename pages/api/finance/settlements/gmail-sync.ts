@@ -17,6 +17,10 @@ type GmailSyncResponse = {
   };
   errors: GmailSyncError[];
   last_synced_at: string | null;
+  debug: {
+    usedServiceKey: boolean;
+    keyName: "SUPABASE_SERVICE_ROLE_KEY" | "SUPABASE_SERVICE_KEY";
+  };
   error?: string;
 };
 
@@ -158,7 +162,14 @@ export default async function handler(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
-  if (!serviceRoleKey) {
+  const legacyServiceKey = process.env.SUPABASE_SERVICE_KEY ?? null;
+  const serviceKey = serviceRoleKey || legacyServiceKey;
+  const keyName = serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "SUPABASE_SERVICE_KEY";
+  const debug = {
+    usedServiceKey: Boolean(serviceKey),
+    keyName,
+  };
+  if (!serviceKey) {
     return res.status(500).json({
       ok: false,
       scanned: 0,
@@ -167,7 +178,8 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
-      error: "Missing Supabase service role key",
+      debug,
+      error: "Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY) in Vercel env",
     });
   }
 
@@ -182,6 +194,7 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
+      debug,
       error: `Missing Supabase env vars: ${missing.join(", ")}`,
     });
   }
@@ -196,15 +209,15 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
+      debug,
       error: "Not authenticated",
     });
   }
 
-  const userClient = createClient(supabaseUrl!, serviceRoleKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  const sbAdmin = createClient(supabaseUrl!, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { error: writerError } = await userClient.rpc("erp_require_finance_writer");
+  const { error: writerError } = await sbAdmin.rpc("erp_require_finance_writer");
   if (writerError) {
     return res.status(403).json({
       ok: false,
@@ -214,11 +227,12 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
+      debug,
       error: "Not authorized",
     });
   }
 
-  const { data: settings, error: settingsError } = await userClient.rpc(
+  const { data: settings, error: settingsError } = await sbAdmin.rpc(
     "erp_company_settings_get",
   );
   if (settingsError || !settings?.[0]) {
@@ -230,6 +244,7 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
+      debug,
       error: settingsError?.message || "Unable to load company settings",
     });
   }
@@ -250,6 +265,7 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      debug,
       error: "Gmail token not configured. Set GMAIL_REFRESH_TOKEN in Vercel.",
     });
   }
@@ -263,12 +279,13 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      debug,
       error: "Missing Gmail OAuth env vars",
     });
   }
 
   if (!companySettings.gmail_connected) {
-    const { error: connectError } = await userClient.rpc("erp_company_settings_update_gmail", {
+    const { error: connectError } = await sbAdmin.rpc("erp_company_settings_update_gmail", {
       p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
       p_connected: true,
       p_last_synced_at: companySettings.gmail_last_synced_at ?? null,
@@ -283,6 +300,7 @@ export default async function handler(
         totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
         errors: [],
         last_synced_at: companySettings.gmail_last_synced_at ?? null,
+        debug,
         error: connectError.message || "Unable to update Gmail connection status",
       });
     }
@@ -303,6 +321,7 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      debug,
       error: "Missing start or end date",
     });
   }
@@ -318,6 +337,7 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      debug,
       error: "Invalid date format. Use YYYY-MM-DD.",
     });
   }
@@ -340,11 +360,6 @@ export default async function handler(
   };
   const errors: GmailSyncError[] = [];
 
-  const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
   const companyTimeZone =
     companySettings.timezone ?? companySettings.time_zone ?? "Asia/Kolkata";
 
@@ -402,7 +417,7 @@ export default async function handler(
         const attachments = collectAttachments(payload);
         const attachmentNames = attachments.map((attachment) => attachment.filename);
 
-        const { data: ingestBatchId, error: ingestError } = await adminClient.rpc(
+        const { data: ingestBatchId, error: ingestError } = await sbAdmin.rpc(
           "erp_email_ingest_batch_create_or_get",
           {
             p_gmail_message_id: messageResponse.data.id,
@@ -419,7 +434,7 @@ export default async function handler(
           throw new Error(ingestError?.message || "Unable to create ingest batch");
         }
 
-        const { data: existingBatch } = await adminClient
+        const { data: existingBatch } = await sbAdmin
           .from("erp_email_ingest_batches")
           .select("id, status")
           .eq("id", ingestBatchId)
@@ -435,7 +450,7 @@ export default async function handler(
         const body = findBodyInParts(payload) ?? messageResponse.data.snippet ?? "";
         const amount = body ? extractAmount(body) : null;
         if (!amount || !receivedAtMs) {
-          await adminClient.rpc("erp_email_ingest_batch_mark", {
+          await sbAdmin.rpc("erp_email_ingest_batch_mark", {
             p_id: ingestBatchId,
             p_status: "skipped",
             p_error: !receivedAtMs
@@ -448,7 +463,7 @@ export default async function handler(
           continue;
         }
 
-        const { data: settlementBatchId, error: batchError } = await adminClient.rpc(
+        const { data: settlementBatchId, error: batchError } = await sbAdmin.rpc(
           "erp_settlement_batch_create",
           {
             p_source: "gmail_sync",
@@ -485,7 +500,7 @@ export default async function handler(
           platform = "indifi";
         }
 
-        const { error: eventError } = await adminClient.rpc("erp_settlement_event_insert", {
+        const { error: eventError } = await sbAdmin.rpc("erp_settlement_event_insert", {
           p_batch_id: settlementBatchId,
           p_platform: platform,
           p_event_type: eventType,
@@ -504,7 +519,7 @@ export default async function handler(
 
         if (eventError) {
           if (eventError.code === "23505") {
-            await adminClient.rpc("erp_email_ingest_batch_mark", {
+            await sbAdmin.rpc("erp_email_ingest_batch_mark", {
               p_id: ingestBatchId,
               p_status: "skipped",
               p_error: "Duplicate settlement event",
@@ -517,7 +532,7 @@ export default async function handler(
           throw new Error(eventError.message);
         }
 
-        await adminClient.rpc("erp_email_ingest_batch_mark", {
+        await sbAdmin.rpc("erp_email_ingest_batch_mark", {
           p_id: ingestBatchId,
           p_status: "parsed",
           p_error: null,
@@ -530,7 +545,7 @@ export default async function handler(
         const messageText = error instanceof Error ? error.message : "Unknown error";
         errors.push({ messageId: message.id ?? "unknown", error: messageText });
         if (ingestId) {
-          await adminClient.rpc("erp_email_ingest_batch_mark", {
+          await sbAdmin.rpc("erp_email_ingest_batch_mark", {
             p_id: ingestId,
             p_status: "error",
             p_error: messageText,
@@ -550,12 +565,13 @@ export default async function handler(
       totals,
       errors,
       last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      debug,
       error: message,
     });
   }
 
   const lastSyncedAt = new Date().toISOString();
-  const { error: syncUpdateError } = await userClient.rpc("erp_company_settings_update_gmail", {
+  const { error: syncUpdateError } = await sbAdmin.rpc("erp_company_settings_update_gmail", {
     p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
     p_connected: true,
     p_last_synced_at: lastSyncedAt,
@@ -576,5 +592,6 @@ export default async function handler(
     totals,
     errors,
     last_synced_at: lastSyncedAt,
+    debug,
   });
 }
