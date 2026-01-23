@@ -222,13 +222,16 @@ export default function FinanceSettlementsPage() {
     }
 
     const query = new URLSearchParams({ start: fromDate, end: toDate });
-    const response = await fetch(`/api/finance/settlements/gmail-sync?${query.toString()}`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await fetch(
+      `/api/finance/settlements/gmail-sync-run?${query.toString()}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
       },
-    });
+    );
 
     const result = await response.json();
     setGmailResult(result);

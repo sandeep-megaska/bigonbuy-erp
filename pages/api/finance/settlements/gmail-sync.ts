@@ -1,11 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
-import {
-  createUserClient,
-  getCookieAccessToken,
-  getSupabaseEnv,
-} from "../../../../lib/serverSupabase";
 
 type GmailSyncError = { messageId: string; error: string };
 type GmailSyncResponse = {
@@ -150,6 +145,25 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<GmailSyncResponse>,
 ) {
+  const expectedSecret = process.env.ERP_INTERNAL_JOB_SECRET ?? null;
+  const providedSecret = Array.isArray(req.headers["x-bigonbuy-secret"])
+    ? req.headers["x-bigonbuy-secret"][0]
+    : req.headers["x-bigonbuy-secret"];
+
+  if (!expectedSecret || !providedSecret || providedSecret !== expectedSecret) {
+    return res.status(401).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: null,
+      debug: { usedServiceKey: false, keyName: "SUPABASE_SERVICE_ROLE_KEY" },
+      error: "Not authorized",
+    });
+  }
+
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
   const legacyServiceKey = process.env.SUPABASE_SERVICE_KEY ?? null;
   const serviceKey = serviceRoleKey || legacyServiceKey;
@@ -175,7 +189,7 @@ export default async function handler(
     });
   }
 
-  const { supabaseUrl, anonKey } = getSupabaseEnv();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
   if (!serviceKey) {
     return res.status(500).json({
       ok: false,
@@ -190,10 +204,7 @@ export default async function handler(
     });
   }
 
-  const missing: string[] = [];
-  if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
-  if (!anonKey) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  if (missing.length) {
+  if (!supabaseUrl) {
     return res.status(500).json({
       ok: false,
       scanned: 0,
@@ -203,58 +214,13 @@ export default async function handler(
       errors: [],
       last_synced_at: null,
       debug,
-      error: `Missing Supabase env vars: ${missing.join(", ")}`,
-    });
-  }
-
-  const accessToken = getCookieAccessToken(req);
-  if (!accessToken) {
-    return res.status(401).json({
-      ok: false,
-      scanned: 0,
-      imported: 0,
-      skipped: 0,
-      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
-      errors: [],
-      last_synced_at: null,
-      debug,
-      error: "Not authenticated",
-    });
-  }
-
-  const userClient = createUserClient(supabaseUrl!, anonKey!, accessToken);
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
-    return res.status(401).json({
-      ok: false,
-      scanned: 0,
-      imported: 0,
-      skipped: 0,
-      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
-      errors: [],
-      last_synced_at: null,
-      debug,
-      error: "Not authenticated",
+      error: "Missing Supabase env var: NEXT_PUBLIC_SUPABASE_URL",
     });
   }
 
   const sbAdmin = createClient(supabaseUrl!, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { error: writerError } = await userClient.rpc("erp_require_finance_writer");
-  if (writerError) {
-    return res.status(403).json({
-      ok: false,
-      scanned: 0,
-      imported: 0,
-      skipped: 0,
-      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
-      errors: [],
-      last_synced_at: null,
-      debug,
-      error: "Not authorized",
-    });
-  }
 
   const { data: settings, error: settingsError } = await sbAdmin.rpc(
     "erp_company_settings_get",
