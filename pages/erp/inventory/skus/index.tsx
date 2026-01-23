@@ -63,6 +63,34 @@ type ImportSummary = {
   isDryRun: boolean;
 };
 
+type BulkPreviewRow = {
+  line: number;
+  raw: string;
+  style_code: string;
+  hsn: string;
+  gst_rate: number | null;
+  status: "ok" | "error";
+  reason?: string;
+};
+
+type BulkUpsertResult = {
+  total_lines: number;
+  valid: number;
+  inserted: number;
+  updated: number;
+  upserted: number;
+  skipped: number;
+  errors: number;
+  error_rows?: Array<{
+    line: number;
+    style_code: string | null;
+    sku?: string | null;
+    hsn: string | null;
+    gst_rate: string | null;
+    reason: string;
+  }>;
+};
+
 const REQUIRED_HEADERS = {
   sku: ["variant sku"],
   title: ["title"],
@@ -95,8 +123,17 @@ export default function InventorySkusPage() {
   const [dryRun, setDryRun] = useState(true);
   const [importing, setImporting] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [taxBulkText, setTaxBulkText] = useState("");
+  const [taxBulkPreview, setTaxBulkPreview] = useState<BulkPreviewRow[]>([]);
+  const [taxBulkResult, setTaxBulkResult] = useState<BulkUpsertResult | null>(null);
+  const [taxBulkError, setTaxBulkError] = useState<string | null>(null);
+  const [taxBulkSaving, setTaxBulkSaving] = useState(false);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
+  const canManageTax = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
+    [ctx]
+  );
 
   useEffect(() => {
     let active = true;
@@ -392,6 +429,97 @@ export default function InventorySkusPage() {
     const sizeValue = parts.length >= 3 ? parts.slice(2).join("-") : parts.length === 2 ? parts[1] : null;
     return { sizeValue, colorValue, styleCode: parts[0] || "" };
   }
+
+  const parseTaxBulkRows = (raw: string): BulkPreviewRow[] => {
+    const rows: BulkPreviewRow[] = [];
+    const lines = raw.split(/\r?\n/);
+
+    lines.forEach((line, index) => {
+      const lineNumber = index + 1;
+      const withoutComments = line.split("#")[0]?.trim() ?? "";
+      if (!withoutComments) {
+        return;
+      }
+
+      const commaParts = withoutComments.split(/[,\t]+/).map((part) => part.trim());
+      const parts =
+        commaParts.length >= 2 ? commaParts : withoutComments.split(/\s+/).map((part) => part.trim());
+
+      const style = (parts[0] || "").toUpperCase();
+      const rawHsn = parts[1] || "";
+      const normalizedHsn = rawHsn.replace(/\D/g, "");
+      const rawRate = parts[2];
+      const rateValue = rawRate === undefined || rawRate === "" ? 5 : Number(rawRate);
+
+      let reason = "";
+      if (!style) {
+        reason = "Style code is required.";
+      } else if (!normalizedHsn) {
+        reason = "HSN is required.";
+      } else if (!/^\d{4,10}$/.test(normalizedHsn)) {
+        reason = "HSN must be 4-10 digits.";
+      } else if (!Number.isFinite(rateValue)) {
+        reason = "GST rate must be numeric.";
+      } else if (rateValue !== 5) {
+        reason = "GST rate must be 5.";
+      }
+
+      rows.push({
+        line: lineNumber,
+        raw: withoutComments,
+        style_code: style,
+        hsn: normalizedHsn,
+        gst_rate: Number.isFinite(rateValue) ? rateValue : null,
+        status: reason ? "error" : "ok",
+        reason: reason || undefined,
+      });
+    });
+
+    return rows;
+  };
+
+  const handleTaxBulkValidate = () => {
+    setTaxBulkError(null);
+    setTaxBulkResult(null);
+    setTaxBulkPreview(parseTaxBulkRows(taxBulkText));
+  };
+
+  const handleTaxBulkSave = async () => {
+    setTaxBulkError(null);
+    setTaxBulkResult(null);
+
+    if (!canManageTax) {
+      setTaxBulkError("You need finance/admin/owner access to update GST mappings.");
+      return;
+    }
+
+    const parsed = parseTaxBulkRows(taxBulkText);
+    setTaxBulkPreview(parsed);
+    const validRows = parsed.filter((row) => row.status === "ok");
+
+    if (!validRows.length) {
+      setTaxBulkError("No valid rows to save. Please fix errors and try again.");
+      return;
+    }
+
+    setTaxBulkSaving(true);
+    const { data, error: bulkSaveError } = await supabase.rpc("erp_inventory_sku_tax_bulk_upsert", {
+      p_rows: validRows.map((row) => ({
+        style_code: row.style_code,
+        hsn: row.hsn,
+        gst_rate: row.gst_rate ?? 5,
+      })),
+    });
+
+    if (bulkSaveError) {
+      setTaxBulkError(bulkSaveError.message);
+      setTaxBulkSaving(false);
+      return;
+    }
+
+    setTaxBulkResult((data || null) as BulkUpsertResult | null);
+    setTaxBulkSaving(false);
+  };
 
   function getPreviewSizeAndColor(row: ImportRow) {
     const { sizeValue, colorValue, hasOptionData } = deriveSizeAndColorFromOptions(row);
@@ -788,6 +916,94 @@ export default function InventorySkusPage() {
               ) : null}
             </>
           )}
+        </section>
+
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>GST / HSN Mapping (Bulk Paste)</h2>
+          <p style={mutedStyle}>
+            Paste style_code, HSN, optional GST rate (defaults to 5). This updates all SKUs under the style.
+          </p>
+          {!canManageTax ? (
+            <p style={mutedStyle}>Only finance/admin/owner can update GST mappings.</p>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Bulk paste</span>
+                <textarea
+                  rows={6}
+                  value={taxBulkText}
+                  onChange={(event) => setTaxBulkText(event.target.value)}
+                  style={{ ...inputStyle, fontFamily: "monospace" }}
+                  placeholder={`MGSW29,61124990,5\nMWSJ14 61124990\nMWSW06\t61124990\t5`}
+                />
+              </label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" style={secondaryButtonStyle} onClick={handleTaxBulkValidate}>
+                  Validate
+                </button>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleTaxBulkSave}
+                  disabled={taxBulkSaving}
+                >
+                  {taxBulkSaving ? "Saving…" : "Save Bulk"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {taxBulkPreview.length > 0 && (
+            <div style={{ marginTop: 16, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ textAlign: "left" }}>
+                    <th style={{ paddingBottom: 8 }}>Line</th>
+                    <th style={{ paddingBottom: 8 }}>Style Code</th>
+                    <th style={{ paddingBottom: 8 }}>HSN</th>
+                    <th style={{ paddingBottom: 8 }}>GST Rate</th>
+                    <th style={{ paddingBottom: 8 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {taxBulkPreview.map((row) => (
+                    <tr key={`${row.line}-${row.raw}`} style={{ borderTop: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "8px 0" }}>{row.line}</td>
+                      <td style={{ padding: "8px 0" }}>{row.style_code || "—"}</td>
+                      <td style={{ padding: "8px 0" }}>{row.hsn || "—"}</td>
+                      <td style={{ padding: "8px 0" }}>{row.gst_rate ?? "—"}</td>
+                      <td style={{ padding: "8px 0" }}>
+                        {row.status === "ok" ? (
+                          <span style={{ color: "#047857" }}>OK</span>
+                        ) : (
+                          <span style={{ color: "#b91c1c" }}>{row.reason}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {taxBulkResult && (
+            <div style={{ marginTop: 12, color: "#047857" }}>
+              Bulk save complete: updated {taxBulkResult.updated}, errors {taxBulkResult.errors}.
+              {taxBulkResult.error_rows && taxBulkResult.error_rows.length > 0 && (
+                <div style={{ marginTop: 8, color: "#b91c1c" }}>
+                  <strong>First errors:</strong>
+                  <ul style={{ marginTop: 6, paddingLeft: 18 }}>
+                    {taxBulkResult.error_rows.slice(0, 10).map((row) => (
+                      <li key={`${row.line}-${row.style_code}-${row.hsn}`}>
+                        Line {row.line}: {row.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {taxBulkError && <p style={{ color: "#b91c1c", marginTop: 12 }}>{taxBulkError}</p>}
         </section>
 
         <section style={tableStyle}>

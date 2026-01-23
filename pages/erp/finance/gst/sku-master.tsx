@@ -61,7 +61,6 @@ export default function GstSkuMasterPage() {
   const [sku, setSku] = useState("");
   const [hsn, setHsn] = useState("");
   const [rate, setRate] = useState(defaultRate);
-  const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkPreview, setBulkPreview] = useState<BulkPreviewRow[]>([]);
@@ -185,7 +184,7 @@ export default function GstSkuMasterPage() {
     }
 
     setBulkSaving(true);
-    const { data, error: bulkSaveError } = await supabase.rpc("erp_gst_sku_bulk_upsert", {
+    const { data, error: bulkSaveError } = await supabase.rpc("erp_inventory_sku_tax_bulk_upsert", {
       p_rows: validRows.map((row) => ({
         style_code: row.style_code,
         hsn: row.hsn,
@@ -220,8 +219,13 @@ export default function GstSkuMasterPage() {
     setError(null);
     setMessage(null);
 
-    if (!styleCode.trim() || !hsn.trim()) {
-      setError("Style code and HSN are required.");
+    if (!styleCode.trim() && !sku.trim()) {
+      setError("Style code or SKU is required.");
+      return;
+    }
+
+    if (!hsn.trim()) {
+      setError("HSN is required.");
       return;
     }
 
@@ -232,12 +236,12 @@ export default function GstSkuMasterPage() {
     }
 
     setSaving(true);
-    const { error: upsertError } = await supabase.rpc("erp_gst_sku_upsert", {
-      p_style_code: styleCode.trim(),
+    const { error: upsertError } = await supabase.rpc("erp_inventory_sku_tax_upsert", {
+      p_style_code: styleCode.trim() || null,
       p_sku: sku.trim() || null,
       p_hsn: hsn.trim(),
-      p_rate: numericRate,
-      p_is_active: isActive,
+      p_gst_rate: numericRate,
+      p_is_active: true,
     });
 
     if (upsertError) {
@@ -246,12 +250,11 @@ export default function GstSkuMasterPage() {
       return;
     }
 
-    setMessage(`Saved GST mapping for ${styleCode.trim()}.`);
+    setMessage(`Saved GST mapping for ${styleCode.trim() || sku.trim()}.`);
     setStyleCode("");
     setSku("");
     setHsn("");
     setRate(defaultRate);
-    setIsActive(true);
     await loadMissingSkus();
     setSaving(false);
   };
@@ -270,11 +273,16 @@ export default function GstSkuMasterPage() {
         <ErpPageHeader
           eyebrow="Finance"
           title="GST SKU Master"
-          description="Maintain SKU → HSN + GST rate mappings for Shopify orders."
+          description="Maintain SKU → HSN + GST rate mappings using Inventory SKUs."
           rightActions={
-            <Link href="/erp/finance/gst" style={secondaryButtonStyle}>
-              Back to GST
-            </Link>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Link href="/erp/inventory/skus" style={secondaryButtonStyle}>
+                Inventory SKUs
+              </Link>
+              <Link href="/erp/finance/gst" style={secondaryButtonStyle}>
+                Back to GST
+              </Link>
+            </div>
           }
         />
 
@@ -324,14 +332,6 @@ export default function GstSkuMasterPage() {
                 style={inputStyle}
                 placeholder="5"
               />
-            </label>
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                type="checkbox"
-                checked={isActive}
-                onChange={(event) => setIsActive(event.target.checked)}
-              />
-              <span>Active</span>
             </label>
             <button type="submit" style={primaryButtonStyle} disabled={!canWrite || saving}>
               {saving ? "Saving…" : "Save Mapping"}

@@ -244,7 +244,7 @@ export default function GstShopifyPage() {
           {missingSkus.length ? (
             <>
               <p style={{ marginTop: 0, color: "#b91c1c" }}>
-                {missingSkus.length} style(s) are missing GST master mappings. Please update the SKU master.
+                {missingSkus.length} style(s) are missing GST mappings. Update them in Inventory SKUs.
               </p>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {missingSkus.map((row) => (
@@ -257,8 +257,8 @@ export default function GstShopifyPage() {
                 ))}
               </ul>
               <div style={{ marginTop: 12 }}>
-                <Link href="/erp/finance/gst/sku-master" style={secondaryButtonStyle}>
-                  Go to SKU Master
+                <Link href="/erp/inventory/skus" style={secondaryButtonStyle}>
+                  Go to Inventory SKUs
                 </Link>
               </div>
             </>
