@@ -58,7 +58,6 @@ export default function GstSkuMasterPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [missingSkus, setMissingSkus] = useState<MissingMappingRow[]>([]);
   const [styleCode, setStyleCode] = useState("");
-  const [sku, setSku] = useState("");
   const [hsn, setHsn] = useState("");
   const [rate, setRate] = useState(defaultRate);
   const [saving, setSaving] = useState(false);
@@ -100,7 +99,7 @@ export default function GstSkuMasterPage() {
   }, [router]);
 
   const loadMissingSkus = async () => {
-    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_mappings_shopify", {
+    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_style_mappings_shopify", {
       p_from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
       p_to: new Date().toISOString().slice(0, 10),
     });
@@ -170,7 +169,7 @@ export default function GstSkuMasterPage() {
     setBulkResult(null);
 
     if (!canWrite) {
-      setBulkError("You need finance/admin/owner access to update SKU mappings.");
+      setBulkError("You need finance/admin/owner access to update style tax profiles.");
       return;
     }
 
@@ -184,7 +183,7 @@ export default function GstSkuMasterPage() {
     }
 
     setBulkSaving(true);
-    const { data, error: bulkSaveError } = await supabase.rpc("erp_inventory_sku_tax_bulk_upsert", {
+    const { data, error: bulkSaveError } = await supabase.rpc("erp_style_tax_bulk_upsert", {
       p_rows: validRows.map((row) => ({
         style_code: row.style_code,
         hsn: row.hsn,
@@ -209,7 +208,7 @@ export default function GstSkuMasterPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "gst_sku_bulk_template.csv";
+    anchor.download = "style_tax_bulk_template.csv";
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -219,8 +218,8 @@ export default function GstSkuMasterPage() {
     setError(null);
     setMessage(null);
 
-    if (!styleCode.trim() && !sku.trim()) {
-      setError("Style code or SKU is required.");
+    if (!styleCode.trim()) {
+      setError("Style code is required.");
       return;
     }
 
@@ -236,12 +235,14 @@ export default function GstSkuMasterPage() {
     }
 
     setSaving(true);
-    const { error: upsertError } = await supabase.rpc("erp_inventory_sku_tax_upsert", {
-      p_style_code: styleCode.trim() || null,
-      p_sku: sku.trim() || null,
-      p_hsn: hsn.trim(),
-      p_gst_rate: numericRate,
-      p_is_active: true,
+    const { data, error: upsertError } = await supabase.rpc("erp_style_tax_bulk_upsert", {
+      p_rows: [
+        {
+          style_code: styleCode.trim(),
+          hsn: hsn.trim(),
+          gst_rate: numericRate,
+        },
+      ],
     });
 
     if (upsertError) {
@@ -250,9 +251,15 @@ export default function GstSkuMasterPage() {
       return;
     }
 
-    setMessage(`Saved GST mapping for ${styleCode.trim() || sku.trim()}.`);
+    const upsertResult = (data || null) as BulkUpsertResult | null;
+    if (upsertResult && upsertResult.errors) {
+      setError("Unable to save style tax profile. Please review the input and try again.");
+      setSaving(false);
+      return;
+    }
+
+    setMessage(`Saved style tax profile for ${styleCode.trim()}.`);
     setStyleCode("");
-    setSku("");
     setHsn("");
     setRate(defaultRate);
     await loadMissingSkus();
@@ -272,13 +279,10 @@ export default function GstSkuMasterPage() {
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
-          title="GST SKU Master"
-          description="Maintain SKU → HSN + GST rate mappings using Inventory SKUs."
+          title="Style Tax Profiles"
+          description="Maintain style → HSN + GST rate mappings derived from Shopify SKUs."
           rightActions={
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Link href="/erp/inventory/skus" style={secondaryButtonStyle}>
-                Inventory SKUs
-              </Link>
               <Link href="/erp/finance/gst" style={secondaryButtonStyle}>
                 Back to GST
               </Link>
@@ -287,10 +291,8 @@ export default function GstSkuMasterPage() {
         />
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Add / Update SKU Mapping</h2>
-          <p style={subtitleStyle}>
-            Create style-level mappings to cover all variants. Use SKU when you need an exact override.
-          </p>
+          <h2 style={{ marginTop: 0 }}>Add / Update Style Tax Profile</h2>
+          <p style={subtitleStyle}>Create style-level mappings to cover all variants.</p>
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 420 }}>
             <label style={{ display: "grid", gap: 6 }}>
               <span>Style Code</span>
@@ -300,16 +302,6 @@ export default function GstSkuMasterPage() {
                 onChange={(event) => setStyleCode(event.target.value)}
                 style={inputStyle}
                 placeholder="MWSW06"
-              />
-            </label>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span>SKU (optional)</span>
-              <input
-                type="text"
-                value={sku}
-                onChange={(event) => setSku(event.target.value)}
-                style={inputStyle}
-                placeholder="MWSW06-Black-L"
               />
             </label>
             <label style={{ display: "grid", gap: 6 }}>
@@ -334,12 +326,12 @@ export default function GstSkuMasterPage() {
               />
             </label>
             <button type="submit" style={primaryButtonStyle} disabled={!canWrite || saving}>
-              {saving ? "Saving…" : "Save Mapping"}
+              {saving ? "Saving…" : "Save Profile"}
             </button>
           </form>
           {!canWrite && (
             <p style={{ color: "#b91c1c", marginTop: 12 }}>
-              You need finance/admin/owner access to update SKU mappings.
+              You need finance/admin/owner access to update style tax profiles.
             </p>
           )}
           {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
@@ -347,7 +339,7 @@ export default function GstSkuMasterPage() {
         </section>
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
-          <h2 style={{ marginTop: 0 }}>Bulk Upsert</h2>
+          <h2 style={{ marginTop: 0 }}>Bulk Upsert Style Tax Profiles</h2>
           <p style={subtitleStyle}>
             Paste multiple mappings (style_code, HSN, optional GST rate). Rates default to 5% and must
             remain 5% for now.
@@ -436,7 +428,7 @@ export default function GstSkuMasterPage() {
         </section>
 
         <section style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>Missing Style Mappings</h3>
+          <h3 style={{ marginTop: 0 }}>Missing Style Tax Profiles</h3>
           {missingSkus.length ? (
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {missingSkus.map((row) => (
@@ -451,7 +443,6 @@ export default function GstSkuMasterPage() {
                     style={{ ...secondaryButtonStyle, marginTop: 6 }}
                     onClick={() => {
                       setStyleCode(row.style_code);
-                      setSku(row.example_sku || "");
                       setHsn("");
                       setRate(defaultRate);
                     }}
@@ -462,7 +453,7 @@ export default function GstSkuMasterPage() {
               ))}
             </ul>
           ) : (
-            <p style={{ margin: 0, color: "#6b7280" }}>No missing SKU mappings detected.</p>
+            <p style={{ margin: 0, color: "#6b7280" }}>No missing style tax profiles detected.</p>
           )}
         </section>
       </div>
