@@ -661,8 +661,10 @@ begin
   );
 end;
 $$;
+drop function if exists public.erp_gst_purchase_invoices_list(date, date, uuid, text);
 
-create or replace function public.erp_gst_purchase_invoices_list(
+create function public.erp_gst_purchase_invoices_list(
+
   p_from date,
   p_to date,
   p_vendor_id uuid default null,
@@ -796,8 +798,10 @@ begin
   );
 end;
 $$;
+drop function if exists public.erp_gst_purchase_register_export(date, date);
 
-create or replace function public.erp_gst_purchase_register_export(
+create function public.erp_gst_purchase_register_export(
+
   p_from date,
   p_to date
 ) returns table (
