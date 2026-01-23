@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ErpModuleKey } from "./ErpTopBar";
+import { getCompanyContext } from "../../lib/erpContext";
+import { getFinanceNavGroups } from "../../lib/erp/financeNav";
 
 export type SidebarItem = {
   label: string;
@@ -109,26 +111,6 @@ const employeeSidebarGroups: SidebarGroup[] = [
   },
 ];
 
-const financeSidebarGroups: SidebarGroup[] = [
-  {
-    label: "Finance",
-    items: [
-      { label: "Finance Home", href: "/erp/finance", icon: "FI" },
-      { label: "Invoices", href: "/erp/finance/invoices", icon: "IN" },
-      { label: "Credit / Debit Notes", href: "/erp/finance/notes", icon: "NT" },
-      { label: "Expenses", href: "/erp/finance/expenses", icon: "EX" },
-      { label: "Recurring Expenses", href: "/erp/finance/expenses/recurring", icon: "RE" },
-      { label: "Expense Reports", href: "/erp/finance/expenses/reports", icon: "ER" },
-      { label: "Finance Bridge", href: "/erp/finance/bridge", icon: "FB" },
-      {
-        label: "Marketplace Margin",
-        href: "/erp/finance/marketplace-margin",
-        icon: "MM",
-      },
-    ],
-  },
-];
-
 const omsSidebarGroups: SidebarGroup[] = [
   {
     label: "OMS",
@@ -140,7 +122,6 @@ const moduleSidebarMap: Record<ErpModuleKey, SidebarGroup[]> = {
   workspace: workspaceSidebarGroups,
   hr: hrSidebarGroups,
   employee: employeeSidebarGroups,
-  finance: financeSidebarGroups,
   oms: omsSidebarGroups,
   admin: adminSidebarGroups,
 };
@@ -154,7 +135,28 @@ export default function ErpSidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const groups = useMemo(() => moduleSidebarMap[activeModule], [activeModule]);
+  const [roleKey, setRoleKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      const context = await getCompanyContext();
+      if (!active) return;
+      setRoleKey(context.roleKey ?? null);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const groups = useMemo(() => {
+    if (activeModule === "finance") {
+      return getFinanceNavGroups(roleKey);
+    }
+    return moduleSidebarMap[activeModule];
+  }, [activeModule, roleKey]);
 
   return (
     <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }} data-erp-sidebar>

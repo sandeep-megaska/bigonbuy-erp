@@ -11,6 +11,7 @@ import {
 } from "../../../components/erp/uiStyles";
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getFinanceNavCards } from "../../../lib/erp/financeNav";
 
 export default function FinanceHomePage() {
   const router = useRouter();
@@ -101,7 +102,7 @@ export default function FinanceHomePage() {
         </p>
 
         <section style={cardGridStyle}>
-          {navItems.map((item) => (
+          {getFinanceNavCards(ctx.roleKey).map((item) => (
             <Link key={item.href} href={item.href} style={{ ...cardStyle, ...cardLinkStyle }}>
               <div style={cardIconStyle}>{item.icon}</div>
               <div>
@@ -167,54 +168,3 @@ const linkButtonStyle = {
   display: "inline-flex",
   alignItems: "center",
 };
-
-const navItems = [
-  {
-    title: "Invoices",
-    description: "Create draft invoices and issue FY-based document numbers.",
-    href: "/erp/finance/invoices",
-    icon: "🧾",
-  },
-  {
-    title: "Credit / Debit Notes",
-    description: "Issue customer and vendor credit/debit notes.",
-    href: "/erp/finance/notes",
-    icon: "📝",
-  },
-  {
-    title: "Expenses",
-    description: "Record expenses, categories, and monthly totals.",
-    href: "/erp/finance/expenses",
-    icon: "🧾",
-  },
-  {
-    title: "Finance Bridge",
-    description: "Inventory + GRN exports ready for CA/GST review.",
-    href: "/erp/finance/bridge",
-    icon: "🧩",
-  },
-  {
-    title: "Shopify Sync",
-    description: "Backfill Shopify orders into the ERP ledger.",
-    href: "/erp/finance/shopify-sync",
-    icon: "🛒",
-  },
-  {
-    title: "GST (Shopify)",
-    description: "Generate GST register rows and export reports.",
-    href: "/erp/finance/gst",
-    icon: "🧾",
-  },
-  {
-    title: "Marketplace Margin",
-    description: "Upload settlement files and analyze SKU/order profitability.",
-    href: "/erp/finance/marketplace-margin",
-    icon: "📊",
-  },
-  {
-    title: "Settlements",
-    description: "Reconcile Amazon settlements through Indifi to bank credits.",
-    href: "/erp/finance/settlements",
-    icon: "🧾",
-  },
-];
