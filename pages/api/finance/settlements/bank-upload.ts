@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { IncomingForm } from "formidable";
-import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import Papa from "papaparse";
 import { getBearerToken, getSupabaseEnv, createServiceRoleClient, createUserClient } from "../../../../lib/serverSupabase";
@@ -136,7 +135,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const buffer = await fs.readFile(uploadFile.filepath);
-  const fileHash = createHash("sha256").update(buffer).digest("hex");
   const csvText = buffer.toString("utf8");
 
   const parsed = Papa.parse<Record<string, string>>(csvText, {
@@ -160,6 +158,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const debitHeader = findHeader(headers, headerAliases.debit);
   const creditDebitHeader = findHeader(headers, headerAliases.creditDebit);
   const referenceHeader = findHeader(headers, headerAliases.reference);
+  const descriptionHeader = findHeader(headers, headerAliases.description);
 
   if (!dateHeader || (!amountHeader && !creditHeader)) {
     return res.status(400).json({
@@ -188,13 +187,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!Number.isFinite(amount) || amount <= 0) return [];
 
     const referenceNo = referenceHeader ? String(row[referenceHeader] ?? "").trim() : "";
+    const narration = descriptionHeader ? String(row[descriptionHeader] ?? "").trim() : "";
 
     return [
       {
-        event_date: eventDate,
+        date: eventDate,
         amount,
         reference_no: referenceNo || null,
-        payload: row,
+        narration: narration || null,
       },
     ];
   });
@@ -203,53 +203,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, error: "No credit entries found in CSV" });
   }
 
-  const serviceClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
+  const { data: companyId, error: companyError } = await userClient.rpc("erp_current_company_id");
+  if (companyError || !companyId) {
+    return res.status(400).json({
+      ok: false,
+      error: companyError?.message || "Failed to determine company",
+      details: companyError?.details || companyError?.hint || companyError?.code,
+    });
+  }
 
-  const { data: batchId, error: batchError } = await serviceClient.rpc(
-    "erp_settlement_batch_create",
+  const serviceClient = createServiceRoleClient(supabaseUrl!, serviceRoleKey!);
+  const { data: importResult, error: importError } = await serviceClient.rpc(
+    "erp_settlement_bank_csv_import",
     {
-      p_source: "bank_csv_upload",
-      p_source_ref: `sha256:${fileHash}`,
-      p_received_at: new Date().toISOString(),
-      p_raw: { filename: uploadFile.originalFilename || null, rows: rows.length },
+      p_company_id: companyId,
+      p_rows: events,
     }
   );
 
-  if (batchError || !batchId) {
+  if (importError) {
     return res.status(400).json({
       ok: false,
-      error: batchError?.message || "Unable to create settlement batch",
-      details: batchError?.details || batchError?.hint || batchError?.code,
+      error: importError.message,
+      details: importError.details || importError.hint || importError.code,
     });
   }
 
-  let insertedCount = 0;
-  for (const event of events) {
-    const { error: insertError } = await serviceClient.rpc("erp_settlement_event_insert", {
-      p_batch_id: batchId,
-      p_platform: "amazon",
-      p_event_type: "BANK_CREDIT",
-      p_event_date: event.event_date,
-      p_amount: event.amount,
-      p_currency: "INR",
-      p_reference_no: event.reference_no,
-      p_party: "bank",
-      p_payload: event.payload,
-    });
-
-    if (insertError) {
-      if (insertError.code === "23505") {
-        continue;
-      }
-      return res.status(400).json({
-        ok: false,
-        error: insertError.message,
-        details: insertError.details || insertError.hint || insertError.code,
-      });
-    }
-
-    insertedCount += 1;
-  }
-
-  return res.status(200).json({ ok: true, batch_id: batchId, inserted_count: insertedCount });
+  return res.status(200).json({
+    ok: true,
+    batch_id: importResult?.batch_id || null,
+    inserted_count: importResult?.inserted || 0,
+    skipped_count: importResult?.skipped || 0,
+    error_count: importResult?.errors || 0,
+  });
 }
