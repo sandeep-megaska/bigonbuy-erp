@@ -1,77 +1,50 @@
+// pages/api/finance/settlements/gmail-sync-run.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import {
-  createUserClient,
-  getCookieAccessToken,
-  getSiteUrl,
-  getSupabaseEnv,
-} from "../../../../lib/serverSupabase";
+import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 
-type GmailSyncRunResponse = {
-  ok: boolean;
-  error?: string;
-  [key: string]: unknown;
-};
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
+    }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<GmailSyncRunResponse>,
-) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
+    const supabase = createPagesServerClient({ req, res });
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
 
-  const { supabaseUrl, anonKey } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey) {
-    return res.status(500).json({
-      ok: false,
-      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    const start = Array.isArray(req.query.start) ? req.query.start[0] : req.query.start;
+    const end = Array.isArray(req.query.end) ? req.query.end[0] : req.query.end;
+    if (!start || !end) {
+      return res.status(400).json({ ok: false, error: "Missing start or end date" });
+    }
+
+    const secret = process.env.ERP_INTERNAL_JOB_SECRET;
+    if (!secret) {
+      return res.status(500).json({ ok: false, error: "Missing ERP_INTERNAL_JOB_SECRET in env" });
+    }
+
+    const baseUrl = `https://${req.headers.host}`;
+    const jobUrl =
+      `${baseUrl}/api/finance/settlements/gmail-sync?start=` +
+      encodeURIComponent(String(start)) +
+      `&end=` +
+      encodeURIComponent(String(end));
+
+    const jobResp = await fetch(jobUrl, {
+      method: "POST",
+      headers: { "x-bb-secret": secret },
     });
+
+    const json = await jobResp.json().catch(() => null);
+    return res.status(jobResp.status).json(json ?? { ok: false, error: "Job returned invalid JSON" });
+  } catch (e: any) {
+    console.error("gmail-sync-run failed", e);
+    return res.status(500).json({ ok: false, error: e?.message || "Unexpected error" });
   }
-
-  const accessToken = getCookieAccessToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
-  }
-
-  const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
-  }
-
-  const secret = process.env.ERP_INTERNAL_JOB_SECRET ?? null;
-  if (!secret) {
-    return res.status(500).json({ ok: false, error: "Missing ERP_INTERNAL_JOB_SECRET" });
-  }
-
-  const host = req.headers.host;
-  const protocolHeader = req.headers["x-forwarded-proto"];
-  const protocol = Array.isArray(protocolHeader)
-    ? protocolHeader[0]
-    : protocolHeader || "http";
-  const baseUrl = host ? `${protocol}://${host}` : getSiteUrl();
-  const query = req.url?.split("?")[1];
-  const url = query
-    ? `${baseUrl}/api/finance/settlements/gmail-sync?${query}`
-    : `${baseUrl}/api/finance/settlements/gmail-sync`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "x-bb-secret": secret,
-    },
-  });
-
-  const result = (await response.json().catch(() => ({}))) as GmailSyncRunResponse;
-
-  if (!response.ok) {
-    return res.status(response.status).json({
-      ...result,
-      ok: false,
-      error: result?.error || "Gmail sync failed",
-    });
-  }
-
-  return res.status(200).json(result);
 }
