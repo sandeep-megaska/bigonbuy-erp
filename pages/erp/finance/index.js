@@ -194,6 +194,18 @@ const navItems = [
     icon: "🧩",
   },
   {
+    title: "Shopify Sync",
+    description: "Backfill Shopify orders into the ERP ledger.",
+    href: "/erp/finance/shopify-sync",
+    icon: "🛒",
+  },
+  {
+    title: "GST (Shopify)",
+    description: "Generate GST register rows and export reports.",
+    href: "/erp/finance/gst",
+    icon: "🧾",
+  },
+  {
     title: "Marketplace Margin",
     description: "Upload settlement files and analyze SKU/order profitability.",
     href: "/erp/finance/marketplace-margin",
