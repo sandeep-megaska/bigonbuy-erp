@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
-import { getBearerToken } from "../../../../lib/serverSupabase";
+import { createUserClient, getBearerToken } from "../../../../lib/serverSupabase";
 
 type GmailSyncError = { messageId: string; error: string };
 type GmailSyncResponse = {
@@ -172,6 +172,7 @@ export default async function handler(
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
   if (!serviceKey) {
     return res.status(500).json({
       ok: false,
@@ -188,6 +189,7 @@ export default async function handler(
 
   const missing: string[] = [];
   if (!supabaseUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+  if (!anonKey) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   if (missing.length) {
     return res.status(500).json({
       ok: false,
@@ -202,7 +204,7 @@ export default async function handler(
     });
   }
 
-  const accessToken = getBearerToken(req);
+  const accessToken = getBearerToken(req) ?? req.cookies?.["sb-access-token"] ?? null;
   if (!accessToken) {
     return res.status(401).json({
       ok: false,
@@ -213,14 +215,30 @@ export default async function handler(
       errors: [],
       last_synced_at: null,
       debug,
-      error: "Not authenticated",
+      error: "Not authorized",
+    });
+  }
+
+  const userClient = createUserClient(supabaseUrl!, anonKey!, accessToken);
+  const { data: userData, error: userError } = await userClient.auth.getUser();
+  if (userError || !userData?.user) {
+    return res.status(401).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: null,
+      debug,
+      error: "Not authorized",
     });
   }
 
   const sbAdmin = createClient(supabaseUrl!, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { error: writerError } = await sbAdmin.rpc("erp_require_finance_writer");
+  const { error: writerError } = await userClient.rpc("erp_require_finance_writer");
   if (writerError) {
     return res.status(403).json({
       ok: false,
