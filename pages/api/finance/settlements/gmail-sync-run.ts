@@ -44,9 +44,9 @@ export default async function handler(
 
   if (!response.ok) {
     return res.status(response.status).json({
+      ...result,
       ok: false,
       error: result?.error || "Gmail sync failed",
-      ...result,
     });
   }
 
