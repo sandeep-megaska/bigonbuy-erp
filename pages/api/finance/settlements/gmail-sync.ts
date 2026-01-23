@@ -146,6 +146,14 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<GmailSyncResponse>,
 ) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+  const legacyServiceKey = process.env.SUPABASE_SERVICE_KEY ?? null;
+  const serviceKey = serviceRoleKey || legacyServiceKey;
+  const keyName = serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "SUPABASE_SERVICE_KEY";
+  const debug = {
+    usedServiceKey: Boolean(serviceKey),
+    keyName,
+  };
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({
@@ -156,19 +164,12 @@ export default async function handler(
       totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
       errors: [],
       last_synced_at: null,
+      debug,
       error: "Method not allowed",
     });
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
-  const legacyServiceKey = process.env.SUPABASE_SERVICE_KEY ?? null;
-  const serviceKey = serviceRoleKey || legacyServiceKey;
-  const keyName = serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "SUPABASE_SERVICE_KEY";
-  const debug = {
-    usedServiceKey: Boolean(serviceKey),
-    keyName,
-  };
   if (!serviceKey) {
     return res.status(500).json({
       ok: false,
