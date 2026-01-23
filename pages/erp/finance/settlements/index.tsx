@@ -231,6 +231,7 @@ export default function FinanceSettlementsPage() {
   const [matchGroupSaving, setMatchGroupSaving] = useState(false);
   const [matchGroupMessage, setMatchGroupMessage] = useState("");
   const [mismatchFilterDate, setMismatchFilterDate] = useState<string | null>(null);
+  const [lagDays, setLagDays] = useState(1);
 
   const today = useMemo(() => new Date(), []);
   const defaultFrom = useMemo(() => {
@@ -246,6 +247,10 @@ export default function FinanceSettlementsPage() {
     () => dailyMatrix.filter((row) => row.mismatch_amazon_indifi || row.mismatch_indifi_bank),
     [dailyMatrix]
   );
+  const lagLabel = useMemo(() => {
+    if (lagDays === 0) return "Same day";
+    return `T+${lagDays} WD`;
+  }, [lagDays]);
 
   useEffect(() => {
     let active = true;
@@ -302,9 +307,10 @@ export default function FinanceSettlementsPage() {
   };
 
   const fetchDailyMatrix = async () => {
-    const { data, error: matrixError } = await supabase.rpc("erp_settlement_daily_matrix", {
+    const { data, error: matrixError } = await supabase.rpc("erp_settlement_daily_matrix_lag", {
       p_from: fromDate,
       p_to: toDate,
+      p_lag_working_days: lagDays,
     });
 
     if (matrixError) {
@@ -409,7 +415,7 @@ export default function FinanceSettlementsPage() {
     fetchGmailData();
     fetchMatchGroups();
     fetchUnmatchedEvents(matchTab, mismatchFilterDate);
-  }, [ctx?.companyId, fromDate, toDate]);
+  }, [ctx?.companyId, fromDate, toDate, lagDays]);
 
   useEffect(() => {
     if (!ctx?.companyId) return;
@@ -730,20 +736,22 @@ export default function FinanceSettlementsPage() {
   const handleExportDailyMatrix = () => {
     const rowsToExport = [
       [
-        "Date",
+        "Base Date",
+        "Compare Date",
         "Amazon disbursed",
-        "Indifi incoming",
+        `Indifi incoming (${lagLabel})`,
         "Indifi outgoing to bank",
-        "Bank credits",
+        `Bank credits (${lagLabel})`,
         "Mismatch Amazon vs Indifi",
         "Mismatch Indifi vs Bank",
       ],
       ...dailyMatrix.map((row) => [
-        row.event_date,
+        row.base_date,
+        row.compare_date,
         row.amazon_disbursed,
-        row.indifi_virtual_received,
+        row.indifi_virtual_received_on_compare_date,
         row.indifi_out_to_bank,
-        row.bank_credits,
+        row.bank_credits_on_compare_date,
         row.mismatch_amazon_indifi ? "Yes" : "No",
         row.mismatch_indifi_bank ? "Yes" : "No",
       ]),
@@ -755,20 +763,22 @@ export default function FinanceSettlementsPage() {
   const handleExportMismatches = () => {
     const rowsToExport = [
       [
-        "Date",
+        "Base Date",
+        "Compare Date",
         "Amazon disbursed",
-        "Indifi incoming",
+        `Indifi incoming (${lagLabel})`,
         "Indifi outgoing to bank",
-        "Bank credits",
+        `Bank credits (${lagLabel})`,
         "Mismatch Amazon vs Indifi",
         "Mismatch Indifi vs Bank",
       ],
       ...mismatchRows.map((row) => [
-        row.event_date,
+        row.base_date,
+        row.compare_date,
         row.amazon_disbursed,
-        row.indifi_virtual_received,
+        row.indifi_virtual_received_on_compare_date,
         row.indifi_out_to_bank,
-        row.bank_credits,
+        row.bank_credits_on_compare_date,
         row.mismatch_amazon_indifi ? "Yes" : "No",
         row.mismatch_indifi_bank ? "Yes" : "No",
       ]),
@@ -971,10 +981,22 @@ export default function FinanceSettlementsPage() {
             <div>
               <h3 style={{ margin: "0 0 4px" }}>Mismatch Monitor</h3>
               <p style={{ margin: 0, color: "#6b7280", fontSize: 13 }}>
-                Highlight days where Amazon ≠ Indifi incoming or Indifi → Bank ≠ Bank credits.
+                Highlight days where Amazon ≠ Indifi incoming or Indifi → Bank ≠ Bank credits on the compare date.
               </p>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#6b7280" }}>Lag</span>
+                <select
+                  value={lagDays}
+                  onChange={(event) => setLagDays(Number(event.target.value))}
+                  style={inputStyle}
+                >
+                  <option value={0}>Same day</option>
+                  <option value={1}>T+1 working day</option>
+                  <option value={2}>T+2 working days</option>
+                </select>
+              </label>
               <button type="button" style={secondaryButtonStyle} onClick={handleExportDailyMatrix}>
                 Export Daily Matrix
               </button>
@@ -994,16 +1016,16 @@ export default function FinanceSettlementsPage() {
               ) : (
                 mismatchRows.map((row: any) => (
                   <button
-                    key={row.event_date}
+                    key={row.base_date}
                     type="button"
                     style={{
                       ...secondaryButtonStyle,
-                      borderColor: mismatchFilterDate === row.event_date ? "#1d4ed8" : "#d1d5db",
-                      color: mismatchFilterDate === row.event_date ? "#1d4ed8" : "#374151",
+                      borderColor: mismatchFilterDate === row.base_date ? "#1d4ed8" : "#d1d5db",
+                      color: mismatchFilterDate === row.base_date ? "#1d4ed8" : "#374151",
                     }}
-                    onClick={() => setMismatchFilterDate(row.event_date)}
+                    onClick={() => setMismatchFilterDate(row.base_date)}
                   >
-                    {row.event_date}
+                    {row.base_date}
                   </button>
                 ))
               )}
@@ -1022,31 +1044,35 @@ export default function FinanceSettlementsPage() {
           <table style={{ ...tableStyle, marginTop: 12 }}>
             <thead>
               <tr>
-                <th style={tableHeaderCellStyle}>Date</th>
+                <th style={tableHeaderCellStyle}>Base Date</th>
+                <th style={tableHeaderCellStyle}>Compare Date</th>
                 <th style={tableHeaderCellStyle}>Amazon Disbursed</th>
-                <th style={tableHeaderCellStyle}>Indifi Incoming</th>
+                <th style={tableHeaderCellStyle}>Indifi Incoming ({lagLabel})</th>
                 <th style={tableHeaderCellStyle}>Indifi → Bank</th>
-                <th style={tableHeaderCellStyle}>Bank Credits</th>
+                <th style={tableHeaderCellStyle}>Bank Credits ({lagLabel})</th>
                 <th style={tableHeaderCellStyle}>Mismatch</th>
               </tr>
             </thead>
             <tbody>
               {dailyMatrix.length === 0 ? (
                 <tr>
-                  <td style={tableCellStyle} colSpan={6}>
+                  <td style={tableCellStyle} colSpan={7}>
                     No daily totals for this range.
                   </td>
                 </tr>
               ) : (
                 dailyMatrix.map((row) => (
-                  <tr key={row.event_date}>
-                    <td style={tableCellStyle}>{row.event_date}</td>
+                  <tr key={row.base_date}>
+                    <td style={tableCellStyle}>{row.base_date}</td>
+                    <td style={tableCellStyle}>{row.compare_date}</td>
                     <td style={tableCellStyle}>₹ {formatCurrency(Number(row.amazon_disbursed || 0))}</td>
                     <td style={tableCellStyle}>
-                      ₹ {formatCurrency(Number(row.indifi_virtual_received || 0))}
+                      ₹ {formatCurrency(Number(row.indifi_virtual_received_on_compare_date || 0))}
                     </td>
                     <td style={tableCellStyle}>₹ {formatCurrency(Number(row.indifi_out_to_bank || 0))}</td>
-                    <td style={tableCellStyle}>₹ {formatCurrency(Number(row.bank_credits || 0))}</td>
+                    <td style={tableCellStyle}>
+                      ₹ {formatCurrency(Number(row.bank_credits_on_compare_date || 0))}
+                    </td>
                     <td style={tableCellStyle}>
                       {row.mismatch_amazon_indifi || row.mismatch_indifi_bank ? (
                         <span style={{ ...badgeStyle, backgroundColor: "#fef2f2", color: "#b91c1c" }}>
