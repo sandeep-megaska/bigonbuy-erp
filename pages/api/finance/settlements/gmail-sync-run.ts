@@ -1,5 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getSiteUrl } from "../../../../lib/serverSupabase";
+import {
+  createUserClient,
+  getCookieAccessToken,
+  getSiteUrl,
+  getSupabaseEnv,
+} from "../../../../lib/serverSupabase";
 
 type GmailSyncRunResponse = {
   ok: boolean;
@@ -14,6 +19,25 @@ export default async function handler(
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  const { supabaseUrl, anonKey } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    });
+  }
+
+  const accessToken = getCookieAccessToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
+  const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+  const { data: userData, error: userError } = await userClient.auth.getUser();
+  if (userError || !userData?.user) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
   const secret = process.env.ERP_INTERNAL_JOB_SECRET ?? null;
@@ -35,8 +59,7 @@ export default async function handler(
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "x-bigonbuy-secret": secret,
+      "x-bb-secret": secret,
     },
   });
 
