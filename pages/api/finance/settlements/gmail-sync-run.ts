@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import { createPagesServerClient } from "@supabase/auth-helpers-nextjs";
 
 function getBearer(req: NextApiRequest) {
   const h = req.headers.authorization || "";
@@ -10,68 +9,64 @@ function getBearer(req: NextApiRequest) {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // Allow GET just for debugging (so you can open it in browser)
-    const start = Array.isArray(req.query.start) ? req.query.start[0] : req.query.start;
-    const end = Array.isArray(req.query.end) ? req.query.end[0] : req.query.end;
-
-    const hasCookie = Boolean(req.headers.cookie);
-    const bearer = getBearer(req);
-    const hasAuthHeader = Boolean(req.headers.authorization);
-    const hasBearer = Boolean(bearer);
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ ok: false, error: "Method not allowed" });
+    }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-
-    const envOk = Boolean(supabaseUrl && anonKey);
-
-    let bearerUserId: string | null = null;
-    let bearerErr: string | null = null;
-
-    if (envOk && bearer) {
-      const sb = createClient(supabaseUrl, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      const { data, error } = await sb.auth.getUser(bearer);
-      bearerUserId = data?.user?.id ?? null;
-      bearerErr = error?.message ?? null;
+    if (!supabaseUrl || !anonKey) {
+      return res
+        .status(500)
+        .json({ ok: false, error: "Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY" });
     }
 
-    let cookieUserId: string | null = null;
-    let cookieErr: string | null = null;
-    try {
-      const sbCookie = createPagesServerClient({ req, res });
-      const { data, error } = await sbCookie.auth.getUser();
-      cookieUserId = data?.user?.id ?? null;
-      cookieErr = error?.message ?? null;
-    } catch (e: any) {
-      cookieErr = e?.message || "cookie client init failed";
+    const token = getBearer(req);
+    if (!token) {
+      return res.status(401).json({ ok: false, error: "Not authenticated (missing Bearer token)" });
     }
 
-    return res.status(200).json({
-      ok: true,
-      method: req.method,
-      start,
-      end,
-      received: {
-        hasCookie,
-        hasAuthHeader,
-        hasBearer,
-        bearerPrefix: bearer ? bearer.slice(0, 12) + "…" : null,
-      },
-      env: {
-        hasUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-        hasAnon: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-        hasJobSecret: Boolean(process.env.ERP_INTERNAL_JOB_SECRET),
-      },
-      authCheck: {
-        bearerUserId,
-        bearerErr,
-        cookieUserId,
-        cookieErr,
-      },
+    const sb = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
+    const { data: userData, error: userErr } = await sb.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const start = Array.isArray(req.query.start) ? req.query.start[0] : req.query.start;
+    const end = Array.isArray(req.query.end) ? req.query.end[0] : req.query.end;
+    if (!start || !end) {
+      return res.status(400).json({ ok: false, error: "Missing start or end date" });
+    }
+
+    const secret = process.env.ERP_INTERNAL_JOB_SECRET;
+    if (!secret) {
+      return res.status(500).json({ ok: false, error: "Missing ERP_INTERNAL_JOB_SECRET" });
+    }
+
+    const baseUrl = `https://${req.headers.host}`;
+    const jobUrl = `${baseUrl}/api/finance/settlements/gmail-sync?start=${encodeURIComponent(
+      String(start),
+    )}&end=${encodeURIComponent(String(end))}`;
+
+    const jobResp = await fetch(jobUrl, {
+      method: "POST",
+      headers: { "x-bb-secret": secret },
+    });
+
+    const text = await jobResp.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = { ok: false, error: "Invalid JSON from gmail-sync job", raw: text.slice(0, 300) };
+    }
+
+    return res.status(jobResp.status).json(json);
   } catch (e: any) {
-    console.error("gmail-sync-run debug failed", e);
+    console.error("gmail-sync-run failed", e);
     return res.status(500).json({ ok: false, error: e?.message || "Unexpected error" });
   }
 }
