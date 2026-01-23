@@ -249,6 +249,8 @@ export default function GstPurchasePage() {
   const [isImporting, setIsImporting] = useState(false);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
   const [isRevalidating, setIsRevalidating] = useState(false);
+  const [isRevalidatingRange, setIsRevalidatingRange] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -449,6 +451,56 @@ export default function GstPurchasePage() {
     setIsRevalidating(false);
   };
 
+  const formatRevalidateCounts = (payload: Record<string, unknown> | null) => {
+    if (!payload) return "Revalidated range successfully.";
+    const knownKeys: Array<{ key: string; label: string }> = [
+      { key: "invoices_total", label: "Invoices" },
+      { key: "invoices_ok", label: "OK" },
+      { key: "invoices_warn", label: "Warnings" },
+      { key: "invoices_error", label: "Errors" },
+      { key: "lines_total", label: "Lines" },
+    ];
+    const parts = knownKeys
+      .map(({ key, label }) => {
+        const value = payload[key];
+        return typeof value === "number" ? `${label}: ${value}` : null;
+      })
+      .filter(Boolean) as string[];
+    if (!parts.length) {
+      const fallbackParts = Object.entries(payload)
+        .filter(([, value]) => typeof value === "number")
+        .map(([key, value]) => `${key.replace(/_/g, " ")}: ${value}`);
+      return fallbackParts.length
+        ? `Revalidated range. ${fallbackParts.join(" · ")}`
+        : "Revalidated range successfully.";
+    }
+    return `Revalidated range. ${parts.join(" · ")}`;
+  };
+
+  const handleRevalidateRange = async () => {
+    setError(null);
+    setToast(null);
+    setIsRevalidatingRange(true);
+
+    const { data, error: revalidateError } = await supabase.rpc("erp_gst_purchase_revalidate_range", {
+      p_from: fromDate,
+      p_to: toDate,
+    });
+
+    if (revalidateError) {
+      const message = revalidateError.message || "Failed to revalidate range.";
+      setError(message);
+      setToast({ type: "error", message });
+      setIsRevalidatingRange(false);
+      return;
+    }
+
+    const payload = Array.isArray(data) ? (data[0] as Record<string, unknown>) : (data as Record<string, unknown>);
+    setToast({ type: "success", message: formatRevalidateCounts(payload || null) });
+    await loadInvoices(fromDate, toDate, selectedVendor, validationFilter);
+    setIsRevalidatingRange(false);
+  };
+
   const handleDownloadTemplate = () => {
     triggerDownload("gst-purchase-template.csv", createCsvBlob(buildTemplateCsv()));
   };
@@ -558,6 +610,21 @@ export default function GstPurchasePage() {
             <button
               type="button"
               style={secondaryButtonStyle}
+              onClick={handleRevalidateRange}
+              disabled={!canWrite || isRevalidatingRange}
+            >
+              {isRevalidatingRange ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span className="erp-spinner" aria-hidden="true" />
+                  Revalidating…
+                </span>
+              ) : (
+                "Revalidate (range)"
+              )}
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
               onClick={() =>
                 handleExport("erp_gst_purchase_register_export", `gst-purchases-${fromDate}-to-${toDate}.csv`)
               }
@@ -589,6 +656,20 @@ export default function GstPurchasePage() {
               Export ITC Summary
             </button>
           </div>
+          {toast && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                borderRadius: 8,
+                background: toast.type === "success" ? "#ecfdf5" : "#fef2f2",
+                border: `1px solid ${toast.type === "success" ? "#a7f3d0" : "#fecaca"}`,
+                color: toast.type === "success" ? "#047857" : "#b91c1c",
+              }}
+            >
+              {toast.message}
+            </div>
+          )}
         </section>
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
@@ -932,6 +1013,22 @@ export default function GstPurchasePage() {
             {error}
           </div>
         )}
+        <style jsx>{`
+          .erp-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(15, 23, 42, 0.2);
+            border-top-color: #111827;
+            border-radius: 999px;
+            animation: erp-spin 0.9s linear infinite;
+          }
+
+          @keyframes erp-spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}</style>
       </div>
     </ErpShell>
   );
