@@ -149,7 +149,9 @@ export default async function handler(
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
   const legacyServiceKey = process.env.SUPABASE_SERVICE_KEY ?? null;
   const serviceKey = serviceRoleKey || legacyServiceKey;
-  const keyName = serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : "SUPABASE_SERVICE_KEY";
+  const keyName: GmailSyncResponse["debug"]["keyName"] = serviceRoleKey
+    ? "SUPABASE_SERVICE_ROLE_KEY"
+    : "SUPABASE_SERVICE_KEY";
   const debug = {
     usedServiceKey: Boolean(serviceKey),
     keyName,
