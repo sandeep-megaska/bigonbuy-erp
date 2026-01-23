@@ -30,7 +30,13 @@ type PurchaseInvoiceRow = {
   tax_total: number;
   itc_total: number;
   is_void: boolean;
+  validation_status: "ok" | "warn" | "error";
 };
+
+type ValidationNotes = {
+  errors?: Array<{ code?: string; message?: string }>;
+  warnings?: Array<{ code?: string; message?: string }>;
+} | null;
 
 type PurchaseInvoiceDetail = {
   header: {
@@ -49,6 +55,11 @@ type PurchaseInvoiceDetail = {
     source: string;
     source_ref: string | null;
     is_void: boolean;
+    validation_status: "ok" | "warn" | "error";
+    validation_notes: ValidationNotes;
+    computed_taxable: number;
+    computed_total_tax: number;
+    computed_invoice_total: number;
     created_at: string;
     updated_at: string;
   } | null;
@@ -79,6 +90,10 @@ type ImportResult = {
   lines_upserted?: number;
   error_count?: number;
   error_rows?: Array<{ row: number; reason: string }>;
+  invoices_ok?: number;
+  invoices_warn?: number;
+  invoices_error?: number;
+  error_invoices?: Array<{ invoice_no: string; vendor_name: string | null; reason: string }>;
 };
 
 type VendorOption = {
@@ -225,6 +240,7 @@ export default function GstPurchasePage() {
   const [toDate, setToDate] = useState(today());
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [selectedVendor, setSelectedVendor] = useState<string>("");
+  const [validationFilter, setValidationFilter] = useState<string>("");
   const [invoices, setInvoices] = useState<PurchaseInvoiceRow[]>([]);
   const [detail, setDetail] = useState<PurchaseInvoiceDetail | null>(null);
   const [csvRows, setCsvRows] = useState<ParsedRow[]>([]);
@@ -232,6 +248,7 @@ export default function GstPurchasePage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -255,14 +272,14 @@ export default function GstPurchasePage() {
         return;
       }
 
-      await Promise.all([loadVendors(), loadInvoices(fromDate, toDate, selectedVendor)]);
+      await Promise.all([loadVendors(), loadInvoices(fromDate, toDate, selectedVendor, validationFilter)]);
       setLoading(false);
     })();
 
     return () => {
       active = false;
     };
-  }, [fromDate, toDate, router, selectedVendor]);
+  }, [fromDate, toDate, router, selectedVendor, validationFilter]);
 
   const loadVendors = async () => {
     const { data, error: vendorError } = await supabase
@@ -278,12 +295,13 @@ export default function GstPurchasePage() {
     setVendors((data || []) as VendorOption[]);
   };
 
-  const loadInvoices = async (start: string, end: string, vendorId: string) => {
+  const loadInvoices = async (start: string, end: string, vendorId: string, validationStatus: string) => {
     setIsLoadingInvoices(true);
     const { data, error: invoiceError } = await supabase.rpc("erp_gst_purchase_invoices_list", {
       p_from: start,
       p_to: end,
       p_vendor_id: vendorId || null,
+      p_validation_status: validationStatus || null,
     });
 
     if (invoiceError) {
@@ -367,7 +385,7 @@ export default function GstPurchasePage() {
     }
 
     setImportResult((data || {}) as ImportResult);
-    await loadInvoices(fromDate, toDate, selectedVendor);
+    await loadInvoices(fromDate, toDate, selectedVendor, validationFilter);
     setIsImporting(false);
   };
 
@@ -409,8 +427,51 @@ export default function GstPurchasePage() {
 
   const handleCloseDetail = () => setDetail(null);
 
+  const handleRevalidate = async () => {
+    if (!detail?.header) return;
+    setError(null);
+    setIsRevalidating(true);
+
+    const { error: validateError } = await supabase.rpc("erp_gst_purchase_invoice_validate", {
+      p_invoice_id: detail.header.id,
+    });
+
+    if (validateError) {
+      setError(validateError.message);
+      setIsRevalidating(false);
+      return;
+    }
+
+    await Promise.all([
+      handleShowDetail(detail.header.id),
+      loadInvoices(fromDate, toDate, selectedVendor, validationFilter),
+    ]);
+    setIsRevalidating(false);
+  };
+
   const handleDownloadTemplate = () => {
     triggerDownload("gst-purchase-template.csv", createCsvBlob(buildTemplateCsv()));
+  };
+
+  const getValidationLabel = (status?: string) => {
+    switch (status) {
+      case "error":
+        return { label: "ERROR", color: "#b91c1c", background: "#fee2e2" };
+      case "warn":
+        return { label: "WARN", color: "#b45309", background: "#fef3c7" };
+      default:
+        return { label: "OK", color: "#047857", background: "#d1fae5" };
+    }
+  };
+
+  const normalizeNotes = (notes?: ValidationNotes) => {
+    if (!notes) {
+      return { errors: [], warnings: [] };
+    }
+    return {
+      errors: Array.isArray(notes.errors) ? notes.errors : [],
+      warnings: Array.isArray(notes.warnings) ? notes.warnings : [],
+    };
   };
 
   if (loading) {
@@ -470,6 +531,19 @@ export default function GstPurchasePage() {
                     {vendor.legal_name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span>Validation</span>
+              <select
+                value={validationFilter}
+                onChange={(event) => setValidationFilter(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="">All statuses</option>
+                <option value="ok">OK</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
               </select>
             </label>
           </div>
@@ -599,6 +673,9 @@ export default function GstPurchasePage() {
                 <li>Invoices upserted: {importResult.invoices_upserted ?? 0}</li>
                 <li>Lines upserted: {importResult.lines_upserted ?? 0}</li>
                 <li>Errors: {importResult.error_count ?? 0}</li>
+                <li>Validated OK: {importResult.invoices_ok ?? 0}</li>
+                <li>Validated Warnings: {importResult.invoices_warn ?? 0}</li>
+                <li>Validated Errors: {importResult.invoices_error ?? 0}</li>
               </ul>
               {importResult.error_rows && importResult.error_rows.length > 0 && (
                 <div style={{ marginTop: 12 }}>
@@ -610,6 +687,31 @@ export default function GstPurchasePage() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {importResult.error_invoices && importResult.error_invoices.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <strong>Validation errors</strong>
+                  <div style={{ marginTop: 8, overflowX: "auto" }}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={tableHeaderCellStyle}>Invoice No</th>
+                          <th style={tableHeaderCellStyle}>Vendor</th>
+                          <th style={tableHeaderCellStyle}>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResult.error_invoices.map((row, idx) => (
+                          <tr key={`${row.invoice_no}-${idx}`}>
+                            <td style={tableCellStyle}>{row.invoice_no}</td>
+                            <td style={tableCellStyle}>{row.vendor_name || "—"}</td>
+                            <td style={tableCellStyle}>{row.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -634,25 +736,45 @@ export default function GstPurchasePage() {
                     <th style={tableHeaderCellStyle}>Taxable Total</th>
                     <th style={tableHeaderCellStyle}>Tax Total</th>
                     <th style={tableHeaderCellStyle}>ITC Total</th>
+                    <th style={tableHeaderCellStyle}>Validation</th>
                     <th style={tableHeaderCellStyle}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((invoice) => (
-                    <tr
-                      key={invoice.invoice_id}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => handleShowDetail(invoice.invoice_id)}
-                    >
-                      <td style={tableCellStyle}>{invoice.invoice_date}</td>
-                      <td style={tableCellStyle}>{invoice.vendor_name}</td>
-                      <td style={tableCellStyle}>{invoice.invoice_no}</td>
-                      <td style={tableCellStyle}>{formatMoney(invoice.taxable_total || 0)}</td>
-                      <td style={tableCellStyle}>{formatMoney(invoice.tax_total || 0)}</td>
-                      <td style={tableCellStyle}>{formatMoney(invoice.itc_total || 0)}</td>
-                      <td style={tableCellStyle}>{invoice.is_void ? "Void" : "Active"}</td>
-                    </tr>
-                  ))}
+                  {invoices.map((invoice) => {
+                    const badge = getValidationLabel(invoice.validation_status);
+                    return (
+                      <tr
+                        key={invoice.invoice_id}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => handleShowDetail(invoice.invoice_id)}
+                      >
+                        <td style={tableCellStyle}>{invoice.invoice_date}</td>
+                        <td style={tableCellStyle}>{invoice.vendor_name}</td>
+                        <td style={tableCellStyle}>{invoice.invoice_no}</td>
+                        <td style={tableCellStyle}>{formatMoney(invoice.taxable_total || 0)}</td>
+                        <td style={tableCellStyle}>{formatMoney(invoice.tax_total || 0)}</td>
+                        <td style={tableCellStyle}>{formatMoney(invoice.itc_total || 0)}</td>
+                        <td style={tableCellStyle}>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: badge.color,
+                              background: badge.background,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td style={tableCellStyle}>{invoice.is_void ? "Void" : "Active"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -680,15 +802,92 @@ export default function GstPurchasePage() {
                     {detail.header.vendor_name} · {detail.header.invoice_date}
                   </p>
                 </div>
-                <button type="button" style={secondaryButtonStyle} onClick={handleCloseDetail}>
-                  Close
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleRevalidate}
+                    disabled={!canWrite || isRevalidating}
+                  >
+                    {isRevalidating ? "Revalidating…" : "Revalidate"}
+                  </button>
+                  <button type="button" style={secondaryButtonStyle} onClick={handleCloseDetail}>
+                    Close
+                  </button>
+                </div>
               </div>
               <div style={{ marginTop: 12, display: "flex", gap: 16, flexWrap: "wrap" }}>
                 <div>GSTIN: {detail.header.vendor_gstin || "—"}</div>
                 <div>POS: {detail.header.place_of_supply_state_code || "—"}</div>
                 <div>Reverse charge: {detail.header.is_reverse_charge ? "Yes" : "No"}</div>
                 <div>Import: {detail.header.is_import ? "Yes" : "No"}</div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                {(() => {
+                  const badge = getValidationLabel(detail.header.validation_status);
+                  const { errors, warnings } = normalizeNotes(detail.header.validation_notes);
+                  return (
+                    <div
+                      style={{
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 10,
+                        padding: 12,
+                        background: "#f8fafc",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <strong>Validation</strong>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: badge.color,
+                              background: badge.background,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        </div>
+                        <div style={{ color: "#475569" }}>
+                          Computed total: {formatMoney(detail.header.computed_invoice_total || 0)}
+                        </div>
+                      </div>
+                      {errors.length === 0 && warnings.length === 0 ? (
+                        <p style={{ marginTop: 8, marginBottom: 0, color: "#475569" }}>
+                          No validation issues detected.
+                        </p>
+                      ) : (
+                        <div style={{ marginTop: 8 }}>
+                          {errors.length > 0 && (
+                            <div style={{ marginBottom: warnings.length ? 8 : 0 }}>
+                              <strong style={{ color: "#b91c1c" }}>Errors</strong>
+                              <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+                                {errors.map((item, idx) => (
+                                  <li key={`error-${idx}`}>{item.message || item.code || "Validation error"}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {warnings.length > 0 && (
+                            <div>
+                              <strong style={{ color: "#b45309" }}>Warnings</strong>
+                              <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+                                {warnings.map((item, idx) => (
+                                  <li key={`warn-${idx}`}>{item.message || item.code || "Validation warning"}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div style={{ marginTop: 16, maxHeight: "50vh", overflowY: "auto" }}>
                 <table style={tableStyle}>
