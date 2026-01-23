@@ -218,12 +218,30 @@ export default async function handler(
     });
   }
 
+  const companyId = process.env.ERP_SERVICE_COMPANY_ID ?? null;
+  if (!companyId) {
+    return res.status(500).json({
+      ok: false,
+      scanned: 0,
+      imported: 0,
+      skipped: 0,
+      totals: { amazon: 0, indifi_in: 0, indifi_out: 0, deduped: 0 },
+      errors: [],
+      last_synced_at: null,
+      debug,
+      error: "Missing ERP_SERVICE_COMPANY_ID in environment",
+    });
+  }
+
   const sbAdmin = createClient(supabaseUrl!, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   const { data: settings, error: settingsError } = await sbAdmin.rpc(
-    "erp_company_settings_get",
+    "erp_company_settings_get_service",
+    {
+      p_company_id: companyId,
+    },
   );
   if (settingsError || !settings?.[0]) {
     return res.status(400).json({
@@ -275,11 +293,15 @@ export default async function handler(
   }
 
   if (!companySettings.gmail_connected) {
-    const { error: connectError } = await sbAdmin.rpc("erp_company_settings_update_gmail", {
-      p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
-      p_connected: true,
-      p_last_synced_at: companySettings.gmail_last_synced_at ?? null,
-    });
+    const { error: connectError } = await sbAdmin.rpc(
+      "erp_company_settings_update_gmail_service",
+      {
+        p_company_id: companyId,
+        p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
+        p_connected: true,
+        p_last_synced_at: companySettings.gmail_last_synced_at ?? null,
+      },
+    );
 
     if (connectError) {
       return res.status(500).json({
@@ -408,8 +430,9 @@ export default async function handler(
         const attachmentNames = attachments.map((attachment) => attachment.filename);
 
         const { data: ingestBatchId, error: ingestError } = await sbAdmin.rpc(
-          "erp_email_ingest_batch_create_or_get",
+          "erp_email_ingest_batch_create_or_get_service",
           {
+            p_company_id: companyId,
             p_gmail_message_id: messageResponse.data.id,
             p_thread_id: messageResponse.data.threadId ?? null,
             p_subject: subject,
@@ -440,7 +463,8 @@ export default async function handler(
         const body = findBodyInParts(payload) ?? messageResponse.data.snippet ?? "";
         const amount = body ? extractAmount(body) : null;
         if (!amount || !receivedAtMs) {
-          await sbAdmin.rpc("erp_email_ingest_batch_mark", {
+          await sbAdmin.rpc("erp_email_ingest_batch_mark_service", {
+            p_company_id: companyId,
             p_id: ingestBatchId,
             p_status: "skipped",
             p_error: !receivedAtMs
@@ -454,8 +478,9 @@ export default async function handler(
         }
 
         const { data: settlementBatchId, error: batchError } = await sbAdmin.rpc(
-          "erp_settlement_batch_create",
+          "erp_settlement_batch_create_service",
           {
+            p_company_id: companyId,
             p_source: "gmail_sync",
             p_source_ref: `gmail:${messageResponse.data.id}`,
             p_received_at: new Date().toISOString(),
@@ -490,26 +515,31 @@ export default async function handler(
           platform = "indifi";
         }
 
-        const { error: eventError } = await sbAdmin.rpc("erp_settlement_event_insert", {
-          p_batch_id: settlementBatchId,
-          p_platform: platform,
-          p_event_type: eventType,
-          p_event_date: eventDate,
-          p_amount: amount,
-          p_currency: "INR",
-          p_reference_no: null,
-          p_party: party,
-          p_payload: {
-            gmail_message_id: messageResponse.data.id,
-            subject,
-            body,
-            kind: message.kind,
+        const { error: eventError } = await sbAdmin.rpc(
+          "erp_settlement_event_insert_service",
+          {
+            p_company_id: companyId,
+            p_batch_id: settlementBatchId,
+            p_platform: platform,
+            p_event_type: eventType,
+            p_event_date: eventDate,
+            p_amount: amount,
+            p_currency: "INR",
+            p_reference_no: null,
+            p_party: party,
+            p_payload: {
+              gmail_message_id: messageResponse.data.id,
+              subject,
+              body,
+              kind: message.kind,
+            },
           },
-        });
+        );
 
         if (eventError) {
           if (eventError.code === "23505") {
-            await sbAdmin.rpc("erp_email_ingest_batch_mark", {
+            await sbAdmin.rpc("erp_email_ingest_batch_mark_service", {
+              p_company_id: companyId,
               p_id: ingestBatchId,
               p_status: "skipped",
               p_error: "Duplicate settlement event",
@@ -522,7 +552,8 @@ export default async function handler(
           throw new Error(eventError.message);
         }
 
-        await sbAdmin.rpc("erp_email_ingest_batch_mark", {
+        await sbAdmin.rpc("erp_email_ingest_batch_mark_service", {
+          p_company_id: companyId,
           p_id: ingestBatchId,
           p_status: "parsed",
           p_error: null,
@@ -535,7 +566,8 @@ export default async function handler(
         const messageText = error instanceof Error ? error.message : "Unknown error";
         errors.push({ messageId: message.id ?? "unknown", error: messageText });
         if (ingestId) {
-          await sbAdmin.rpc("erp_email_ingest_batch_mark", {
+          await sbAdmin.rpc("erp_email_ingest_batch_mark_service", {
+            p_company_id: companyId,
             p_id: ingestId,
             p_status: "error",
             p_error: messageText,
@@ -561,11 +593,15 @@ export default async function handler(
   }
 
   const lastSyncedAt = new Date().toISOString();
-  const { error: syncUpdateError } = await sbAdmin.rpc("erp_company_settings_update_gmail", {
-    p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
-    p_connected: true,
-    p_last_synced_at: lastSyncedAt,
-  });
+  const { error: syncUpdateError } = await sbAdmin.rpc(
+    "erp_company_settings_update_gmail_service",
+    {
+      p_company_id: companyId,
+      p_gmail_user: gmailUserEnv ?? companySettings.gmail_user ?? null,
+      p_connected: true,
+      p_last_synced_at: lastSyncedAt,
+    },
+  );
 
   if (syncUpdateError) {
     errors.push({
