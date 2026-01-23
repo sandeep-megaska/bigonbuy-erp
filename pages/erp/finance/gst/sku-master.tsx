@@ -16,10 +16,11 @@ import { supabase } from "../../../../lib/supabaseClient";
 
 const defaultRate = "18";
 
-type MissingSkuRow = {
-  sku: string;
-  sample_title: string | null;
-  last_seen_at: string | null;
+type MissingMappingRow = {
+  style_code: string;
+  example_sku: string | null;
+  last_seen: string | null;
+  title: string | null;
 };
 
 export default function GstSkuMasterPage() {
@@ -28,7 +29,8 @@ export default function GstSkuMasterPage() {
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof getCompanyContext>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [missingSkus, setMissingSkus] = useState<MissingSkuRow[]>([]);
+  const [missingSkus, setMissingSkus] = useState<MissingMappingRow[]>([]);
+  const [styleCode, setStyleCode] = useState("");
   const [sku, setSku] = useState("");
   const [hsn, setHsn] = useState("");
   const [rate, setRate] = useState(defaultRate);
@@ -67,12 +69,15 @@ export default function GstSkuMasterPage() {
   }, [router]);
 
   const loadMissingSkus = async () => {
-    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_skus_shopify");
+    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_mappings_shopify", {
+      p_from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+      p_to: new Date().toISOString().slice(0, 10),
+    });
     if (missingError) {
       setError(missingError.message);
       return;
     }
-    setMissingSkus((data || []) as MissingSkuRow[]);
+    setMissingSkus((data || []) as MissingMappingRow[]);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -80,8 +85,8 @@ export default function GstSkuMasterPage() {
     setError(null);
     setMessage(null);
 
-    if (!sku.trim() || !hsn.trim()) {
-      setError("SKU and HSN are required.");
+    if (!styleCode.trim() || !hsn.trim()) {
+      setError("Style code and HSN are required.");
       return;
     }
 
@@ -93,7 +98,8 @@ export default function GstSkuMasterPage() {
 
     setSaving(true);
     const { error: upsertError } = await supabase.rpc("erp_gst_sku_upsert", {
-      p_sku: sku.trim(),
+      p_style_code: styleCode.trim(),
+      p_sku: sku.trim() || null,
       p_hsn: hsn.trim(),
       p_rate: numericRate,
       p_is_active: isActive,
@@ -105,7 +111,8 @@ export default function GstSkuMasterPage() {
       return;
     }
 
-    setMessage(`Saved GST mapping for ${sku.trim()}.`);
+    setMessage(`Saved GST mapping for ${styleCode.trim()}.`);
+    setStyleCode("");
     setSku("");
     setHsn("");
     setRate(defaultRate);
@@ -138,16 +145,28 @@ export default function GstSkuMasterPage() {
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
           <h2 style={{ marginTop: 0 }}>Add / Update SKU Mapping</h2>
-          <p style={subtitleStyle}>Mappings are required before GST generation can complete.</p>
+          <p style={subtitleStyle}>
+            Create style-level mappings to cover all variants. Use SKU when you need an exact override.
+          </p>
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 420 }}>
             <label style={{ display: "grid", gap: 6 }}>
-              <span>SKU</span>
+              <span>Style Code</span>
+              <input
+                type="text"
+                value={styleCode}
+                onChange={(event) => setStyleCode(event.target.value)}
+                style={inputStyle}
+                placeholder="MWSW06"
+              />
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span>SKU (optional)</span>
               <input
                 type="text"
                 value={sku}
                 onChange={(event) => setSku(event.target.value)}
                 style={inputStyle}
-                placeholder="SKU"
+                placeholder="MWSW06-Black-L"
               />
             </label>
             <label style={{ display: "grid", gap: 6 }}>
@@ -193,25 +212,27 @@ export default function GstSkuMasterPage() {
         </section>
 
         <section style={cardStyle}>
-          <h3 style={{ marginTop: 0 }}>Missing SKU Mappings</h3>
+          <h3 style={{ marginTop: 0 }}>Missing Style Mappings</h3>
           {missingSkus.length ? (
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {missingSkus.map((row) => (
-                <li key={row.sku} style={{ marginBottom: 8 }}>
+                <li key={row.style_code} style={{ marginBottom: 8 }}>
                   <div>
-                    <strong>{row.sku}</strong>
-                    {row.sample_title ? ` — ${row.sample_title}` : ""}
+                    <strong>{row.style_code}</strong>
+                    {row.title ? ` — ${row.title}` : ""}
+                    {row.example_sku ? ` (ex: ${row.example_sku})` : ""}
                   </div>
                   <button
                     type="button"
                     style={{ ...secondaryButtonStyle, marginTop: 6 }}
                     onClick={() => {
-                      setSku(row.sku);
+                      setStyleCode(row.style_code);
+                      setSku(row.example_sku || "");
                       setHsn("");
                       setRate(defaultRate);
                     }}
                   >
-                    Use this SKU
+                    Use this style
                   </button>
                 </li>
               ))}

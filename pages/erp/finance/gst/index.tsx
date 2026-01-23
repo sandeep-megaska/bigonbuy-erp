@@ -29,10 +29,11 @@ type GenerateResult = {
   error_count?: number;
 };
 
-type MissingSkuRow = {
-  sku: string;
-  sample_title: string | null;
-  last_seen_at: string | null;
+type MissingMappingRow = {
+  style_code: string;
+  example_sku: string | null;
+  last_seen: string | null;
+  title: string | null;
 };
 
 const formatCsvValue = (value: unknown) =>
@@ -70,7 +71,7 @@ export default function GstShopifyPage() {
   const [fromDate, setFromDate] = useState(startOfMonth());
   const [toDate, setToDate] = useState(today());
   const [result, setResult] = useState<GenerateResult | null>(null);
-  const [missingSkus, setMissingSkus] = useState<MissingSkuRow[]>([]);
+  const [missingSkus, setMissingSkus] = useState<MissingMappingRow[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
   const canWrite = useMemo(
@@ -95,22 +96,25 @@ export default function GstShopifyPage() {
         return;
       }
 
-      await loadMissingSkus();
+      await loadMissingSkus(fromDate, toDate);
       setLoading(false);
     })();
 
     return () => {
       active = false;
     };
-  }, [router]);
+  }, [fromDate, toDate, router]);
 
-  const loadMissingSkus = async () => {
-    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_skus_shopify");
+  const loadMissingSkus = async (startDate: string, endDate: string) => {
+    const { data, error: missingError } = await supabase.rpc("erp_gst_missing_mappings_shopify", {
+      p_from: startDate,
+      p_to: endDate,
+    });
     if (missingError) {
       setError(missingError.message);
       return;
     }
-    setMissingSkus((data || []) as MissingSkuRow[]);
+    setMissingSkus((data || []) as MissingMappingRow[]);
   };
 
   const handleGenerate = async () => {
@@ -131,7 +135,7 @@ export default function GstShopifyPage() {
     }
 
     setResult(data as GenerateResult);
-    await loadMissingSkus();
+    await loadMissingSkus(fromDate, toDate);
     setIsRunning(false);
   };
 
@@ -240,14 +244,15 @@ export default function GstShopifyPage() {
           {missingSkus.length ? (
             <>
               <p style={{ marginTop: 0, color: "#b91c1c" }}>
-                {missingSkus.length} SKU(s) are missing GST master mappings. Please update the SKU master.
+                {missingSkus.length} style(s) are missing GST master mappings. Please update the SKU master.
               </p>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {missingSkus.map((row) => (
-                  <li key={row.sku}>
-                    <strong>{row.sku}</strong>
-                    {row.sample_title ? ` — ${row.sample_title}` : ""}
-                    {row.last_seen_at ? ` (last seen ${row.last_seen_at.slice(0, 10)})` : ""}
+                  <li key={row.style_code}>
+                    <strong>{row.style_code}</strong>
+                    {row.title ? ` — ${row.title}` : ""}
+                    {row.example_sku ? ` (ex: ${row.example_sku})` : ""}
+                    {row.last_seen ? ` (last seen ${row.last_seen.slice(0, 10)})` : ""}
                   </li>
                 ))}
               </ul>
