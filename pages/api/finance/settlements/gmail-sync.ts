@@ -145,6 +145,12 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<GmailSyncResponse>,
 ) {
+  console.log("gmail-sync headers", {
+  hasCookie: Boolean(req.headers.cookie),
+  hasAuth: Boolean(req.headers.authorization),
+  host: req.headers.host,
+});
+
   const expectedSecret = process.env.ERP_INTERNAL_JOB_SECRET ?? null;
   const providedSecret = Array.isArray(req.headers["x-bigonbuy-secret"])
     ? req.headers["x-bigonbuy-secret"][0]
