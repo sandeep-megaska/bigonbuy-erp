@@ -224,6 +224,7 @@ export default function FinanceSettlementsPage() {
     const query = new URLSearchParams({ start: fromDate, end: toDate });
     const response = await fetch(`/api/finance/settlements/gmail-sync?${query.toString()}`, {
       method: "POST",
+      credentials: "include",
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
