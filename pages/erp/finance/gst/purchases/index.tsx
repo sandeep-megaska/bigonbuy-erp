@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Papa from "papaparse";
 import { useRouter } from "next/router";
@@ -251,6 +251,10 @@ export default function GstPurchasePage() {
   const [isRevalidating, setIsRevalidating] = useState(false);
   const [isRevalidatingRange, setIsRevalidatingRange] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [isVoiding, setIsVoiding] = useState(false);
+  const importSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -505,6 +509,48 @@ export default function GstPurchasePage() {
     triggerDownload("gst-purchase-template.csv", createCsvBlob(buildTemplateCsv()));
   };
 
+  const handleScrollToImport = () => {
+    importSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleOpenVoidModal = () => {
+    setVoidReason("");
+    setIsVoidModalOpen(true);
+  };
+
+  const handleVoidInvoice = async () => {
+    if (!detail?.header) return;
+    const trimmedReason = voidReason.trim();
+    if (trimmedReason.length < 5) {
+      setError("Void reason must be at least 5 characters.");
+      return;
+    }
+    setIsVoiding(true);
+    setError(null);
+    setToast(null);
+
+    const { error: voidError } = await supabase.rpc("erp_gst_purchase_invoice_void", {
+      p_invoice_id: detail.header.id,
+      p_reason: trimmedReason,
+    });
+
+    if (voidError) {
+      const message = voidError.message || "Failed to void invoice.";
+      setError(message);
+      setToast({ type: "error", message });
+      setIsVoiding(false);
+      return;
+    }
+
+    setToast({ type: "success", message: "Invoice voided. Reimport corrected CSV if needed." });
+    setIsVoidModalOpen(false);
+    await Promise.all([
+      handleShowDetail(detail.header.id),
+      loadInvoices(fromDate, toDate, selectedVendor, validationFilter),
+    ]);
+    setIsVoiding(false);
+  };
+
   const getValidationLabel = (status?: string) => {
     switch (status) {
       case "error":
@@ -672,11 +718,22 @@ export default function GstPurchasePage() {
           )}
         </section>
 
-        <section style={{ ...cardStyle, marginBottom: 16 }}>
+        <section ref={importSectionRef} style={{ ...cardStyle, marginBottom: 16 }}>
           <h2 style={{ margin: 0 }}>CSV Import</h2>
           <p style={subtitleStyle}>
             Upload purchase invoice lines (one row per HSN line). Use vendor_id for best matching.
           </p>
+          <div style={{ marginBottom: 12, color: "#475569" }}>
+            <span>After voiding an invoice, </span>
+            <button
+              type="button"
+              style={{ ...secondaryButtonStyle, padding: "4px 10px", fontSize: 13 }}
+              onClick={handleScrollToImport}
+            >
+              Reimport corrected CSV
+            </button>
+            <span> to replace the original lines.</span>
+          </div>
           <input
             type="file"
             accept=".csv"
@@ -892,10 +949,33 @@ export default function GstPurchasePage() {
                   >
                     {isRevalidating ? "Revalidating…" : "Revalidate"}
                   </button>
+                  <button
+                    type="button"
+                    style={{
+                      ...secondaryButtonStyle,
+                      borderColor: "#fecaca",
+                      color: "#b91c1c",
+                    }}
+                    onClick={handleOpenVoidModal}
+                    disabled={!canWrite || detail.header.is_void}
+                  >
+                    {detail.header.is_void ? "Invoice voided" : "Void invoice"}
+                  </button>
                   <button type="button" style={secondaryButtonStyle} onClick={handleCloseDetail}>
                     Close
                   </button>
                 </div>
+              </div>
+              <div style={{ marginTop: 8, color: "#475569" }}>
+                Need to correct this invoice after voiding?{" "}
+                <button
+                  type="button"
+                  style={{ ...secondaryButtonStyle, padding: "4px 10px", fontSize: 13 }}
+                  onClick={handleScrollToImport}
+                >
+                  Reimport corrected CSV
+                </button>
+                .
               </div>
               <div style={{ marginTop: 12, display: "flex", gap: 16, flexWrap: "wrap" }}>
                 <div>GSTIN: {detail.header.vendor_gstin || "—"}</div>
@@ -1003,6 +1083,55 @@ export default function GstPurchasePage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isVoidModalOpen && detail?.header && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.55)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 24,
+              zIndex: 60,
+            }}
+          >
+            <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(520px, 92vw)" }}>
+              <h3 style={{ marginTop: 0 }}>Void invoice {detail.header.invoice_no}</h3>
+              <p style={{ color: "#64748b", marginTop: 6 }}>
+                Provide a reason for voiding. This will mark the invoice as void and keep the audit trail.
+              </p>
+              <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+                <span>Reason (min 5 characters)</span>
+                <textarea
+                  rows={3}
+                  value={voidReason}
+                  onChange={(event) => setVoidReason(event.target.value)}
+                  style={{ ...inputStyle, minHeight: 80 }}
+                />
+              </label>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setIsVoidModalOpen(false)}
+                  disabled={isVoiding}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleVoidInvoice}
+                  disabled={!canWrite || isVoiding || voidReason.trim().length < 5}
+                >
+                  {isVoiding ? "Voiding…" : "Void invoice"}
+                </button>
               </div>
             </div>
           </div>
