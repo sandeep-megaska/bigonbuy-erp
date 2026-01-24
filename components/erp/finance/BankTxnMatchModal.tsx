@@ -107,9 +107,16 @@ export default function BankTxnMatchModal({
         const debitValue = txn.debit ?? (txn.amount !== null ? Math.max(txn.amount, 0) : null);
         if (!debitValue || debitValue <= 0) return false;
       }
+      if (paymentAmount && Number.isFinite(paymentAmount)) {
+        const amountValue = txn.debit ?? txn.amount ?? null;
+        if (amountValue !== null) {
+          const tolerance = Math.max(1, paymentAmount * 0.02);
+          if (Math.abs(amountValue - paymentAmount) > tolerance) return false;
+        }
+      }
       return true;
     });
-  }, [transactions, unmatchedOnly, debitOnly]);
+  }, [transactions, unmatchedOnly, debitOnly, paymentAmount]);
 
   if (!open) return null;
 
