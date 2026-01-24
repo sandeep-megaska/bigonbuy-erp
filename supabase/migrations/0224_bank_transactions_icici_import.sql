@@ -1,90 +1,13 @@
 -- 0224_bank_transactions_icici_import.sql
--- Phase-2D-A: Bank transactions base + ICICI CSV import RPC + list + void
+-- Phase-2D-A: Bank transactions base + ICICI import RPC + list + void
+-- Notes:
+-- - Assumes finance gates exist from Phase-2C:
+--     public.erp_require_finance_writer()
+--     public.erp_require_finance_reader()
+-- - No deletes; void instead
+-- - RPC-only writes (no insert/update policies)
 
 begin;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'erp_require_finance_writer'
-      and pg_get_function_identity_arguments(p.oid) = ''
-  ) then
-    execute $fn$
-      create function public.erp_require_finance_writer()
-      returns void
-      language plpgsql
-      security definer
-      set search_path = public
-      as $$
-      declare
-        v_actor uuid := auth.uid();
-      begin
-        if v_actor is null then
-          raise exception 'Not authenticated';
-        end if;
-
-        if not exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = v_actor
-            and coalesce(cu.is_active, true)
-            and cu.role_key in ('owner', 'admin', 'finance')
-        ) then
-          raise exception 'Not authorized';
-        end if;
-      end;
-      $$;
-    $fn$;
-
-    execute 'revoke all on function public.erp_require_finance_writer() from public';
-    execute 'grant execute on function public.erp_require_finance_writer() to authenticated';
-  end if;
-
-  if not exists (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'erp_require_finance_reader'
-      and pg_get_function_identity_arguments(p.oid) = ''
-  ) then
-    execute $fn$
-      create function public.erp_require_finance_reader()
-      returns void
-      language plpgsql
-      security definer
-      set search_path = public
-      as $$
-      declare
-        v_actor uuid := auth.uid();
-      begin
-        if v_actor is null then
-          raise exception 'Not authenticated';
-        end if;
-
-        if not exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = v_actor
-            and coalesce(cu.is_active, true)
-            and cu.role_key in ('owner', 'admin', 'finance')
-        ) then
-          raise exception 'Not authorized';
-        end if;
-      end;
-      $$;
-    $fn$;
-
-    execute 'revoke all on function public.erp_require_finance_reader() from public';
-    execute 'grant execute on function public.erp_require_finance_reader() to authenticated';
-  end if;
-end $$;
 
 -- =========================
 -- Table: erp_bank_transactions
@@ -105,29 +28,23 @@ create table if not exists public.erp_bank_transactions (
   debit numeric not null default 0,
   credit numeric not null default 0,
 
-  -- Stored generated net amount (credit - debit)
   amount numeric generated always as (credit - debit) stored,
 
   balance numeric null,
   currency text not null default 'INR',
 
-  -- Dedupe
   dedupe_key text not null,
 
-  -- Raw row payload
   raw_payload jsonb not null default '{}'::jsonb,
 
-  -- Import batching (optional)
   import_batch_id uuid null,
 
-  -- Matching foundation
   is_matched boolean not null default false,
   matched_entity_type text null,
   matched_entity_id uuid null,
   match_confidence text null,
   match_notes text null,
 
-  -- Void + audit
   is_void boolean not null default false,
   void_reason text null,
   voided_at timestamptz null,
@@ -139,9 +56,12 @@ create table if not exists public.erp_bank_transactions (
   updated_by uuid not null
 );
 
-comment on table public.erp_bank_transactions is 'Bank statement transactions ingested from external sources (starting with ICICI). No deletes; void instead.';
+comment on table public.erp_bank_transactions is
+'Bank statement transactions ingested from external sources (starting with ICICI). No deletes; void instead.';
 
--- Helpful indexes
+-- =========================
+-- Indexes
+-- =========================
 create index if not exists erp_bank_transactions_company_txn_date_idx
   on public.erp_bank_transactions(company_id, txn_date);
 
@@ -155,49 +75,28 @@ create index if not exists erp_bank_transactions_company_matched_idx
   on public.erp_bank_transactions(company_id, is_matched);
 
 -- Unique dedupe key per company for active (not void) rows
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_indexes
-    where schemaname = 'public'
-      and indexname = 'erp_bank_transactions_company_dedupe_uq'
-  ) then
-    execute '
-      create unique index erp_bank_transactions_company_dedupe_uq
-      on public.erp_bank_transactions(company_id, dedupe_key)
-      where is_void = false
-    ';
-  end if;
-end $$;
+-- Use DROP + CREATE to avoid DO blocks and to keep it deterministic.
+drop index if exists public.erp_bank_transactions_company_dedupe_uq;
+create unique index erp_bank_transactions_company_dedupe_uq
+  on public.erp_bank_transactions(company_id, dedupe_key)
+  where is_void = false;
 
 -- =========================
--- RLS
+-- RLS + Policy
 -- =========================
 alter table public.erp_bank_transactions enable row level security;
 
--- Select allowed only within current company scope for authenticated users.
--- Writes are RPC-only; no insert/update policies added.
-do $$
-begin
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'erp_bank_transactions'
-      and policyname = 'erp_bank_transactions_select_company'
-  ) then
-    execute '
-      create policy erp_bank_transactions_select_company
-      on public.erp_bank_transactions
-      for select
-      to authenticated
-      using (company_id = public.erp_current_company_id())
-    ';
-  end if;
-end $$;
+-- Deterministic policy creation (no DO): DROP IF EXISTS then CREATE
+drop policy if exists erp_bank_transactions_select_company on public.erp_bank_transactions;
+
+create policy erp_bank_transactions_select_company
+on public.erp_bank_transactions
+for select
+to authenticated
+using (company_id = public.erp_current_company_id());
 
 -- =========================
--- Helper: parse numeric safely (commas, blanks)
+-- Helper: parse numeric safely (commas, blanks, (123.45))
 -- =========================
 create or replace function public.erp_bank_parse_numeric(p_text text)
 returns numeric
@@ -218,10 +117,8 @@ begin
     return 0;
   end if;
 
-  -- Remove commas
   v := replace(v, ',', '');
 
-  -- Handle parentheses negative like (123.45)
   if left(v, 1) = '(' and right(v, 1) = ')' then
     v := '-' || substring(v from 2 for char_length(v) - 2);
   end if;
@@ -233,7 +130,7 @@ end;
 $$;
 
 -- =========================
--- Helper: parse date formats commonly seen (dd/mm/yyyy, dd-Mon-yyyy, yyyy-mm-dd)
+-- Helper: parse date formats (yyyy-mm-dd, dd/mm/yyyy, dd-mm-yyyy, dd-Mon-yyyy)
 -- =========================
 create or replace function public.erp_bank_parse_date(p_text text)
 returns date
@@ -254,7 +151,7 @@ begin
     return null;
   end if;
 
-  -- Try ISO first
+  -- ISO / implicit
   begin
     d := v::date;
     return d;
@@ -291,21 +188,7 @@ end;
 $$;
 
 -- =========================
--- RPC: Import ICICI parsed rows (JSONB array)
--- Input expectation (normalized by UI):
---  [
---    {
---      "txn_date": "2026-01-24" | "24/01/2026" | "24-Jan-2026",
---      "value_date": "...",
---      "description": "...",
---      "reference_no": "...",
---      "debit": "123.45" | 123.45 | "",
---      "credit": "0" | "",
---      "balance": "999.99" | "",
---      "currency": "INR",
---      "raw": { ...original csv row... }
---    }
---  ]
+-- RPC: Import ICICI rows (normalized JSONB array from UI)
 -- Returns: { inserted, skipped, errors, error_rows }
 -- =========================
 drop function if exists public.erp_bank_txn_import_icici_csv(jsonb, text, text);
@@ -370,14 +253,12 @@ begin
 
       v_currency := coalesce(nullif(btrim(r->>'currency'), ''), 'INR');
 
-      -- raw row payload
       v_raw := coalesce(r->'raw', '{}'::jsonb);
 
       if v_txn_date is null then
         raise exception 'Missing/invalid txn_date';
       end if;
 
-      -- Stable dedupe key (company-scoped unique index handles not-void uniqueness)
       v_dedupe_key := md5(
         concat_ws('|',
           v_company_id::text,
@@ -569,7 +450,9 @@ begin
 end;
 $$;
 
--- Grants (adjust if your project uses a different grant pattern)
+-- =========================
+-- Grants
+-- =========================
 grant execute on function public.erp_bank_txn_import_icici_csv(jsonb, text, text) to authenticated;
 grant execute on function public.erp_bank_txns_list(date, date, text) to authenticated;
 grant execute on function public.erp_bank_txn_void(uuid, text) to authenticated;
