@@ -250,7 +250,7 @@ export default function VendorPaymentsListPage() {
         <ErpPageHeader
           title="Vendor Payments"
           description="Record and match vendor payments against bank transactions."
-          actions={
+          rightActions={
             <div style={{ display: "flex", gap: 12 }}>
               {canWrite && (
                 <button style={primaryButtonStyle} onClick={handleOpenCreate}>
