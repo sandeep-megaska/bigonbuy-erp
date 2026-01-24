@@ -177,6 +177,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-bank-import",
+    label: "Bank Import",
+    href: "/erp/finance/bank/import",
+    description: "Import bank transactions from XLS files.",
+    group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "BI",
+    cardIcon: "🏦",
+    showInSidebar: true,
+    showInCards: true,
+  },
+  {
     id: "finance-settlements",
     label: "Settlements",
     href: "/erp/finance/settlements",
