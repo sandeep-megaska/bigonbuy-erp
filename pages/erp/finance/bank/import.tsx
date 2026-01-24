@@ -147,12 +147,11 @@ function normalizeAmount(value: unknown) {
 }
 
 function normalizeIciciRows(rows: Record<string, any>[]) {
-  const headers = Array.from(
-    rows.reduce((set, row) => {
-      Object.keys(row || {}).forEach((key) => set.add(key));
-      return set;
-    }, new Set<string>())
-  );
+  const headerSet = new Set<string>();
+  rows.forEach((row) => {
+    Object.keys(row || {}).forEach((key) => headerSet.add(key));
+  });
+  const headers = Array.from(headerSet);
   const txnDateHeader = findHeader(headers, headerAliases.txnDate);
   const valueDateHeader = findHeader(headers, headerAliases.valueDate);
   const descriptionHeader = findHeader(headers, headerAliases.description);
