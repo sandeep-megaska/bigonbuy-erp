@@ -66,6 +66,14 @@ type BankTxnRow = {
   created_at: string;
 };
 
+type IciciDebugRow = {
+  keys: string[];
+  crdr: string;
+  amount: number | null;
+  balance: number | null;
+  reference: string | null;
+};
+
 const headerAliases = {
   txn_date: ["transactiondate", "txndate", "txn.date", "transaction date"],
   value_date: ["valuedate", "value date"],
@@ -136,6 +144,48 @@ function getByAliases(row: Record<string, unknown>, aliases: string[]) {
   return "";
 }
 
+function getByAliasesLoose(row: Record<string, unknown>, aliases: string[]) {
+  const normalizedRow = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    const normalizedKey = normalizeHeader(key);
+    if (!(normalizedKey in acc)) {
+      acc[normalizedKey] = value;
+    }
+    return acc;
+  }, {});
+
+  const isPresent = (value: unknown) =>
+    value !== null && value !== undefined && String(value).trim() !== "";
+
+  for (const alias of aliases) {
+    const aliasKey = normalizeHeader(alias);
+    const value = normalizedRow[aliasKey];
+    if (isPresent(value)) {
+      return value;
+    }
+  }
+
+  for (const alias of aliases) {
+    const aliasKey = normalizeHeader(alias);
+    for (const [key, value] of Object.entries(normalizedRow)) {
+      if ((key.includes(aliasKey) || aliasKey.includes(key)) && isPresent(value)) {
+        return value;
+      }
+    }
+  }
+
+  return "";
+}
+
+function toNum(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (!text || text === "-") return null;
+  const normalized = text.replace(/,/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function formatDateInput(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -162,7 +212,7 @@ function normalizeText(value: unknown) {
 
 function extractReferenceNo(description: string) {
   if (!description) return null;
-  const prefixMatch = description.match(/(?:NEFT|IMPS|UPI|RTGS)-([A-Za-z0-9]+)/i);
+  const prefixMatch = description.match(/(?:NEFT|IMPS|UPI|RTGS|UTR)[^A-Za-z0-9]*([A-Za-z0-9]+)/i);
   if (prefixMatch?.[1]) {
     return prefixMatch[1];
   }
@@ -188,12 +238,13 @@ function detectHeaderRow(matrix: any[][]) {
 function normalizeIciciRows(matrix: any[][]) {
   const headerIndex = detectHeaderRow(matrix);
   if (headerIndex === -1) {
-    return { rows: [], detectedHeaders: [] as string[] };
+    return { rows: [], detectedHeaders: [] as string[], debugRows: [] as IciciDebugRow[] };
   }
 
   const headerRow = (matrix[headerIndex] || []).map((cell) => normalizeText(cell));
   const detectedHeaders = headerRow.filter((header) => header);
   const dataRows = matrix.slice(headerIndex + 1);
+  const debugRows: IciciDebugRow[] = [];
 
   const normalizedRows = dataRows
     .map((row): BankImportRow | null => {
@@ -215,19 +266,26 @@ function normalizeIciciRows(matrix: any[][]) {
       const txnDate = normalizeText(getByAliases(rowObj, headerAliases.txn_date));
       const valueDate = normalizeText(getByAliases(rowObj, headerAliases.value_date));
       const description = normalizeText(getByAliases(rowObj, headerAliases.description));
-      const reference = normalizeText(getByAliases(rowObj, headerAliases.reference_no));
       const desc = description || "";
-      const ref = reference || extractReferenceNo(desc);
+      const transactionId = normalizeText(
+        getByAliasesLoose(rowObj, ["transaction id", "transactionid"])
+      );
+      const chequeNo = normalizeText(
+        getByAliasesLoose(rowObj, ["chequeno", "cheque no", "chqno", "cheque number"])
+      );
+      const reference =
+        transactionId || (chequeNo && chequeNo !== "-" ? chequeNo : "") || extractReferenceNo(desc);
+
       const amount =
-        Number(
-          getByAliases(rowObj, [
-            "transactionamountinr",
-            "transactionamount",
+        toNum(
+          getByAliasesLoose(rowObj, [
+            "transaction amount(inr)",
+            "transaction amount",
             ...headerAliases.transaction_amount,
           ])
-        ) || 0;
-      const crdr = String(
-        getByAliases(rowObj, ["crdr", "cr/dr", ...headerAliases.crdr])
+        ) ?? 0;
+      const crdr = normalizeText(
+        getByAliasesLoose(rowObj, ["cr/dr", "crdr", ...headerAliases.crdr])
       ).toUpperCase();
 
       let debit = 0;
@@ -236,14 +294,13 @@ function normalizeIciciRows(matrix: any[][]) {
       if (crdr === "CR") credit = amount;
       if (crdr === "DR") debit = amount;
 
-      const balance =
-        Number(
-          getByAliases(rowObj, [
-            "availablebalanceinr",
-            "balance",
-            ...headerAliases.available_balance,
-          ])
-        ) || null;
+      const balance = toNum(
+        getByAliasesLoose(rowObj, [
+          "available balance(inr)",
+          "availablebalanceinr",
+          ...headerAliases.available_balance,
+        ])
+      );
 
       const fallbackTxnDate = normalizeText(getByAliases(rowObj, ["valuedate"]));
       const fallbackValueDate = normalizeText(getByAliases(rowObj, ["valuedate"]));
@@ -252,13 +309,23 @@ function normalizeIciciRows(matrix: any[][]) {
         txn_date: txnDate || fallbackTxnDate || "",
         value_date: valueDate || fallbackValueDate || null,
         description: desc,
-        reference_no: ref || null,
+        reference_no: reference || null,
         debit,
         credit,
         balance,
         currency: "INR",
         raw: rowObj,
       };
+
+      if (debugRows.length < 5) {
+        debugRows.push({
+          keys: Object.keys(rowObj).slice(0, 20),
+          crdr,
+          amount,
+          balance,
+          reference: reference || null,
+        });
+      }
 
       return mappedRow;
     })
@@ -271,6 +338,7 @@ function normalizeIciciRows(matrix: any[][]) {
       )
     ),
     detectedHeaders,
+    debugRows,
   };
 }
 
@@ -287,6 +355,7 @@ export default function BankImportPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [accountRef, setAccountRef] = useState("");
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
+  const [debugRows, setDebugRows] = useState<IciciDebugRow[]>([]);
 
   const [fromDate, setFromDate] = useState(() => {
     const date = new Date();
@@ -360,12 +429,14 @@ export default function BankImportPage() {
     setRows([]);
     setFileName(file.name);
     setDetectedHeaders([]);
+    setDebugRows([]);
 
     try {
-      const { rows: parsedRows, detectedHeaders: headers } = normalizeIciciRows(
+      const { rows: parsedRows, detectedHeaders: headers, debugRows: debug } = normalizeIciciRows(
         await parseIciciXls(file)
       );
       setDetectedHeaders(headers);
+      setDebugRows(debug);
       if (!parsedRows.length) {
         setParseError("No valid rows found in XLS.");
         return;
@@ -472,6 +543,25 @@ export default function BankImportPage() {
             <div style={{ marginBottom: 12 }}>
               <strong>Detected headers (first 20):</strong>
               <div>{detectedHeaders.slice(0, 20).join(", ")}</div>
+            </div>
+          )}
+          {debugRows.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <strong>Debug (first 5 rows):</strong>
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                {debugRows.map((row, index) => (
+                  <div key={`debug-row-${index}`} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                    <div>
+                      <strong>Keys:</strong> {row.keys.join(", ")}
+                    </div>
+                    <div>
+                      <strong>Computed:</strong> crdr={row.crdr || "n/a"}, amount=
+                      {row.amount ?? "n/a"}, balance={row.balance ?? "n/a"}, reference=
+                      {row.reference ?? "n/a"}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {rows.length === 0 ? (
