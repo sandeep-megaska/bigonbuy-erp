@@ -370,6 +370,13 @@ export default function BankImportPage() {
   const [maxAmount, setMaxAmount] = useState("");
   const [transactions, setTransactions] = useState<BankTxnRow[]>([]);
   const [isLoadingTxns, setIsLoadingTxns] = useState(false);
+  const [matchModal, setMatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
+  const [unmatchModal, setUnmatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
+  const [matchVendorPaymentId, setMatchVendorPaymentId] = useState("");
+  const [matchNotes, setMatchNotes] = useState("");
+  const [unmatchReason, setUnmatchReason] = useState("");
+  const [isMatching, setIsMatching] = useState(false);
+  const [isUnmatching, setIsUnmatching] = useState(false);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -486,6 +493,72 @@ export default function BankImportPage() {
 
     setImportResult(data as ImportResult);
     setIsSubmitting(false);
+    await loadTransactions();
+  };
+
+  const openMatchModal = (txn: BankTxnRow) => {
+    setMatchModal({ open: true, txn });
+    setMatchVendorPaymentId("");
+    setMatchNotes("");
+  };
+
+  const openUnmatchModal = (txn: BankTxnRow) => {
+    setUnmatchModal({ open: true, txn });
+    setUnmatchReason("");
+  };
+
+  const closeMatchModal = () => setMatchModal({ open: false });
+  const closeUnmatchModal = () => setUnmatchModal({ open: false });
+
+  const handleMatch = async () => {
+    if (!matchModal.txn) return;
+    const vendorPaymentId = matchVendorPaymentId.trim();
+    if (!vendorPaymentId) {
+      setError("Vendor payment ID is required.");
+      return;
+    }
+    setError(null);
+    setIsMatching(true);
+    const { error: matchError } = await supabase.rpc("erp_bank_match_vendor_payment", {
+      p_bank_txn_id: matchModal.txn.id,
+      p_vendor_payment_id: vendorPaymentId,
+      p_confidence: "manual",
+      p_notes: matchNotes.trim() || null,
+    });
+
+    if (matchError) {
+      setError(matchError.message);
+      setIsMatching(false);
+      return;
+    }
+
+    setIsMatching(false);
+    closeMatchModal();
+    await loadTransactions();
+  };
+
+  const handleUnmatch = async () => {
+    if (!unmatchModal.txn) return;
+    const reason = unmatchReason.trim();
+    if (!reason) {
+      setError("Unmatch reason is required.");
+      return;
+    }
+    setError(null);
+    setIsUnmatching(true);
+    const { error: unmatchError } = await supabase.rpc("erp_bank_unmatch", {
+      p_bank_txn_id: unmatchModal.txn.id,
+      p_reason: reason,
+    });
+
+    if (unmatchError) {
+      setError(unmatchError.message);
+      setIsUnmatching(false);
+      return;
+    }
+
+    setIsUnmatching(false);
+    closeUnmatchModal();
     await loadTransactions();
   };
 
@@ -712,6 +785,7 @@ export default function BankImportPage() {
                     <th style={tableHeaderCellStyle}>Amount</th>
                     <th style={tableHeaderCellStyle}>Balance</th>
                     <th style={tableHeaderCellStyle}>Status</th>
+                    <th style={tableHeaderCellStyle}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -725,6 +799,30 @@ export default function BankImportPage() {
                       <td style={tableCellStyle}>{formatCurrency(txn.amount)}</td>
                       <td style={tableCellStyle}>{formatCurrency(txn.balance)}</td>
                       <td style={tableCellStyle}>{txn.is_matched ? "Matched" : "Unmatched"}</td>
+                      <td style={tableCellStyle}>
+                        {txn.is_matched ? (
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>Matched</span>
+                            <button
+                              type="button"
+                              style={secondaryButtonStyle}
+                              onClick={() => openUnmatchModal(txn)}
+                              disabled={!canWrite || isUnmatching}
+                            >
+                              Unmatch
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            style={secondaryButtonStyle}
+                            onClick={() => openMatchModal(txn)}
+                            disabled={!canWrite || isMatching}
+                          >
+                            Match
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -733,6 +831,117 @@ export default function BankImportPage() {
           )}
         </div>
       </div>
+
+      {matchModal.open && matchModal.txn && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            zIndex: 60,
+          }}
+        >
+          <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(520px, 92vw)" }}>
+            <h3 style={{ marginTop: 0 }}>Match bank transaction</h3>
+            <p style={{ color: "#64748b", marginTop: 6 }}>
+              Match the bank transaction on {matchModal.txn.txn_date} for{" "}
+              <strong>₹ {formatCurrency(matchModal.txn.amount)}</strong> to a vendor payment.
+            </p>
+            <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Vendor payment ID</span>
+                <input
+                  value={matchVendorPaymentId}
+                  onChange={(event) => setMatchVendorPaymentId(event.target.value)}
+                  style={inputStyle}
+                  placeholder="UUID of vendor payment"
+                />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Notes (optional)</span>
+                <textarea
+                  rows={3}
+                  value={matchNotes}
+                  onChange={(event) => setMatchNotes(event.target.value)}
+                  style={{ ...inputStyle, minHeight: 80 }}
+                />
+              </label>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={closeMatchModal}
+                disabled={isMatching}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handleMatch}
+                disabled={!matchVendorPaymentId.trim() || isMatching}
+              >
+                {isMatching ? "Matching…" : "Confirm match"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {unmatchModal.open && unmatchModal.txn && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            zIndex: 60,
+          }}
+        >
+          <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(520px, 92vw)" }}>
+            <h3 style={{ marginTop: 0 }}>Unmatch bank transaction</h3>
+            <p style={{ color: "#64748b", marginTop: 6 }}>
+              Provide a reason to unmatch the transaction on {unmatchModal.txn.txn_date} for{" "}
+              <strong>₹ {formatCurrency(unmatchModal.txn.amount)}</strong>.
+            </p>
+            <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
+              <span>Reason</span>
+              <textarea
+                rows={3}
+                value={unmatchReason}
+                onChange={(event) => setUnmatchReason(event.target.value)}
+                style={{ ...inputStyle, minHeight: 80 }}
+              />
+            </label>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={closeUnmatchModal}
+                disabled={isUnmatching}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={handleUnmatch}
+                disabled={!unmatchReason.trim() || isUnmatching}
+              >
+                {isUnmatching ? "Unmatching…" : "Confirm unmatch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ErpShell>
   );
 }
