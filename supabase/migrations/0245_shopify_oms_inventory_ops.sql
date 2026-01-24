@@ -1,9 +1,13 @@
 -- 0245_shopify_oms_inventory_ops.sql
 -- Phase-4A OMS inventory ledger operations (reservations, fulfillment, cancel, refund)
 
-create or replace function public.erp_oms_reserve_inventory(
-  p_order_id uuid
-) returns jsonb
+drop function if exists public.erp_oms_reserve_inventory(uuid);
+
+create function public.erp_oms_reserve_inventory(
+  p_oms_order_id uuid
+)
+ 
+returns jsonb
 language plpgsql
 security definer
 set search_path = public
@@ -21,14 +25,16 @@ begin
     perform public.erp_require_inventory_writer();
   end if;
 
-  if p_order_id is null then
+  if p_oms_order_id
+ is null then
     raise exception 'oms_order_id is required';
   end if;
 
   select *
     into v_order
     from public.erp_oms_orders
-   where id = p_order_id
+   where id = p_oms_order_id
+
    limit 1;
 
   if v_order.id is null then
@@ -118,7 +124,10 @@ revoke all on function public.erp_oms_reserve_inventory(uuid) from authenticated
 grant execute on function public.erp_oms_reserve_inventory(uuid) to authenticated;
 grant execute on function public.erp_oms_reserve_inventory(uuid) to service_role;
 
-create or replace function public.erp_oms_fulfill_order(
+drop function if exists public.erp_oms_fulfill_order(uuid, jsonb);
+
+create function public.erp_oms_fulfill_order(
+
   p_order_id uuid,
   p_payload jsonb default '{}'::jsonb
 ) returns jsonb
@@ -143,14 +152,16 @@ begin
     perform public.erp_require_inventory_writer();
   end if;
 
-  if p_order_id is null then
+  if p_oms_order_id
+ is null then
     raise exception 'oms_order_id is required';
   end if;
 
   select *
     into v_order
     from public.erp_oms_orders
-   where id = p_order_id
+   where id = p_oms_order_id
+
    limit 1;
 
   if v_order.id is null then
@@ -356,7 +367,7 @@ revoke all on function public.erp_oms_fulfill_order(uuid, jsonb) from public;
 revoke all on function public.erp_oms_fulfill_order(uuid, jsonb) from authenticated;
 grant execute on function public.erp_oms_fulfill_order(uuid, jsonb) to authenticated;
 grant execute on function public.erp_oms_fulfill_order(uuid, jsonb) to service_role;
-
+drop function if exists public.erp_oms_cancel_order(uuid);
 create or replace function public.erp_oms_cancel_order(
   p_order_id uuid
 ) returns jsonb
@@ -376,14 +387,16 @@ begin
     perform public.erp_require_inventory_writer();
   end if;
 
-  if p_order_id is null then
+  if p_oms_order_id
+ is null then
     raise exception 'oms_order_id is required';
   end if;
 
   select *
     into v_order
     from public.erp_oms_orders
-   where id = p_order_id
+   where id = p_oms_order_id
+
    limit 1;
 
   if v_order.id is null then
@@ -490,7 +503,7 @@ revoke all on function public.erp_oms_cancel_order(uuid) from public;
 revoke all on function public.erp_oms_cancel_order(uuid) from authenticated;
 grant execute on function public.erp_oms_cancel_order(uuid) to authenticated;
 grant execute on function public.erp_oms_cancel_order(uuid) to service_role;
-
+drop function if exists public.erp_oms_refund_order(uuid, jsonb);
 create or replace function public.erp_oms_refund_order(
   p_order_id uuid,
   p_payload jsonb default '{}'::jsonb
@@ -516,14 +529,16 @@ begin
     perform public.erp_require_inventory_writer();
   end if;
 
-  if p_order_id is null then
+  if p_oms_order_id
+ is null then
     raise exception 'oms_order_id is required';
   end if;
 
   select *
     into v_order
     from public.erp_oms_orders
-   where id = p_order_id
+   where id = p_oms_order_id
+
    limit 1;
 
   if v_order.id is null then
