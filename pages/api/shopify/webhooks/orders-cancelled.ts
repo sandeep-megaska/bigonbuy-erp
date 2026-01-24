@@ -30,6 +30,35 @@ function isValidHmac(rawBody: Buffer, secret: string, provided: string | string[
   return crypto.timingSafeEqual(digestBuffer, providedBuffer);
 }
 
+async function resolveOmsOrderId(
+  serviceClient: ReturnType<typeof createServiceRoleClient>,
+  companyId: string,
+  shopifyOrderId: number,
+): Promise<string | null> {
+  const { data: orderRow } = await serviceClient
+    .from("erp_oms_orders")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("source", "shopify")
+    .eq("external_order_id", shopifyOrderId)
+    .maybeSingle();
+
+  if (orderRow?.id) {
+    return orderRow.id;
+  }
+
+  const { data: omsResult, error: omsError } = await serviceClient.rpc("erp_oms_sync_from_shopify", {
+    p_company_id: companyId,
+    p_shopify_order_id: shopifyOrderId,
+  });
+
+  if (omsError) {
+    return null;
+  }
+
+  return (omsResult?.oms_order_id as string | undefined) ?? null;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<WebhookResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -59,6 +88,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Invalid JSON payload" });
   }
 
+  const shopifyOrderId = Number((payload as Record<string, unknown>)?.id);
+  if (!Number.isFinite(shopifyOrderId)) {
+    return res.status(400).json({ ok: false, error: "Missing order id in payload" });
+  }
+
   const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
   const { data: companyRow, error: companyError } = await serviceClient
     .from("erp_companies")
@@ -71,36 +105,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: "Unable to resolve company" });
   }
 
-  const { error: upsertError } = await serviceClient.rpc("erp_shopify_order_upsert", {
-    p_company_id: companyRow.id,
-    p_order: payload,
-  });
-
-  if (upsertError) {
-    return res.status(500).json({ ok: false, error: upsertError.message });
+  const omsOrderId = await resolveOmsOrderId(serviceClient, companyRow.id, shopifyOrderId);
+  if (!omsOrderId) {
+    return res.status(404).json({ ok: false, error: "OMS order not found" });
   }
 
-  const shopifyOrderId = Number(payload?.id);
-  if (Number.isFinite(shopifyOrderId)) {
-    const { data: omsResult, error: omsError } = await serviceClient.rpc("erp_oms_sync_from_shopify", {
-      p_company_id: companyRow.id,
-      p_shopify_order_id: shopifyOrderId,
-    });
+  const { error: cancelError } = await serviceClient.rpc("erp_oms_cancel_order", {
+    p_order_id: omsOrderId,
+  });
 
-    if (omsError) {
-      return res.status(500).json({ ok: false, error: omsError.message });
-    }
-
-    const omsOrderId = omsResult?.oms_order_id ?? null;
-    if (omsOrderId) {
-      const { error: reserveError } = await serviceClient.rpc("erp_oms_reserve_inventory", {
-        p_order_id: omsOrderId,
-      });
-
-      if (reserveError) {
-        return res.status(500).json({ ok: false, error: reserveError.message });
-      }
-    }
+  if (cancelError) {
+    return res.status(500).json({ ok: false, error: cancelError.message });
   }
 
   return res.status(200).json({ ok: true });
