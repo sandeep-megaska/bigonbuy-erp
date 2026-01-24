@@ -80,5 +80,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: upsertError.message });
   }
 
+  const shopifyOrderId = Number(payload?.id);
+  if (Number.isFinite(shopifyOrderId)) {
+    const { error: omsError } = await serviceClient.rpc("erp_oms_sync_from_shopify", {
+      p_company_id: companyRow.id,
+      p_shopify_order_id: shopifyOrderId,
+    });
+
+    if (omsError) {
+      return res.status(500).json({ ok: false, error: omsError.message });
+    }
+  }
+
   return res.status(200).json({ ok: true });
 }

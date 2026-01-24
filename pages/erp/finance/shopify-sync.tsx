@@ -26,6 +26,10 @@ type BackfillResult = {
   fetched?: number;
   upserted?: number;
   lines_upserted?: number;
+  oms_upserted?: number;
+  oms_lines_upserted?: number;
+  reservations_created?: number;
+  reservations_released?: number;
   errors?: number;
   error?: string;
 };
@@ -171,6 +175,10 @@ export default function ShopifySyncPage() {
               <li>Fetched: {backfillResult.fetched ?? 0}</li>
               <li>Upserted: {backfillResult.upserted ?? 0}</li>
               <li>Lines upserted: {backfillResult.lines_upserted ?? 0}</li>
+              <li>OMS orders synced: {backfillResult.oms_upserted ?? 0}</li>
+              <li>OMS lines synced: {backfillResult.oms_lines_upserted ?? 0}</li>
+              <li>Reservations created: {backfillResult.reservations_created ?? 0}</li>
+              <li>Reservations released: {backfillResult.reservations_released ?? 0}</li>
               <li>Errors: {backfillResult.errors ?? 0}</li>
             </ul>
           ) : (
