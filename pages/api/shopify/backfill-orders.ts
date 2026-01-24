@@ -12,6 +12,10 @@ type BackfillResponse = {
   fetched?: number;
   upserted?: number;
   lines_upserted?: number;
+  oms_upserted?: number;
+  oms_lines_upserted?: number;
+  reservations_created?: number;
+  reservations_released?: number;
   errors?: number;
   error_details?: string[];
   error?: string;
@@ -158,6 +162,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const orders = await fetchShopifyOrders(fromIso, toIso);
     let upserted = 0;
     let linesUpserted = 0;
+    let omsUpserted = 0;
+    let omsLinesUpserted = 0;
+    let reservationsCreated = 0;
+    let reservationsReleased = 0;
     let errors = 0;
     const errorDetails: string[] = [];
 
@@ -179,6 +187,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       if (Array.isArray(order?.line_items)) {
         linesUpserted += order.line_items.length;
       }
+
+      const { data: omsResult, error: omsError } = await userClient.rpc("erp_oms_sync_from_shopify", {
+        p_company_id: companyId,
+        p_shopify_order_id: order.id,
+      });
+
+      if (omsError || !omsResult?.ok) {
+        errors += 1;
+        if (omsError?.message) {
+          errorDetails.push(omsError.message);
+        }
+        continue;
+      }
+
+      omsUpserted += 1;
+      omsLinesUpserted += Number(omsResult?.lines_upserted ?? 0);
+      reservationsCreated += Number(omsResult?.reservations_created ?? 0);
+      reservationsReleased += Number(omsResult?.reservations_released ?? 0);
     }
 
     return res.status(200).json({
@@ -186,6 +212,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       fetched: orders.length,
       upserted,
       lines_upserted: linesUpserted,
+      oms_upserted: omsUpserted,
+      oms_lines_upserted: omsLinesUpserted,
+      reservations_created: reservationsCreated,
+      reservations_released: reservationsReleased,
       errors,
       error_details: errorDetails.slice(0, 10),
     });
