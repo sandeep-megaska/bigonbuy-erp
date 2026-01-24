@@ -80,6 +80,9 @@ const headerAliases = {
   debit: ["withdrawalamt", "withdrawalamount", "withdrawal", "debit", "debitamt", "debitamount", "dramount", "dr"],
   credit: ["depositamt", "depositamount", "deposit", "credit", "creditamt", "creditamount", "cramount", "cr"],
   balance: ["balance", "closingbalance", "availablebalance", "balanceinr", "balance(inr)", "balancein"],
+  crdr: ["crdr", "cr/dr"],
+  transaction_amount: ["transactionamountinr", "transactionamount", "transaction amount(inr)"],
+  available_balance: ["availablebalanceinr", "available balance(inr)", "balance"],
   reference_no: [
     "transactionid",
     "transactionref",
@@ -105,6 +108,9 @@ const headerDetectionTokens = [
   "deposit",
   "credit",
   "balance",
+  "crdr",
+  "transactionamountinr",
+  "availablebalanceinr",
 ];
 
 function normalizeHeader(value: string) {
@@ -152,17 +158,6 @@ function normalizeText(value: unknown) {
   if (value === null || value === undefined) return "";
   if (value instanceof Date) return formatDateInput(value);
   return String(value).trim();
-}
-
-function normalizeAmount(value: unknown) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number") return value;
-  const text = String(value).trim();
-  if (!text) return null;
-  const normalized = text.replace(/,/g, "");
-  const numeric = Number(normalized);
-  if (!Number.isNaN(numeric)) return numeric;
-  return text;
 }
 
 function extractReferenceNo(description: string) {
@@ -221,21 +216,44 @@ function normalizeIciciRows(matrix: any[][]) {
       const valueDate = normalizeText(getByAliases(rowObj, headerAliases.value_date));
       const description = normalizeText(getByAliases(rowObj, headerAliases.description));
       const reference = normalizeText(getByAliases(rowObj, headerAliases.reference_no));
-      const debit = normalizeAmount(getByAliases(rowObj, headerAliases.debit));
-      const credit = normalizeAmount(getByAliases(rowObj, headerAliases.credit));
-      const balance = normalizeAmount(getByAliases(rowObj, headerAliases.balance));
+      const desc = description || "";
+      const ref = reference || extractReferenceNo(desc);
+      const amount =
+        Number(
+          getByAliases(rowObj, [
+            "transactionamountinr",
+            "transactionamount",
+            ...headerAliases.transaction_amount,
+          ])
+        ) || 0;
+      const crdr = String(
+        getByAliases(rowObj, ["crdr", "cr/dr", ...headerAliases.crdr])
+      ).toUpperCase();
 
-      const fallbackReference = reference || extractReferenceNo(description || "");
+      let debit = 0;
+      let credit = 0;
+
+      if (crdr === "CR") credit = amount;
+      if (crdr === "DR") debit = amount;
+
+      const balance =
+        Number(
+          getByAliases(rowObj, [
+            "availablebalanceinr",
+            "balance",
+            ...headerAliases.available_balance,
+          ])
+        ) || null;
 
       const mappedRow: BankImportRow = {
-        txn_date: txnDate || valueDate || "",
-        value_date: valueDate || null,
-        description: description || "",
-        reference_no: fallbackReference || null,
-        debit: debit || null,
-        credit: credit || null,
-        balance: balance || null,
-        currency: null,
+        txn_date: getByAliases(rowObj, ["txndate", "transactiondate", "valuedate"]) || "",
+        value_date: getByAliases(rowObj, ["valuedate"]) || null,
+        description: desc,
+        reference_no: ref || null,
+        debit,
+        credit,
+        balance,
+        currency: "INR",
         raw: rowObj,
       };
 
