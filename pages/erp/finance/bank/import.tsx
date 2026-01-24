@@ -67,48 +67,67 @@ type BankTxnRow = {
 };
 
 const headerAliases = {
-  txnDate: ["transaction date", "txn date", "transactiondate", "date", "transaction_date"],
-  valueDate: ["value date", "valuedate", "value_date", "value"],
+  txn_date: ["transactiondate", "txndate", "txn.date", "transaction date"],
+  value_date: ["valuedate", "value date"],
   description: [
-    "transaction remarks",
-    "remarks",
     "transactionremarks",
+    "remarks",
     "narration",
     "description",
-    "particulars",
+    "transaction particulars",
+    "transactionparticulars",
   ],
-  reference: [
-    "cheque number",
-    "cheque no",
-    "chequeno",
-    "cheque",
-    "reference",
-    "reference no",
-    "ref no",
-    "refno",
-    "transaction id",
+  debit: ["withdrawalamt", "withdrawalamount", "withdrawal", "debit", "debitamt", "debitamount", "dramount", "dr"],
+  credit: ["depositamt", "depositamount", "deposit", "credit", "creditamt", "creditamount", "cramount", "cr"],
+  balance: ["balance", "closingbalance", "availablebalance", "balanceinr", "balance(inr)", "balancein"],
+  reference_no: [
     "transactionid",
+    "transactionref",
+    "referenceno",
+    "reference",
+    "chqno",
+    "chequenumber",
+    "chequenumber",
     "utr",
     "rrn",
   ],
-  debit: ["withdrawal amt.", "withdrawal amt", "withdrawal", "debit", "dr amount", "dr amt"],
-  credit: ["deposit amt.", "deposit amt", "deposit", "credit", "cr amount", "cr amt"],
-  balance: ["balance", "closing balance", "balance amt", "balance amount"],
-  currency: ["currency", "curr"],
 };
 
+const headerDetectionTokens = [
+  "transactiondate",
+  "txndate",
+  "valuedate",
+  "narration",
+  "remarks",
+  "description",
+  "withdrawal",
+  "debit",
+  "deposit",
+  "credit",
+  "balance",
+];
+
 function normalizeHeader(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return value.toLowerCase().trim().replace(/[^a-z0-9]/g, "");
 }
 
-function findHeader(headers: string[], aliases: string[]) {
-  const normalized = headers.map(normalizeHeader);
+function getByAliases(row: Record<string, unknown>, aliases: string[]) {
+  const normalizedRow = Object.entries(row).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    const normalizedKey = normalizeHeader(key);
+    if (!(normalizedKey in acc)) {
+      acc[normalizedKey] = value;
+    }
+    return acc;
+  }, {});
+
   for (const alias of aliases) {
     const aliasKey = normalizeHeader(alias);
-    const index = normalized.indexOf(aliasKey);
-    if (index >= 0) return headers[index];
+    const value = normalizedRow[aliasKey];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
   }
-  return null;
+  return "";
 }
 
 function formatDateInput(date: Date) {
@@ -120,13 +139,13 @@ function formatCurrency(value: number | null | undefined) {
   return Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-async function parseIciciXls(file: File): Promise<Record<string, any>[]> {
+async function parseIciciXls(file: File): Promise<any[][]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const [sheetName] = workbook.SheetNames;
   if (!sheetName) return [];
   const sheet = workbook.Sheets[sheetName];
-  return XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
+  return XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "" });
 }
 
 function normalizeText(value: unknown) {
@@ -146,49 +165,90 @@ function normalizeAmount(value: unknown) {
   return text;
 }
 
-function normalizeIciciRows(rows: Record<string, any>[]) {
-  const headerSet = new Set<string>();
-  rows.forEach((row) => {
-    Object.keys(row || {}).forEach((key) => headerSet.add(key));
-  });
-  const headers = Array.from(headerSet);
-  const txnDateHeader = findHeader(headers, headerAliases.txnDate);
-  const valueDateHeader = findHeader(headers, headerAliases.valueDate);
-  const descriptionHeader = findHeader(headers, headerAliases.description);
-  const referenceHeader = findHeader(headers, headerAliases.reference);
-  const debitHeader = findHeader(headers, headerAliases.debit);
-  const creditHeader = findHeader(headers, headerAliases.credit);
-  const balanceHeader = findHeader(headers, headerAliases.balance);
-  const currencyHeader = findHeader(headers, headerAliases.currency);
+function extractReferenceNo(description: string) {
+  if (!description) return null;
+  const prefixMatch = description.match(/(?:NEFT|IMPS|UPI|RTGS)-([A-Za-z0-9]+)/i);
+  if (prefixMatch?.[1]) {
+    return prefixMatch[1];
+  }
+  const utrMatch = description.match(/[A-Za-z0-9]{10,}/);
+  return utrMatch ? utrMatch[0] : null;
+}
 
-  return rows
+function detectHeaderRow(matrix: any[][]) {
+  const tokens = headerDetectionTokens.map(normalizeHeader);
+  for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
+    const row = matrix[rowIndex] || [];
+    const normalizedRow = row.map((cell) => normalizeHeader(String(cell ?? "")));
+    const matchCount = tokens.reduce((count, token) => {
+      return normalizedRow.some((cell) => cell.includes(token)) ? count + 1 : count;
+    }, 0);
+    if (matchCount >= 2) {
+      return rowIndex;
+    }
+  }
+  return -1;
+}
+
+function normalizeIciciRows(matrix: any[][]) {
+  const headerIndex = detectHeaderRow(matrix);
+  if (headerIndex === -1) {
+    return { rows: [], detectedHeaders: [] as string[] };
+  }
+
+  const headerRow = (matrix[headerIndex] || []).map((cell) => normalizeText(cell));
+  const detectedHeaders = headerRow.filter((header) => header);
+  const dataRows = matrix.slice(headerIndex + 1);
+
+  const normalizedRows = dataRows
     .map((row) => {
-      const txnDate = txnDateHeader ? normalizeText(row[txnDateHeader]) : "";
-      const valueDate = valueDateHeader ? normalizeText(row[valueDateHeader]) : "";
-      const description = descriptionHeader ? normalizeText(row[descriptionHeader]) : "";
-      const reference = referenceHeader ? normalizeText(row[referenceHeader]) : "";
-      const debit = debitHeader ? normalizeAmount(row[debitHeader]) : null;
-      const credit = creditHeader ? normalizeAmount(row[creditHeader]) : null;
-      const balance = balanceHeader ? normalizeAmount(row[balanceHeader]) : null;
-      const currency = currencyHeader ? normalizeText(row[currencyHeader]) : "";
+      const rowObj = row.reduce<Record<string, unknown>>((acc, cell, index) => {
+        const header = headerRow[index];
+        if (header) {
+          acc[header] = cell;
+        }
+        return acc;
+      }, {});
+
+      const hasValues = Object.values(rowObj).some(
+        (value) => value !== null && value !== undefined && String(value).trim() !== ""
+      );
+      if (!hasValues) {
+        return null;
+      }
+
+      const txnDate = normalizeText(getByAliases(rowObj, headerAliases.txn_date));
+      const valueDate = normalizeText(getByAliases(rowObj, headerAliases.value_date));
+      const description = normalizeText(getByAliases(rowObj, headerAliases.description));
+      const reference = normalizeText(getByAliases(rowObj, headerAliases.reference_no));
+      const debit = normalizeAmount(getByAliases(rowObj, headerAliases.debit));
+      const credit = normalizeAmount(getByAliases(rowObj, headerAliases.credit));
+      const balance = normalizeAmount(getByAliases(rowObj, headerAliases.balance));
+
+      const fallbackReference = reference || extractReferenceNo(description || "");
 
       return {
         txn_date: txnDate || valueDate || "",
         value_date: valueDate || null,
         description: description || "",
-        reference_no: reference || null,
+        reference_no: fallbackReference || null,
         debit: debit || null,
         credit: credit || null,
         balance: balance || null,
-        currency: currency || null,
-        raw: row,
+        currency: null,
+        raw: rowObj,
       } satisfies BankImportRow;
     })
-    .filter((row) =>
+    .filter((row): row is BankImportRow => Boolean(row));
+
+  return {
+    rows: normalizedRows.filter((row) =>
       [row.txn_date, row.value_date, row.description, row.reference_no, row.debit, row.credit].some(
         (value) => value && String(value).trim() !== ""
       )
-    );
+    ),
+    detectedHeaders,
+  };
 }
 
 export default function BankImportPage() {
@@ -203,6 +263,7 @@ export default function BankImportPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [accountRef, setAccountRef] = useState("");
+  const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
 
   const [fromDate, setFromDate] = useState(() => {
     const date = new Date();
@@ -275,9 +336,13 @@ export default function BankImportPage() {
     setImportResult(null);
     setRows([]);
     setFileName(file.name);
+    setDetectedHeaders([]);
 
     try {
-      const parsedRows = normalizeIciciRows(await parseIciciXls(file));
+      const { rows: parsedRows, detectedHeaders: headers } = normalizeIciciRows(
+        await parseIciciXls(file)
+      );
+      setDetectedHeaders(headers);
       if (!parsedRows.length) {
         setParseError("No valid rows found in XLS.");
         return;
@@ -380,6 +445,12 @@ export default function BankImportPage() {
 
         <div style={{ ...cardStyle, marginBottom: 24 }}>
           <h3>Preview (first 20 rows)</h3>
+          {detectedHeaders.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <strong>Detected headers (first 20):</strong>
+              <div>{detectedHeaders.slice(0, 20).join(", ")}</div>
+            </div>
+          )}
           {rows.length === 0 ? (
             <p>No rows parsed yet.</p>
           ) : (
