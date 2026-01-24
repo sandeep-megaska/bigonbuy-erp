@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
@@ -141,6 +141,7 @@ export default function ApOutstandingPage() {
   const [allocationDate, setAllocationDate] = useState(today());
   const [allocationNote, setAllocationNote] = useState("");
   const [isSavingAllocation, setIsSavingAllocation] = useState(false);
+  const hasAppliedQuery = useRef(false);
 
   const selectedInvoice = useMemo(
     () => invoiceRows.find((row) => row.invoice_id === selectedInvoiceId) || null,
@@ -185,6 +186,20 @@ export default function ApOutstandingPage() {
       active = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!router.isReady || hasAppliedQuery.current) return;
+    const vendorFromQuery = typeof router.query.vendorId === "string" ? router.query.vendorId : "";
+    const queryFromQuery = typeof router.query.q === "string" ? router.query.q : "";
+    if (vendorFromQuery) {
+      setVendorId(vendorFromQuery);
+    }
+    if (queryFromQuery) {
+      setQueryInput(queryFromQuery);
+      setQuery(queryFromQuery);
+    }
+    hasAppliedQuery.current = true;
+  }, [router.isReady, router.query.vendorId, router.query.q]);
 
   useEffect(() => {
     let active = true;

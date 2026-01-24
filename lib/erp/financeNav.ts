@@ -86,6 +86,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-recon",
+    label: "Recon Dashboard",
+    href: "/erp/finance/recon",
+    description: "Monitor bank matches, vendor payments, and AP allocations.",
+    group: "Finance",
+    sidebarIcon: "RC",
+    cardIcon: "🧭",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-vendor-payments",
     label: "Vendor Payments",
     href: "/erp/finance/vendor-payments",
