@@ -249,7 +249,7 @@ export default function ApPaymentsPage() {
 
     const { error: voidError } = await supabase.rpc("erp_ap_vendor_payment_void", {
       p_id: activePayment.id,
-      p_reason: voidReason.trim(),
+      p_void_reason: voidReason.trim(),
     });
 
     if (voidError) {

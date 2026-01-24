@@ -97,6 +97,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-vendor-payments",
+    label: "Vendor Payments",
+    href: "/erp/finance/vendor-payments",
+    description: "Create, match, and void vendor payments.",
+    group: "Finance",
+    sidebarIcon: "VP",
+    cardIcon: "💸",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-expense-reports",
     label: "Expense Reports",
     href: "/erp/finance/expenses/reports",
