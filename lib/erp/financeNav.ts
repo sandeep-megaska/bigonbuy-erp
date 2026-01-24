@@ -86,17 +86,6 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
-    id: "finance-ap-payments",
-    label: "AP Payments",
-    href: "/erp/finance/ap/payments",
-    description: "Record and manage vendor payments.",
-    group: "Finance",
-    sidebarIcon: "PY",
-    cardIcon: "💸",
-    showInSidebar: true,
-    showInCards: false,
-  },
-  {
     id: "finance-vendor-payments",
     label: "Vendor Payments",
     href: "/erp/finance/vendor-payments",

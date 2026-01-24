@@ -39,6 +39,7 @@ type VendorOption = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
+// This is the canonical AP outgoing cash module. Do not create parallel payment UIs elsewhere.
 export default function VendorPaymentsListPage() {
   const router = useRouter();
   const { start, end } = useMemo(() => last30Days(), []);
