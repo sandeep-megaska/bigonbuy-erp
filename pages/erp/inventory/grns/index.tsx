@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import {
@@ -142,7 +143,11 @@ export default function GrnListPage() {
                   const grnLabel = grn.grn_no || "—";
                   return (
                     <tr key={grn.id}>
-                      <td style={tableCellStyle}>{grnLabel}</td>
+                      <td style={tableCellStyle}>
+                        <Link href={`/erp/inventory/grns/${grn.id}`} style={tableLinkStyle}>
+                          {grnLabel}
+                        </Link>
+                      </td>
                       <td style={tableCellStyle}>{po?.doc_no || "—"}</td>
                       <td style={tableCellStyle}>{vendorMap.get(po?.vendor_id || "") || "—"}</td>
                       <td style={tableCellStyle}>{grn.status}</td>
@@ -158,3 +163,9 @@ export default function GrnListPage() {
     </ErpShell>
   );
 }
+
+const tableLinkStyle: CSSProperties = {
+  color: "#2563eb",
+  textDecoration: "none",
+  fontWeight: 600,
+};
