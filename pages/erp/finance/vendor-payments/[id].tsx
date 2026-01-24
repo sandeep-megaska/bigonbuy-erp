@@ -315,7 +315,7 @@ export default function VendorPaymentDetailPage() {
         <ErpPageHeader
           title={`Payment ${payment.reference_no || payment.id}`}
           description={`Vendor payment recorded on ${payment.payment_date}.`}
-          actions={
+          rightActions={
             <div style={{ display: "flex", gap: 12 }}>
               <button
                 type="button"
