@@ -345,7 +345,7 @@ export default function BankImportPage() {
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title="Bank XLS Import"
-          subtitle="Upload ICICI corporate statement XLS files, review, and ingest transactions."
+          description="Upload ICICI corporate statement XLS files, review, and ingest transactions."
         />
 
         <div style={{ ...cardStyle, marginBottom: 24 }}>
