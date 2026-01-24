@@ -64,6 +64,8 @@ export default function VendorPaymentsListPage() {
   const [formMode, setFormMode] = useState("bank");
   const [formReference, setFormReference] = useState("");
   const [formNote, setFormNote] = useState("");
+  const [formSource, setFormSource] = useState("manual");
+  const [formSourceRef, setFormSourceRef] = useState("");
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -184,6 +186,8 @@ export default function VendorPaymentsListPage() {
     setFormMode("bank");
     setFormReference("");
     setFormNote("");
+    setFormSource("manual");
+    setFormSourceRef("");
   };
 
   const handleOpenCreate = () => {
@@ -207,6 +211,8 @@ export default function VendorPaymentsListPage() {
       mode: formMode || "bank",
       referenceNo: formReference || null,
       note: formNote || null,
+      source: formSource || "manual",
+      sourceRef: formSourceRef || null,
     });
 
     if (saveError) {
@@ -294,7 +300,7 @@ export default function VendorPaymentsListPage() {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={primaryButtonStyle} type="submit">
-              Apply Filters
+              Search
             </button>
             <button
               style={secondaryButtonStyle}
@@ -373,16 +379,19 @@ export default function VendorPaymentsListPage() {
                       <td style={tableCellStyle}>{payment.source || "—"}</td>
                       <td style={tableCellStyle}>
                         {payment.matched ? (
-                          <span title={matchedTooltip} style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>
-                            Matched
+                          <span
+                            title={matchedTooltip}
+                            style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}
+                          >
+                            Yes
                           </span>
                         ) : (
-                          "—"
+                          <span style={{ ...badgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" }}>No</span>
                         )}
                       </td>
                       <td style={tableCellStyle}>
                         {payment.is_void ? (
-                          <span style={{ ...badgeStyle, backgroundColor: "#f3f4f6", color: "#4b5563" }}>
+                          <span style={{ ...badgeStyle, backgroundColor: "#fee2e2", color: "#b91c1c" }}>
                             VOID
                           </span>
                         ) : (
@@ -484,6 +493,14 @@ export default function VendorPaymentsListPage() {
                   onChange={(e) => setFormNote(e.target.value)}
                   style={{ ...inputStyle, minHeight: 90 }}
                 />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Source</span>
+                <input value={formSource} onChange={(e) => setFormSource(e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Source reference</span>
+                <input value={formSourceRef} onChange={(e) => setFormSourceRef(e.target.value)} style={inputStyle} />
               </label>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>

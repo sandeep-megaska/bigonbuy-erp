@@ -64,6 +64,8 @@ export default function VendorPaymentDetailPage() {
   const [formMode, setFormMode] = useState("bank");
   const [formReference, setFormReference] = useState("");
   const [formNote, setFormNote] = useState("");
+  const [formSource, setFormSource] = useState("manual");
+  const [formSourceRef, setFormSourceRef] = useState("");
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -157,6 +159,8 @@ export default function VendorPaymentDetailPage() {
     setFormMode(payment.mode || "bank");
     setFormReference(payment.reference_no || "");
     setFormNote(payment.note || "");
+    setFormSource(payment.source || "manual");
+    setFormSourceRef(payment.source_ref || "");
     setToast(null);
     setIsEditOpen(true);
   };
@@ -176,6 +180,8 @@ export default function VendorPaymentDetailPage() {
       mode: formMode || "bank",
       referenceNo: formReference || null,
       note: formNote || null,
+      source: formSource || "manual",
+      sourceRef: formSourceRef || null,
     });
 
     if (saveError) {
@@ -350,6 +356,10 @@ export default function VendorPaymentDetailPage() {
               <strong>{payment.vendor_name || payment.vendor_id}</strong>
             </div>
             <div>
+              <p style={subtitleStyle}>Payment date</p>
+              <strong>{payment.payment_date}</strong>
+            </div>
+            <div>
               <p style={subtitleStyle}>Amount</p>
               <strong>{formatCurrency(payment.amount, payment.currency || "INR")}</strong>
             </div>
@@ -360,6 +370,10 @@ export default function VendorPaymentDetailPage() {
             <div>
               <p style={subtitleStyle}>Reference</p>
               <strong>{payment.reference_no || "—"}</strong>
+            </div>
+            <div>
+              <p style={subtitleStyle}>Source</p>
+              <strong>{payment.source || "—"}</strong>
             </div>
             <div>
               <p style={subtitleStyle}>Status</p>
@@ -398,6 +412,7 @@ export default function VendorPaymentDetailPage() {
                 <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8 }}>
                   <span>Date: {payment.matched_bank_txn_date || "—"}</span>
                   <span>Amount: {payment.matched_bank_txn_amount ?? "—"}</span>
+                  <span>Reference: {payment.matched_bank_txn_id || "—"}</span>
                 </div>
               </div>
               <button
@@ -517,6 +532,14 @@ export default function VendorPaymentDetailPage() {
                   onChange={(e) => setFormNote(e.target.value)}
                   style={{ ...inputStyle, minHeight: 90 }}
                 />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Source</span>
+                <input value={formSource} onChange={(e) => setFormSource(e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Source reference</span>
+                <input value={formSourceRef} onChange={(e) => setFormSourceRef(e.target.value)} style={inputStyle} />
               </label>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
