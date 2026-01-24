@@ -141,8 +141,26 @@ export default function GrnListPage() {
                 grns.map((grn) => {
                   const po = poMap.get(grn.purchase_order_id);
                   const grnLabel = grn.grn_no || "—";
+                  const isDraft = grn.status === "draft";
                   return (
-                    <tr key={grn.id}>
+                    <tr
+                      key={grn.id}
+                      onClick={() => {
+                        if (isDraft) {
+                          router.push(`/erp/inventory/grns/${grn.id}`);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (!isDraft) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          router.push(`/erp/inventory/grns/${grn.id}`);
+                        }
+                      }}
+                      role={isDraft ? "button" : undefined}
+                      tabIndex={isDraft ? 0 : -1}
+                      style={isDraft ? { cursor: "pointer" } : undefined}
+                    >
                       <td style={tableCellStyle}>
                         <Link href={`/erp/inventory/grns/${grn.id}`} style={tableLinkStyle}>
                           {grnLabel}
