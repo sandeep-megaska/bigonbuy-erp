@@ -203,8 +203,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       omsUpserted += 1;
       omsLinesUpserted += Number(omsResult?.lines_upserted ?? 0);
-      reservationsCreated += Number(omsResult?.reservations_created ?? 0);
-      reservationsReleased += Number(omsResult?.reservations_released ?? 0);
+
+      const omsOrderId = omsResult?.oms_order_id ?? null;
+      if (omsOrderId) {
+        const { data: reserveResult, error: reserveError } = await userClient.rpc("erp_oms_reserve_inventory", {
+          p_order_id: omsOrderId,
+        });
+
+        if (reserveError || !reserveResult?.ok) {
+          errors += 1;
+          if (reserveError?.message) {
+            errorDetails.push(reserveError.message);
+          }
+          continue;
+        }
+
+        reservationsCreated += Number(reserveResult?.reservations_created ?? 0);
+      }
     }
 
     return res.status(200).json({
