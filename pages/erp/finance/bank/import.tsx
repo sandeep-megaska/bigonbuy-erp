@@ -245,9 +245,12 @@ function normalizeIciciRows(matrix: any[][]) {
           ])
         ) || null;
 
+      const fallbackTxnDate = normalizeText(getByAliases(rowObj, ["valuedate"]));
+      const fallbackValueDate = normalizeText(getByAliases(rowObj, ["valuedate"]));
+
       const mappedRow: BankImportRow = {
-        txn_date: getByAliases(rowObj, ["txndate", "transactiondate", "valuedate"]) || "",
-        value_date: getByAliases(rowObj, ["valuedate"]) || null,
+        txn_date: txnDate || fallbackTxnDate || "",
+        value_date: valueDate || fallbackValueDate || null,
         description: desc,
         reference_no: ref || null,
         debit,
