@@ -201,7 +201,7 @@ function normalizeIciciRows(matrix: any[][]) {
   const dataRows = matrix.slice(headerIndex + 1);
 
   const normalizedRows = dataRows
-    .map((row) => {
+    .map((row): BankImportRow | null => {
       const rowObj = row.reduce<Record<string, unknown>>((acc, cell, index) => {
         const header = headerRow[index];
         if (header) {
@@ -227,7 +227,7 @@ function normalizeIciciRows(matrix: any[][]) {
 
       const fallbackReference = reference || extractReferenceNo(description || "");
 
-      return {
+      const mappedRow: BankImportRow = {
         txn_date: txnDate || valueDate || "",
         value_date: valueDate || null,
         description: description || "",
@@ -237,9 +237,11 @@ function normalizeIciciRows(matrix: any[][]) {
         balance: balance || null,
         currency: null,
         raw: rowObj,
-      } satisfies BankImportRow;
+      };
+
+      return mappedRow;
     })
-    .filter((row): row is BankImportRow => Boolean(row));
+    .filter((row): row is BankImportRow => row !== null);
 
   return {
     rows: normalizedRows.filter((row) =>
