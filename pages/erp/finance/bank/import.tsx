@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
@@ -32,7 +32,7 @@ type BankImportRow = {
   credit?: string | number | null;
   balance?: string | number | null;
   currency?: string | null;
-  raw: Record<string, string>;
+  raw: Record<string, unknown>;
 };
 
 type ImportErrorRow = {
@@ -120,8 +120,39 @@ function formatCurrency(value: number | null | undefined) {
   return Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function parseRows(results: Papa.ParseResult<Record<string, string>>) {
-  const headers = results.meta.fields ?? [];
+async function parseIciciXls(file: File): Promise<Record<string, any>[]> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const [sheetName] = workbook.SheetNames;
+  if (!sheetName) return [];
+  const sheet = workbook.Sheets[sheetName];
+  return XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
+}
+
+function normalizeText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return formatDateInput(value);
+  return String(value).trim();
+}
+
+function normalizeAmount(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  const text = String(value).trim();
+  if (!text) return null;
+  const normalized = text.replace(/,/g, "");
+  const numeric = Number(normalized);
+  if (!Number.isNaN(numeric)) return numeric;
+  return text;
+}
+
+function normalizeIciciRows(rows: Record<string, any>[]) {
+  const headers = Array.from(
+    rows.reduce((set, row) => {
+      Object.keys(row || {}).forEach((key) => set.add(key));
+      return set;
+    }, new Set<string>())
+  );
   const txnDateHeader = findHeader(headers, headerAliases.txnDate);
   const valueDateHeader = findHeader(headers, headerAliases.valueDate);
   const descriptionHeader = findHeader(headers, headerAliases.description);
@@ -131,16 +162,16 @@ function parseRows(results: Papa.ParseResult<Record<string, string>>) {
   const balanceHeader = findHeader(headers, headerAliases.balance);
   const currencyHeader = findHeader(headers, headerAliases.currency);
 
-  return results.data
+  return rows
     .map((row) => {
-      const txnDate = txnDateHeader ? row[txnDateHeader]?.trim() : "";
-      const valueDate = valueDateHeader ? row[valueDateHeader]?.trim() : "";
-      const description = descriptionHeader ? row[descriptionHeader]?.trim() : "";
-      const reference = referenceHeader ? row[referenceHeader]?.trim() : "";
-      const debit = debitHeader ? row[debitHeader]?.trim() : "";
-      const credit = creditHeader ? row[creditHeader]?.trim() : "";
-      const balance = balanceHeader ? row[balanceHeader]?.trim() : "";
-      const currency = currencyHeader ? row[currencyHeader]?.trim() : "";
+      const txnDate = txnDateHeader ? normalizeText(row[txnDateHeader]) : "";
+      const valueDate = valueDateHeader ? normalizeText(row[valueDateHeader]) : "";
+      const description = descriptionHeader ? normalizeText(row[descriptionHeader]) : "";
+      const reference = referenceHeader ? normalizeText(row[referenceHeader]) : "";
+      const debit = debitHeader ? normalizeAmount(row[debitHeader]) : null;
+      const credit = creditHeader ? normalizeAmount(row[creditHeader]) : null;
+      const balance = balanceHeader ? normalizeAmount(row[balanceHeader]) : null;
+      const currency = currencyHeader ? normalizeText(row[currencyHeader]) : "";
 
       return {
         txn_date: txnDate || valueDate || "",
@@ -240,27 +271,24 @@ export default function BankImportPage() {
     }
   }, [loading, ctx?.companyId, fromDate, toDate]);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setParseError(null);
     setImportResult(null);
     setRows([]);
     setFileName(file.name);
 
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        const parsedRows = parseRows(results);
-        if (!parsedRows.length) {
-          setParseError("No valid rows found in CSV.");
-          return;
-        }
-        setRows(parsedRows);
-      },
-      error: (parseErr) => {
-        setParseError(parseErr.message || "Failed to parse CSV.");
-      },
-    });
+    try {
+      const parsedRows = normalizeIciciRows(await parseIciciXls(file));
+      if (!parsedRows.length) {
+        setParseError("No valid rows found in XLS.");
+        return;
+      }
+      setRows(parsedRows);
+    } catch (parseErr) {
+      setParseError(
+        parseErr instanceof Error ? parseErr.message : "Failed to parse XLS statement."
+      );
+    }
   };
 
   const handleImport = async () => {
@@ -269,7 +297,7 @@ export default function BankImportPage() {
       return;
     }
     if (!rows.length) {
-      setError("Upload a CSV before importing.");
+      setError("Upload an XLS statement before importing.");
       return;
     }
 
@@ -306,7 +334,7 @@ export default function BankImportPage() {
     return (
       <ErpShell>
         <div style={pageContainerStyle}>
-          <ErpPageHeader title="Bank CSV Import" />
+          <ErpPageHeader title="Bank XLS Import" />
           <div style={cardStyle}>{error}</div>
         </div>
       </ErpShell>
@@ -317,18 +345,20 @@ export default function BankImportPage() {
     <ErpShell>
       <div style={pageContainerStyle}>
         <ErpPageHeader
-          title="Bank CSV Import"
-          subtitle="Upload ICICI corporate statement CSVs, review, and ingest transactions."
+          title="Bank XLS Import"
+          subtitle="Upload ICICI corporate statement XLS files, review, and ingest transactions."
         />
 
         <div style={{ ...cardStyle, marginBottom: 24 }}>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
             <input
               type="file"
-              accept=".csv"
+              accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) handleFile(file);
+                if (file) {
+                  void handleFile(file);
+                }
               }}
             />
             <div style={{ display: "flex", flexDirection: "column", minWidth: 220 }}>
@@ -345,7 +375,7 @@ export default function BankImportPage() {
           {fileName && <p style={{ marginTop: 0 }}>Selected file: {fileName}</p>}
           {parseError && <p style={{ color: "#b91c1c" }}>{parseError}</p>}
           <button style={primaryButtonStyle} onClick={handleImport} disabled={isSubmitting}>
-            {isSubmitting ? "Importing..." : "Import ICICI CSV"}
+            {isSubmitting ? "Importing..." : "Import ICICI XLS"}
           </button>
         </div>
 
