@@ -644,7 +644,7 @@ export default function GrnDetailPage() {
                               step={1}
                               style={{
                                 ...inputStyle,
-                                borderColor: lineError ? "#fca5a5" : inputStyle.border,
+                                borderColor: lineError ? "#fca5a5" : "#d1d5db",
                               }}
                               value={Number.isFinite(line.received_qty) ? line.received_qty : ""}
                               onChange={(event) =>
