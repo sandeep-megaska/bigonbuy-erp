@@ -61,8 +61,10 @@ type BankTxnRow = {
   balance: number | null;
   currency: string | null;
   is_matched: boolean;
-  is_void: boolean;
-  void_reason: string | null;
+  matched_entity_type: string | null;
+  matched_entity_id: string | null;
+  match_confidence: string | null;
+  match_notes: string | null;
   created_at: string;
 };
 
@@ -363,6 +365,9 @@ export default function BankImportPage() {
     return formatDateInput(date);
   });
   const [toDate, setToDate] = useState(() => formatDateInput(new Date()));
+  const [query, setQuery] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
   const [transactions, setTransactions] = useState<BankTxnRow[]>([]);
   const [isLoadingTxns, setIsLoadingTxns] = useState(false);
 
@@ -400,11 +405,15 @@ export default function BankImportPage() {
     if (!ctx?.companyId) return;
     setIsLoadingTxns(true);
     setError(null);
+    const trimmedQuery = query.trim();
 
-    const { data, error: listError } = await supabase.rpc("erp_bank_txns_list", {
+    const { data, error: listError } = await supabase.rpc("erp_bank_txns_search", {
       p_from: fromDate,
       p_to: toDate,
-      p_source: "icici",
+      p_source: null,
+      p_query: trimmedQuery || null,
+      p_min_amount: toNum(minAmount) ?? null,
+      p_max_amount: toNum(maxAmount) ?? null,
     });
 
     if (listError) {
@@ -421,7 +430,7 @@ export default function BankImportPage() {
     if (!loading && ctx?.companyId) {
       void loadTransactions();
     }
-  }, [loading, ctx?.companyId, fromDate, toDate]);
+  }, [loading, ctx?.companyId]);
 
   const handleFile = async (file: File) => {
     setParseError(null);
@@ -643,10 +652,50 @@ export default function BankImportPage() {
                 onChange={(event) => setToDate(event.target.value)}
               />
             </div>
+            <div style={{ minWidth: 260 }}>
+              <label htmlFor="search_query">Search</label>
+              <input
+                id="search_query"
+                style={inputStyle}
+                value={query}
+                placeholder="Search party / narration / reference"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void loadTransactions();
+                  }
+                }}
+              />
+            </div>
+            <div>
+              <label htmlFor="min_amount">Min amount</label>
+              <input
+                id="min_amount"
+                type="number"
+                style={inputStyle}
+                value={minAmount}
+                onChange={(event) => setMinAmount(event.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="max_amount">Max amount</label>
+              <input
+                id="max_amount"
+                type="number"
+                style={inputStyle}
+                value={maxAmount}
+                onChange={(event) => setMaxAmount(event.target.value)}
+              />
+            </div>
             <button style={secondaryButtonStyle} onClick={loadTransactions} disabled={isLoadingTxns}>
-              {isLoadingTxns ? "Refreshing..." : "Refresh"}
+              {isLoadingTxns ? "Applying..." : "Apply"}
             </button>
           </div>
+          <p style={{ marginTop: 12 }}>
+            Showing {transactions.length} transactions from {fromDate} to {toDate} (query: "
+            {query.trim() || "All"}")
+          </p>
 
           {transactions.length === 0 ? (
             <p style={{ marginTop: 16 }}>No transactions found in this date range.</p>
@@ -675,7 +724,7 @@ export default function BankImportPage() {
                       <td style={tableCellStyle}>{formatCurrency(txn.credit)}</td>
                       <td style={tableCellStyle}>{formatCurrency(txn.amount)}</td>
                       <td style={tableCellStyle}>{formatCurrency(txn.balance)}</td>
-                      <td style={tableCellStyle}>{txn.is_void ? "Voided" : "Active"}</td>
+                      <td style={tableCellStyle}>{txn.is_matched ? "Matched" : "Unmatched"}</td>
                     </tr>
                   ))}
                 </tbody>
