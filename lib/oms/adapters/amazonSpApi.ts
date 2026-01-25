@@ -18,11 +18,14 @@ type ListFinancialEventsByGroupParams = {
 type ListFinancialEventsByDateRangeParams = {
   postedAfter: string;
   postedBefore: string;
+  nextToken?: string;
+  maxPages?: number;
   signal?: AbortSignal;
 };
 
 type ListFinancialEventsByDateRangeResult = {
   financialEvents: Record<string, unknown>;
+  nextToken?: string;
   debug: {
     pages: number;
     eventsCount: number;
@@ -43,17 +46,20 @@ export async function financesListEventGroups({
   signal,
 }: ListFinancialEventGroupsParams): Promise<Record<string, unknown>> {
   const accessToken = await getAmazonAccessToken();
+  const query: Record<string, string | number> = {
+    FinancialEventGroupStartedAfter: startDate,
+    FinancialEventGroupStartedBefore: endDate,
+    MaxResultsPerPage: 100,
+  };
+  if (nextToken) {
+    query.NextToken = nextToken;
+  }
   const res = await spApiSignedFetch({
     method: "GET",
     path: `${FINANCES_API_BASE}/financialEventGroups`,
     accessToken,
     signal,
-    query: {
-      FinancialEventGroupStartedAfter: startDate,
-      FinancialEventGroupStartedBefore: endDate,
-      MaxResultsPerPage: 100,
-      NextToken: nextToken,
-    },
+    query,
   });
 
   const json = await res.json();
@@ -70,16 +76,19 @@ export async function financesListEventsByGroup({
   signal,
 }: ListFinancialEventsByGroupParams): Promise<Record<string, unknown>> {
   const accessToken = await getAmazonAccessToken();
+  const query: Record<string, string | number> = {
+    FinancialEventGroupId: eventGroupId,
+    MaxResultsPerPage: 100,
+  };
+  if (nextToken) {
+    query.NextToken = nextToken;
+  }
   const res = await spApiSignedFetch({
     method: "GET",
     path: `${FINANCES_API_BASE}/financialEvents`,
     accessToken,
     signal,
-    query: {
-      FinancialEventGroupId: eventGroupId,
-      MaxResultsPerPage: 100,
-      NextToken: nextToken,
-    },
+    query,
   });
 
   const json = await res.json();
@@ -93,24 +102,29 @@ export async function financesListEventsByGroup({
 export async function financesListFinancialEventsByDateRange({
   postedAfter,
   postedBefore,
+  nextToken: initialNextToken,
+  maxPages = 1,
   signal,
 }: ListFinancialEventsByDateRangeParams): Promise<ListFinancialEventsByDateRangeResult> {
   const accessToken = await getAmazonAccessToken();
   const aggregated: Record<string, unknown> = {};
   const warnings: string[] = [];
-  let nextToken: string | undefined;
+  let nextToken: string | undefined = initialNextToken;
   let pages = 0;
   let eventsCount = 0;
 
   do {
-    const query = {
+    const query: Record<string, string | number> = {
       PostedAfter: postedAfter,
       PostedBefore: postedBefore,
       MaxResultsPerPage: 100,
-      NextToken: nextToken,
     };
+    if (nextToken) {
+      query.NextToken = nextToken;
+    }
 
     try {
+      const pageStart = Date.now();
       const res = await spApiSignedFetch({
         method: "GET",
         path: `${FINANCES_API_BASE}/financialEvents`,
@@ -140,24 +154,32 @@ export async function financesListFinancialEventsByDateRange({
 
       nextToken = typeof payload.NextToken === "string" ? payload.NextToken : undefined;
       pages += 1;
+      console.info("[amazon finances] listFinancialEvents page", {
+        page: pages,
+        durationMs: Date.now() - pageStart,
+        nextToken: nextToken ? "present" : "none",
+      });
     } catch (error) {
       const filter = {
         PostedAfter: postedAfter,
         PostedBefore: postedBefore,
-        NextToken: nextToken,
+        NextToken: nextToken ?? "none",
       };
       console.warn("[amazon finances] listFinancialEvents failed", { error: String(error), filter });
       warnings.push(`Failed to fetch financial events page: ${String(error)}`);
       break;
     }
 
-    if (nextToken) {
-      await sleep(FINANCES_PAGE_DELAY_MS);
+    if (!nextToken || pages >= maxPages) {
+      break;
     }
-  } while (nextToken);
+
+    await sleep(FINANCES_PAGE_DELAY_MS);
+  } while (true);
 
   return {
     financialEvents: aggregated,
+    nextToken,
     debug: {
       pages,
       eventsCount,
