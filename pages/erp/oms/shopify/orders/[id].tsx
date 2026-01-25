@@ -16,7 +16,13 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
-import { fetchShopifyOrderDetail, ShopifyOrderLine, ShopifyOrderRow } from "../../../../../lib/erp/omsShopify";
+import {
+  fetchShopifyOrderDetail,
+  fetchShopifyOrderGstDetail,
+  ShopifyOrderGstRow,
+  ShopifyOrderLine,
+  ShopifyOrderRow,
+} from "../../../../../lib/erp/omsShopify";
 
 export default function ShopifyOrderDetailPage() {
   const router = useRouter();
@@ -28,6 +34,10 @@ export default function ShopifyOrderDetailPage() {
   const [order, setOrder] = useState<ShopifyOrderRow | null>(null);
   const [lines, setLines] = useState<ShopifyOrderLine[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [gstRows, setGstRows] = useState<ShopifyOrderGstRow[]>([]);
+  const [gstStatus, setGstStatus] = useState<"actual" | "preview">("preview");
+  const [gstNotice, setGstNotice] = useState<string | null>(null);
+  const [gstLoading, setGstLoading] = useState(false);
 
   const loadOrder = useCallback(async () => {
     if (!ctx?.companyId || !orderId) return;
@@ -42,11 +52,23 @@ export default function ShopifyOrderDetailPage() {
       setError(loadError.message || "Failed to load Shopify order.");
       setOrder(null);
       setLines([]);
+      setGstRows([]);
       return;
     }
 
     setOrder(orderData);
     setLines(lineRows);
+    setGstLoading(true);
+    const gstDetail = await fetchShopifyOrderGstDetail(
+      ctx.companyId,
+      orderId,
+      lineRows,
+      orderData?.shipping_state_code ?? null,
+    );
+    setGstRows(gstDetail.rows);
+    setGstStatus(gstDetail.status);
+    setGstNotice(gstDetail.notice);
+    setGstLoading(false);
   }, [ctx?.companyId, orderId]);
 
   useEffect(() => {
@@ -215,6 +237,65 @@ export default function ShopifyOrderDetailPage() {
           </table>
         </section>
 
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={{ ...h2Style, marginBottom: 4 }}>GST</h2>
+              <p style={subtitleStyle}>
+                {gstStatus === "actual"
+                  ? "Actual GST register rows for this order."
+                  : "Preview only — GST register rows not found."}
+              </p>
+            </div>
+            <span style={gstBadgeStyle}>{gstStatus === "actual" ? "Actual" : "Preview only"}</span>
+          </div>
+          {gstNotice ? <p style={gstNoticeStyle}>{gstNotice}</p> : null}
+          {gstLoading ? (
+            <div style={loadingInlineStyle}>Loading GST details…</div>
+          ) : (
+            <table style={{ ...tableStyle, marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>SKU</th>
+                  <th style={tableHeaderCellStyle}>Style Code</th>
+                  <th style={tableHeaderCellStyle}>HSN</th>
+                  <th style={tableHeaderCellStyle}>GST %</th>
+                  <th style={tableHeaderCellStyle}>Gross</th>
+                  <th style={tableHeaderCellStyle}>Taxable Value</th>
+                  <th style={tableHeaderCellStyle}>GST Amount</th>
+                  <th style={tableHeaderCellStyle}>CGST</th>
+                  <th style={tableHeaderCellStyle}>SGST</th>
+                  <th style={tableHeaderCellStyle}>IGST</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gstRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} style={tableCellStyle}>
+                      No GST data available for this order.
+                    </td>
+                  </tr>
+                ) : (
+                  gstRows.map((row) => (
+                    <tr key={row.lineId}>
+                      <td style={tableCellStyle}>{row.sku || "—"}</td>
+                      <td style={tableCellStyle}>{row.styleCode || "—"}</td>
+                      <td style={tableCellStyle}>{row.hsn || "—"}</td>
+                      <td style={tableCellStyle}>{formatRate(row.gstRate)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.gross)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.taxableValue)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.gstAmount)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.cgst)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.sgst)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, row.igst)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </section>
+
         {rawOrderJson ? (
           <section style={cardStyle}>
             <details>
@@ -231,6 +312,11 @@ export default function ShopifyOrderDetailPage() {
 function formatMoney(currency: string | null, value: number | null) {
   if (value == null) return "—";
   return `${currency || ""} ${Number(value).toFixed(2)}`.trim();
+}
+
+function formatRate(rate: number | null) {
+  if (rate == null) return "—";
+  return `${Number(rate).toFixed(2)}%`;
 }
 
 function getLineTax(line: ShopifyOrderLine) {
@@ -306,6 +392,36 @@ const summaryLabelStyle: CSSProperties = {
 const summaryToggleStyle: CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
+};
+
+const sectionHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+};
+
+const gstBadgeStyle: CSSProperties = {
+  padding: "4px 10px",
+  borderRadius: 999,
+  background: "#e0f2fe",
+  color: "#0369a1",
+  fontSize: 12,
+  fontWeight: 600,
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const gstNoticeStyle: CSSProperties = {
+  marginTop: 8,
+  color: "#6b7280",
+  fontSize: 13,
+};
+
+const loadingInlineStyle: CSSProperties = {
+  marginTop: 12,
+  color: "#6b7280",
+  fontSize: 13,
 };
 
 const jsonBlockStyle: CSSProperties = {
