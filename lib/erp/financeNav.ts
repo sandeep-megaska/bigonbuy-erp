@@ -131,9 +131,9 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-shopify-sync",
-    label: "Shopify Sync",
+    label: "Shopify Sync (Moved to OMS)",
     href: "/erp/finance/shopify-sync",
-    description: "Backfill Shopify orders into the ERP ledger.",
+    description: "Moved to OMS → Shopify. Backfill Shopify orders into the ERP ledger.",
     group: "Finance",
     sidebarIcon: "SS",
     cardIcon: "🛒",

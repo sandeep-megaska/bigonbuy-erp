@@ -173,6 +173,14 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "oms-shopify-sync",
+    label: "Sync / Backfill",
+    href: "/erp/finance/shopify-sync",
+    section: "OMS",
+    description: "Backfill Shopify orders into the ERP ledger.",
+    access: "manager",
+  },
+  {
     id: "oms-amazon-orders",
     label: "Amazon Orders",
     href: "/erp/oms/amazon/orders",
