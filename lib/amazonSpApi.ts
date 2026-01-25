@@ -19,6 +19,7 @@ type SignedFetchOptions = {
   query?: Record<string, string | number | boolean | undefined | null>;
   body?: string;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 const SUPPORTED_REPORT_TYPES = new Set([
@@ -197,5 +198,6 @@ export async function spApiSignedFetch(options: SignedFetchOptions): Promise<Res
       ...options.headers,
     },
     body: options.body,
+    signal: options.signal,
   });
 }
