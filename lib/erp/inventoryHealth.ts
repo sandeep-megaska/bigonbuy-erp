@@ -176,7 +176,7 @@ export function useInventoryNegativeStock(params: InventoryHealthParams) {
       let query = supabase
         .from("erp_inventory_negative_stock_v")
         .select("*")
-        .order(sortBy === "qty" ? "available" : "variant_id", { ascending: sortDirection === "asc" })
+        .order(sortBy === "qty" ? "on_hand" : "variant_id", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
