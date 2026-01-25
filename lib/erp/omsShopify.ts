@@ -89,43 +89,31 @@ export type ShopifyOrdersQuery = {
   dateFrom?: string | null;
   dateTo?: string | null;
   financialStatus?: string | null;
+  financialStatuses?: string[] | null;
   fulfillmentStatus?: string | null;
+  readyToShip?: boolean;
   search?: string | null;
   offset?: number;
   limit?: number;
 };
 
-export async function fetchShopifyOrders({
-  companyId,
-  dateFrom,
-  dateTo,
-  financialStatus,
-  fulfillmentStatus,
-  search,
-  offset = 0,
-  limit = 25,
-}: ShopifyOrdersQuery) {
-  let query = supabase
-    .from("erp_shopify_orders")
-    .select(
-      "id, shopify_order_id, shopify_order_number, order_created_at, processed_at, currency, financial_status, fulfillment_status, cancelled_at, is_cancelled, subtotal_price, total_discounts, total_shipping, total_tax, total_price, customer_email, shipping_state_code, shipping_pincode, raw_order",
-    )
-    .eq("company_id", companyId)
-    .order("order_created_at", { ascending: false });
+type ShopifyOrdersSummary = {
+  total: number;
+  paid: number;
+  pending: number;
+};
+
+function applyShopifyOrdersCommonFilters(
+  query: any,
+  { dateFrom, dateTo, search }: Pick<ShopifyOrdersQuery, "dateFrom" | "dateTo" | "search">,
+) {
+  let nextQuery = query;
 
   if (dateFrom) {
-    query = query.gte("order_created_at", dateFrom);
+    nextQuery = nextQuery.gte("order_created_at", dateFrom);
   }
   if (dateTo) {
-    query = query.lte("order_created_at", dateTo);
-  }
-  if (financialStatus) {
-    query = query.eq("financial_status", financialStatus);
-  }
-  if (fulfillmentStatus === "unfulfilled") {
-    query = query.is("fulfillment_status", null);
-  } else if (fulfillmentStatus) {
-    query = query.eq("fulfillment_status", fulfillmentStatus);
+    nextQuery = nextQuery.lte("order_created_at", dateTo);
   }
   if (search?.trim()) {
     const escaped = search.trim();
@@ -138,7 +126,53 @@ export async function fetchShopifyOrders({
     if (!Number.isNaN(Number(escaped))) {
       conditions.push(`shopify_order_id.eq.${Number(escaped)}`);
     }
-    query = query.or(conditions.join(","));
+    nextQuery = nextQuery.or(conditions.join(","));
+  }
+
+  return nextQuery;
+}
+
+function applyReadyToShipFilters(query: any) {
+  return query
+    .is("fulfillment_status", null)
+    .is("cancelled_at", null)
+    .eq("is_cancelled", false);
+}
+
+export async function fetchShopifyOrders({
+  companyId,
+  dateFrom,
+  dateTo,
+  financialStatus,
+  financialStatuses,
+  fulfillmentStatus,
+  readyToShip,
+  search,
+  offset = 0,
+  limit = 25,
+}: ShopifyOrdersQuery) {
+  let query = supabase
+    .from("erp_shopify_orders")
+    .select(
+      "id, shopify_order_id, shopify_order_number, order_created_at, processed_at, currency, financial_status, fulfillment_status, cancelled_at, is_cancelled, subtotal_price, total_discounts, total_shipping, total_tax, total_price, customer_email, shipping_state_code, shipping_pincode, raw_order",
+    )
+    .eq("company_id", companyId)
+    .order("order_created_at", { ascending: false });
+
+  query = applyShopifyOrdersCommonFilters(query, { dateFrom, dateTo, search });
+  if (readyToShip) {
+    query = applyReadyToShipFilters(query).in("financial_status", ["paid", "pending"]);
+  } else {
+    if (financialStatuses && financialStatuses.length > 0) {
+      query = query.in("financial_status", financialStatuses);
+    } else if (financialStatus) {
+      query = query.eq("financial_status", financialStatus);
+    }
+    if (fulfillmentStatus === "unfulfilled") {
+      query = query.is("fulfillment_status", null);
+    } else if (fulfillmentStatus) {
+      query = query.eq("fulfillment_status", fulfillmentStatus);
+    }
   }
 
   const { data, error } = await query.range(offset, offset + limit);
@@ -147,6 +181,42 @@ export async function fetchShopifyOrders({
   return {
     rows: rows.slice(0, limit),
     hasNextPage: rows.length > limit,
+    error,
+  };
+}
+
+export async function fetchShopifyOrdersReadyToShipSummary({
+  companyId,
+  dateFrom,
+  dateTo,
+  search,
+}: ShopifyOrdersQuery): Promise<{ summary: ShopifyOrdersSummary; error: Error | null }> {
+  const buildReadyToShipQuery = () =>
+    applyReadyToShipFilters(
+      applyShopifyOrdersCommonFilters(
+        supabase.from("erp_shopify_orders").select("id", { count: "exact", head: true }).eq("company_id", companyId),
+        { dateFrom, dateTo, search },
+      ),
+    );
+
+  const totalQuery = buildReadyToShipQuery().in("financial_status", ["paid", "pending"]);
+  const paidQuery = buildReadyToShipQuery().eq("financial_status", "paid");
+  const pendingQuery = buildReadyToShipQuery().eq("financial_status", "pending");
+
+  const [totalResult, paidResult, pendingResult] = await Promise.all([
+    totalQuery,
+    paidQuery,
+    pendingQuery,
+  ]);
+
+  const error = totalResult.error || paidResult.error || pendingResult.error || null;
+
+  return {
+    summary: {
+      total: totalResult.count ?? 0,
+      paid: paidResult.count ?? 0,
+      pending: pendingResult.count ?? 0,
+    },
     error,
   };
 }

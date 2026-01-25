@@ -19,7 +19,11 @@ import {
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { useDebouncedValue } from "../../../../../lib/erp/inventoryStock";
-import { fetchShopifyOrders, ShopifyOrderRow } from "../../../../../lib/erp/omsShopify";
+import {
+  fetchShopifyOrders,
+  fetchShopifyOrdersReadyToShipSummary,
+  ShopifyOrderRow,
+} from "../../../../../lib/erp/omsShopify";
 
 const PAGE_SIZE = 25;
 
@@ -77,6 +81,10 @@ export default function ShopifyOrdersListPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasNextPage, setHasNextPage] = useState(false);
+  const [readyToShip, setReadyToShip] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [readySummary, setReadySummary] = useState<{ total: number; paid: number; pending: number } | null>(null);
 
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
@@ -108,7 +116,7 @@ export default function ShopifyOrdersListPage() {
 
   useEffect(() => {
     setOffset(0);
-  }, [dateFrom, dateTo, financialStatus, fulfillmentStatus, debouncedSearch]);
+  }, [dateFrom, dateTo, financialStatus, fulfillmentStatus, debouncedSearch, readyToShip]);
 
   useEffect(() => {
     if (!ctx?.companyId) return;
@@ -116,12 +124,13 @@ export default function ShopifyOrdersListPage() {
 
     (async () => {
       await loadOrders(ctx.companyId, active);
+      await loadReadyToShipSummary(ctx.companyId, active);
     })();
 
     return () => {
       active = false;
     };
-  }, [ctx?.companyId, dateFrom, dateTo, financialStatus, fulfillmentStatus, debouncedSearch, offset]);
+  }, [ctx?.companyId, dateFrom, dateTo, financialStatus, fulfillmentStatus, debouncedSearch, offset, readyToShip]);
 
   async function loadOrders(companyId: string, isActive = true) {
     setFetching(true);
@@ -133,6 +142,7 @@ export default function ShopifyOrdersListPage() {
       dateTo: dateTo ? endOfDayIso(dateTo) : null,
       financialStatus: financialStatus || null,
       fulfillmentStatus: fulfillmentStatus || null,
+      readyToShip,
       search: debouncedSearch,
       offset,
       limit: PAGE_SIZE,
@@ -151,6 +161,37 @@ export default function ShopifyOrdersListPage() {
     setOrders(rows);
     setHasNextPage(hasNext);
     setFetching(false);
+  }
+
+  async function loadReadyToShipSummary(companyId: string, isActive = true) {
+    if (!readyToShip) {
+      setSummaryLoading(false);
+      setSummaryError(null);
+      setReadySummary(null);
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(null);
+
+    const { summary, error: summaryLoadError } = await fetchShopifyOrdersReadyToShipSummary({
+      companyId,
+      dateFrom: dateFrom ? startOfDayIso(dateFrom) : null,
+      dateTo: dateTo ? endOfDayIso(dateTo) : null,
+      search: debouncedSearch,
+    });
+
+    if (!isActive) return;
+
+    if (summaryLoadError) {
+      setSummaryError(summaryLoadError.message);
+      setReadySummary(null);
+      setSummaryLoading(false);
+      return;
+    }
+
+    setReadySummary(summary);
+    setSummaryLoading(false);
   }
 
   if (loading) {
@@ -175,6 +216,26 @@ export default function ShopifyOrdersListPage() {
         {error ? <div style={errorStyle}>{error}</div> : null}
 
         <section style={cardStyle}>
+          <div style={quickFilterRowStyle}>
+            <span style={filterCaptionStyle}>Quick filters</span>
+            <div style={quickFilterButtonRowStyle}>
+              <button
+                type="button"
+                onClick={() => setReadyToShip(false)}
+                style={readyToShip ? secondaryButtonStyle : primaryButtonStyle}
+              >
+                All orders
+              </button>
+              <button
+                type="button"
+                onClick={() => setReadyToShip(true)}
+                style={readyToShip ? primaryButtonStyle : secondaryButtonStyle}
+              >
+                Ready to ship
+              </button>
+            </div>
+            {readyToShip ? <span style={mutedStyle}>Fulfillment and financial filters are locked to ready-to-ship criteria.</span> : null}
+          </div>
           <div style={filterRowStyle}>
             <label style={filterLabelStyle}>
               <span style={filterCaptionStyle}>From</span>
@@ -186,7 +247,12 @@ export default function ShopifyOrdersListPage() {
             </label>
             <label style={filterLabelStyle}>
               <span style={filterCaptionStyle}>Financial</span>
-              <select value={financialStatus} onChange={(event) => setFinancialStatus(event.target.value)} style={inputStyle}>
+              <select
+                value={financialStatus}
+                onChange={(event) => setFinancialStatus(event.target.value)}
+                style={inputStyle}
+                disabled={readyToShip}
+              >
                 {financialStatusOptions.map((option) => (
                   <option key={option.value || "all"} value={option.value}>
                     {option.label}
@@ -196,7 +262,12 @@ export default function ShopifyOrdersListPage() {
             </label>
             <label style={filterLabelStyle}>
               <span style={filterCaptionStyle}>Fulfillment</span>
-              <select value={fulfillmentStatus} onChange={(event) => setFulfillmentStatus(event.target.value)} style={inputStyle}>
+              <select
+                value={fulfillmentStatus}
+                onChange={(event) => setFulfillmentStatus(event.target.value)}
+                style={inputStyle}
+                disabled={readyToShip}
+              >
                 {fulfillmentStatusOptions.map((option) => (
                   <option key={option.value || "all"} value={option.value}>
                     {option.label}
@@ -217,6 +288,34 @@ export default function ShopifyOrdersListPage() {
           {fetching ? <div style={mutedStyle}>Refreshing orders…</div> : null}
         </section>
 
+        {readyToShip ? (
+          <section style={cardStyle}>
+            <div style={summaryRowStyle}>
+              <div>
+                <p style={eyebrowStyle}>Ready-to-ship summary</p>
+                <h2 style={summaryTitleStyle}>Orders to ship now</h2>
+                <p style={mutedStyle}>Includes paid and COD orders that are unfulfilled and not cancelled.</p>
+              </div>
+              <div style={summaryCountsStyle}>
+                <div style={summaryCardStyle}>
+                  <span style={summaryLabelStyle}>Total</span>
+                  <strong style={summaryValueStyle}>{readySummary?.total ?? "—"}</strong>
+                </div>
+                <div style={summaryCardStyle}>
+                  <span style={summaryLabelStyle}>Paid</span>
+                  <strong style={summaryValueStyle}>{readySummary?.paid ?? "—"}</strong>
+                </div>
+                <div style={summaryCardStyle}>
+                  <span style={summaryLabelStyle}>COD</span>
+                  <strong style={summaryValueStyle}>{readySummary?.pending ?? "—"}</strong>
+                </div>
+              </div>
+            </div>
+            {summaryLoading ? <div style={mutedStyle}>Loading summary…</div> : null}
+            {summaryError ? <div style={errorStyle}>{summaryError}</div> : null}
+          </section>
+        ) : null}
+
         <section>
           <table style={tableStyle}>
             <thead>
@@ -227,12 +326,13 @@ export default function ShopifyOrdersListPage() {
                 <th style={tableHeaderCellStyle}>Fulfillment</th>
                 <th style={tableHeaderCellStyle}>Total</th>
                 <th style={tableHeaderCellStyle}>Customer</th>
+                <th style={tableHeaderCellStyle}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={tableCellStyle}>
+                  <td colSpan={7} style={tableCellStyle}>
                     No Shopify orders found for this range.
                   </td>
                 </tr>
@@ -249,12 +349,31 @@ export default function ShopifyOrdersListPage() {
                       </Link>
                     </td>
                     <td style={tableCellStyle}>{order.order_created_at ? new Date(order.order_created_at).toLocaleString() : "—"}</td>
-                    <td style={tableCellStyle}>{order.financial_status || "—"}</td>
+                    <td style={tableCellStyle}>
+                      <div style={financialCellStyle}>
+                        <span>{order.financial_status || "—"}</span>
+                        {order.financial_status === "pending" ? <span style={codBadgeStyle}>COD</span> : null}
+                      </div>
+                    </td>
                     <td style={tableCellStyle}>{order.fulfillment_status || "—"}</td>
                     <td style={tableCellStyle}>
                       {order.total_price == null ? "—" : `${order.currency || ""} ${Number(order.total_price).toFixed(2)}`}
                     </td>
                     <td style={tableCellStyle}>{order.customer_email || "—"}</td>
+                    <td style={tableCellStyle}>
+                      {/* TODO: shipment creation API */}
+                      {/* TODO: label PDF merging */}
+                      {/* TODO: manifesting */}
+                      {/* TODO: tracking updates */}
+                      <button
+                        type="button"
+                        style={actionButtonStyle}
+                        onClick={(event) => event.stopPropagation()}
+                        title="Copy Delhivery payload (coming soon)"
+                      >
+                        Copy Delhivery payload (coming soon)
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -291,6 +410,19 @@ const filterRowStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: 12,
   alignItems: "flex-end",
+};
+
+const quickFilterRowStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  marginBottom: 12,
+};
+
+const quickFilterButtonRowStyle: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
 };
 
 const filterLabelStyle: CSSProperties = {
@@ -330,4 +462,68 @@ const linkStyle: CSSProperties = {
   color: "#2563eb",
   textDecoration: "none",
   fontWeight: 600,
+};
+
+const financialCellStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+};
+
+const codBadgeStyle: CSSProperties = {
+  background: "#f59e0b",
+  color: "#1f2937",
+  fontSize: 11,
+  fontWeight: 700,
+  padding: "2px 6px",
+  borderRadius: 999,
+  textTransform: "uppercase",
+};
+
+const actionButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  padding: "6px 10px",
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const summaryRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 16,
+  justifyContent: "space-between",
+  alignItems: "center",
+};
+
+const summaryTitleStyle: CSSProperties = {
+  margin: "6px 0 0",
+  fontSize: 18,
+};
+
+const summaryCountsStyle: CSSProperties = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const summaryCardStyle: CSSProperties = {
+  background: "#f9fafb",
+  borderRadius: 10,
+  padding: "10px 14px",
+  minWidth: 110,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+const summaryLabelStyle: CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+};
+
+const summaryValueStyle: CSSProperties = {
+  fontSize: 20,
+  color: "#111827",
 };
