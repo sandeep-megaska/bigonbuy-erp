@@ -186,13 +186,13 @@ export async function fetchShopifyOrderGstDetail(
   orderId: string,
   lines: ShopifyOrderLine[],
   buyerStateCode: string | null,
-  orderTotalDiscounts: number | null,
+  order: ShopifyOrderRow | null,
 ): Promise<ShopifyOrderGstDetail> {
   const previewData = await buildShopifyGstPreview(
     companyId,
     lines,
     buyerStateCode,
-    orderTotalDiscounts,
+    order,
   );
   const previewRows = previewData.rows;
   let notice = previewData.notice;
@@ -302,7 +302,7 @@ async function buildShopifyGstPreview(
   companyId: string,
   lines: ShopifyOrderLine[],
   buyerStateCode: string | null,
-  orderTotalDiscounts: number | null,
+  order: ShopifyOrderRow | null,
 ) {
   const styleCodes = Array.from(
     new Set(lines.map((line) => getStyleCode(line.sku)).filter(Boolean)),
@@ -385,14 +385,18 @@ async function buildShopifyGstPreview(
     line,
     grossBeforeDiscount: getLineGrossBeforeDiscount(line),
     discountFromLine: getLineDiscountFromLine(line),
-    hasLineDiscountData: hasLineDiscountData(line),
   }));
-  const hasAnyLineDiscountData = lineDiscountDetails.some((detail) => detail.hasLineDiscountData);
+  const hasAnyLineDiscountValue = lineDiscountDetails.some((detail) => {
+    const discountValue = detail.discountFromLine ?? 0;
+    return discountValue > 0;
+  });
   const totalGrossBeforeDiscount = lineDiscountDetails.reduce(
     (total, detail) => total + (detail.grossBeforeDiscount ?? 0),
     0,
   );
-  const totalOrderDiscounts = toNumber(orderTotalDiscounts) ?? 0;
+  const totalOrderDiscounts = getOrderDiscountTotal(order);
+  const useOrderLevelDiscounts = !hasAnyLineDiscountValue && totalOrderDiscounts > 0;
+  const lineCount = lineDiscountDetails.length;
 
   const rows = lineDiscountDetails.map((detail) => {
     const line = detail.line;
@@ -404,11 +408,13 @@ async function buildShopifyGstPreview(
     const gstRate = toNumber(mapping?.gst_rate ?? null);
     const hsn = mapping?.hsn ?? null;
     const grossBeforeDiscount = detail.grossBeforeDiscount;
-    const discount = hasAnyLineDiscountData
-      ? detail.discountFromLine ?? 0
-      : totalGrossBeforeDiscount > 0 && grossBeforeDiscount != null
-        ? roundTo(totalOrderDiscounts * (grossBeforeDiscount / totalGrossBeforeDiscount), 2)
-        : 0;
+    const discount = useOrderLevelDiscounts
+      ? lineCount === 1
+        ? roundTo(totalOrderDiscounts, 2)
+        : totalGrossBeforeDiscount > 0 && grossBeforeDiscount != null
+          ? roundTo(totalOrderDiscounts * (grossBeforeDiscount / totalGrossBeforeDiscount), 2)
+          : 0
+      : roundTo(detail.discountFromLine ?? 0, 2);
     const soldPrice =
       grossBeforeDiscount == null ? null : roundTo(Math.max(0, grossBeforeDiscount - discount), 2);
     const calc = calculateInclusiveGst(soldPrice, gstRate, isIntra);
@@ -503,21 +509,53 @@ function getLineDiscountFromLine(line: ShopifyOrderLine) {
     }, 0);
     return roundTo(Math.max(0, allocationSum), 2);
   }
+  const fallbackDiscount =
+    findNumericDiscountField(lineRecord, ["discount_amount", "total_discount", "discount_allocations"]) ??
+    findNumericDiscountField(rawLine, ["discount_amount", "total_discount", "discount_allocations"]);
+  if (fallbackDiscount != null) {
+    return roundTo(Math.max(0, fallbackDiscount), 2);
+  }
   return null;
 }
 
-function hasLineDiscountData(line: ShopifyOrderLine) {
-  const lineRecord = line as Record<string, unknown>;
-  const rawLine = line.raw_line as Record<string, unknown> | null | undefined;
-  return (
-    line.line_discount != null ||
-    lineRecord.discount_amount != null ||
-    lineRecord.total_discount != null ||
-    lineRecord.discount_allocations != null ||
-    rawLine?.total_discount != null ||
-    rawLine?.discount_amount != null ||
-    rawLine?.discount_allocations != null
-  );
+function findNumericDiscountField(
+  record: Record<string, unknown> | null | undefined,
+  excludedKeys: string[] = [],
+) {
+  if (!record) return null;
+  let best: number | null = null;
+  Object.entries(record).forEach(([key, value]) => {
+    if (!key.toLowerCase().includes("discount")) return;
+    if (key === "discount_allocations") return;
+    if (excludedKeys.includes(key)) return;
+    const numeric = toNumber(value as number | string | null | undefined);
+    if (numeric == null) return;
+    if (best == null || numeric > best) {
+      best = numeric;
+    }
+  });
+  return best;
+}
+
+function getOrderDiscountTotal(order: ShopifyOrderRow | null) {
+  if (!order) return 0;
+  const orderRecord = order as Record<string, unknown>;
+  const rawOrder = order.raw_order as Record<string, unknown> | null | undefined;
+  const candidates = [
+    order.total_discounts,
+    orderRecord.discount_total,
+    orderRecord.discounts,
+    rawOrder?.total_discounts,
+    rawOrder?.discount_total,
+    rawOrder?.discounts,
+  ];
+  for (const candidate of candidates) {
+    const value = toNumber(candidate as number | string | null | undefined);
+    if (value != null) {
+      return roundTo(Math.max(0, value), 2);
+    }
+  }
+  return 0;
 }
 
 function parseMaybeJsonArray(value: unknown) {
