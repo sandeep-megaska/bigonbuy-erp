@@ -22,7 +22,9 @@ type CashflowTotals = {
   grossSales: number;
   refunds: number;
   netSales: number;
-  amazonCharges: number;
+  amazonFees: number;
+  withholdings: number;
+  otherAdjustments: number;
   netCashflow: number;
 };
 
@@ -38,7 +40,10 @@ type CashflowResponse = {
   breakdown: {
     revenue: BreakdownEntry[];
     refunds: BreakdownEntry[];
-    charges: BreakdownEntry[];
+    fees: BreakdownEntry[];
+    withholdings: BreakdownEntry[];
+    otherAdjustments: BreakdownEntry[];
+    excluded: BreakdownEntry[];
   };
   nextToken?: string;
   debug: {
@@ -46,6 +51,20 @@ type CashflowResponse = {
     pagesFetchedThisCall: number;
     eventsCountThisCall: number;
     warnings: string[];
+    unknownLargeBuckets?: {
+      bucketKey: string;
+      totalAmount: number;
+      currency: string;
+      sample: {
+        eventType: string;
+        listName: string;
+        amountType?: string;
+        amountDescription?: string;
+        amount: number;
+        currency: string;
+        rawKeys: string[];
+      };
+    }[];
   };
 };
 
@@ -110,7 +129,10 @@ export default function AmazonOmsOrdersPlaceholder() {
     breakdown: {
       revenue: BreakdownEntry[];
       refunds: BreakdownEntry[];
-      charges: BreakdownEntry[];
+      fees: BreakdownEntry[];
+      withholdings: BreakdownEntry[];
+      otherAdjustments: BreakdownEntry[];
+      excluded: BreakdownEntry[];
     };
     debug: {
       warnings: string[];
@@ -119,6 +141,7 @@ export default function AmazonOmsOrdersPlaceholder() {
     };
   } | null>(null);
   const [isStopped, setIsStopped] = useState(false);
+  const [showAllWarnings, setShowAllWarnings] = useState(false);
   const stopRef = useRef(false);
 
   const breakdownCurrency = useMemo(() => {
@@ -161,14 +184,18 @@ export default function AmazonOmsOrdersPlaceholder() {
         grossSales: 0,
         refunds: 0,
         netSales: 0,
-        amazonCharges: 0,
+        amazonFees: 0,
+        withholdings: 0,
+        otherAdjustments: 0,
         netCashflow: 0,
       };
       merged[currency] = {
         grossSales: current.grossSales + totals.grossSales,
         refunds: current.refunds + totals.refunds,
         netSales: current.netSales + totals.netSales,
-        amazonCharges: current.amazonCharges + totals.amazonCharges,
+        amazonFees: current.amazonFees + totals.amazonFees,
+        withholdings: current.withholdings + totals.withholdings,
+        otherAdjustments: current.otherAdjustments + totals.otherAdjustments,
         netCashflow: current.netCashflow + totals.netCashflow,
       };
     });
@@ -201,7 +228,7 @@ export default function AmazonOmsOrdersPlaceholder() {
     setCashflow({
       range: { start: startDate, end: endDate },
       totalsByCurrency: {},
-      breakdown: { revenue: [], refunds: [], charges: [] },
+      breakdown: { revenue: [], refunds: [], fees: [], withholdings: [], otherAdjustments: [], excluded: [] },
       debug: { warnings: [], pagesFetched: 0, eventsFetched: 0 },
     });
     try {
@@ -238,7 +265,10 @@ export default function AmazonOmsOrdersPlaceholder() {
             breakdown: {
               revenue: mergeBreakdown(prev.breakdown.revenue, data.breakdown.revenue),
               refunds: mergeBreakdown(prev.breakdown.refunds, data.breakdown.refunds),
-              charges: mergeBreakdown(prev.breakdown.charges, data.breakdown.charges),
+              fees: mergeBreakdown(prev.breakdown.fees, data.breakdown.fees),
+              withholdings: mergeBreakdown(prev.breakdown.withholdings, data.breakdown.withholdings),
+              otherAdjustments: mergeBreakdown(prev.breakdown.otherAdjustments, data.breakdown.otherAdjustments),
+              excluded: mergeBreakdown(prev.breakdown.excluded, data.breakdown.excluded),
             },
             debug: {
               warnings: [...prev.debug.warnings, ...data.debug.warnings],
@@ -254,6 +284,12 @@ export default function AmazonOmsOrdersPlaceholder() {
       setIsLoading(false);
     }
   };
+
+  const dedupedWarnings = useMemo(() => {
+    if (!cashflow) return [];
+    return Array.from(new Set(cashflow.debug.warnings));
+  }, [cashflow]);
+  const warningsToShow = showAllWarnings ? dedupedWarnings : dedupedWarnings.slice(0, 3);
 
   return (
     <ErpShell activeModule="oms">
@@ -331,8 +367,16 @@ export default function AmazonOmsOrdersPlaceholder() {
                     <h2 style={h2Style}>{formatCurrency(totals.netSales, currency)}</h2>
                   </div>
                   <div>
-                    <p style={eyebrowStyle}>Amazon Charges</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.amazonCharges, currency)}</h2>
+                    <p style={eyebrowStyle}>Amazon Fees</p>
+                    <h2 style={h2Style}>{formatCurrency(totals.amazonFees, currency)}</h2>
+                  </div>
+                  <div>
+                    <p style={eyebrowStyle}>Withholdings (TCS/TDS)</p>
+                    <h2 style={h2Style}>{formatCurrency(totals.withholdings, currency)}</h2>
+                  </div>
+                  <div>
+                    <p style={eyebrowStyle}>Other Adjustments</p>
+                    <h2 style={h2Style}>{formatCurrency(totals.otherAdjustments, currency)}</h2>
                   </div>
                   <div>
                     <p style={eyebrowStyle}>Net Cashflow</p>
@@ -341,11 +385,21 @@ export default function AmazonOmsOrdersPlaceholder() {
                 </div>
               </div>
             ))}
-            {cashflow.debug.warnings.length > 0 ? (
+            {dedupedWarnings.length > 0 ? (
               <section style={cardStyle}>
-                <h2 style={h2Style}>Warnings</h2>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <h2 style={h2Style}>Warnings</h2>
+                  {dedupedWarnings.length > 3 ? (
+                    <button
+                      style={{ ...primaryButtonStyle, padding: "6px 12px", fontSize: 12 }}
+                      onClick={() => setShowAllWarnings((prev) => !prev)}
+                    >
+                      {showAllWarnings ? "Show less" : "Show all"}
+                    </button>
+                  ) : null}
+                </div>
                 <ul style={{ margin: 0, paddingLeft: 18, color: "#92400e", fontSize: 13 }}>
-                  {cashflow.debug.warnings.map((warning) => (
+                  {warningsToShow.map((warning) => (
                     <li key={warning}>{warning}</li>
                   ))}
                 </ul>
@@ -395,7 +449,7 @@ export default function AmazonOmsOrdersPlaceholder() {
                 </table>
               </div>
               <div>
-                <h2 style={h2Style}>Charges Breakdown</h2>
+                <h2 style={h2Style}>Amazon Fees Breakdown</h2>
                 <table style={tableStyle}>
                   <thead>
                     <tr>
@@ -405,7 +459,70 @@ export default function AmazonOmsOrdersPlaceholder() {
                     </tr>
                   </thead>
                   <tbody>
-                    {cashflow.breakdown.charges.map((row) => (
+                    {cashflow.breakdown.fees.map((row) => (
+                      <tr key={row.key}>
+                        <td style={tableCellStyle}>{row.key}</td>
+                        <td style={tableCellStyle}>{row.count}</td>
+                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h2 style={h2Style}>Withholdings Breakdown</h2>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Type + Description</th>
+                      <th style={tableHeaderCellStyle}>Count</th>
+                      <th style={tableHeaderCellStyle}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashflow.breakdown.withholdings.map((row) => (
+                      <tr key={row.key}>
+                        <td style={tableCellStyle}>{row.key}</td>
+                        <td style={tableCellStyle}>{row.count}</td>
+                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h2 style={h2Style}>Other Adjustments Breakdown</h2>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Type + Description</th>
+                      <th style={tableHeaderCellStyle}>Count</th>
+                      <th style={tableHeaderCellStyle}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashflow.breakdown.otherAdjustments.map((row) => (
+                      <tr key={row.key}>
+                        <td style={tableCellStyle}>{row.key}</td>
+                        <td style={tableCellStyle}>{row.count}</td>
+                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h2 style={h2Style}>Excluded Metadata</h2>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Type + Description</th>
+                      <th style={tableHeaderCellStyle}>Count</th>
+                      <th style={tableHeaderCellStyle}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashflow.breakdown.excluded.map((row) => (
                       <tr key={row.key}>
                         <td style={tableCellStyle}>{row.key}</td>
                         <td style={tableCellStyle}>{row.count}</td>

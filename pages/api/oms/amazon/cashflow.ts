@@ -11,10 +11,20 @@ type NormalizedEntry = {
   eventGroupId: string;
   amazonOrderId?: string;
   eventType: string;
+  listName: string;
+  rawKeys: string[];
   amountType?: string;
   amountDescription?: string;
   amount: number;
   currency: string;
+  sourcePath: string;
+};
+
+type ExtractedAmountEntry = {
+  amount: number;
+  currency: string;
+  amountType?: string;
+  amountDescription?: string;
   sourcePath: string;
 };
 
@@ -28,7 +38,9 @@ type Totals = {
   grossSales: number;
   refunds: number;
   netSales: number;
-  amazonCharges: number;
+  amazonFees: number;
+  withholdings: number;
+  otherAdjustments: number;
   netCashflow: number;
 };
 
@@ -62,6 +74,10 @@ const chargeKeywords = [
   "gst",
   "tds",
 ];
+
+const withholdingKeywords = ["tcs", "tcs-", "tds", "itemtds", "withholding", "withheld", "taxwithheld"];
+
+const metadataKeywords = ["promotionmetadatadefinitionvalue"];
 
 function toIsoDateStart(date: string): string {
   return new Date(`${date}T00:00:00.000Z`).toISOString();
@@ -140,8 +156,8 @@ function extractAmountEntries(
   value: unknown,
   sourcePath: string,
   contextPath: string[] = []
-): Omit<NormalizedEntry, "postedAt" | "eventGroupId" | "amazonOrderId" | "eventType">[] {
-  const entries: Omit<NormalizedEntry, "postedAt" | "eventGroupId" | "amazonOrderId" | "eventType">[] = [];
+): ExtractedAmountEntry[] {
+  const entries: ExtractedAmountEntry[] = [];
   if (Array.isArray(value)) {
     value.forEach((item, index) => {
       entries.push(...extractAmountEntries(item, sourcePath, [...contextPath, String(index)]));
@@ -180,6 +196,7 @@ function normalizeFinancialEvents(eventGroupId: string | null, payload: Record<s
   Object.entries(payload).forEach(([key, value]) => {
     if (!key.endsWith("EventList") || !Array.isArray(value)) return;
     const eventType = key.replace(/EventList$/, "");
+    const listName = key;
     value.forEach((event) => {
       if (!event || typeof event !== "object") return;
       const record = event as Record<string, unknown>;
@@ -188,6 +205,7 @@ function normalizeFinancialEvents(eventGroupId: string | null, payload: Record<s
       const amazonOrderId = typeof record.AmazonOrderId === "string" ? record.AmazonOrderId : undefined;
       const resolvedEventGroupId =
         eventGroupId ?? (typeof record.FinancialEventGroupId === "string" ? record.FinancialEventGroupId : "unknown");
+      const rawKeys = Object.keys(record);
       const extracted = extractAmountEntries(record, key);
       extracted.forEach((entry) => {
         entries.push({
@@ -195,6 +213,8 @@ function normalizeFinancialEvents(eventGroupId: string | null, payload: Record<s
           eventGroupId: resolvedEventGroupId,
           amazonOrderId,
           eventType,
+          listName,
+          rawKeys,
           amount: entry.amount,
           currency: entry.currency,
           amountType: entry.amountType,
@@ -207,18 +227,52 @@ function normalizeFinancialEvents(eventGroupId: string | null, payload: Record<s
   return entries;
 }
 
-function classifyEntry(entry: NormalizedEntry): { bucket: "revenue" | "refunds" | "charges"; heuristic: boolean } {
+type Bucket = "revenue" | "refunds" | "fees" | "withholdings" | "otherAdjustments" | "excluded";
+
+function getBucketFromList(listName: string): Bucket | null {
+  switch (listName) {
+    case "ShipmentEventList":
+      return "revenue";
+    case "RefundEventList":
+      return "refunds";
+    case "ServiceFeeEventList":
+      return "fees";
+    case "AdjustmentEventList":
+    case "ChargebackEventList":
+      return "otherAdjustments";
+    default:
+      return null;
+  }
+}
+
+function isMetadataEntry(entry: NormalizedEntry): boolean {
+  const label = `${entry.amountType ?? ""} ${entry.amountDescription ?? ""}`.toLowerCase();
+  return metadataKeywords.some((keyword) => label.includes(keyword));
+}
+
+function isWithholdingEntry(entry: NormalizedEntry): boolean {
+  const label = `${entry.amountType ?? ""} ${entry.amountDescription ?? ""} ${entry.eventType}`.toLowerCase();
+  return withholdingKeywords.some((keyword) => label.includes(keyword));
+}
+
+function classifyEntry(entry: NormalizedEntry): { bucket: Bucket; heuristic: boolean } {
+  if (isMetadataEntry(entry)) return { bucket: "excluded", heuristic: false };
+  if (isWithholdingEntry(entry)) return { bucket: "withholdings", heuristic: false };
+
+  const listBucket = getBucketFromList(entry.listName);
+  if (listBucket) return { bucket: listBucket, heuristic: false };
+
   const label = `${entry.amountType ?? ""} ${entry.amountDescription ?? ""} ${entry.eventType}`.toLowerCase();
   const isRefund = refundKeywords.some((keyword) => label.includes(keyword));
   const isCharge = chargeKeywords.some((keyword) => label.includes(keyword));
   const isRevenue = revenueKeywords.some((keyword) => label.includes(keyword));
 
   if (isRefund) return { bucket: "refunds", heuristic: false };
-  if (isCharge) return { bucket: "charges", heuristic: false };
+  if (isCharge) return { bucket: "fees", heuristic: false };
   if (isRevenue) return { bucket: "revenue", heuristic: false };
 
   if (entry.amount < 0) {
-    return { bucket: "charges", heuristic: true };
+    return { bucket: "fees", heuristic: true };
   }
   return { bucket: "revenue", heuristic: true };
 }
@@ -247,7 +301,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     const nextToken = typeof req.query.nextToken === "string" ? req.query.nextToken : undefined;
 
-    const warnings: string[] = [...rangeWarnings];
+    const warnings = new Set(rangeWarnings);
 
     console.info("[amazon cashflow] fetch", {
       postedAfter: start,
@@ -273,7 +327,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       nextToken: responseNextToken ? "present" : "none",
     });
 
-    warnings.push(...debug.warnings);
+    debug.warnings.forEach((warning) => warnings.add(warning));
 
     const normalizedEntries: NormalizedEntry[] = normalizeFinancialEvents(null, financialEvents);
     const eventGroupIdSet = new Set(
@@ -283,8 +337,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const totalsByCurrency: Record<string, Totals> = {};
     const revenueBreakdown = new Map<string, BreakdownEntry>();
     const refundBreakdown = new Map<string, BreakdownEntry>();
-    const chargesBreakdown = new Map<string, BreakdownEntry>();
+    const feesBreakdown = new Map<string, BreakdownEntry>();
+    const withholdingsBreakdown = new Map<string, BreakdownEntry>();
+    const adjustmentsBreakdown = new Map<string, BreakdownEntry>();
+    const excludedBreakdown = new Map<string, BreakdownEntry>();
     let heuristicUsed = false;
+    const unknownTotalsInInr = new Map<string, number>();
+    const unknownSampleByKey = new Map<
+      string,
+      {
+        bucketKey: string;
+        totalAmount: number;
+        currency: string;
+        sample: {
+          eventType: string;
+          listName: string;
+          amountType?: string;
+          amountDescription?: string;
+          amount: number;
+          currency: string;
+          rawKeys: string[];
+        };
+      }
+    >();
 
     normalizedEntries.forEach((entry) => {
       const bucketInfo = classifyEntry(entry);
@@ -294,24 +369,72 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           grossSales: 0,
           refunds: 0,
           netSales: 0,
-          amazonCharges: 0,
+          amazonFees: 0,
+          withholdings: 0,
+          otherAdjustments: 0,
           netCashflow: 0,
         };
       }
       const totals = totalsByCurrency[entry.currency];
-      totals.netCashflow += entry.amount;
+      if (bucketInfo.bucket !== "excluded") {
+        totals.netCashflow += entry.amount;
+      }
 
       const breakdownKey = `${entry.amountType ?? "Unknown"} • ${entry.amountDescription ?? "Uncategorized"}`;
 
-      if (bucketInfo.bucket === "revenue") {
-        totals.grossSales += entry.amount;
-        updateBreakdown(revenueBreakdown, breakdownKey, entry.amount);
-      } else if (bucketInfo.bucket === "refunds") {
-        totals.refunds += entry.amount;
-        updateBreakdown(refundBreakdown, breakdownKey, entry.amount);
-      } else {
-        totals.amazonCharges += entry.amount;
-        updateBreakdown(chargesBreakdown, breakdownKey, entry.amount);
+      switch (bucketInfo.bucket) {
+        case "revenue":
+          totals.grossSales += entry.amount;
+          updateBreakdown(revenueBreakdown, breakdownKey, entry.amount);
+          break;
+        case "refunds":
+          totals.refunds += entry.amount;
+          updateBreakdown(refundBreakdown, breakdownKey, entry.amount);
+          break;
+        case "fees":
+          totals.amazonFees += entry.amount;
+          updateBreakdown(feesBreakdown, breakdownKey, entry.amount);
+          break;
+        case "withholdings":
+          totals.withholdings += entry.amount;
+          updateBreakdown(withholdingsBreakdown, breakdownKey, entry.amount);
+          break;
+        case "otherAdjustments":
+          totals.otherAdjustments += entry.amount;
+          updateBreakdown(adjustmentsBreakdown, breakdownKey, entry.amount);
+          break;
+        case "excluded":
+          updateBreakdown(excludedBreakdown, breakdownKey, entry.amount);
+          break;
+        default:
+          break;
+      }
+
+      if (entry.currency === "INR" && breakdownKey.startsWith("Unknown")) {
+        const current = unknownTotalsInInr.get(breakdownKey) ?? 0;
+        const nextTotal = current + entry.amount;
+        unknownTotalsInInr.set(breakdownKey, nextTotal);
+        if (!unknownSampleByKey.has(breakdownKey)) {
+          unknownSampleByKey.set(breakdownKey, {
+            bucketKey: breakdownKey,
+            totalAmount: nextTotal,
+            currency: entry.currency,
+            sample: {
+              eventType: entry.eventType,
+              listName: entry.listName,
+              amountType: entry.amountType,
+              amountDescription: entry.amountDescription,
+              amount: entry.amount,
+              currency: entry.currency,
+              rawKeys: entry.rawKeys,
+            },
+          });
+        } else {
+          const sample = unknownSampleByKey.get(breakdownKey);
+          if (sample) {
+            sample.totalAmount = nextTotal;
+          }
+        }
       }
     });
 
@@ -321,10 +444,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const currencies = Object.keys(totalsByCurrency);
     if (currencies.length > 1) {
-      warnings.push(`Multiple currencies detected: ${currencies.join(", ")}`);
+      warnings.add(`Multiple currencies detected: ${currencies.join(", ")}`);
     }
     if (heuristicUsed) {
-      warnings.push("Revenue/charge/refund mapping uses heuristics for unmapped entries.");
+      warnings.add("Revenue/charge/refund mapping uses heuristics for unmapped entries.");
     }
 
     res.status(200).json({
@@ -333,14 +456,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       breakdown: {
         revenue: Array.from(revenueBreakdown.values()).sort((a, b) => b.amount - a.amount),
         refunds: Array.from(refundBreakdown.values()).sort((a, b) => b.amount - a.amount),
-        charges: Array.from(chargesBreakdown.values()).sort((a, b) => b.amount - a.amount),
+        fees: Array.from(feesBreakdown.values()).sort((a, b) => b.amount - a.amount),
+        withholdings: Array.from(withholdingsBreakdown.values()).sort((a, b) => b.amount - a.amount),
+        otherAdjustments: Array.from(adjustmentsBreakdown.values()).sort((a, b) => b.amount - a.amount),
+        excluded: Array.from(excludedBreakdown.values()).sort((a, b) => b.amount - a.amount),
       },
       nextToken: responseNextToken,
       debug: {
         eventGroupsCount: eventGroupIdSet.size,
         pagesFetchedThisCall: debug.pages,
         eventsCountThisCall: debug.eventsCount,
-        warnings,
+        warnings: Array.from(warnings),
+        unknownLargeBuckets: Array.from(unknownSampleByKey.values()).filter(
+          (entry) => Math.abs(entry.totalAmount) > 5000 && entry.currency === "INR"
+        ),
       },
     });
   } catch (error) {
