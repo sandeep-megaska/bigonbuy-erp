@@ -49,7 +49,6 @@ type MinLevelRecord = {
 };
 
 type RawInventoryRow = {
-  company_id: string;
   warehouse_id: string;
   variant_id: string;
   internal_sku?: string | null;

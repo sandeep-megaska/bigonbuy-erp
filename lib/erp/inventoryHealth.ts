@@ -3,7 +3,6 @@ import { z } from "zod";
 import { supabase } from "../supabaseClient";
 
 const inventoryAvailableRowSchema = z.object({
-  company_id: z.string().uuid(),
   warehouse_id: z.string().uuid(),
   variant_id: z.string().uuid(),
   internal_sku: z.string().nullable(),
@@ -84,7 +83,7 @@ export function useInventoryAvailable(params: InventoryHealthParams) {
 
       let query = supabase
         .from("erp_inventory_available_v")
-        .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
+        .select("warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
         .order(sortBy === "qty" ? "available" : "internal_sku", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
@@ -179,7 +178,7 @@ export function useInventoryNegativeStock(params: InventoryHealthParams) {
 
       let query = supabase
         .from("erp_inventory_negative_stock_v")
-        .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
+        .select("warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
         .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
@@ -274,7 +273,7 @@ export function useInventoryLowStock(params: InventoryHealthParams) {
 
       let query = supabase
         .from("erp_inventory_low_stock_v")
-        .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available, min_level, shortage")
+        .select("warehouse_id, variant_id, internal_sku, on_hand, reserved, available, min_level, shortage")
         .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
