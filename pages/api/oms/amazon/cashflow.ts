@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { financesListEventGroups, financesListEventsByGroup } from "../../../../lib/oms/adapters/amazonSpApi";
+import { financesListFinancialEventsByDateRange } from "../../../../lib/oms/adapters/amazonSpApi";
 
 const MAX_RANGE_DAYS = 60;
 const REQUEST_TIMEOUT_MS = 20000;
@@ -172,7 +172,7 @@ function extractAmountEntries(
   return entries;
 }
 
-function normalizeFinancialEvents(eventGroupId: string, payload: Record<string, unknown>): NormalizedEntry[] {
+function normalizeFinancialEvents(eventGroupId: string | null, payload: Record<string, unknown>): NormalizedEntry[] {
   const entries: NormalizedEntry[] = [];
   Object.entries(payload).forEach(([key, value]) => {
     if (!key.endsWith("EventList") || !Array.isArray(value)) return;
@@ -183,11 +183,13 @@ function normalizeFinancialEvents(eventGroupId: string, payload: Record<string, 
       const postedAtValue = typeof record.PostedDate === "string" ? record.PostedDate : null;
       const postedAt = postedAtValue ? new Date(postedAtValue).toISOString() : null;
       const amazonOrderId = typeof record.AmazonOrderId === "string" ? record.AmazonOrderId : undefined;
+      const resolvedEventGroupId =
+        eventGroupId ?? (typeof record.FinancialEventGroupId === "string" ? record.FinancialEventGroupId : "unknown");
       const extracted = extractAmountEntries(record, key);
       extracted.forEach((entry) => {
         entries.push({
           postedAt,
-          eventGroupId,
+          eventGroupId: resolvedEventGroupId,
           amazonOrderId,
           eventType,
           amount: entry.amount,
@@ -243,66 +245,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const warnings: string[] = [...rangeWarnings];
 
-    const eventGroups: Record<string, unknown>[] = [];
-    let nextToken: string | undefined;
+    const { financialEvents, debug } = await withTimeout((signal) =>
+      financesListFinancialEventsByDateRange({
+        postedAfter: start,
+        postedBefore: end,
+        signal,
+      })
+    );
 
-    do {
-      const response = await withTimeout((signal) =>
-        financesListEventGroups({
-          startDate: start,
-          endDate: end,
-          nextToken,
-          signal,
-        })
-      );
-      const payload = (response.payload ?? response.Payload) as Record<string, unknown> | undefined;
-      if (!payload) break;
-      const groups = (payload.FinancialEventGroupList ?? payload.FinancialEventGroups) as
-        | Record<string, unknown>[]
-        | undefined;
-      if (Array.isArray(groups)) {
-        eventGroups.push(...groups);
-      }
-      nextToken = typeof payload.NextToken === "string" ? payload.NextToken : undefined;
-    } while (nextToken);
+    warnings.push(...debug.warnings);
 
-    const eventGroupIds = eventGroups
-      .map((group) => (typeof group.FinancialEventGroupId === "string" ? group.FinancialEventGroupId : null))
-      .filter((id): id is string => Boolean(id));
-
-    const normalizedEntries: NormalizedEntry[] = [];
-    const concurrency = 3;
-    for (let i = 0; i < eventGroupIds.length; i += concurrency) {
-      const batch = eventGroupIds.slice(i, i + concurrency);
-      const batchResults = await Promise.all(
-        batch.map(async (eventGroupId) => {
-          try {
-            let eventsNextToken: string | undefined;
-            const allEntries: NormalizedEntry[] = [];
-            do {
-              const eventsResponse = await withTimeout((signal) =>
-                financesListEventsByGroup({
-                  eventGroupId,
-                  nextToken: eventsNextToken,
-                  signal,
-                })
-              );
-              const eventsPayload = (eventsResponse.payload ?? eventsResponse.Payload) as
-                | Record<string, unknown>
-                | undefined;
-              if (!eventsPayload) break;
-              allEntries.push(...normalizeFinancialEvents(eventGroupId, eventsPayload));
-              eventsNextToken = typeof eventsPayload.NextToken === "string" ? eventsPayload.NextToken : undefined;
-            } while (eventsNextToken);
-            return allEntries;
-          } catch (error) {
-            warnings.push(`Failed to fetch events for group ${eventGroupId}: ${String(error)}`);
-            return [];
-          }
-        })
-      );
-      batchResults.forEach((entries) => normalizedEntries.push(...entries));
-    }
+    const normalizedEntries: NormalizedEntry[] = normalizeFinancialEvents(null, financialEvents);
+    const eventGroupIdSet = new Set(
+      normalizedEntries.map((entry) => entry.eventGroupId).filter((id) => Boolean(id))
+    );
 
     const totalsByCurrency: Record<string, Totals> = {};
     const revenueBreakdown = new Map<string, BreakdownEntry>();
@@ -360,7 +316,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         charges: Array.from(chargesBreakdown.values()).sort((a, b) => b.amount - a.amount),
       },
       debug: {
-        eventGroupsCount: eventGroups.length,
+        eventGroupsCount: eventGroupIdSet.size,
         eventsCount: normalizedEntries.length,
         warnings,
       },
