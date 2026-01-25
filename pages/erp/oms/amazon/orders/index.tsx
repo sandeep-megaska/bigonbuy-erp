@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import {
   badgeStyle,
@@ -34,15 +34,17 @@ type BreakdownEntry = {
 
 type CashflowResponse = {
   range: { start: string; end: string };
-  totalsByCurrency: Record<string, CashflowTotals>;
+  partialTotals: Record<string, CashflowTotals>;
   breakdown: {
     revenue: BreakdownEntry[];
     refunds: BreakdownEntry[];
     charges: BreakdownEntry[];
   };
+  nextToken?: string;
   debug: {
     eventGroupsCount: number;
-    eventsCount: number;
+    pagesFetchedThisCall: number;
+    eventsCountThisCall: number;
     warnings: string[];
   };
 };
@@ -102,7 +104,22 @@ export default function AmazonOmsOrdersPlaceholder() {
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [cashflow, setCashflow] = useState<CashflowResponse | null>(null);
+  const [cashflow, setCashflow] = useState<{
+    range: { start: string; end: string };
+    totalsByCurrency: Record<string, CashflowTotals>;
+    breakdown: {
+      revenue: BreakdownEntry[];
+      refunds: BreakdownEntry[];
+      charges: BreakdownEntry[];
+    };
+    debug: {
+      warnings: string[];
+      pagesFetched: number;
+      eventsFetched: number;
+    };
+  } | null>(null);
+  const [isStopped, setIsStopped] = useState(false);
+  const stopRef = useRef(false);
 
   const breakdownCurrency = useMemo(() => {
     if (!cashflow) return "INR";
@@ -134,17 +151,103 @@ export default function AmazonOmsOrdersPlaceholder() {
     return true;
   };
 
+  const mergeTotals = (
+    existing: Record<string, CashflowTotals>,
+    incoming: Record<string, CashflowTotals>
+  ): Record<string, CashflowTotals> => {
+    const merged = { ...existing };
+    Object.entries(incoming).forEach(([currency, totals]) => {
+      const current = merged[currency] ?? {
+        grossSales: 0,
+        refunds: 0,
+        netSales: 0,
+        amazonCharges: 0,
+        netCashflow: 0,
+      };
+      merged[currency] = {
+        grossSales: current.grossSales + totals.grossSales,
+        refunds: current.refunds + totals.refunds,
+        netSales: current.netSales + totals.netSales,
+        amazonCharges: current.amazonCharges + totals.amazonCharges,
+        netCashflow: current.netCashflow + totals.netCashflow,
+      };
+    });
+    return merged;
+  };
+
+  const mergeBreakdown = (existing: BreakdownEntry[], incoming: BreakdownEntry[]): BreakdownEntry[] => {
+    const map = new Map<string, BreakdownEntry>();
+    existing.forEach((entry) => {
+      map.set(entry.key, { ...entry });
+    });
+    incoming.forEach((entry) => {
+      const current = map.get(entry.key);
+      if (current) {
+        current.amount += entry.amount;
+        current.count += entry.count;
+      } else {
+        map.set(entry.key, { ...entry });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+  };
+
   const handleFetch = async () => {
     setApiError(null);
     if (!validateRange()) return;
+    setIsStopped(false);
+    stopRef.current = false;
     setIsLoading(true);
+    setCashflow({
+      range: { start: startDate, end: endDate },
+      totalsByCurrency: {},
+      breakdown: { revenue: [], refunds: [], charges: [] },
+      debug: { warnings: [], pagesFetched: 0, eventsFetched: 0 },
+    });
     try {
-      const res = await fetch(`/api/oms/amazon/cashflow?start=${startDate}&end=${endDate}`);
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || "Unable to fetch cashflow.");
-      }
-      setCashflow(json as CashflowResponse);
+      let nextToken: string | undefined;
+      do {
+        if (stopRef.current) break;
+        const params = new URLSearchParams({ start: startDate, end: endDate });
+        if (nextToken) params.set("nextToken", nextToken);
+        const res = await fetch(`/api/oms/amazon/cashflow?${params.toString()}`);
+        const json = await res.json();
+        if (!res.ok) {
+          const errorMessage = typeof json?.error === "string" ? json.error : "Unable to fetch cashflow.";
+          throw new Error(errorMessage);
+        }
+
+        const data = json as CashflowResponse;
+        nextToken = data.nextToken;
+        setCashflow((prev) => {
+          if (!prev) {
+            return {
+              range: data.range,
+              totalsByCurrency: data.partialTotals,
+              breakdown: data.breakdown,
+              debug: {
+                warnings: data.debug.warnings,
+                pagesFetched: data.debug.pagesFetchedThisCall,
+                eventsFetched: data.debug.eventsCountThisCall,
+              },
+            };
+          }
+          return {
+            range: data.range,
+            totalsByCurrency: mergeTotals(prev.totalsByCurrency, data.partialTotals),
+            breakdown: {
+              revenue: mergeBreakdown(prev.breakdown.revenue, data.breakdown.revenue),
+              refunds: mergeBreakdown(prev.breakdown.refunds, data.breakdown.refunds),
+              charges: mergeBreakdown(prev.breakdown.charges, data.breakdown.charges),
+            },
+            debug: {
+              warnings: [...prev.debug.warnings, ...data.debug.warnings],
+              pagesFetched: prev.debug.pagesFetched + data.debug.pagesFetchedThisCall,
+              eventsFetched: prev.debug.eventsFetched + data.debug.eventsCountThisCall,
+            },
+          };
+        });
+      } while (nextToken);
     } catch (error) {
       setApiError(String(error));
     } finally {
@@ -183,9 +286,26 @@ export default function AmazonOmsOrdersPlaceholder() {
               <button style={primaryButtonStyle} onClick={handleFetch} disabled={isLoading}>
                 {isLoading ? "Fetching..." : "Fetch Cashflow"}
               </button>
+              {isLoading ? (
+                <button
+                  style={{ ...primaryButtonStyle, backgroundColor: "#9ca3af" }}
+                  onClick={() => {
+                    stopRef.current = true;
+                    setIsStopped(true);
+                  }}
+                >
+                  Stop
+                </button>
+              ) : null}
             </div>
             {rangeError ? <p style={errorStyle}>{rangeError}</p> : null}
             {apiError ? <p style={errorStyle}>{apiError}</p> : null}
+            {cashflow ? (
+              <p style={warningStyle}>
+                Pages fetched: {cashflow.debug.pagesFetched} · Events fetched: {cashflow.debug.eventsFetched}
+                {isStopped ? " · Stopped" : ""}
+              </p>
+            ) : null}
           </div>
         </section>
 

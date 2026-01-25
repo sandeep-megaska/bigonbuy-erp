@@ -4,6 +4,7 @@ import { financesListFinancialEventsByDateRange } from "../../../../lib/oms/adap
 const MAX_RANGE_DAYS = 60;
 const REQUEST_TIMEOUT_MS = 20000;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_PAGES_PER_CALL = 1;
 
 type NormalizedEntry = {
   postedAt: string | null;
@@ -66,8 +67,10 @@ function toIsoDateStart(date: string): string {
   return new Date(`${date}T00:00:00.000Z`).toISOString();
 }
 
-function toIsoDateEnd(date: string): string {
-  return new Date(`${date}T23:59:59.999Z`).toISOString();
+function toIsoDateExclusiveEnd(date: string): string {
+  const endDate = new Date(`${date}T00:00:00.000Z`);
+  endDate.setUTCDate(endDate.getUTCDate() + 1);
+  return endDate.toISOString();
 }
 
 function parseDateRange(start?: string, end?: string): { start: string; end: string; warnings: string[] } {
@@ -77,7 +80,7 @@ function parseDateRange(start?: string, end?: string): { start: string; end: str
   }
 
   const startDate = new Date(`${start}T00:00:00.000Z`);
-  const endDate = new Date(`${end}T23:59:59.999Z`);
+  const endDate = new Date(`${end}T00:00:00.000Z`);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     throw new Error("Invalid date range.");
   }
@@ -92,7 +95,7 @@ function parseDateRange(start?: string, end?: string): { start: string; end: str
     warnings.push("Date range appears to be empty.");
   }
 
-  return { start: toIsoDateStart(start), end: toIsoDateEnd(end), warnings };
+  return { start: toIsoDateStart(start), end: toIsoDateExclusiveEnd(end), warnings };
 }
 
 function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -242,16 +245,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       typeof req.query.start === "string" ? req.query.start : undefined,
       typeof req.query.end === "string" ? req.query.end : undefined
     );
+    const nextToken = typeof req.query.nextToken === "string" ? req.query.nextToken : undefined;
 
     const warnings: string[] = [...rangeWarnings];
 
-    const { financialEvents, debug } = await withTimeout((signal) =>
+    console.info("[amazon cashflow] fetch", {
+      postedAfter: start,
+      postedBefore: end,
+      nextToken: nextToken ? "present" : "none",
+      maxPages: MAX_PAGES_PER_CALL,
+    });
+
+    const fetchStart = Date.now();
+    const { financialEvents, debug, nextToken: responseNextToken } = await withTimeout((signal) =>
       financesListFinancialEventsByDateRange({
         postedAfter: start,
         postedBefore: end,
+        nextToken,
+        maxPages: MAX_PAGES_PER_CALL,
         signal,
       })
     );
+    console.info("[amazon cashflow] fetch complete", {
+      durationMs: Date.now() - fetchStart,
+      pages: debug.pages,
+      events: debug.eventsCount,
+      nextToken: responseNextToken ? "present" : "none",
+    });
 
     warnings.push(...debug.warnings);
 
@@ -309,15 +329,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.status(200).json({
       range: { start, end },
-      totalsByCurrency,
+      partialTotals: totalsByCurrency,
       breakdown: {
         revenue: Array.from(revenueBreakdown.values()).sort((a, b) => b.amount - a.amount),
         refunds: Array.from(refundBreakdown.values()).sort((a, b) => b.amount - a.amount),
         charges: Array.from(chargesBreakdown.values()).sort((a, b) => b.amount - a.amount),
       },
+      nextToken: responseNextToken,
       debug: {
         eventGroupsCount: eventGroupIdSet.size,
-        eventsCount: normalizedEntries.length,
+        pagesFetchedThisCall: debug.pages,
+        eventsCountThisCall: debug.eventsCount,
         warnings,
       },
     });
