@@ -56,6 +56,23 @@ export default function ShopifyOrderDetailPage() {
       return;
     }
 
+    if (process.env.NODE_ENV !== "production") {
+      const orderKeys = orderData ? Object.keys(orderData) : [];
+      const rawOrderKeys =
+        orderData?.raw_order && typeof orderData.raw_order === "object"
+          ? Object.keys(orderData.raw_order as Record<string, unknown>)
+          : [];
+      const lineKeys = lineRows[0] ? Object.keys(lineRows[0]) : [];
+      const rawLineKeys =
+        lineRows[0]?.raw_line && typeof lineRows[0].raw_line === "object"
+          ? Object.keys(lineRows[0].raw_line as Record<string, unknown>)
+          : [];
+      console.debug("[GST Preview] erp_shopify_orders keys:", orderKeys);
+      console.debug("[GST Preview] erp_shopify_orders raw_order keys:", rawOrderKeys);
+      console.debug("[GST Preview] erp_shopify_order_lines keys:", lineKeys);
+      console.debug("[GST Preview] erp_shopify_order_lines raw_line keys:", rawLineKeys);
+    }
+
     setOrder(orderData);
     setLines(lineRows);
     setGstLoading(true);
@@ -64,7 +81,7 @@ export default function ShopifyOrderDetailPage() {
       orderId,
       lineRows,
       orderData?.shipping_state_code ?? null,
-      orderData?.total_discounts ?? null,
+      orderData,
     );
     setGstRows(gstDetail.rows);
     setGstStatus(gstDetail.status);
