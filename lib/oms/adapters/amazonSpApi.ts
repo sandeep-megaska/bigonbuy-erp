@@ -141,16 +141,24 @@ export async function financesListFinancialEventsByDateRange({
       const payload = (json.payload ?? json.Payload) as Record<string, unknown> | undefined;
       if (!payload) break;
 
-      Object.entries(payload).forEach(([key, value]) => {
-        if (!key.endsWith("EventList") || !Array.isArray(value)) return;
-        const existing = aggregated[key];
-        if (Array.isArray(existing)) {
-          existing.push(...value);
-        } else {
-          aggregated[key] = [...value];
-        }
-        eventsCount += value.length;
-      });
+      const financialEvents = (payload.FinancialEvents ?? payload.financialEvents) as
+  | Record<string, unknown>
+  | undefined;
+
+if (financialEvents && typeof financialEvents === "object") {
+  for (const [key, value] of Object.entries(financialEvents)) {
+    if (!key.endsWith("EventList") || !Array.isArray(value)) continue;
+
+    const existing = aggregated[key];
+    if (Array.isArray(existing)) existing.push(...value);
+    else aggregated[key] = [...value];
+
+    eventsCount += value.length;
+  }
+} else {
+  warnings.push("No FinancialEvents object found in payload (unexpected response shape).");
+}
+
 
       nextToken = typeof payload.NextToken === "string" ? payload.NextToken : undefined;
       pages += 1;
