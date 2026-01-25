@@ -118,6 +118,7 @@ const omsSidebarGroups: SidebarGroup[] = [
     items: [
       { label: "Channels", href: "/erp/oms/channels", icon: "CH" },
       { label: "Shopify Orders", href: "/erp/oms/shopify/orders", icon: "SH" },
+      { label: "Sync / Backfill", href: "/erp/finance/shopify-sync", icon: "SY" },
       { label: "Amazon Orders", href: "/erp/oms/amazon/orders", icon: "AM" },
       { label: "Myntra Orders", href: "/erp/oms/myntra/orders", icon: "MY" },
       { label: "Flipkart Orders", href: "/erp/oms/flipkart/orders", icon: "FK" },
