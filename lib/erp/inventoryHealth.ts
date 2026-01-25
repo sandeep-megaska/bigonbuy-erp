@@ -29,6 +29,9 @@ export type InventoryHealthParams = {
   query?: string;
   limit?: number;
   offset?: number;
+  sortBy?: "sku" | "qty";
+  sortDirection?: "asc" | "desc";
+  reloadKey?: number;
 };
 
 export function useInventoryAvailable(params: InventoryHealthParams) {
@@ -37,8 +40,26 @@ export function useInventoryAvailable(params: InventoryHealthParams) {
   const [error, setError] = useState<string | null>(null);
 
   const queryKey = useMemo(
-    () => [params.companyId, params.warehouseId, params.query, params.limit ?? 100, params.offset ?? 0],
-    [params.companyId, params.warehouseId, params.query, params.limit, params.offset]
+    () => [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit ?? 100,
+      params.offset ?? 0,
+      params.sortBy ?? "sku",
+      params.sortDirection ?? "asc",
+      params.reloadKey ?? 0,
+    ],
+    [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit,
+      params.offset,
+      params.sortBy,
+      params.sortDirection,
+      params.reloadKey,
+    ]
   );
 
   useEffect(() => {
@@ -58,10 +79,13 @@ export function useInventoryAvailable(params: InventoryHealthParams) {
       const limit = params.limit ?? 100;
       const offset = params.offset ?? 0;
 
+      const sortBy = params.sortBy ?? "sku";
+      const sortDirection = params.sortDirection ?? "asc";
+
       let query = supabase
         .from("erp_inventory_available_v")
         .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
-        .order("internal_sku", { ascending: true })
+        .order(sortBy === "qty" ? "available" : "internal_sku", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
@@ -111,8 +135,26 @@ export function useInventoryNegativeStock(params: InventoryHealthParams) {
   const [error, setError] = useState<string | null>(null);
 
   const queryKey = useMemo(
-    () => [params.companyId, params.warehouseId, params.query, params.limit ?? 100, params.offset ?? 0],
-    [params.companyId, params.warehouseId, params.query, params.limit, params.offset]
+    () => [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit ?? 100,
+      params.offset ?? 0,
+      params.sortBy ?? "qty",
+      params.sortDirection ?? "asc",
+      params.reloadKey ?? 0,
+    ],
+    [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit,
+      params.offset,
+      params.sortBy,
+      params.sortDirection,
+      params.reloadKey,
+    ]
   );
 
   useEffect(() => {
@@ -132,10 +174,13 @@ export function useInventoryNegativeStock(params: InventoryHealthParams) {
       const limit = params.limit ?? 100;
       const offset = params.offset ?? 0;
 
+      const sortBy = params.sortBy ?? "qty";
+      const sortDirection = params.sortDirection ?? "asc";
+
       let query = supabase
         .from("erp_inventory_negative_stock_v")
         .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available")
-        .order("available", { ascending: true })
+        .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
@@ -185,8 +230,26 @@ export function useInventoryLowStock(params: InventoryHealthParams) {
   const [error, setError] = useState<string | null>(null);
 
   const queryKey = useMemo(
-    () => [params.companyId, params.warehouseId, params.query, params.limit ?? 100, params.offset ?? 0],
-    [params.companyId, params.warehouseId, params.query, params.limit, params.offset]
+    () => [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit ?? 100,
+      params.offset ?? 0,
+      params.sortBy ?? "qty",
+      params.sortDirection ?? "asc",
+      params.reloadKey ?? 0,
+    ],
+    [
+      params.companyId,
+      params.warehouseId,
+      params.query,
+      params.limit,
+      params.offset,
+      params.sortBy,
+      params.sortDirection,
+      params.reloadKey,
+    ]
   );
 
   useEffect(() => {
@@ -206,10 +269,13 @@ export function useInventoryLowStock(params: InventoryHealthParams) {
       const limit = params.limit ?? 100;
       const offset = params.offset ?? 0;
 
+      const sortBy = params.sortBy ?? "qty";
+      const sortDirection = params.sortDirection ?? "asc";
+
       let query = supabase
         .from("erp_inventory_low_stock_v")
         .select("company_id, warehouse_id, variant_id, internal_sku, on_hand, reserved, available, min_level, shortage")
-        .order("available", { ascending: true })
+        .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
