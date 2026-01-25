@@ -64,6 +64,7 @@ export default function ShopifyOrderDetailPage() {
       orderId,
       lineRows,
       orderData?.shipping_state_code ?? null,
+      orderData?.total_discounts ?? null,
     );
     setGstRows(gstDetail.rows);
     setGstStatus(gstDetail.status);
@@ -260,7 +261,9 @@ export default function ShopifyOrderDetailPage() {
                   <th style={tableHeaderCellStyle}>Style Code</th>
                   <th style={tableHeaderCellStyle}>HSN</th>
                   <th style={tableHeaderCellStyle}>GST %</th>
-                  <th style={tableHeaderCellStyle}>Gross</th>
+                  <th style={tableHeaderCellStyle}>Gross (before discount)</th>
+                  <th style={tableHeaderCellStyle}>Discount</th>
+                  <th style={tableHeaderCellStyle}>Sold Price</th>
                   <th style={tableHeaderCellStyle}>Taxable Value</th>
                   <th style={tableHeaderCellStyle}>GST Amount</th>
                   <th style={tableHeaderCellStyle}>CGST</th>
@@ -271,25 +274,59 @@ export default function ShopifyOrderDetailPage() {
               <tbody>
                 {gstRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={tableCellStyle}>
+                    <td colSpan={12} style={tableCellStyle}>
                       No GST data available for this order.
                     </td>
                   </tr>
                 ) : (
-                  gstRows.map((row) => (
-                    <tr key={row.lineId}>
-                      <td style={tableCellStyle}>{row.sku || "—"}</td>
-                      <td style={tableCellStyle}>{row.styleCode || "—"}</td>
-                      <td style={tableCellStyle}>{row.hsn || "—"}</td>
-                      <td style={tableCellStyle}>{formatRate(row.gstRate)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.gross)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.taxableValue)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.gstAmount)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.cgst)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.sgst)}</td>
-                      <td style={tableCellStyle}>{formatMoney(order.currency, row.igst)}</td>
+                  <>
+                    {gstRows.map((row) => (
+                      <tr key={row.lineId}>
+                        <td style={tableCellStyle}>{row.sku || "—"}</td>
+                        <td style={tableCellStyle}>{row.styleCode || "—"}</td>
+                        <td style={tableCellStyle}>{row.hsn || "—"}</td>
+                        <td style={tableCellStyle}>{formatRate(row.gstRate)}</td>
+                        <td style={tableCellStyle}>
+                          {formatMoney(order.currency, row.grossBeforeDiscount)}
+                        </td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.discount)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.soldPrice)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.taxableValue)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.gstAmount)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.cgst)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.sgst)}</td>
+                        <td style={tableCellStyle}>{formatMoney(order.currency, row.igst)}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={tableHeaderCellStyle}>Totals</td>
+                      <td style={tableCellStyle} colSpan={3} />
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "grossBeforeDiscount"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "discount"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "soldPrice"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "taxableValue"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "gstAmount"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "cgst"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "sgst"))}
+                      </td>
+                      <td style={tableHeaderCellStyle}>
+                        {formatMoney(order.currency, sumGstNumbers(gstRows, "igst"))}
+                      </td>
                     </tr>
-                  ))
+                  </>
                 )}
               </tbody>
             </table>
@@ -317,6 +354,16 @@ function formatMoney(currency: string | null, value: number | null) {
 function formatRate(rate: number | null) {
   if (rate == null) return "—";
   return `${Number(rate).toFixed(2)}%`;
+}
+
+function sumGstNumbers(rows: ShopifyOrderGstRow[], key: keyof ShopifyOrderGstRow) {
+  return rows.reduce((total, row) => {
+    const value = row[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return total + value;
+    }
+    return total;
+  }, 0);
 }
 
 function getLineTax(line: ShopifyOrderLine) {
