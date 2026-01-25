@@ -5,16 +5,12 @@ import { supabase } from "../supabaseClient";
 const inventoryAvailableRowSchema = z.object({
   warehouse_id: z.string().uuid(),
   variant_id: z.string().uuid(),
-  internal_sku: z.string().nullable(),
   on_hand: z.coerce.number(),
   reserved: z.coerce.number(),
   available: z.coerce.number(),
 });
 
-const inventoryLowStockRowSchema = inventoryAvailableRowSchema.extend({
-  min_level: z.coerce.number(),
-  shortage: z.coerce.number(),
-});
+const inventoryLowStockRowSchema = inventoryAvailableRowSchema;
 
 export type InventoryAvailableRow = z.infer<typeof inventoryAvailableRowSchema>;
 export type InventoryLowStockRow = z.infer<typeof inventoryLowStockRowSchema>;
@@ -84,15 +80,16 @@ export function useInventoryAvailable(params: InventoryHealthParams) {
       let query = supabase
         .from("erp_inventory_available_v")
         .select("*")
-        .order(sortBy === "qty" ? "available" : "internal_sku", { ascending: sortDirection === "asc" })
+        .order(sortBy === "qty" ? "available" : "variant_id", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
         query = query.eq("warehouse_id", params.warehouseId);
       }
 
-      if (params.query?.trim()) {
-        query = query.ilike("internal_sku", `%${params.query.trim()}%`);
+      const trimmedQuery = params.query?.trim();
+      if (trimmedQuery && isUuid(trimmedQuery)) {
+        query = query.eq("variant_id", trimmedQuery);
       }
 
       const { data: rows, error: fetchError } = await query;
@@ -179,15 +176,16 @@ export function useInventoryNegativeStock(params: InventoryHealthParams) {
       let query = supabase
         .from("erp_inventory_negative_stock_v")
         .select("*")
-       .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
+        .order(sortBy === "qty" ? "available" : "variant_id", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
         query = query.eq("warehouse_id", params.warehouseId);
       }
 
-      if (params.query?.trim()) {
-        query = query.ilike("internal_sku", `%${params.query.trim()}%`);
+      const trimmedQuery = params.query?.trim();
+      if (trimmedQuery && isUuid(trimmedQuery)) {
+        query = query.eq("variant_id", trimmedQuery);
       }
 
       const { data: rows, error: fetchError } = await query;
@@ -273,16 +271,17 @@ export function useInventoryLowStock(params: InventoryHealthParams) {
 
       let query = supabase
         .from("erp_inventory_low_stock_v")
-      .select("*")
-       .order(sortBy === "sku" ? "internal_sku" : "available", { ascending: sortDirection === "asc" })
+        .select("*")
+        .order(sortBy === "qty" ? "available" : "variant_id", { ascending: sortDirection === "asc" })
         .range(offset, offset + limit - 1);
 
       if (params.warehouseId) {
         query = query.eq("warehouse_id", params.warehouseId);
       }
 
-      if (params.query?.trim()) {
-        query = query.ilike("internal_sku", `%${params.query.trim()}%`);
+      const trimmedQuery = params.query?.trim();
+      if (trimmedQuery && isUuid(trimmedQuery)) {
+        query = query.eq("variant_id", trimmedQuery);
       }
 
       const { data: rows, error: fetchError } = await query;
@@ -316,4 +315,8 @@ export function useInventoryLowStock(params: InventoryHealthParams) {
   }, [queryKey]);
 
   return { data, loading, error };
+}
+
+function isUuid(value: string) {
+  return z.string().uuid().safeParse(value).success;
 }
