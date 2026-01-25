@@ -157,6 +157,14 @@ export const ERP_NAV: NavItem[] = [
     access: "manager",
   },
   {
+    id: "oms-orders",
+    label: "Orders",
+    href: "/erp/oms/orders",
+    section: "OMS",
+    description: "Review OMS orders and inventory actions.",
+    access: "manager",
+  },
+  {
     id: "company-users",
     label: "Company Users",
     href: "/erp/admin/company-users",
