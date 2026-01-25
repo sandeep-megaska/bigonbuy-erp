@@ -39,7 +39,9 @@ export type ShopifyOrderGstRow = {
   styleCode: string | null;
   hsn: string | null;
   gstRate: number | null;
-  gross: number | null;
+  grossBeforeDiscount: number | null;
+  discount: number | null;
+  soldPrice: number | null;
   taxableValue: number | null;
   gstAmount: number | null;
   cgst: number | null;
@@ -163,7 +165,7 @@ export async function fetchShopifyOrderDetail(companyId: string, orderId: string
 
   const { data: lineData, error: lineError } = await supabase
     .from("erp_shopify_order_lines")
-    .select("id, sku, title, quantity, price, line_discount, taxable, raw_line")
+    .select("*")
     .eq("company_id", companyId)
     .eq("order_id", orderId)
     .order("created_at", { ascending: true });
@@ -184,8 +186,14 @@ export async function fetchShopifyOrderGstDetail(
   orderId: string,
   lines: ShopifyOrderLine[],
   buyerStateCode: string | null,
+  orderTotalDiscounts: number | null,
 ): Promise<ShopifyOrderGstDetail> {
-  const previewData = await buildShopifyGstPreview(companyId, lines, buyerStateCode);
+  const previewData = await buildShopifyGstPreview(
+    companyId,
+    lines,
+    buyerStateCode,
+    orderTotalDiscounts,
+  );
   const previewRows = previewData.rows;
   let notice = previewData.notice;
 
@@ -238,7 +246,9 @@ export async function fetchShopifyOrderGstDetail(
         styleCode: getStyleCode(line.sku),
         hsn: null,
         gstRate: null,
-        gross: null,
+        grossBeforeDiscount: null,
+        discount: null,
+        soldPrice: null,
         taxableValue: null,
         gstAmount: null,
         cgst: null,
@@ -268,7 +278,7 @@ function mapActualGstRow(row: ShopifyGstSalesRegisterRow, line: ShopifyOrderLine
   const gstAmount = sumNumbers(cgst, sgst, igst);
   const taxableValue = toNumber(row.taxable_value);
   const grossFromRaw = toNumber(row.raw_calc?.line_total_inclusive as number | string | null);
-  const gross = grossFromRaw ?? sumNumbers(taxableValue, gstAmount);
+  const soldPrice = grossFromRaw ?? sumNumbers(taxableValue, gstAmount);
 
   return {
     lineId: row.source_line_id,
@@ -276,7 +286,9 @@ function mapActualGstRow(row: ShopifyGstSalesRegisterRow, line: ShopifyOrderLine
     styleCode: row.style_code || getStyleCode(row.sku || line.sku),
     hsn: row.hsn || null,
     gstRate: toNumber(row.gst_rate),
-    gross,
+    grossBeforeDiscount: grossFromRaw ?? soldPrice,
+    discount: null,
+    soldPrice,
     taxableValue,
     gstAmount,
     cgst,
@@ -290,6 +302,7 @@ async function buildShopifyGstPreview(
   companyId: string,
   lines: ShopifyOrderLine[],
   buyerStateCode: string | null,
+  orderTotalDiscounts: number | null,
 ) {
   const styleCodes = Array.from(
     new Set(lines.map((line) => getStyleCode(line.sku)).filter(Boolean)),
@@ -368,8 +381,21 @@ async function buildShopifyGstPreview(
   }
 
   const isIntra = buyerStateCode === "RJ";
+  const lineDiscountDetails = lines.map((line) => ({
+    line,
+    grossBeforeDiscount: getLineGrossBeforeDiscount(line),
+    discountFromLine: getLineDiscountFromLine(line),
+    hasLineDiscountData: hasLineDiscountData(line),
+  }));
+  const hasAnyLineDiscountData = lineDiscountDetails.some((detail) => detail.hasLineDiscountData);
+  const totalGrossBeforeDiscount = lineDiscountDetails.reduce(
+    (total, detail) => total + (detail.grossBeforeDiscount ?? 0),
+    0,
+  );
+  const totalOrderDiscounts = toNumber(orderTotalDiscounts) ?? 0;
 
-  const rows = lines.map((line) => {
+  const rows = lineDiscountDetails.map((detail) => {
+    const line = detail.line;
     const styleCode = getStyleCode(line.sku);
     const styleProfile = styleCode ? styleMap.get(styleCode) : undefined;
     const skuProfile = line.sku ? gstSkuMap.get(line.sku) : undefined;
@@ -377,8 +403,15 @@ async function buildShopifyGstPreview(
     const mapping = styleProfile || styleFallback || skuProfile;
     const gstRate = toNumber(mapping?.gst_rate ?? null);
     const hsn = mapping?.hsn ?? null;
-    const gross = getLineGross(line);
-    const calc = calculateInclusiveGst(gross, gstRate, isIntra);
+    const grossBeforeDiscount = detail.grossBeforeDiscount;
+    const discount = hasAnyLineDiscountData
+      ? detail.discountFromLine ?? 0
+      : totalGrossBeforeDiscount > 0 && grossBeforeDiscount != null
+        ? roundTo(totalOrderDiscounts * (grossBeforeDiscount / totalGrossBeforeDiscount), 2)
+        : 0;
+    const soldPrice =
+      grossBeforeDiscount == null ? null : roundTo(Math.max(0, grossBeforeDiscount - discount), 2);
+    const calc = calculateInclusiveGst(soldPrice, gstRate, isIntra);
 
     return {
       lineId: line.id,
@@ -386,7 +419,9 @@ async function buildShopifyGstPreview(
       styleCode,
       hsn,
       gstRate,
-      gross,
+      grossBeforeDiscount,
+      discount,
+      soldPrice,
       taxableValue: calc.taxableValue,
       gstAmount: calc.gstAmount,
       cgst: calc.cgst,
@@ -420,13 +455,83 @@ function getStyleCode(sku: string | null | undefined) {
   return style.trim().toUpperCase() || null;
 }
 
-function getLineGross(line: ShopifyOrderLine) {
+function getLineGrossBeforeDiscount(line: ShopifyOrderLine) {
   const quantity = toNumber(line.quantity);
   const price = toNumber(line.price);
-  const lineDiscount = toNumber(line.line_discount);
-  if (quantity == null || price == null) return null;
-  const total = quantity * price - (lineDiscount ?? 0);
-  return roundTo(Math.max(0, total), 2);
+  if (quantity != null && price != null) {
+    return roundTo(Math.max(0, quantity * price), 2);
+  }
+  const lineRecord = line as Record<string, unknown>;
+  const fallback =
+    toNumber(lineRecord.line_total as number | string | null | undefined) ??
+    toNumber(lineRecord.subtotal as number | string | null | undefined) ??
+    toNumber((line.raw_line as Record<string, unknown> | null | undefined)?.line_price as
+      | number
+      | string
+      | null
+      | undefined);
+  return fallback == null ? null : roundTo(Math.max(0, fallback), 2);
+}
+
+function getLineDiscountFromLine(line: ShopifyOrderLine) {
+  const lineRecord = line as Record<string, unknown>;
+  const discountFromColumn =
+    toNumber(line.line_discount) ??
+    toNumber(lineRecord.discount_amount as number | string | null | undefined) ??
+    toNumber(lineRecord.total_discount as number | string | null | undefined);
+  if (discountFromColumn != null) {
+    return roundTo(Math.max(0, discountFromColumn), 2);
+  }
+  const rawLine = line.raw_line as Record<string, unknown> | null | undefined;
+  const rawDiscount =
+    toNumber(rawLine?.total_discount as number | string | null | undefined) ??
+    toNumber(rawLine?.discount_amount as number | string | null | undefined);
+  if (rawDiscount != null) {
+    return roundTo(Math.max(0, rawDiscount), 2);
+  }
+  const allocations =
+    (lineRecord.discount_allocations as unknown) ??
+    (rawLine?.discount_allocations as unknown);
+  const allocationList = parseMaybeJsonArray(allocations);
+  if (allocationList) {
+    const allocationSum = allocationList.reduce((total, item) => {
+      const record = item as Record<string, any>;
+      const amount =
+        toNumber(record.amount as number | string | null | undefined) ??
+        toNumber(record.amount_set?.shop_money?.amount as number | string | null | undefined);
+      return total + (amount ?? 0);
+    }, 0);
+    return roundTo(Math.max(0, allocationSum), 2);
+  }
+  return null;
+}
+
+function hasLineDiscountData(line: ShopifyOrderLine) {
+  const lineRecord = line as Record<string, unknown>;
+  const rawLine = line.raw_line as Record<string, unknown> | null | undefined;
+  return (
+    line.line_discount != null ||
+    lineRecord.discount_amount != null ||
+    lineRecord.total_discount != null ||
+    lineRecord.discount_allocations != null ||
+    rawLine?.total_discount != null ||
+    rawLine?.discount_amount != null ||
+    rawLine?.discount_allocations != null
+  );
+}
+
+function parseMaybeJsonArray(value: unknown) {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function toNumber(value: number | string | null | undefined) {
