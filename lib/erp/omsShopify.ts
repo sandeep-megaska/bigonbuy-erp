@@ -122,7 +122,9 @@ export async function fetchShopifyOrders({
   if (financialStatus) {
     query = query.eq("financial_status", financialStatus);
   }
-  if (fulfillmentStatus) {
+  if (fulfillmentStatus === "unfulfilled") {
+    query = query.is("fulfillment_status", null);
+  } else if (fulfillmentStatus) {
     query = query.eq("fulfillment_status", fulfillmentStatus);
   }
   if (search?.trim()) {
