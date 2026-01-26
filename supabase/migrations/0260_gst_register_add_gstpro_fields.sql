@@ -362,7 +362,7 @@ revoke all on function public.erp_gst_generate_shopify(date, date) from public;
 revoke all on function public.erp_gst_generate_shopify(date, date) from authenticated;
 grant execute on function public.erp_gst_generate_shopify(date, date) to authenticated;
 
-create or replace function public.erp_gst_export_b2c_shopify(
+create or replace function public.erp_gst_export_b2c_shopify_gstpro(
   p_from date,
   p_to date
 ) returns table (
@@ -423,10 +423,10 @@ begin
     and r.source = 'shopify'
     and r.is_void = false
     and r.order_date between p_from and p_to
-  order by r.order_date, r.invoice_number, r.order_number, r.sku;
+  order by r.order_date, coalesce(r.invoice_number, r.invoice_no), r.order_number, r.sku;
 end;
 $$;
 
-revoke all on function public.erp_gst_export_b2c_shopify(date, date) from public;
-revoke all on function public.erp_gst_export_b2c_shopify(date, date) from authenticated;
-grant execute on function public.erp_gst_export_b2c_shopify(date, date) to authenticated;
+revoke all on function public.erp_gst_export_b2c_shopify_gstpro(date, date) from public;
+revoke all on function public.erp_gst_export_b2c_shopify_gstpro(date, date) from authenticated;
+grant execute on function public.erp_gst_export_b2c_shopify_gstpro(date, date) to authenticated;
