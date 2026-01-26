@@ -13,6 +13,7 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { downloadCsv } from "../../../../lib/erp/exportCsv";
 
 type CompanyContext = {
   companyId: string | null;
@@ -108,6 +109,13 @@ function formatDateTime(value?: string) {
   return parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function formatTimestampForFilename(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(
+    date.getHours()
+  )}${pad(date.getMinutes())}`;
+}
+
 export default function AmazonSettlementReportsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
@@ -198,6 +206,17 @@ export default function AmazonSettlementReportsPage() {
     } finally {
       setIsLoadingPreview(false);
     }
+  };
+
+  const handleExportCsv = () => {
+    if (!preview) return;
+    const columns = preview.columns.map((column) => ({
+      header: column,
+      accessor: (row: Record<string, string>) => row[column] ?? "",
+    }));
+    const timestamp = formatTimestampForFilename(new Date());
+    const filename = `amazon-settlement-${preview.report.reportId}-${timestamp}.csv`;
+    downloadCsv(filename, columns, preview.rows);
   };
 
   if (loading) {
@@ -358,29 +377,37 @@ export default function AmazonSettlementReportsPage() {
               ) : null}
 
               {preview.columns.length > 0 ? (
-                <div style={previewTableWrapperStyle}>
-                  <table style={tableStyle}>
-                    <thead>
-                      <tr>
-                        {preview.columns.map((column) => (
-                          <th key={column} style={tableHeaderCellStyle}>
-                            {column}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.rows.map((row, rowIndex) => (
-                        <tr key={rowIndex}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div style={labelStyle}>Preview rows</div>
+                    <button style={secondaryButtonStyle} onClick={handleExportCsv}>
+                      Export CSV
+                    </button>
+                  </div>
+                  <div style={previewTableWrapperStyle}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
                           {preview.columns.map((column) => (
-                            <td key={`${rowIndex}-${column}`} style={tableCellStyle}>
-                              {row[column] || "—"}
-                            </td>
+                            <th key={column} style={tableHeaderCellStyle}>
+                              {column}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {preview.rows.map((row, rowIndex) => (
+                          <tr key={rowIndex}>
+                            {preview.columns.map((column) => (
+                              <td key={`${rowIndex}-${column}`} style={tableCellStyle}>
+                                {row[column] || "—"}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : (
                 <p style={emptyStateStyle}>No rows detected in preview.</p>

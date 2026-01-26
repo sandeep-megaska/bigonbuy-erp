@@ -188,6 +188,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-amazon-settlements",
+    label: "Amazon Settlements",
+    href: "/erp/finance/amazon/settlements",
+    description: "Preview Amazon settlement flat-file reports without importing data.",
+    group: "Finance",
+    sidebarIcon: "AS",
+    cardIcon: "🧾",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-bank-import",
     label: "Bank Import",
     href: "/erp/finance/bank/import",
