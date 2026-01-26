@@ -15,7 +15,8 @@ export default function App({ Component, pageProps }) {
   const router = useRouter();
   const moduleKey = getErpModuleKey(router.pathname);
 
-  const isPrintRoute = router.pathname.includes("/print");
+  const isPrintRoute =
+    router.pathname.includes("/print") || router.pathname.startsWith("/erp/finance/gst/invoice/");
 
   if (moduleKey && !isPrintRoute) {
     return (

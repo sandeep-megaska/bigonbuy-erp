@@ -14,6 +14,7 @@ export default function ErpDocumentFooter({ addressLines, gstin, note }: ErpDocu
     .map((line) => line.trim())
     .filter(Boolean);
   const lines = addressLines && addressLines.length > 0 ? addressLines : fallbackAddress;
+  const secondaryLogoUrl = branding?.megaskaLogoUrl ?? null;
 
   return (
     <footer style={footerStyle} className="erp-document-footer">
@@ -21,9 +22,18 @@ export default function ErpDocumentFooter({ addressLines, gstin, note }: ErpDocu
         <div style={footerTextStyle}>{lines.length ? lines.join("\n") : "—"}</div>
         <div style={footerTextStyle}>GSTIN: {gstin || branding?.gstin || "—"}</div>
       </div>
-      <div style={noteStyle}>{note}</div>
-      <div style={pageStyle}>
-        Page <span className="pageNumber"></span> / <span className="totalPages"></span>
+      <div style={footerRightStyle}>
+        {note ? <div style={noteStyle}>{note}</div> : null}
+        <div style={logoRowStyle}>
+          {secondaryLogoUrl ? (
+            <img src={secondaryLogoUrl} alt="Megaska logo" style={secondaryLogoStyle} />
+          ) : (
+            <div style={logoFallbackStyle}>MEGASKA</div>
+          )}
+        </div>
+        <div style={pageStyle}>
+          Page <span className="pageNumber"></span> / <span className="totalPages"></span>
+        </div>
       </div>
     </footer>
   );
@@ -44,20 +54,43 @@ const footerBlockStyle: CSSProperties = {
   whiteSpace: "pre-line",
 };
 
+const footerRightStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  gap: 6,
+};
+
 const footerTextStyle: CSSProperties = {
   marginBottom: 4,
 };
 
 const noteStyle: CSSProperties = {
-  alignSelf: "end",
   fontStyle: "italic",
   color: "#64748b",
   textAlign: "right",
 };
 
+const logoRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+};
+
+const secondaryLogoStyle: CSSProperties = {
+  height: 32,
+  width: "auto",
+  objectFit: "contain",
+};
+
+const logoFallbackStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  color: "#0f172a",
+};
+
 const pageStyle: CSSProperties = {
-  gridColumn: "1 / -1",
   textAlign: "right",
   color: "#94a3b8",
-  marginTop: 4,
 };
