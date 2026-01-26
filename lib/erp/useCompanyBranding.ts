@@ -13,6 +13,9 @@ export type CompanyBranding = {
   megaskaLogoUrl: string | null;
   poFooterAddressText: string;
   footerText: string;
+  contactEmail: string;
+  contactPhone: string;
+  website: string;
   loaded: boolean;
 };
 
@@ -31,6 +34,9 @@ async function fetchBranding(): Promise<CompanyBranding> {
     megaskaLogoUrl: null,
     poFooterAddressText: "",
     footerText: "",
+    contactEmail: "",
+    contactPhone: "",
+    website: "",
     loaded: true,
   };
 
@@ -67,6 +73,9 @@ async function fetchBranding(): Promise<CompanyBranding> {
       megaskaLogoUrl: logoRes.megaskaUrl ?? null,
       poFooterAddressText: logoRes.settings?.po_footer_address_text ?? "",
       footerText: "",
+      contactEmail: logoRes.settings?.contact_email ?? "",
+      contactPhone: logoRes.settings?.contact_phone ?? "",
+      website: logoRes.settings?.website ?? "",
       loaded: true,
     };
   } catch (err) {

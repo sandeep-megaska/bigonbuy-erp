@@ -9,6 +9,9 @@ export type CompanySettings = {
   address_text?: string | null;
   po_terms_text?: string | null;
   po_footer_address_text?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website?: string | null;
   setup_completed?: boolean | null;
   setup_completed_at?: string | null;
   updated_by?: string | null;
@@ -26,7 +29,7 @@ export async function getCompanySettings() {
   const { data, error } = await supabase
     .from("erp_company_settings")
     .select(
-      "company_id, bigonbuy_logo_path, megaska_logo_path, legal_name, gstin, address_text, po_terms_text, po_footer_address_text, setup_completed, setup_completed_at"
+      "company_id, bigonbuy_logo_path, megaska_logo_path, legal_name, gstin, address_text, po_terms_text, po_footer_address_text, contact_email, contact_phone, website, setup_completed, setup_completed_at"
     )
     .maybeSingle();
 

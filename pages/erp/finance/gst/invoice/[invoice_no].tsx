@@ -3,6 +3,9 @@ import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { supabase } from "../../../../../lib/supabaseClient";
 import { useCompanyBranding } from "../../../../../lib/erp/useCompanyBranding";
+import ErpDocumentHeader from "../../../../../components/erp/ErpDocumentHeader";
+import ErpDocumentFooter from "../../../../../components/erp/ErpDocumentFooter";
+import { formatInrWords } from "../../../../../lib/erp/inrWords";
 
 type GstRegisterRow = {
   invoice_number: string | null;
@@ -13,6 +16,7 @@ type GstRegisterRow = {
   customer_gstin: string | null;
   place_of_supply_code: string | null;
   buyer_state_code: string | null;
+  sku: string | null;
   product_title: string | null;
   variant_title: string | null;
   hsn: string | null;
@@ -27,6 +31,7 @@ type GstRegisterRow = {
   payment_gateway: string | null;
   fulfillment_status: string | null;
   source_order_id: string;
+  source_line_id: string;
 };
 
 type ShopifyOrder = {
@@ -35,6 +40,15 @@ type ShopifyOrder = {
   shipping_state_code: string | null;
   shipping_pincode: string | null;
   order_created_at: string | null;
+};
+
+type ShopifyOrderLine = {
+  id: string;
+  sku: string | null;
+  quantity: number | null;
+  price: number | null;
+  line_discount: number | null;
+  title: string | null;
 };
 
 type CompanyGstProfile = {
@@ -54,33 +68,11 @@ const pageStyle: React.CSSProperties = {
 const sheetStyle: React.CSSProperties = {
   background: "#fff",
   color: "#0f172a",
-  maxWidth: 980,
+  maxWidth: 1040,
   width: "100%",
-  borderRadius: 12,
-  padding: "24px 32px",
+  borderRadius: 16,
+  padding: "24px 28px",
   boxShadow: "0 10px 30px rgba(15, 23, 42, 0.12)",
-};
-
-const headerRowStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 16,
-  flexWrap: "wrap",
-};
-
-const headingStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 22,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 0.6,
-};
-
-const subHeadingStyle: React.CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: 13,
-  color: "#475569",
 };
 
 const warningStyle: React.CSSProperties = {
@@ -95,33 +87,35 @@ const warningStyle: React.CSSProperties = {
 
 const gridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 12,
-  marginTop: 16,
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 14,
+  marginTop: 18,
 };
 
 const cardStyle: React.CSSProperties = {
   border: "1px solid #e2e8f0",
-  borderRadius: 10,
-  padding: 12,
-  fontSize: 13,
+  borderRadius: 12,
+  padding: 14,
+  fontSize: 12,
+  background: "#f8fafc",
 };
 
 const tableStyle: React.CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
   marginTop: 20,
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "8px 6px",
+  padding: "9px 6px",
   borderBottom: "1px solid #e2e8f0",
-  background: "#f8fafc",
-  fontSize: 11,
+  background: "#eef2ff",
+  fontSize: 10,
   textTransform: "uppercase",
-  letterSpacing: 0.4,
+  letterSpacing: 0.5,
+  color: "#334155",
 };
 
 const tdStyle: React.CSSProperties = {
@@ -130,17 +124,34 @@ const tdStyle: React.CSSProperties = {
   verticalAlign: "top",
 };
 
+const totalsWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.4fr 0.6fr",
+  gap: 16,
+  marginTop: 18,
+};
+
 const totalsGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: 10,
-  marginTop: 16,
+  gap: 8,
 };
 
 const totalCardStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
   border: "1px solid #e2e8f0",
   borderRadius: 10,
-  padding: 12,
+  padding: "10px 12px",
+  fontSize: 12,
+  background: "#fff",
+};
+
+const grandTotalStyle: React.CSSProperties = {
+  ...totalCardStyle,
+  borderColor: "#1d4ed8",
+  background: "#eff6ff",
+  fontWeight: 700,
   fontSize: 13,
 };
 
@@ -168,6 +179,25 @@ const mutedTextStyle: React.CSSProperties = {
   fontSize: 12,
 };
 
+const sectionTitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  letterSpacing: 0.6,
+  textTransform: "uppercase",
+  fontWeight: 700,
+  color: "#334155",
+  marginBottom: 8,
+};
+
+const amountWordsStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#f1f5f9",
+  fontSize: 12,
+  color: "#0f172a",
+  fontWeight: 600,
+};
+
 const formatDate = (value: string | null | undefined) => {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -189,6 +219,7 @@ export default function GstInvoicePrintPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<GstRegisterRow[]>([]);
   const [order, setOrder] = useState<ShopifyOrder | null>(null);
+  const [orderLines, setOrderLines] = useState<ShopifyOrderLine[]>([]);
   const [companyGst, setCompanyGst] = useState<CompanyGstProfile | null>(null);
 
   const invoiceKey =
@@ -233,7 +264,7 @@ export default function GstInvoicePrintPage() {
     const { data, error: rowsError } = await supabase
       .from("erp_gst_sales_register")
       .select(
-        "invoice_number, invoice_no, order_number, order_date, customer_name, customer_gstin, place_of_supply_code, buyer_state_code, product_title, variant_title, hsn, quantity, taxable_value, gst_rate, cgst, sgst, igst, total_tax, payment_status, payment_gateway, fulfillment_status, source_order_id"
+        "invoice_number, invoice_no, order_number, order_date, customer_name, customer_gstin, place_of_supply_code, buyer_state_code, sku, product_title, variant_title, hsn, quantity, taxable_value, gst_rate, cgst, sgst, igst, total_tax, payment_status, payment_gateway, fulfillment_status, source_order_id, source_line_id"
       )
       .eq("is_void", false)
       .eq("source", "shopify")
@@ -266,6 +297,19 @@ export default function GstInvoicePrintPage() {
     }
 
     setOrder((orderData || null) as ShopifyOrder | null);
+
+    const { data: lineData, error: lineError } = await supabase
+      .from("erp_shopify_order_lines")
+      .select("id, sku, quantity, price, line_discount, title")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true });
+
+    if (lineError) {
+      setError(lineError.message || "Failed to load order lines.");
+      return;
+    }
+
+    setOrderLines((lineData || []) as ShopifyOrderLine[]);
   };
 
   const invoiceHeader = rows[0];
@@ -288,6 +332,11 @@ export default function GstInvoicePrintPage() {
     );
   }, [rows]);
 
+  const orderLineMap = useMemo(
+    () => new Map(orderLines.map((line) => [line.id, line])),
+    [orderLines]
+  );
+
   const companyLegalName = branding?.legalName || branding?.companyName || "Company";
   const companyAddressText = branding?.addressText || branding?.poFooterAddressText || "";
   const companyAddressLines = companyAddressText
@@ -295,25 +344,45 @@ export default function GstInvoicePrintPage() {
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const customerAddress = (() => {
-    const rawOrder = order?.raw_order as Record<string, any> | null;
-    const shipping = rawOrder?.shipping_address || rawOrder?.billing_address || {};
-    const addressLines = [
-      shipping?.address1,
-      shipping?.address2,
-      shipping?.city,
-      shipping?.province,
-      shipping?.zip,
-      shipping?.country,
-    ].filter(Boolean);
-    return addressLines.map((line: string) => String(line));
-  })();
+  const rawOrder = order?.raw_order as Record<string, any> | null;
+  const billingAddress = rawOrder?.billing_address || {};
+  const shippingAddress = rawOrder?.shipping_address || billingAddress;
+
+  const formatAddress = (address: Record<string, any>) =>
+    [address?.name, address?.address1, address?.address2, address?.city, address?.province, address?.zip, address?.country]
+      .filter(Boolean)
+      .map((line: string) => String(line));
+
+  const billingAddressLines = formatAddress(billingAddress);
+  const shippingAddressLines = formatAddress(shippingAddress);
 
   const customerState =
-    invoiceHeader?.buyer_state_code || order?.shipping_state_code || (order?.raw_order as any)?.shipping_address?.province;
+    invoiceHeader?.buyer_state_code || order?.shipping_state_code || shippingAddress?.province || billingAddress?.province;
+
+  const placeOfSupplyCode = invoiceHeader?.place_of_supply_code || invoiceHeader?.buyer_state_code || customerState || "";
+  const placeOfSupplyName = shippingAddress?.province || billingAddress?.province || placeOfSupplyCode || "";
+  const placeOfSupplyLabel = placeOfSupplyName
+    ? `${placeOfSupplyName}${placeOfSupplyCode ? ` (${placeOfSupplyCode})` : ""}`
+    : "—";
+
+  const supplierStateLabel = companyGst?.gst_state_name
+    ? `${companyGst.gst_state_name} (${companyGst.gst_state_code || "—"})`
+    : companyGst?.gst_state_code || "—";
 
   const invoiceNumber = invoiceHeader?.invoice_number || invoiceHeader?.invoice_no || "";
   const invoiceNumberMissing = !invoiceHeader?.invoice_number;
+  const paymentGateways = Array.isArray(rawOrder?.payment_gateway_names)
+    ? (rawOrder?.payment_gateway_names as string[]).filter(Boolean)
+    : [];
+  const paymentMethod =
+    paymentGateways.join(", ") || invoiceHeader?.payment_gateway || invoiceHeader?.payment_status || "—";
+  const qrCodeUrl = useMemo(() => {
+    const orderNumber = invoiceHeader?.order_number || "";
+    const total = round2(totals.total);
+    if (!invoiceNumber && !orderNumber) return null;
+    const payload = `Invoice:${invoiceNumber || "NA"}|Order:${orderNumber || "NA"}|Total:${total}`;
+    return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(payload)}`;
+  }, [invoiceHeader?.order_number, invoiceNumber, totals.total]);
 
   const formatMoney = (value: number) =>
     new Intl.NumberFormat("en-IN", {
@@ -353,6 +422,15 @@ export default function GstInvoicePrintPage() {
             max-width: none !important;
           }
 
+          .gst-lines-table thead {
+            display: table-header-group;
+          }
+
+          .gst-lines-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
           .no-print {
             display: none !important;
           }
@@ -364,24 +442,17 @@ export default function GstInvoicePrintPage() {
         ) : (
           <>
             <header>
-              <div style={headerRowStyle}>
-                <div>
-                  <h1 style={headingStyle}>Tax Invoice</h1>
-                  <p style={subHeadingStyle}>GST invoice for Shopify order</p>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 600 }}>{companyLegalName}</div>
-                  <div style={mutedTextStyle}>GSTIN: {companyGst?.gstin || branding?.gstin || "—"}</div>
-                  <div style={mutedTextStyle}>
-                    State: {companyGst?.gst_state_name || "—"} ({companyGst?.gst_state_code || "—"})
-                  </div>
-                  {companyAddressLines.map((line) => (
-                    <div key={line} style={mutedTextStyle}>
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <ErpDocumentHeader
+                title="Tax Invoice"
+                tag="Original"
+                subtitle="GST-compliant invoice"
+                gstin={companyGst?.gstin || branding?.gstin || "—"}
+                stateLabel={supplierStateLabel}
+                contactEmail={branding?.contactEmail}
+                contactWebsite={branding?.website}
+                contactPhone={branding?.contactPhone}
+                qrCodeUrl={qrCodeUrl}
+              />
               <div style={buttonRowStyle} className="no-print">
                 <span style={mutedTextStyle}>Invoice #{invoiceNumber || "—"}</span>
                 <button type="button" style={printButtonStyle} onClick={() => window.print()}>
@@ -393,31 +464,48 @@ export default function GstInvoicePrintPage() {
 
             <section style={gridStyle}>
               <div style={cardStyle}>
-                <div style={{ fontWeight: 600 }}>Company</div>
-                <div>{companyLegalName}</div>
-                <div>GSTIN: {companyGst?.gstin || branding?.gstin || "—"}</div>
-                <div>
-                  State: {companyGst?.gst_state_name || "—"} ({companyGst?.gst_state_code || "—"})
-                </div>
-                {companyAddressLines.map((line) => (
+                <div style={sectionTitleStyle}>Invoice Details</div>
+                <div>Invoice No: {invoiceNumber || "—"}</div>
+                <div>Order Id: {invoiceHeader?.order_number || "—"}</div>
+                <div>Invoice Date: {formatDate(invoiceHeader?.order_date || order?.order_created_at || null)}</div>
+                <div>Payment Method: {paymentMethod}</div>
+              </div>
+              <div style={cardStyle}>
+                <div style={sectionTitleStyle}>Place of Supply</div>
+                <div style={{ fontWeight: 700 }}>{placeOfSupplyLabel}</div>
+                <div style={mutedTextStyle}>State Code: {placeOfSupplyCode || "—"}</div>
+              </div>
+              <div style={cardStyle}>
+                <div style={sectionTitleStyle}>Order Status</div>
+                <div>Payment Status: {invoiceHeader?.payment_status || "—"}</div>
+                <div>Fulfillment: {invoiceHeader?.fulfillment_status || "—"}</div>
+              </div>
+            </section>
+
+            <section style={gridStyle}>
+              <div style={cardStyle}>
+                <div style={sectionTitleStyle}>Billed To</div>
+                <div style={{ fontWeight: 700 }}>{invoiceHeader?.customer_name || order?.customer_email || "—"}</div>
+                <div>GSTIN: {invoiceHeader?.customer_gstin || "—"}</div>
+                <div>State: {customerState || "—"}</div>
+                {billingAddressLines.map((line) => (
                   <div key={line}>{line}</div>
                 ))}
               </div>
               <div style={cardStyle}>
-                <div style={{ fontWeight: 600 }}>Invoice Details</div>
-                <div>Invoice No: {invoiceNumber || "—"}</div>
-                <div>Invoice Date: {formatDate(invoiceHeader?.order_date || order?.order_created_at || null)}</div>
-                <div>Order No: {invoiceHeader?.order_number || "—"}</div>
-                <div>
-                  Place of Supply: {invoiceHeader?.place_of_supply_code || invoiceHeader?.buyer_state_code || "—"}
-                </div>
+                <div style={sectionTitleStyle}>Ship To</div>
+                <div style={{ fontWeight: 700 }}>{shippingAddress?.name || invoiceHeader?.customer_name || "—"}</div>
+                <div>State: {customerState || "—"}</div>
+                {shippingAddressLines.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
               </div>
               <div style={cardStyle}>
-                <div style={{ fontWeight: 600 }}>Customer</div>
-                <div>{invoiceHeader?.customer_name || order?.customer_email || "—"}</div>
-                <div>GSTIN: {invoiceHeader?.customer_gstin || "—"}</div>
-                <div>State: {customerState || "—"}</div>
-                {customerAddress.map((line) => (
+                <div style={sectionTitleStyle}>Sold By</div>
+                <div style={{ fontWeight: 700 }}>{companyLegalName}</div>
+                <div>GSTIN: {companyGst?.gstin || branding?.gstin || "—"}</div>
+                <div>State: {supplierStateLabel}</div>
+                {companyAddressLines.map((line) => (
                   <div key={line}>{line}</div>
                 ))}
               </div>
@@ -428,9 +516,12 @@ export default function GstInvoicePrintPage() {
                 <tr>
                   <th style={thStyle}>Product</th>
                   <th style={thStyle}>Variant</th>
-                  <th style={thStyle}>HSN</th>
+                  <th style={thStyle}>SKU</th>
                   <th style={thStyle}>Qty</th>
-                  <th style={thStyle}>Taxable Value</th>
+                  <th style={thStyle}>Rate/MRP</th>
+                  <th style={thStyle}>Discount</th>
+                  <th style={thStyle}>Taxable</th>
+                  <th style={thStyle}>HSN</th>
                   <th style={thStyle}>GST %</th>
                   <th style={thStyle}>IGST</th>
                   <th style={thStyle}>CGST</th>
@@ -440,18 +531,25 @@ export default function GstInvoicePrintPage() {
               </thead>
               <tbody>
                 {rows.map((row, index) => {
+                  const lineData = orderLineMap.get(row.source_line_id);
                   const taxable = round2(row.taxable_value ?? 0);
                   const igst = round2(row.igst ?? 0);
                   const cgst = round2(row.cgst ?? 0);
                   const sgst = round2(row.sgst ?? 0);
                   const total = round2(taxable + cgst + sgst + igst);
+                  const rate = round2(lineData?.price ?? 0);
+                  const discount = round2(lineData?.line_discount ?? 0);
+                  const qty = row.quantity ?? lineData?.quantity ?? 0;
                   return (
                     <tr key={`${row.hsn}-${index}`}>
                       <td style={tdStyle}>{row.product_title || row.hsn || "—"}</td>
                       <td style={tdStyle}>{row.variant_title || "—"}</td>
-                      <td style={tdStyle}>{row.hsn || "—"}</td>
-                      <td style={tdStyle}>{row.quantity ?? 0}</td>
+                      <td style={tdStyle}>{row.sku || lineData?.sku || "—"}</td>
+                      <td style={tdStyle}>{qty}</td>
+                      <td style={tdStyle}>{rate ? formatMoney(rate) : "—"}</td>
+                      <td style={tdStyle}>{discount ? formatMoney(discount) : "—"}</td>
                       <td style={tdStyle}>{formatMoney(taxable)}</td>
+                      <td style={tdStyle}>{row.hsn || "—"}</td>
                       <td style={tdStyle}>{row.gst_rate != null ? `${row.gst_rate}%` : "—"}</td>
                       <td style={tdStyle}>{formatMoney(igst)}</td>
                       <td style={tdStyle}>{formatMoney(cgst)}</td>
@@ -463,37 +561,49 @@ export default function GstInvoicePrintPage() {
               </tbody>
             </table>
 
-            <section style={totalsGridStyle}>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Total taxable</div>
-                <div style={{ fontWeight: 600 }}>{formatMoney(totals.taxable)}</div>
+            <section style={totalsWrapStyle}>
+              <div>
+                <div style={sectionTitleStyle}>Amount in Words</div>
+                <div style={amountWordsStyle}>{formatInrWords(totals.total)}</div>
+                <div style={{ ...sectionTitleStyle, marginTop: 16 }}>Payment Summary</div>
+                <div style={cardStyle}>
+                  <div>Payment Status: {invoiceHeader?.payment_status || "—"}</div>
+                  <div>Payment Method: {paymentMethod}</div>
+                  <div>Fulfillment: {invoiceHeader?.fulfillment_status || "—"}</div>
+                </div>
               </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Total IGST</div>
-                <div style={{ fontWeight: 600 }}>{formatMoney(totals.igst)}</div>
-              </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Total CGST</div>
-                <div style={{ fontWeight: 600 }}>{formatMoney(totals.cgst)}</div>
-              </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Total SGST</div>
-                <div style={{ fontWeight: 600 }}>{formatMoney(totals.sgst)}</div>
-              </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Grand total</div>
-                <div style={{ fontWeight: 700 }}>{formatMoney(totals.total)}</div>
-              </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Payment status</div>
-                <div style={{ fontWeight: 600 }}>{invoiceHeader?.payment_status || "—"}</div>
-                <div style={mutedTextStyle}>Gateway: {invoiceHeader?.payment_gateway || "—"}</div>
-              </div>
-              <div style={totalCardStyle}>
-                <div style={mutedTextStyle}>Fulfillment status</div>
-                <div style={{ fontWeight: 600 }}>{invoiceHeader?.fulfillment_status || "—"}</div>
+              <div>
+                <div style={sectionTitleStyle}>Totals</div>
+                <div style={totalsGridStyle}>
+                  <div style={totalCardStyle}>
+                    <span>Total taxable</span>
+                    <span>{formatMoney(totals.taxable)}</span>
+                  </div>
+                  <div style={totalCardStyle}>
+                    <span>Total IGST</span>
+                    <span>{formatMoney(totals.igst)}</span>
+                  </div>
+                  <div style={totalCardStyle}>
+                    <span>Total CGST</span>
+                    <span>{formatMoney(totals.cgst)}</span>
+                  </div>
+                  <div style={totalCardStyle}>
+                    <span>Total SGST</span>
+                    <span>{formatMoney(totals.sgst)}</span>
+                  </div>
+                  <div style={grandTotalStyle}>
+                    <span>Grand Total</span>
+                    <span>{formatMoney(totals.total)}</span>
+                  </div>
+                </div>
               </div>
             </section>
+
+            <ErpDocumentFooter
+              addressLines={companyAddressLines}
+              gstin={companyGst?.gstin || branding?.gstin || "—"}
+              note="This is a computer generated invoice and hence no signature is required."
+            />
           </>
         )}
       </div>
