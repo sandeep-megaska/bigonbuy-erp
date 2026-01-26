@@ -63,6 +63,9 @@ export default function CompanySettingsPage() {
   const [companyGstin, setCompanyGstin] = useState("");
   const [poAddressText, setPoAddressText] = useState("");
   const [poTermsText, setPoTermsText] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [companyWebsite, setCompanyWebsite] = useState("");
   const [gstStateOptions, setGstStateOptions] = useState<GstStateOption[]>([]);
   const [gstStateCode, setGstStateCode] = useState("");
   const [gstStateName, setGstStateName] = useState("");
@@ -171,6 +174,9 @@ export default function CompanySettingsPage() {
       setCompanyGstin(gstProfile?.gstin ?? settingsRes?.gstin ?? "");
       setPoAddressText(settingsRes?.address_text || settingsRes?.po_footer_address_text || "");
       setPoTermsText(settingsRes?.po_terms_text || "");
+      setContactEmail(settingsRes?.contact_email || "");
+      setContactPhone(settingsRes?.contact_phone || "");
+      setCompanyWebsite(settingsRes?.website || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load company settings.");
     }
@@ -274,6 +280,9 @@ export default function CompanySettingsPage() {
         gstin: companyGstin.trim() || null,
         address_text: poAddressText.trim() || null,
         po_terms_text: poTermsText.trim() || null,
+        contact_email: contactEmail.trim() || null,
+        contact_phone: contactPhone.trim() || null,
+        website: companyWebsite.trim() || null,
         updated_by: ctx?.userId ?? null,
       });
       setSettings(updated || settings);
@@ -577,6 +586,36 @@ export default function CompanySettingsPage() {
           onChange={(event) => setPoTermsText(event.target.value)}
           placeholder="• Deliver within 10 business days\n• Payment due in 30 days\n• Inspect goods upon receipt"
         />
+        <div style={gridStyle}>
+          <div>
+            <label style={labelStyle}>Contact Email</label>
+            <input
+              style={inputStyle}
+              value={contactEmail}
+              onChange={(event) => setContactEmail(event.target.value)}
+              placeholder="accounts@company.com"
+              type="email"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Contact Phone</label>
+            <input
+              style={inputStyle}
+              value={contactPhone}
+              onChange={(event) => setContactPhone(event.target.value)}
+              placeholder="+91 98765 43210"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Website</label>
+            <input
+              style={inputStyle}
+              value={companyWebsite}
+              onChange={(event) => setCompanyWebsite(event.target.value)}
+              placeholder="https://www.company.com"
+            />
+          </div>
+        </div>
         <div style={{ marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: "#f8fafc" }}>
           <p style={{ margin: "0 0 6px", fontWeight: 600, color: "#111827" }}>Preview</p>
           <p style={{ margin: 0, color: "#111827", fontWeight: 600 }}>{poLegalName || "Legal name"}</p>
@@ -585,6 +624,10 @@ export default function CompanySettingsPage() {
           </p>
           <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280", whiteSpace: "pre-line" }}>
             {poAddressText || "Address line 1\nCity, State ZIP\nCountry"}
+          </p>
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280" }}>
+            {contactEmail || "email@example.com"} · {companyWebsite || "www.company.com"} ·{" "}
+            {contactPhone || "+91 98765 43210"}
           </p>
         </div>
         <button type="button" style={primaryButtonStyle} onClick={handleSavePoBranding} disabled={saving}>

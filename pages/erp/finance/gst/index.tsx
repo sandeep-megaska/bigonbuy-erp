@@ -368,7 +368,12 @@ export default function GstShopifyPage() {
                         <td style={{ padding: "6px 0" }}>{row.fulfillment_status || "—"}</td>
                         <td style={{ padding: "6px 0" }}>
                           {invoiceKey ? (
-                            <Link href={`/erp/finance/gst/invoice/${invoiceSlug}`} style={secondaryButtonStyle}>
+                            <Link
+                              href={`/erp/finance/gst/invoice/${invoiceSlug}`}
+                              style={secondaryButtonStyle}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
                               Print Invoice
                             </Link>
                           ) : (
