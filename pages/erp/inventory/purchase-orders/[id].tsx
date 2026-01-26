@@ -104,11 +104,17 @@ export default function PurchaseOrderDetailPage() {
   const [actionState, setActionState] = useState<"draft" | "post" | null>(null);
   const [approveState, setApproveState] = useState<"idle" | "saving">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloading">("idle");
+  const [applyState, setApplyState] = useState<"idle" | "saving">("idle");
+  const [applyNote, setApplyNote] = useState<string | null>(null);
   const branding = useCompanyBranding();
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
   const canApprove = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "procurement"].includes(ctx.roleKey)),
+    [ctx]
+  );
+  const canApplyCosts = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin", "inventory"].includes(ctx.roleKey)),
     [ctx]
   );
   const currencyCode = branding?.currencyCode || "INR";
@@ -200,6 +206,7 @@ export default function PurchaseOrderDetailPage() {
 
     if (isActiveFetch) {
       setPo(poRes.data as PurchaseOrder);
+      setApplyNote(null);
       const vendorList = (vendorRes.data || []) as Vendor[];
       setVendor(vendorList.find((row) => row.id === poRes.data?.vendor_id) || null);
       setLines((lineRes.data || []) as PurchaseOrderLine[]);
@@ -417,6 +424,48 @@ export default function PurchaseOrderDetailPage() {
     }).format(value);
   };
 
+  async function handleApplyPoCosts() {
+    if (!ctx?.companyId || !po?.id) return;
+    if (!canApplyCosts) {
+      setError("Only owner/admin/inventory can apply PO costs.");
+      return;
+    }
+
+    const confirmed =
+      typeof window === "undefined"
+        ? false
+        : window.confirm("Apply this PO's unit costs to SKU cost overrides?");
+    if (!confirmed) return;
+
+    setError("");
+    setNotice("");
+    setApplyState("saving");
+
+    try {
+      const { data, error: applyError } = await supabase.rpc("erp_sku_cost_overrides_apply_from_po", {
+        p_po_id: po.id,
+      });
+      if (applyError) {
+        throw new Error(applyError.message);
+      }
+
+      const payload = (data || {}) as { updated?: number; applied_at?: string };
+      const updatedCount = payload.updated ?? 0;
+      const appliedAt = payload.applied_at ? new Date(payload.applied_at).toLocaleString() : null;
+      setNotice(`Updated cost overrides for ${updatedCount} SKUs from this PO.`);
+      setApplyNote(appliedAt ? `Costs applied to overrides on ${appliedAt}.` : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to apply PO costs.");
+    } finally {
+      setApplyState("idle");
+    }
+  }
+
+  const canApplyCostsForLines = useMemo(
+    () => lines.some((line) => line.unit_cost !== null && line.unit_cost !== undefined),
+    [lines]
+  );
+
   async function handleDownloadPdf() {
     if (!ctx?.session?.access_token || !po?.id) return;
     setError("");
@@ -537,7 +586,20 @@ export default function PurchaseOrderDetailPage() {
         </section>
 
         <section style={cardStyle}>
-          <h2 style={{ marginTop: 0 }}>PO Lines</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <h2 style={{ marginTop: 0 }}>PO Lines</h2>
+            <div className="no-print" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={handleApplyPoCosts}
+                disabled={!canApplyCosts || lines.length === 0 || !canApplyCostsForLines || applyState !== "idle"}
+              >
+                {applyState === "saving" ? "Applying…" : "Apply PO costs to SKU overrides"}
+              </button>
+            </div>
+          </div>
+          {applyNote ? <p style={{ marginTop: 4, color: "#6b7280" }}>{applyNote}</p> : null}
           <table style={tableStyle}>
             <thead>
               <tr>
