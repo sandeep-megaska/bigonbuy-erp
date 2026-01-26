@@ -351,10 +351,16 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         switch (source) {
           case "override":
             return "Override";
+          case "landed":
+            return "Landed";
+          case "effective":
+            return "Effective";
           case "grn":
             return "GRN";
           case "style_avg":
             return "Style Avg";
+          case "fallback":
+            return "Fallback";
           case "variant_fallback":
             return "Variant Fallback";
           case "missing":
