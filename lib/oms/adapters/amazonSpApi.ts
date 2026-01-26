@@ -1,6 +1,8 @@
+import { gunzipSync } from "zlib";
 import { getAmazonAccessToken, spApiSignedFetch } from "../../amazonSpApi";
 
 const FINANCES_API_BASE = "/finances/v0";
+const REPORTS_API_BASE = "/reports/2021-06-30";
 
 type ListFinancialEventGroupsParams = {
   startDate: string;
@@ -31,6 +33,39 @@ type ListFinancialEventsByDateRangeResult = {
     eventsCount: number;
     warnings: string[];
   };
+};
+
+type ListReportsParams = {
+  reportTypes: string[];
+  processingStatuses?: string[];
+  createdSince?: string;
+  createdUntil?: string;
+  nextToken?: string;
+  signal?: AbortSignal;
+};
+
+type GetReportParams = {
+  reportId: string;
+  signal?: AbortSignal;
+};
+
+type GetReportDocumentParams = {
+  reportDocumentId: string;
+  signal?: AbortSignal;
+};
+
+type AmazonReport = {
+  reportId: string;
+  reportType?: string;
+  processingStatus?: string;
+  createdTime?: string;
+  marketplaceIds?: string[];
+  reportDocumentId?: string;
+};
+
+type AmazonReportDocument = {
+  url: string;
+  compressionAlgorithm?: string | null;
 };
 
 const FINANCES_PAGE_DELAY_MS = 200;
@@ -194,4 +229,115 @@ if (financialEvents && typeof financialEvents === "object") {
       warnings,
     },
   };
+}
+
+function extractPayload(json: Record<string, unknown>): Record<string, unknown> {
+  const payload = (json.payload ?? json.Payload) as Record<string, unknown> | undefined;
+  return payload && typeof payload === "object" ? payload : json;
+}
+
+export async function amazonListReports({
+  reportTypes,
+  processingStatuses,
+  createdSince,
+  createdUntil,
+  nextToken,
+  signal,
+}: ListReportsParams): Promise<{ reports: AmazonReport[]; nextToken?: string }> {
+  const accessToken = await getAmazonAccessToken();
+  const query: Record<string, string> = {};
+
+  if (reportTypes.length > 0) {
+    query.reportTypes = reportTypes.join(",");
+  }
+  if (processingStatuses && processingStatuses.length > 0) {
+    query.processingStatuses = processingStatuses.join(",");
+  }
+  if (createdSince) query.createdSince = createdSince;
+  if (createdUntil) query.createdUntil = createdUntil;
+  if (nextToken) query.nextToken = nextToken;
+
+  const res = await spApiSignedFetch({
+    method: "GET",
+    path: `${REPORTS_API_BASE}/reports`,
+    accessToken,
+    signal,
+    query,
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`Reports list error: ${JSON.stringify(json)}`);
+  }
+
+  const payload = extractPayload(json as Record<string, unknown>);
+  const reports = Array.isArray(payload.reports) ? (payload.reports as AmazonReport[]) : [];
+  const next = typeof payload.nextToken === "string" ? payload.nextToken : undefined;
+
+  return { reports, nextToken: next };
+}
+
+export async function amazonGetReport({
+  reportId,
+  signal,
+}: GetReportParams): Promise<AmazonReport> {
+  const accessToken = await getAmazonAccessToken();
+  const res = await spApiSignedFetch({
+    method: "GET",
+    path: `${REPORTS_API_BASE}/reports/${reportId}`,
+    accessToken,
+    signal,
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`Report status error: ${JSON.stringify(json)}`);
+  }
+
+  const payload = extractPayload(json as Record<string, unknown>);
+  return payload as AmazonReport;
+}
+
+export async function amazonGetReportDocument({
+  reportDocumentId,
+  signal,
+}: GetReportDocumentParams): Promise<AmazonReportDocument> {
+  const accessToken = await getAmazonAccessToken();
+  const res = await spApiSignedFetch({
+    method: "GET",
+    path: `${REPORTS_API_BASE}/documents/${reportDocumentId}`,
+    accessToken,
+    signal,
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`Report document error: ${JSON.stringify(json)}`);
+  }
+
+  const payload = extractPayload(json as Record<string, unknown>);
+  return payload as AmazonReportDocument;
+}
+
+export async function amazonDownloadReportDocument({
+  reportDocument,
+}: {
+  reportDocument: AmazonReportDocument;
+}): Promise<string> {
+  if (!reportDocument.url) {
+    throw new Error("Missing report document URL.");
+  }
+
+  const response = await fetch(reportDocument.url);
+  if (!response.ok) {
+    throw new Error(`Failed to download report document: ${response.statusText}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const decompressed =
+    reportDocument.compressionAlgorithm?.toUpperCase() === "GZIP"
+      ? gunzipSync(buffer)
+      : buffer;
+
+  return decompressed.toString("utf8");
 }
