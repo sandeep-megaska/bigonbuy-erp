@@ -36,6 +36,17 @@ type MissingMappingRow = {
   title: string | null;
 };
 
+type GstInvoiceRow = {
+  invoice_number: string | null;
+  invoice_no: string | null;
+  order_number: string | null;
+  order_date: string;
+  customer_name: string | null;
+  payment_status: string | null;
+  payment_gateway: string | null;
+  fulfillment_status: string | null;
+};
+
 const formatCsvValue = (value: unknown) =>
   `"${String(value ?? "").replace(/"/g, '""')}"`;
 
@@ -72,6 +83,7 @@ export default function GstShopifyPage() {
   const [toDate, setToDate] = useState(today());
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [missingSkus, setMissingSkus] = useState<MissingMappingRow[]>([]);
+  const [gstInvoices, setGstInvoices] = useState<GstInvoiceRow[]>([]);
   const [isRunning, setIsRunning] = useState(false);
 
   const canWrite = useMemo(
@@ -97,6 +109,7 @@ export default function GstShopifyPage() {
       }
 
       await loadMissingSkus(fromDate, toDate);
+      await loadGstInvoices(fromDate, toDate);
       setLoading(false);
     })();
 
@@ -136,7 +149,35 @@ export default function GstShopifyPage() {
 
     setResult(data as GenerateResult);
     await loadMissingSkus(fromDate, toDate);
+    await loadGstInvoices(fromDate, toDate);
     setIsRunning(false);
+  };
+
+  const loadGstInvoices = async (startDate: string, endDate: string) => {
+    const { data, error: invoicesError } = await supabase
+      .from("erp_gst_sales_register")
+      .select(
+        "invoice_number, invoice_no, order_number, order_date, customer_name, payment_status, payment_gateway, fulfillment_status"
+      )
+      .eq("source", "shopify")
+      .eq("is_void", false)
+      .gte("order_date", startDate)
+      .lte("order_date", endDate)
+      .order("order_date", { ascending: true });
+
+    if (invoicesError) {
+      setError(invoicesError.message);
+      return;
+    }
+
+    const rows = (data || []) as GstInvoiceRow[];
+    const uniqueRows = new Map<string, GstInvoiceRow>();
+    rows.forEach((row) => {
+      const key =
+        row.invoice_number || row.invoice_no || row.order_number || `${row.order_date}-${uniqueRows.size}`;
+      if (!uniqueRows.has(key)) uniqueRows.set(key, row);
+    });
+    setGstInvoices(Array.from(uniqueRows.values()));
   };
 
   const handleExport = async (rpcName: string, filename: string) => {
@@ -293,6 +334,57 @@ export default function GstShopifyPage() {
               Export Summary
             </button>
           </div>
+        </section>
+
+        <section style={{ ...cardStyle, marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>GST Register Invoices</h3>
+          {gstInvoices.length ? (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Invoice Date</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Invoice Number</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Order Number</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Customer</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Payment Status</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Fulfillment Status</th>
+                    <th style={{ textAlign: "left", paddingBottom: 8 }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gstInvoices.map((row) => {
+                    const invoiceKey =
+                      row.invoice_number || row.invoice_no || row.order_number || row.order_date;
+                    const invoiceSlug = encodeURIComponent(invoiceKey || "");
+                    return (
+                      <tr key={`${invoiceKey}-${row.order_date}`}>
+                        <td style={{ padding: "6px 0" }}>{row.order_date}</td>
+                        <td style={{ padding: "6px 0", fontWeight: 600 }}>
+                          {row.invoice_number || row.invoice_no || "—"}
+                        </td>
+                        <td style={{ padding: "6px 0" }}>{row.order_number || "—"}</td>
+                        <td style={{ padding: "6px 0" }}>{row.customer_name || "—"}</td>
+                        <td style={{ padding: "6px 0" }}>{row.payment_status || "—"}</td>
+                        <td style={{ padding: "6px 0" }}>{row.fulfillment_status || "—"}</td>
+                        <td style={{ padding: "6px 0" }}>
+                          {invoiceKey ? (
+                            <Link href={`/erp/finance/gst/invoices/${invoiceSlug}`} style={secondaryButtonStyle}>
+                              Print Invoice
+                            </Link>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: "#6b7280" }}>No GST invoices found for this date range.</p>
+          )}
         </section>
       </div>
     </ErpShell>
