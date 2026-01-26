@@ -22,9 +22,28 @@ type Option = {
   name: string;
 };
 
+type LinkOption = {
+  id: string;
+  label: string;
+};
+
 const optionSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+});
+
+const grnOptionSchema = z.object({
+  id: z.string().uuid(),
+  grn_no: z.string().nullable(),
+  received_at: z.string().nullable(),
+  status: z.string(),
+});
+
+const transferOptionSchema = z.object({
+  id: z.string().uuid(),
+  reference: z.string().nullable(),
+  transfer_date: z.string(),
+  status: z.string(),
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -39,6 +58,8 @@ export default function ExpenseCreatePage() {
   const [channels, setChannels] = useState<Option[]>([]);
   const [warehouses, setWarehouses] = useState<Option[]>([]);
   const [vendors, setVendors] = useState<Option[]>([]);
+  const [grns, setGrns] = useState<LinkOption[]>([]);
+  const [transfers, setTransfers] = useState<LinkOption[]>([]);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -73,16 +94,40 @@ export default function ExpenseCreatePage() {
 
   const loadLookups = async (companyId: string) => {
     setError(null);
-    const [{ data: categoryData, error: categoryError }, { data: channelData, error: channelError }, { data: warehouseData, error: warehouseError }, { data: vendorData, error: vendorError }] =
-      await Promise.all([
-        supabase.rpc("erp_expense_categories_list"),
-        supabase.from("erp_sales_channels").select("id, name").eq("company_id", companyId).order("name"),
-        supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
-        supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
-      ]);
+    const [
+      { data: categoryData, error: categoryError },
+      { data: channelData, error: channelError },
+      { data: warehouseData, error: warehouseError },
+      { data: vendorData, error: vendorError },
+      { data: grnData, error: grnError },
+      { data: transferData, error: transferError },
+    ] = await Promise.all([
+      supabase.rpc("erp_expense_categories_list"),
+      supabase.from("erp_sales_channels").select("id, name").eq("company_id", companyId).order("name"),
+      supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
+      supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
+      supabase
+        .from("erp_grns")
+        .select("id, grn_no, received_at, status")
+        .eq("company_id", companyId)
+        .order("received_at", { ascending: false }),
+      supabase
+        .from("erp_stock_transfers")
+        .select("id, reference, transfer_date, status")
+        .eq("company_id", companyId)
+        .order("transfer_date", { ascending: false }),
+    ]);
 
-    if (categoryError || channelError || warehouseError || vendorError) {
-      setError(categoryError?.message || channelError?.message || warehouseError?.message || vendorError?.message || "Failed to load lookup data.");
+    if (categoryError || channelError || warehouseError || vendorError || grnError || transferError) {
+      setError(
+        categoryError?.message ||
+          channelError?.message ||
+          warehouseError?.message ||
+          vendorError?.message ||
+          grnError?.message ||
+          transferError?.message ||
+          "Failed to load lookup data."
+      );
       return;
     }
 
@@ -98,7 +143,17 @@ export default function ExpenseCreatePage() {
       .array()
       .safeParse(vendorData);
 
-    if (!categoryParse.success || !parsedChannels.success || !parsedWarehouses.success || !parsedVendors.success) {
+    const parsedGrns = grnOptionSchema.array().safeParse(grnData);
+    const parsedTransfers = transferOptionSchema.array().safeParse(transferData);
+
+    if (
+      !categoryParse.success ||
+      !parsedChannels.success ||
+      !parsedWarehouses.success ||
+      !parsedVendors.success ||
+      !parsedGrns.success ||
+      !parsedTransfers.success
+    ) {
       setError("Failed to parse lookup data.");
       return;
     }
@@ -107,6 +162,20 @@ export default function ExpenseCreatePage() {
     setChannels(parsedChannels.data);
     setWarehouses(parsedWarehouses.data);
     setVendors(parsedVendors.data.map((vendor) => ({ id: vendor.id, name: vendor.legal_name })));
+    setGrns(
+      parsedGrns.data.map((grn) => ({
+        id: grn.id,
+        label: `${grn.grn_no || grn.id} • ${grn.received_at ? new Date(grn.received_at).toLocaleDateString() : "—"} • ${
+          grn.status
+        }`,
+      }))
+    );
+    setTransfers(
+      parsedTransfers.data.map((transfer) => ({
+        id: transfer.id,
+        label: `${transfer.reference || transfer.id} • ${transfer.transfer_date} • ${transfer.status}`,
+      }))
+    );
   };
 
   const handleSubmit = async (payload: ExpenseFormPayload) => {
@@ -136,6 +205,20 @@ export default function ExpenseCreatePage() {
     const parsed = z.string().uuid().safeParse(data);
     if (!parsed.success) {
       setError("Failed to parse created expense id.");
+      return;
+    }
+
+    const { error: linkError } = await supabase.rpc("erp_expense_link_update", {
+      p_expense_id: parsed.data,
+      p_applies_to_type: payload.applies_to_type,
+      p_applies_to_id: payload.applies_to_id,
+      p_is_capitalizable: payload.is_capitalizable,
+      p_allocation_method: payload.allocation_method,
+      p_allocation_fixed_total: payload.allocation_fixed_total,
+    });
+
+    if (linkError) {
+      setError(linkError.message);
       return;
     }
 
@@ -176,6 +259,8 @@ export default function ExpenseCreatePage() {
           channels={channels}
           warehouses={warehouses}
           vendors={vendors}
+          grnOptions={grns}
+          transferOptions={transfers}
           canWrite={canWrite}
           submitLabel="Save Expense"
           onSubmit={handleSubmit}
@@ -185,6 +270,9 @@ export default function ExpenseCreatePage() {
             currency: "INR",
             amount: 0,
             is_recurring: false,
+            applies_to_type: "period",
+            is_capitalizable: false,
+            allocation_method: "by_qty",
           }}
         />
       </div>

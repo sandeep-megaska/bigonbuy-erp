@@ -13,11 +13,21 @@ type Option = {
   name: string;
 };
 
+type AppliesToType = "period" | "grn" | "stock_transfer" | "order";
+type AllocationMethod = "by_qty" | "by_value" | "fixed" | "none";
+
+type LinkOption = {
+  id: string;
+  label: string;
+};
+
 type ExpenseFormProps = {
   categories: ExpenseCategory[];
   channels: Option[];
   warehouses: Option[];
   vendors: Option[];
+  grnOptions: LinkOption[];
+  transferOptions: LinkOption[];
   initialValues?: Partial<ExpenseFormPayload>;
   submitLabel: string;
   canWrite: boolean;
@@ -72,6 +82,8 @@ export default function ExpenseForm({
   channels,
   warehouses,
   vendors,
+  grnOptions,
+  transferOptions,
   initialValues,
   submitLabel,
   canWrite,
@@ -92,6 +104,19 @@ export default function ExpenseForm({
   const [isRecurring, setIsRecurring] = useState(initialValues?.is_recurring ?? false);
   const [recurringRule, setRecurringRule] = useState(initialValues?.recurring_rule ?? "");
   const [attachmentUrl, setAttachmentUrl] = useState(initialValues?.attachment_url ?? "");
+  const [appliesToType, setAppliesToType] = useState<AppliesToType>(
+    (initialValues?.applies_to_type ?? "period") as AppliesToType
+  );
+  const [appliesToId, setAppliesToId] = useState(initialValues?.applies_to_id ?? "");
+  const [isCapitalizable, setIsCapitalizable] = useState(initialValues?.is_capitalizable ?? false);
+  const [allocationMethod, setAllocationMethod] = useState<AllocationMethod>(
+    (initialValues?.allocation_method ?? "by_qty") as AllocationMethod
+  );
+  const [allocationFixedTotal, setAllocationFixedTotal] = useState(
+    initialValues?.allocation_fixed_total != null ? initialValues.allocation_fixed_total.toString() : ""
+  );
+  const [grnSearch, setGrnSearch] = useState("");
+  const [transferSearch, setTransferSearch] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -108,7 +133,23 @@ export default function ExpenseForm({
     if (initialValues?.is_recurring != null) setIsRecurring(initialValues.is_recurring);
     if (initialValues?.recurring_rule) setRecurringRule(initialValues.recurring_rule);
     if (initialValues?.attachment_url) setAttachmentUrl(initialValues.attachment_url);
+    if (initialValues?.applies_to_type) setAppliesToType(initialValues.applies_to_type);
+    if (initialValues?.applies_to_id) setAppliesToId(initialValues.applies_to_id);
+    if (initialValues?.is_capitalizable != null) setIsCapitalizable(initialValues.is_capitalizable);
+    if (initialValues?.allocation_method) setAllocationMethod(initialValues.allocation_method);
+    if (initialValues?.allocation_fixed_total != null) {
+      setAllocationFixedTotal(initialValues.allocation_fixed_total.toString());
+    }
   }, [initialValues]);
+
+  useEffect(() => {
+    if (!["grn", "stock_transfer"].includes(appliesToType)) {
+      setIsCapitalizable(false);
+    }
+    if (appliesToType === "period") {
+      setAppliesToId("");
+    }
+  }, [appliesToType]);
 
   useEffect(() => {
     if (categories.length > 0 && !categoryId) {
@@ -117,6 +158,16 @@ export default function ExpenseForm({
   }, [categories, categoryId]);
 
   const grouped = useMemo(() => groupedCategories(categories), [categories]);
+  const filteredGrns = useMemo(() => {
+    const search = grnSearch.trim().toLowerCase();
+    if (!search) return grnOptions;
+    return grnOptions.filter((option) => option.label.toLowerCase().includes(search));
+  }, [grnOptions, grnSearch]);
+  const filteredTransfers = useMemo(() => {
+    const search = transferSearch.trim().toLowerCase();
+    if (!search) return transferOptions;
+    return transferOptions.filter((option) => option.label.toLowerCase().includes(search));
+  }, [transferOptions, transferSearch]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -136,6 +187,12 @@ export default function ExpenseForm({
       is_recurring: Boolean(isRecurring),
       recurring_rule: isRecurring ? recurringRule || null : null,
       attachment_url: attachmentUrl || null,
+      applies_to_type: appliesToType || null,
+      applies_to_id: appliesToId || null,
+      is_capitalizable: Boolean(isCapitalizable),
+      allocation_method: allocationMethod || null,
+      allocation_fixed_total:
+        allocationMethod === "fixed" && allocationFixedTotal ? parseAmountInput(allocationFixedTotal) : null,
     };
 
     const parsed = expenseFormSchema.safeParse(payload);
@@ -321,6 +378,146 @@ export default function ExpenseForm({
             placeholder="https://..."
           />
         </label>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>Applies to</span>
+          <select
+            value={appliesToType}
+            onChange={(event) => {
+              const nextType = (event.target.value || "period") as AppliesToType;
+              setAppliesToType(nextType);
+              if (nextType !== appliesToType) {
+                setAppliesToId("");
+              }
+            }}
+            disabled={!canWrite}
+            style={inputStyle}
+          >
+            <option value="period">Period</option>
+            <option value="grn">GRN</option>
+            <option value="stock_transfer">Stock Transfer</option>
+            <option value="order">Order</option>
+          </select>
+        </label>
+        {appliesToType === "grn" ? (
+          <>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>GRN search</span>
+              <input
+                type="text"
+                value={grnSearch}
+                onChange={(event) => setGrnSearch(event.target.value)}
+                disabled={!canWrite}
+                style={inputStyle}
+                placeholder="Search by GRN number"
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>GRN</span>
+              <select
+                value={appliesToId}
+                onChange={(event) => setAppliesToId(event.target.value)}
+                disabled={!canWrite}
+                style={inputStyle}
+              >
+                <option value="">Select GRN</option>
+                {appliesToId && !grnOptions.some((option) => option.id === appliesToId) ? (
+                  <option value={appliesToId}>Selected GRN ({appliesToId})</option>
+                ) : null}
+                {filteredGrns.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+        {appliesToType === "stock_transfer" ? (
+          <>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>Transfer search</span>
+              <input
+                type="text"
+                value={transferSearch}
+                onChange={(event) => setTransferSearch(event.target.value)}
+                disabled={!canWrite}
+                style={inputStyle}
+                placeholder="Search by reference"
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>Stock Transfer</span>
+              <select
+                value={appliesToId}
+                onChange={(event) => setAppliesToId(event.target.value)}
+                disabled={!canWrite}
+                style={inputStyle}
+              >
+                <option value="">Select transfer</option>
+                {appliesToId && !transferOptions.some((option) => option.id === appliesToId) ? (
+                  <option value={appliesToId}>Selected transfer ({appliesToId})</option>
+                ) : null}
+                {filteredTransfers.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+        {appliesToType === "order" ? (
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Order ID</span>
+            <input
+              type="text"
+              value={appliesToId}
+              onChange={(event) => setAppliesToId(event.target.value)}
+              disabled={!canWrite}
+              style={inputStyle}
+              placeholder="Paste order UUID"
+            />
+          </label>
+        ) : null}
+        <label style={fieldStyle}>
+          <span style={labelStyle}>Capitalize into inventory</span>
+          <select
+            value={isCapitalizable ? "yes" : "no"}
+            onChange={(event) => setIsCapitalizable(event.target.value === "yes")}
+            disabled={!canWrite || !["grn", "stock_transfer"].includes(appliesToType)}
+            style={inputStyle}
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes (landed cost)</option>
+          </select>
+        </label>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>Allocation method</span>
+          <select
+            value={allocationMethod}
+            onChange={(event) => setAllocationMethod(event.target.value as AllocationMethod)}
+            disabled={!canWrite || !isCapitalizable}
+            style={inputStyle}
+          >
+            <option value="by_qty">By Qty</option>
+            <option value="by_value">By Value</option>
+            <option value="fixed">Fixed Total</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+        {allocationMethod === "fixed" ? (
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Fixed total</span>
+            <input
+              type="text"
+              value={allocationFixedTotal}
+              onChange={(event) => setAllocationFixedTotal(event.target.value)}
+              disabled={!canWrite || !isCapitalizable}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </label>
+        ) : null}
         <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", gridColumn: "1 / -1" }}>
           {onCancel ? (
             <button type="button" onClick={onCancel} style={secondaryButtonStyle}>
