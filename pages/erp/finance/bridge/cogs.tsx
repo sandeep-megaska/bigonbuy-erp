@@ -108,6 +108,8 @@ export default function CogsEstimatePage() {
     to,
     warehouseId: warehouseId || null,
   });
+  const migrationFile = "0255_inventory_effective_unit_cost_view.sql";
+  const showCostViewBanner = Boolean(dataError);
 
   const currencyFormatter = useMemo(
     () =>
@@ -218,7 +220,11 @@ export default function CogsEstimatePage() {
 
         <section style={cardStyle}>
           {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
-          {dataError ? <p style={{ color: "#b91c1c" }}>{dataError}</p> : null}
+          {showCostViewBanner ? (
+            <div style={alertBannerStyle}>
+              Effective cost view not available. Apply migration {migrationFile} and refresh.
+            </div>
+          ) : null}
           {dataLoading ? <p>Loading COGS estimate…</p> : null}
           {!dataLoading && data.length === 0 ? (
             <p style={subtitleStyle}>No sales-out movements found for the selected range.</p>
@@ -288,6 +294,16 @@ const labelStyle = {
 
 const missingRowStyle = {
   backgroundColor: "#fef2f2",
+};
+
+const alertBannerStyle = {
+  backgroundColor: "#fef3c7",
+  color: "#92400e",
+  padding: "10px 12px",
+  borderRadius: 8,
+  marginBottom: 12,
+  fontSize: 13,
+  fontWeight: 600,
 };
 
 const linkButtonStyle = {
