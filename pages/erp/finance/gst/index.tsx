@@ -354,8 +354,7 @@ export default function GstShopifyPage() {
                 </thead>
                 <tbody>
                   {gstInvoices.map((row) => {
-                    const invoiceKey =
-                      row.invoice_number || row.invoice_no || row.order_number || row.order_date;
+                    const invoiceKey = row.invoice_number || row.invoice_no || null;
                     const invoiceSlug = encodeURIComponent(invoiceKey || "");
                     return (
                       <tr key={`${invoiceKey}-${row.order_date}`}>
@@ -369,7 +368,7 @@ export default function GstShopifyPage() {
                         <td style={{ padding: "6px 0" }}>{row.fulfillment_status || "—"}</td>
                         <td style={{ padding: "6px 0" }}>
                           {invoiceKey ? (
-                            <Link href={`/erp/finance/gst/invoices/${invoiceSlug}`} style={secondaryButtonStyle}>
+                            <Link href={`/erp/finance/gst/invoice/${invoiceSlug}`} style={secondaryButtonStyle}>
                               Print Invoice
                             </Link>
                           ) : (
