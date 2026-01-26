@@ -295,7 +295,7 @@ export function useCogsEstimate(params: CogsEstimateParams) {
       let costQuery = supabase
         .from("erp_inventory_effective_unit_cost_v")
         .select(
-          "variant_id, warehouse_id, override_unit_cost, effective_unit_cost, fallback_cost_price, effective_unit_cost_final"
+          "variant_id, warehouse_id, override_unit_cost, effective_unit_cost, fallback_cost_price, effective_unit_cost_final, cost_source_final"
         )
         .eq("company_id", params.companyId)
         .in("variant_id", variantIds);
@@ -347,6 +347,22 @@ export function useCogsEstimate(params: CogsEstimateParams) {
       }
 
       const costByKey = new Map<string, { unitCost: number | null; costSource: string }>();
+      const formatCostSource = (source: string | null, unitCost: number | null) => {
+        switch (source) {
+          case "override":
+            return "Override";
+          case "grn":
+            return "GRN";
+          case "style_avg":
+            return "Style Avg";
+          case "variant_fallback":
+            return "Variant Fallback";
+          case "missing":
+            return "Missing";
+          default:
+            return unitCost == null ? "Missing" : source || "Inventory";
+        }
+      };
       for (const row of costRows ?? []) {
         const variantId = row.variant_id as string | null;
         if (!variantId) continue;
@@ -355,16 +371,13 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         const overrideUnitCost = typeof row.override_unit_cost === "number" ? row.override_unit_cost : null;
         const effectiveUnitCost = typeof row.effective_unit_cost === "number" ? row.effective_unit_cost : null;
         const fallbackCostPrice = typeof row.fallback_cost_price === "number" ? row.fallback_cost_price : null;
+        const costSourceFinal = typeof row.cost_source_final === "string" ? row.cost_source_final : null;
         const unitCost =
           typeof row.effective_unit_cost_final === "number" ? row.effective_unit_cost_final : null;
-        const costSource =
-          overrideUnitCost != null
-            ? "Override"
-            : effectiveUnitCost != null
-              ? "Inventory"
-              : fallbackCostPrice != null
-                ? "Cost Price"
-                : "Missing";
+        const costSource = formatCostSource(
+          costSourceFinal,
+          unitCost ?? overrideUnitCost ?? effectiveUnitCost ?? fallbackCostPrice
+        );
         costByKey.set(key, { unitCost, costSource });
       }
 

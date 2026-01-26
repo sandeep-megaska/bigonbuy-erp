@@ -108,7 +108,7 @@ export default function CogsEstimatePage() {
     to,
     warehouseId: warehouseId || null,
   });
-  const migrationFile = "0256_inventory_effective_unit_cost_view_fix.sql";
+  const migrationFile = "0258_add_style_avg_inventory_costs.sql";
   const showCostViewBanner = Boolean(dataError);
 
   const currencyFormatter = useMemo(
@@ -226,6 +226,9 @@ export default function CogsEstimatePage() {
               Effective cost view not available. Apply migration {migrationFile} and refresh.
             </div>
           ) : null}
+          <p style={helpTextStyle}>
+            Style Avg is an estimated cost inferred from other SKUs in the same style code.
+          </p>
           {dataLoading ? <p>Loading COGS estimate…</p> : null}
           {!dataLoading && data.length === 0 ? (
             <p style={subtitleStyle}>No sales-out movements found for the selected range.</p>
@@ -308,6 +311,12 @@ const alertBannerStyle = {
   marginBottom: 12,
   fontSize: 13,
   fontWeight: 600,
+};
+
+const helpTextStyle = {
+  margin: "0 0 12px",
+  fontSize: 13,
+  color: "#374151",
 };
 
 const linkButtonStyle = {
