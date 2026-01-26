@@ -23,6 +23,8 @@ const movementSummaryRowSchema = z.object({
 const cogsEstimateRowSchema = z.object({
   sku: z.string(),
   variant_id: z.string().uuid(),
+  warehouse_id: z.string().uuid().nullable(),
+  warehouse_name: z.string().nullable(),
   qty_sold: z.coerce.number(),
   est_unit_cost: nullableNumberSchema,
   est_cogs: nullableNumberSchema,
@@ -234,7 +236,7 @@ export function useCogsEstimate(params: CogsEstimateParams) {
 
       let salesQuery = supabase
         .from("erp_inventory_ledger")
-        .select("variant_id, qty, qty_out")
+        .select("variant_id, warehouse_id, qty, qty_out")
         .eq("company_id", params.companyId)
         .eq("type", "sale_out")
         .gte("created_at", fromTimestamp)
@@ -257,28 +259,44 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         return;
       }
 
-      const qtyByVariant = new Map<string, number>();
+      const qtyByKey = new Map<string, { variantId: string; warehouseId: string | null; qtySold: number }>();
       for (const row of salesRows ?? []) {
         const variantId = row.variant_id as string | null;
         if (!variantId) continue;
+        const warehouseId = (row as { warehouse_id?: string | null }).warehouse_id ?? null;
         const qtyOut = typeof row.qty_out === "number" && row.qty_out > 0 ? row.qty_out : null;
         const qty = typeof row.qty === "number" ? row.qty : 0;
         const qtySold = qtyOut ?? Math.abs(qty);
         if (qtySold === 0) continue;
-        qtyByVariant.set(variantId, (qtyByVariant.get(variantId) ?? 0) + qtySold);
+        const key = `${variantId}::${warehouseId ?? "none"}`;
+        const existing = qtyByKey.get(key);
+        if (existing) {
+          existing.qtySold += qtySold;
+        } else {
+          qtyByKey.set(key, { variantId, warehouseId, qtySold });
+        }
       }
 
-      if (qtyByVariant.size === 0) {
+      if (qtyByKey.size === 0) {
         setData([]);
         setLoading(false);
         return;
       }
 
-      const variantIds = Array.from(qtyByVariant.keys());
+      const variantIds = Array.from(new Set(Array.from(qtyByKey.values(), (entry) => entry.variantId)));
+      const warehouseIds = Array.from(
+        new Set(
+          Array.from(qtyByKey.values(), (entry) => entry.warehouseId).filter(
+            (warehouseId): warehouseId is string => Boolean(warehouseId)
+          )
+        )
+      );
 
       let costQuery = supabase
         .from("erp_inventory_effective_unit_cost_v")
-        .select("variant_id, effective_unit_cost_final, cost_source")
+        .select(
+          "variant_id, warehouse_id, override_unit_cost, effective_unit_cost, fallback_cost_price, effective_unit_cost_final"
+        )
         .eq("company_id", params.companyId)
         .in("variant_id", variantIds);
 
@@ -286,7 +304,7 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         costQuery = costQuery.eq("warehouse_id", params.warehouseId);
       }
 
-      const [{ data: variantRows, error: variantError }, { data: costRows, error: costError }] =
+      const [{ data: variantRows, error: variantError }, { data: costRows, error: costError }, warehousesResult] =
         await Promise.all([
           supabase
             .from("erp_variants")
@@ -294,12 +312,21 @@ export function useCogsEstimate(params: CogsEstimateParams) {
             .eq("company_id", params.companyId)
             .in("id", variantIds),
           costQuery,
+          warehouseIds.length
+            ? supabase
+                .from("erp_warehouses")
+                .select("id, name")
+                .eq("company_id", params.companyId)
+                .in("id", warehouseIds)
+            : Promise.resolve({ data: [], error: null }),
         ]);
 
       if (!active) return;
 
-      if (variantError || costError) {
-        setError(variantError?.message || costError?.message || "Failed to load COGS data.");
+      if (variantError || costError || warehousesResult.error) {
+        setError(
+          variantError?.message || costError?.message || warehousesResult.error?.message || "Failed to load COGS data."
+        );
         setData([]);
         setLoading(false);
         return;
@@ -312,31 +339,50 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         }
       }
 
-      const costByVariant = new Map<string, { unitCost: number | null; costSource: string }>();
+      const warehouseNameById = new Map<string, string>();
+      for (const row of warehousesResult.data ?? []) {
+        if (row.id && row.name) {
+          warehouseNameById.set(row.id, row.name);
+        }
+      }
+
+      const costByKey = new Map<string, { unitCost: number | null; costSource: string }>();
       for (const row of costRows ?? []) {
         const variantId = row.variant_id as string | null;
         if (!variantId) continue;
+        const warehouseId = (row as { warehouse_id?: string | null }).warehouse_id ?? null;
+        const key = `${variantId}::${warehouseId ?? "none"}`;
+        const overrideUnitCost = typeof row.override_unit_cost === "number" ? row.override_unit_cost : null;
+        const effectiveUnitCost = typeof row.effective_unit_cost === "number" ? row.effective_unit_cost : null;
+        const fallbackCostPrice = typeof row.fallback_cost_price === "number" ? row.fallback_cost_price : null;
         const unitCost =
           typeof row.effective_unit_cost_final === "number" ? row.effective_unit_cost_final : null;
-        const rawSource = typeof row.cost_source === "string" ? row.cost_source.trim().toLowerCase() : "";
-        const costSource = rawSource === "override" ? "Override" : "Inventory";
-        costByVariant.set(variantId, { unitCost, costSource });
+        const costSource =
+          overrideUnitCost != null
+            ? "Override"
+            : effectiveUnitCost != null
+              ? "Inventory"
+              : fallbackCostPrice != null
+                ? "Cost Price"
+                : "Missing";
+        costByKey.set(key, { unitCost, costSource });
       }
 
       const roundCurrency = (value: number) => Math.round(value * 100) / 100;
 
-      const rows: CogsEstimateRow[] = variantIds.map((variantId) => {
-        const qtySold = qtyByVariant.get(variantId) ?? 0;
-        const sku = skuByVariant.get(variantId) ?? variantId;
-        const costInfo = costByVariant.get(variantId);
+      const rows: CogsEstimateRow[] = Array.from(qtyByKey.values()).map((entry) => {
+        const sku = skuByVariant.get(entry.variantId) ?? entry.variantId;
+        const costInfo = costByKey.get(`${entry.variantId}::${entry.warehouseId ?? "none"}`);
         const unitCost = costInfo?.unitCost ?? null;
-        const estCogs = unitCost == null ? null : roundCurrency(qtySold * unitCost);
+        const estCogs = unitCost == null ? null : roundCurrency(entry.qtySold * unitCost);
         const costSource = unitCost == null ? "Missing" : costInfo?.costSource ?? "Inventory";
 
         return {
           sku,
-          variant_id: variantId,
-          qty_sold: qtySold,
+          variant_id: entry.variantId,
+          warehouse_id: entry.warehouseId,
+          warehouse_name: entry.warehouseId ? warehouseNameById.get(entry.warehouseId) ?? entry.warehouseId : null,
+          qty_sold: entry.qtySold,
           est_unit_cost: unitCost == null ? null : roundCurrency(unitCost),
           est_cogs: estCogs,
           cost_source: costSource,
@@ -344,7 +390,11 @@ export function useCogsEstimate(params: CogsEstimateParams) {
         };
       });
 
-      rows.sort((a, b) => a.sku.localeCompare(b.sku));
+      rows.sort((a, b) => {
+        const skuCompare = a.sku.localeCompare(b.sku);
+        if (skuCompare !== 0) return skuCompare;
+        return (a.warehouse_name ?? "").localeCompare(b.warehouse_name ?? "");
+      });
 
       const parsed = cogsEstimateResponseSchema.safeParse(rows);
       if (!parsed.success) {

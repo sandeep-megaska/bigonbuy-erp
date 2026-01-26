@@ -108,7 +108,7 @@ export default function CogsEstimatePage() {
     to,
     warehouseId: warehouseId || null,
   });
-  const migrationFile = "0255_inventory_effective_unit_cost_view.sql";
+  const migrationFile = "0256_inventory_effective_unit_cost_view_fix.sql";
   const showCostViewBanner = Boolean(dataError);
 
   const currencyFormatter = useMemo(
@@ -129,6 +129,7 @@ export default function CogsEstimatePage() {
     if (data.length === 0) return;
     const columns: CsvColumn<CogsEstimateRow>[] = [
       { header: "SKU", accessor: (row) => row.sku },
+      { header: "Warehouse", accessor: (row) => row.warehouse_name ?? row.warehouse_id ?? "" },
       { header: "Qty Sold", accessor: (row) => `${row.qty_sold}` },
       { header: "Unit Cost", accessor: (row) => (row.est_unit_cost ?? "").toString() },
       { header: "Est. COGS", accessor: (row) => (row.est_cogs ?? "").toString() },
@@ -236,6 +237,7 @@ export default function CogsEstimatePage() {
                 <thead>
                   <tr>
                     <th style={tableHeaderCellStyle}>SKU</th>
+                    <th style={tableHeaderCellStyle}>Warehouse</th>
                     <th style={tableHeaderCellStyle}>Qty Sold</th>
                     <th style={tableHeaderCellStyle}>Unit Cost</th>
                     <th style={tableHeaderCellStyle}>Est. COGS</th>
@@ -245,10 +247,11 @@ export default function CogsEstimatePage() {
                 <tbody>
                   {data.map((row) => (
                     <tr
-                      key={row.variant_id}
+                      key={`${row.variant_id}-${row.warehouse_id ?? "none"}`}
                       style={row.missing_cost ? missingRowStyle : undefined}
                     >
                       <td style={tableCellStyle}>{row.sku}</td>
+                      <td style={tableCellStyle}>{row.warehouse_name ?? row.warehouse_id ?? "—"}</td>
                       <td style={tableCellStyle}>{row.qty_sold}</td>
                       <td style={tableCellStyle}>
                         {row.est_unit_cost == null ? "—" : currencyFormatter.format(row.est_unit_cost)}
@@ -263,6 +266,7 @@ export default function CogsEstimatePage() {
                   ))}
                   <tr>
                     <td style={{ ...tableCellStyle, fontWeight: 600 }}>Totals</td>
+                    <td style={tableCellStyle}>—</td>
                     <td style={tableCellStyle}>—</td>
                     <td style={tableCellStyle}>—</td>
                     <td style={{ ...tableCellStyle, fontWeight: 600 }}>{currencyFormatter.format(totalCogs)}</td>
