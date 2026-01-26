@@ -108,7 +108,7 @@ export default function CogsEstimatePage() {
     to,
     warehouseId: warehouseId || null,
   });
-  const migrationFile = "0258_add_style_avg_inventory_costs.sql";
+  const migrationFile = "0259_landed_aware_effective_unit_cost.sql";
   const showCostViewBanner = Boolean(dataError);
 
   const currencyFormatter = useMemo(
