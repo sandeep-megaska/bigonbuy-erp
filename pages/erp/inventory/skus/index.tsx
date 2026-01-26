@@ -38,6 +38,8 @@ type VariantRow = {
   cost_override: number | null;
   cost_override_effective_from?: string | null;
   ledger_unit_cost?: number | null;
+  effective_unit_cost?: number | null;
+  effective_stock_value?: number | null;
   product_id: string;
   product_title: string;
   created_at: string;
@@ -222,6 +224,7 @@ export default function InventorySkusPage() {
     );
     const overrideMap = new Map<string, { unit_cost: number; effective_from: string | null }>();
     const ledgerMap = new Map<string, { unit_cost: number }>();
+    const effectiveCostMap = new Map<string, { effective_unit_cost: number | null; effective_stock_value: number | null }>();
 
     if (skuList.length) {
       const { data: overrideData, error: overrideError } = await supabase
@@ -260,12 +263,56 @@ export default function InventorySkusPage() {
       });
     }
 
+    if (variantIds.length) {
+      const { data: effectiveData, error: effectiveError } = await supabase
+        .from("erp_inventory_effective_cost_v")
+        .select("variant_id, on_hand_qty, effective_unit_cost, effective_value")
+        .in("variant_id", variantIds);
+
+      if (effectiveError && isActive) setError(effectiveError.message);
+
+      const rollupMap = new Map<
+        string,
+        {
+          onHandWithCost: number;
+          effectiveValueTotal: number;
+        }
+      >();
+
+      (effectiveData || []).forEach((row) => {
+        const key = row.variant_id as string | undefined;
+        if (!key) return;
+        const onHand = Number(row.on_hand_qty ?? 0);
+        const effectiveValue = row.effective_value == null ? null : Number(row.effective_value);
+        if (!rollupMap.has(key)) {
+          rollupMap.set(key, { onHandWithCost: 0, effectiveValueTotal: 0 });
+        }
+        const rollup = rollupMap.get(key)!;
+        if (effectiveValue != null) {
+          rollup.onHandWithCost += onHand;
+          rollup.effectiveValueTotal += effectiveValue;
+        }
+      });
+
+      rollupMap.forEach((rollup, key) => {
+        const effectiveUnitCost =
+          rollup.onHandWithCost > 0 ? rollup.effectiveValueTotal / rollup.onHandWithCost : null;
+        const effectiveStockValue =
+          rollup.onHandWithCost > 0 ? rollup.effectiveValueTotal : null;
+        effectiveCostMap.set(key, {
+          effective_unit_cost: effectiveUnitCost,
+          effective_stock_value: effectiveStockValue,
+        });
+      });
+    }
+
     const productMap = new Map((withImages || []).map((prod) => [prod.id, prod]));
     const withTitle = await Promise.all(
       variants.map(async (variant) => {
         const product = productMap.get((variant as any).product_id) as ProductOption | undefined;
         const override = overrideMap.get(variant.sku?.trim().toUpperCase() || "");
         const ledger = ledgerMap.get(variant.id);
+        const effectiveCost = effectiveCostMap.get(variant.id);
         return {
           ...(variant as any),
           product_title: product?.title || "",
@@ -274,6 +321,8 @@ export default function InventorySkusPage() {
           cost_override: override?.unit_cost ?? null,
           cost_override_effective_from: override?.effective_from ?? null,
           ledger_unit_cost: ledger?.unit_cost ?? null,
+          effective_unit_cost: effectiveCost?.effective_unit_cost ?? null,
+          effective_stock_value: effectiveCost?.effective_stock_value ?? null,
         } as VariantRow;
       })
     );
@@ -1091,6 +1140,8 @@ export default function InventorySkusPage() {
                 <th style={tableHeaderCellStyle}>Color</th>
                 <th style={tableHeaderCellStyle}>Cost</th>
                 <th style={tableHeaderCellStyle}>Cost (Override)</th>
+                <th style={tableHeaderCellStyle}>Effective Unit Cost</th>
+                <th style={tableHeaderCellStyle}>Effective Stock Value</th>
                 <th style={tableHeaderCellStyle}></th>
               </tr>
             </thead>
@@ -1121,6 +1172,12 @@ export default function InventorySkusPage() {
                   >
                     {row.cost_override != null ? inrFormatter.format(row.cost_override) : "—"}
                   </td>
+                  <td style={tableCellStyle}>
+                    {row.effective_unit_cost != null ? inrFormatter.format(row.effective_unit_cost) : "—"}
+                  </td>
+                  <td style={tableCellStyle}>
+                    {row.effective_stock_value != null ? inrFormatter.format(row.effective_stock_value) : "—"}
+                  </td>
                   <td style={{ ...tableCellStyle, textAlign: "right" }}>
                     {canWrite ? (
                       <button type="button" onClick={() => handleEdit(row)} style={secondaryButtonStyle}>
@@ -1132,7 +1189,7 @@ export default function InventorySkusPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={emptyStateStyle}>
+                  <td colSpan={10} style={emptyStateStyle}>
                     No SKUs yet. Create one above or import from CSV.
                   </td>
                 </tr>
