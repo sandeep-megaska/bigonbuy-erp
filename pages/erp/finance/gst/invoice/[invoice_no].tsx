@@ -212,6 +212,13 @@ const normalizeQueryValue = (value: string | string[] | undefined) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
+const shortenProductTitle = (title: string | null | undefined) => {
+  if (!title) return "";
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 4) return words.join(" ");
+  return words.slice(-4).join(" ");
+};
+
 export default function GstInvoicePrintPage() {
   const router = useRouter();
   const branding = useCompanyBranding();
@@ -374,8 +381,30 @@ export default function GstInvoicePrintPage() {
   const paymentGateways = Array.isArray(rawOrder?.payment_gateway_names)
     ? (rawOrder?.payment_gateway_names as string[]).filter(Boolean)
     : [];
-  const paymentMethod =
-    paymentGateways.join(", ") || invoiceHeader?.payment_gateway || invoiceHeader?.payment_status || "—";
+  const paymentGatewayLabel = paymentGateways.join(", ") || invoiceHeader?.payment_gateway || "";
+  const paymentStatusLabel = invoiceHeader?.payment_status || "";
+  const rawPaymentMethod = paymentGatewayLabel || paymentStatusLabel;
+  const rawGateway =
+    typeof rawOrder?.gateway === "string"
+      ? rawOrder.gateway
+      : typeof rawOrder?.gateway_name === "string"
+        ? rawOrder.gateway_name
+        : "";
+  const rawPaymentTerms =
+    typeof rawOrder?.payment_terms?.payment_terms_name === "string"
+      ? rawOrder.payment_terms.payment_terms_name
+      : "";
+  const isCodGateway = [rawGateway, rawPaymentTerms, ...paymentGateways].some((gateway) =>
+    /cash on delivery|cod/i.test(gateway)
+  );
+  const normalizedPaymentMethod = rawPaymentMethod.trim().toLowerCase();
+  const paymentMethod = rawPaymentMethod
+    ? normalizedPaymentMethod === "pending"
+      ? "Cash on Delivery (COD)"
+      : rawPaymentMethod
+    : isCodGateway
+      ? "Cash on Delivery (COD)"
+      : "—";
   const qrCodeUrl = useMemo(() => {
     const orderNumber = invoiceHeader?.order_number || "";
     const total = round2(totals.total);
@@ -515,7 +544,6 @@ export default function GstInvoicePrintPage() {
               <thead>
                 <tr>
                   <th style={thStyle}>Product</th>
-                  <th style={thStyle}>Variant</th>
                   <th style={thStyle}>SKU</th>
                   <th style={thStyle}>Qty</th>
                   <th style={thStyle}>Rate/MRP</th>
@@ -540,10 +568,13 @@ export default function GstInvoicePrintPage() {
                   const rate = round2(lineData?.price ?? 0);
                   const discount = round2(lineData?.line_discount ?? 0);
                   const qty = row.quantity ?? lineData?.quantity ?? 0;
+                  const fullTitle = row.product_title || lineData?.title || "";
+                  const shortTitle = fullTitle ? shortenProductTitle(fullTitle) : row.hsn || "—";
                   return (
                     <tr key={`${row.hsn}-${index}`}>
-                      <td style={tdStyle}>{row.product_title || row.hsn || "—"}</td>
-                      <td style={tdStyle}>{row.variant_title || "—"}</td>
+                      <td style={tdStyle} title={fullTitle || undefined}>
+                        {shortTitle}
+                      </td>
                       <td style={tdStyle}>{row.sku || lineData?.sku || "—"}</td>
                       <td style={tdStyle}>{qty}</td>
                       <td style={tdStyle}>{rate ? formatMoney(rate) : "—"}</td>

@@ -83,8 +83,8 @@ const brandBlockStyle: CSSProperties = {
 };
 
 const logoStyle: CSSProperties = {
-  width: 72,
-  height: 72,
+  width: 88,
+  height: 88,
   objectFit: "contain",
   borderRadius: 10,
   background: "#fff",
@@ -92,8 +92,8 @@ const logoStyle: CSSProperties = {
 };
 
 const logoFallbackStyle: CSSProperties = {
-  width: 72,
-  height: 72,
+  width: 88,
+  height: 88,
   borderRadius: 10,
   background: "#0f172a",
   color: "#fff",
