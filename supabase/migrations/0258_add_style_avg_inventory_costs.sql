@@ -1,5 +1,6 @@
 begin;
 
+-- 1) Style average cost view (style_code-level)
 create or replace view public.erp_inventory_style_avg_unit_cost_v as
 with ledger as (
   select *
@@ -43,18 +44,17 @@ variant_costs as (
   left join base b on b.company_id = v.company_id and b.variant_id = v.id
   left join ovr o on o.company_id = v.company_id and o.sku = v.sku
   where v.style_code is not null
-    and v.style_code <> ''
+    and btrim(v.style_code) <> ''
 )
 select
   company_id,
   style_code,
-  coalesce(
-    avg(nullif(chosen_unit_cost, 0)) filter (where chosen_unit_cost is not null),
-    avg(chosen_unit_cost) filter (where chosen_unit_cost is not null)
-  ) as style_avg_unit_cost
+  avg(chosen_unit_cost) filter (where chosen_unit_cost is not null and chosen_unit_cost > 0) as style_avg_unit_cost
 from variant_costs
 group by 1,2;
 
+
+-- 2) Effective unit cost view (KEEP EXISTING COLUMN ORDER; append new cols at end)
 create or replace view public.erp_inventory_effective_unit_cost_v as
 with ledger as (
   select *
@@ -86,10 +86,14 @@ landed as (
   group by 1,2,3
 ),
 ovr as (
-  select company_id, sku, unit_cost as override_unit_cost
+  select distinct on (company_id, sku)
+    company_id,
+    sku,
+    unit_cost as override_unit_cost
   from public.erp_sku_cost_overrides
   where effective_from <= current_date
     and (effective_to is null or effective_to >= current_date)
+  order by company_id, sku, effective_from desc
 ),
 costs as (
   select
@@ -113,6 +117,7 @@ costs as (
   left join ovr o on o.company_id=q.company_id and o.sku = v.sku
 )
 select
+  -- ✅ KEEP THESE 14 IN EXACT ORDER (existing contract)
   c.company_id,
   c.warehouse_id,
   c.variant_id,
@@ -125,19 +130,19 @@ select
   c.override_unit_cost,
   c.fallback_cost_price,
   c.effective_unit_cost,
-  s.style_avg_unit_cost,
   coalesce(
     c.override_unit_cost,
     c.base_unit_cost,
-    s.style_avg_unit_cost,
     c.fallback_cost_price
   ) as effective_unit_cost_final,
   (c.on_hand_qty * coalesce(
     c.override_unit_cost,
     c.base_unit_cost,
-    s.style_avg_unit_cost,
     c.fallback_cost_price
   )) as effective_stock_value_final,
+
+  -- ✅ APPEND NEW COLS ONLY AT THE END
+  s.style_avg_unit_cost as style_avg_unit_cost,
   case
     when c.override_unit_cost is not null then 'override'
     when c.base_unit_cost is not null then 'grn'
