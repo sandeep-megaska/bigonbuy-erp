@@ -35,6 +35,9 @@ type VariantRow = {
   size: string | null;
   color: string | null;
   cost_price: number | null;
+  cost_override: number | null;
+  cost_override_effective_from?: string | null;
+  ledger_unit_cost?: number | null;
   product_id: string;
   product_title: string;
   created_at: string;
@@ -134,6 +137,16 @@ export default function InventorySkusPage() {
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx]
   );
+  const inrFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    []
+  );
 
   useEffect(() => {
     let active = true;
@@ -191,15 +204,76 @@ export default function InventorySkusPage() {
 
     if (varError && isActive) setError(varError.message);
 
+    const variants = (varData || []) as VariantRow[];
+    const skuList = Array.from(
+      new Set(
+        variants
+          .map((variant) => variant.sku?.trim())
+          .filter((sku): sku is string => Boolean(sku))
+          .map((sku) => sku.toUpperCase())
+      )
+    );
+    const variantIds = Array.from(
+      new Set(
+        variants
+          .map((variant) => variant.id)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+    const overrideMap = new Map<string, { unit_cost: number; effective_from: string | null }>();
+    const ledgerMap = new Map<string, { unit_cost: number }>();
+
+    if (skuList.length) {
+      const { data: overrideData, error: overrideError } = await supabase
+        .from("erp_sku_cost_overrides")
+        .select("sku, unit_cost, effective_from, created_at")
+        .in("sku", skuList)
+        .order("effective_from", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (overrideError && isActive) setError(overrideError.message);
+      (overrideData || []).forEach((row) => {
+        const key = row.sku?.trim().toUpperCase();
+        if (!key || overrideMap.has(key)) return;
+        overrideMap.set(key, {
+          unit_cost: Number(row.unit_cost),
+          effective_from: row.effective_from ?? null,
+        });
+      });
+    }
+
+    if (variantIds.length) {
+      const { data: ledgerData, error: ledgerError } = await supabase
+        .from("erp_inventory_ledger")
+        .select("variant_id, unit_cost, movement_at, updated_at")
+        .in("variant_id", variantIds)
+        .order("movement_at", { ascending: false })
+        .order("updated_at", { ascending: false });
+
+      if (ledgerError && isActive) setError(ledgerError.message);
+      (ledgerData || []).forEach((row) => {
+        const key = row.variant_id as string | undefined;
+        if (!key || ledgerMap.has(key)) return;
+        ledgerMap.set(key, {
+          unit_cost: Number(row.unit_cost),
+        });
+      });
+    }
+
     const productMap = new Map((withImages || []).map((prod) => [prod.id, prod]));
     const withTitle = await Promise.all(
-      (varData || []).map(async (variant) => {
+      variants.map(async (variant) => {
         const product = productMap.get((variant as any).product_id) as ProductOption | undefined;
+        const override = overrideMap.get(variant.sku?.trim().toUpperCase() || "");
+        const ledger = ledgerMap.get(variant.id);
         return {
           ...(variant as any),
           product_title: product?.title || "",
           image_preview: await resolveErpAssetUrl((variant as any).image_url),
           product_image_preview: product?.image_preview || null,
+          cost_override: override?.unit_cost ?? null,
+          cost_override_effective_from: override?.effective_from ?? null,
+          ledger_unit_cost: ledger?.unit_cost ?? null,
         } as VariantRow;
       })
     );
@@ -1016,6 +1090,7 @@ export default function InventorySkusPage() {
                 <th style={tableHeaderCellStyle}>Size</th>
                 <th style={tableHeaderCellStyle}>Color</th>
                 <th style={tableHeaderCellStyle}>Cost</th>
+                <th style={tableHeaderCellStyle}>Cost (Override)</th>
                 <th style={tableHeaderCellStyle}></th>
               </tr>
             </thead>
@@ -1038,6 +1113,14 @@ export default function InventorySkusPage() {
                   <td style={tableCellStyle}>{row.size || "—"}</td>
                   <td style={tableCellStyle}>{row.color || "—"}</td>
                   <td style={tableCellStyle}>{row.cost_price ?? "—"}</td>
+                  <td
+                    style={tableCellStyle}
+                    title={
+                      row.ledger_unit_cost != null ? `Ledger: ${inrFormatter.format(row.ledger_unit_cost)}` : undefined
+                    }
+                  >
+                    {row.cost_override != null ? inrFormatter.format(row.cost_override) : "—"}
+                  </td>
                   <td style={{ ...tableCellStyle, textAlign: "right" }}>
                     {canWrite ? (
                       <button type="button" onClick={() => handleEdit(row)} style={secondaryButtonStyle}>
@@ -1049,7 +1132,7 @@ export default function InventorySkusPage() {
               ))}
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={emptyStateStyle}>
+                  <td colSpan={8} style={emptyStateStyle}>
                     No SKUs yet. Create one above or import from CSV.
                   </td>
                 </tr>
