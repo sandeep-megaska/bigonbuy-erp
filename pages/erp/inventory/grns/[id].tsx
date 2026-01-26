@@ -3,9 +3,11 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import {
+  badgeStyle,
   cardStyle,
   eyebrowStyle,
   h1Style,
+  h2Style,
   pageContainerStyle,
   pageHeaderStyle,
   primaryButtonStyle,
@@ -60,6 +62,16 @@ type Vendor = {
 type WarehouseOption = {
   id: string;
   name: string;
+};
+
+type ExpenseRow = {
+  id: string;
+  expense_date: string | null;
+  amount: number;
+  currency: string;
+  is_capitalizable: boolean;
+  allocation_method: string | null;
+  applied_to_inventory_at: string | null;
 };
 
 type VariantInfo = {
@@ -132,6 +144,8 @@ export default function GrnDetailPage() {
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [variants, setVariants] = useState<VariantInfo[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [expenseAllocations, setExpenseAllocations] = useState<Record<string, number>>({});
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -177,6 +191,8 @@ export default function GrnDetailPage() {
   const loadGrn = useCallback(async (companyId: string, grnId: string, isActive = true) => {
     setError(null);
     setToast(null);
+    setExpenses([]);
+    setExpenseAllocations({});
 
     const grnRes = await supabase
       .from("erp_grns")
@@ -267,12 +283,105 @@ export default function GrnDetailPage() {
       setVendor(vendorRow);
       setVariants(variantRows);
     }
+
+    const expenseRes = await supabase
+      .from("erp_expenses")
+      .select("id, expense_date, amount, currency, is_capitalizable, allocation_method, applied_to_inventory_at")
+      .eq("company_id", companyId)
+      .eq("applies_to_type", "grn")
+      .eq("applies_to_id", grnId)
+      .order("expense_date", { ascending: true });
+
+    if (expenseRes.error) {
+      if (isActive) setError(expenseRes.error.message || "Failed to load expenses.");
+      return;
+    }
+
+    const expenseRows = (expenseRes.data || []) as ExpenseRow[];
+    let allocationMap: Record<string, number> = {};
+
+    if (expenseRows.length > 0) {
+      const expenseIds = expenseRows.map((expense) => expense.id);
+      const ledgerRes = await supabase
+        .from("erp_inventory_ledger")
+        .select("ref_id, line_value:line_value.sum()")
+        .eq("company_id", companyId)
+        .eq("ref_type", "expense")
+        .like("reference", "EXP/%")
+        .in("ref_id", expenseIds);
+
+      if (ledgerRes.error) {
+        if (isActive) setError(ledgerRes.error.message || "Failed to load expense allocations.");
+        return;
+      }
+
+      allocationMap = (ledgerRes.data || []).reduce<Record<string, number>>((acc, row) => {
+        const record = row as { ref_id: string; line_value: number | string | null };
+        acc[record.ref_id] = Number(record.line_value ?? 0);
+        return acc;
+      }, {});
+    }
+
+    if (isActive) {
+      setExpenses(expenseRows);
+      setExpenseAllocations(allocationMap);
+    }
   }, []);
 
   const warehouseMap = useMemo(() => new Map(warehouses.map((w) => [w.id, w.name])), [warehouses]);
   const variantMap = useMemo(() => new Map(variants.map((variant) => [variant.id, variant])), [variants]);
   const isDraft = grn?.status === "draft";
   const receivedAtInput = useMemo(() => toDatetimeLocalValue(grn?.received_at ?? null), [grn?.received_at]);
+  const totalGrnQty = useMemo(
+    () => lines.reduce((sum, line) => sum + (Number.isFinite(line.received_qty) ? line.received_qty : 0), 0),
+    [lines],
+  );
+
+  const totalLandedCostApplied = useMemo(
+    () =>
+      expenses.reduce((sum, expense) => {
+        if (!expense.applied_to_inventory_at) return sum;
+        return sum + (expenseAllocations[expense.id] ?? 0);
+      }, 0),
+    [expenses, expenseAllocations],
+  );
+
+  const landedCostPerUnit = useMemo(() => {
+    if (!totalGrnQty) return 0;
+    return totalLandedCostApplied / totalGrnQty;
+  }, [totalGrnQty, totalLandedCostApplied]);
+
+  const formatCurrency = useCallback((value: number, currency: string) => {
+    try {
+      return new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value);
+    } catch {
+      return `${currency} ${value.toFixed(2)}`;
+    }
+  }, []);
+
+  const formatDate = useCallback((value: string | null) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString();
+  }, []);
+
+  const statusBadgeStyle = useCallback((status: "Not applied" | "Applied" | "Mismatch") => {
+    if (status === "Applied") {
+      return { ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" };
+    }
+    if (status === "Mismatch") {
+      return { ...badgeStyle, backgroundColor: "#fee2e2", color: "#b91c1c" };
+    }
+    return { ...badgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" };
+  }, []);
+
+  const landedCostCurrency = expenses.find((expense) => expense.currency)?.currency || "INR";
 
   const warehouseSummary = useMemo(() => {
     if (!lines.length) return "—";
@@ -685,6 +794,114 @@ export default function GrnDetailPage() {
             </tbody>
           </table>
         </section>
+
+        {grn ? (
+          <section style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <h2 style={h2Style}>Landed Cost (Capitalized)</h2>
+                <p style={subtitleStyle}>Audit linked expenses and landed cost allocations for this GRN.</p>
+              </div>
+              <Link
+                href={`/erp/finance/expenses/new?applies_to_type=grn&applies_to_id=${grn.id}&is_capitalizable=true`}
+                style={secondaryButtonStyle}
+              >
+                Create Expense linked to this GRN
+              </Link>
+            </div>
+
+            {grn.status !== "posted" ? (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #fde68a",
+                  backgroundColor: "#fffbeb",
+                  color: "#92400e",
+                  fontSize: 14,
+                }}
+              >
+                GRN is not posted yet. Landed cost postings will appear after posting.
+              </div>
+            ) : null}
+
+            <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+                <div>
+                  <div style={subtitleStyle}>Total GRN Qty</div>
+                  <div>{totalGrnQty.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div style={subtitleStyle}>Total Landed Cost Applied</div>
+                  <div>{formatCurrency(totalLandedCostApplied, landedCostCurrency)}</div>
+                </div>
+                <div>
+                  <div style={subtitleStyle}>Landed Cost / Unit</div>
+                  <div>
+                    {new Intl.NumberFormat("en-IN", {
+                      style: "currency",
+                      currency: "INR",
+                      minimumFractionDigits: 4,
+                      maximumFractionDigits: 4,
+                    }).format(landedCostPerUnit)}
+                  </div>
+                </div>
+              </div>
+
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Expense Date</th>
+                    <th style={tableHeaderCellStyle}>Amount</th>
+                    <th style={tableHeaderCellStyle}>Capitalizable</th>
+                    <th style={tableHeaderCellStyle}>Allocation Method</th>
+                    <th style={tableHeaderCellStyle}>Applied To Inventory At</th>
+                    <th style={tableHeaderCellStyle}>Allocated (Ledger)</th>
+                    <th style={tableHeaderCellStyle}>Status</th>
+                    <th style={tableHeaderCellStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenses.length === 0 ? (
+                    <tr>
+                      <td style={tableCellStyle} colSpan={8}>
+                        No expenses linked to this GRN yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    expenses.map((expense) => {
+                      const allocated = expenseAllocations[expense.id] ?? 0;
+                      let status: "Not applied" | "Applied" | "Mismatch" = "Not applied";
+                      if (expense.applied_to_inventory_at) {
+                        status = allocated > 0 ? "Applied" : "Mismatch";
+                      }
+
+                      return (
+                        <tr key={expense.id}>
+                          <td style={tableCellStyle}>{formatDate(expense.expense_date)}</td>
+                          <td style={tableCellStyle}>{formatCurrency(expense.amount, expense.currency)}</td>
+                          <td style={tableCellStyle}>{expense.is_capitalizable ? "Yes" : "No"}</td>
+                          <td style={tableCellStyle}>{expense.allocation_method || "—"}</td>
+                          <td style={tableCellStyle}>{formatDate(expense.applied_to_inventory_at)}</td>
+                          <td style={tableCellStyle}>{formatCurrency(allocated, expense.currency)}</td>
+                          <td style={tableCellStyle}>
+                            <span style={statusBadgeStyle(status)}>{status}</span>
+                          </td>
+                          <td style={tableCellStyle}>
+                            <Link href={`/erp/finance/expenses/${expense.id}`} style={tableLinkStyle}>
+                              View Expense
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </div>
     </ErpShell>
   );
