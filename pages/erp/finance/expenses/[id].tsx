@@ -22,9 +22,28 @@ type Option = {
   name: string;
 };
 
+type LinkOption = {
+  id: string;
+  label: string;
+};
+
 const optionSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+});
+
+const grnOptionSchema = z.object({
+  id: z.string().uuid(),
+  grn_no: z.string().nullable(),
+  received_at: z.string().nullable(),
+  status: z.string(),
+});
+
+const transferOptionSchema = z.object({
+  id: z.string().uuid(),
+  reference: z.string().nullable(),
+  transfer_date: z.string(),
+  status: z.string(),
 });
 
 const expenseRecordSchema = z.object({
@@ -42,6 +61,13 @@ const expenseRecordSchema = z.object({
   is_recurring: z.boolean(),
   recurring_rule: z.string().nullable(),
   attachment_url: z.string().nullable(),
+  applies_to_type: z.string().nullable(),
+  applies_to_id: z.string().uuid().nullable(),
+  is_capitalizable: z.boolean(),
+  allocation_method: z.string().nullable(),
+  allocation_fixed_total: z.number().nullable(),
+  applied_to_inventory_at: z.string().nullable(),
+  applied_inventory_ref: z.string().nullable(),
 });
 
 export default function ExpenseEditPage() {
@@ -55,7 +81,12 @@ export default function ExpenseEditPage() {
   const [channels, setChannels] = useState<Option[]>([]);
   const [warehouses, setWarehouses] = useState<Option[]>([]);
   const [vendors, setVendors] = useState<Option[]>([]);
+  const [grns, setGrns] = useState<LinkOption[]>([]);
+  const [transfers, setTransfers] = useState<LinkOption[]>([]);
   const [initialValues, setInitialValues] = useState<ExpenseFormPayload | null>(null);
+  const [appliedAt, setAppliedAt] = useState<string | null>(null);
+  const [appliedRef, setAppliedRef] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -97,16 +128,40 @@ export default function ExpenseEditPage() {
 
   const loadLookups = async (companyId: string) => {
     setError(null);
-    const [{ data: categoryData, error: categoryError }, { data: channelData, error: channelError }, { data: warehouseData, error: warehouseError }, { data: vendorData, error: vendorError }] =
-      await Promise.all([
-        supabase.rpc("erp_expense_categories_list"),
-        supabase.from("erp_sales_channels").select("id, name").eq("company_id", companyId).order("name"),
-        supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
-        supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
-      ]);
+    const [
+      { data: categoryData, error: categoryError },
+      { data: channelData, error: channelError },
+      { data: warehouseData, error: warehouseError },
+      { data: vendorData, error: vendorError },
+      { data: grnData, error: grnError },
+      { data: transferData, error: transferError },
+    ] = await Promise.all([
+      supabase.rpc("erp_expense_categories_list"),
+      supabase.from("erp_sales_channels").select("id, name").eq("company_id", companyId).order("name"),
+      supabase.from("erp_warehouses").select("id, name").eq("company_id", companyId).order("name"),
+      supabase.from("erp_vendors").select("id, legal_name").eq("company_id", companyId).order("legal_name"),
+      supabase
+        .from("erp_grns")
+        .select("id, grn_no, received_at, status")
+        .eq("company_id", companyId)
+        .order("received_at", { ascending: false }),
+      supabase
+        .from("erp_stock_transfers")
+        .select("id, reference, transfer_date, status")
+        .eq("company_id", companyId)
+        .order("transfer_date", { ascending: false }),
+    ]);
 
-    if (categoryError || channelError || warehouseError || vendorError) {
-      setError(categoryError?.message || channelError?.message || warehouseError?.message || vendorError?.message || "Failed to load lookup data.");
+    if (categoryError || channelError || warehouseError || vendorError || grnError || transferError) {
+      setError(
+        categoryError?.message ||
+          channelError?.message ||
+          warehouseError?.message ||
+          vendorError?.message ||
+          grnError?.message ||
+          transferError?.message ||
+          "Failed to load lookup data."
+      );
       return;
     }
 
@@ -120,8 +175,17 @@ export default function ExpenseEditPage() {
       })
       .array()
       .safeParse(vendorData);
+    const parsedGrns = grnOptionSchema.array().safeParse(grnData);
+    const parsedTransfers = transferOptionSchema.array().safeParse(transferData);
 
-    if (!parsedCategories.success || !parsedChannels.success || !parsedWarehouses.success || !parsedVendors.success) {
+    if (
+      !parsedCategories.success ||
+      !parsedChannels.success ||
+      !parsedWarehouses.success ||
+      !parsedVendors.success ||
+      !parsedGrns.success ||
+      !parsedTransfers.success
+    ) {
       setError("Failed to parse lookup data.");
       return;
     }
@@ -130,6 +194,20 @@ export default function ExpenseEditPage() {
     setChannels(parsedChannels.data);
     setWarehouses(parsedWarehouses.data);
     setVendors(parsedVendors.data.map((vendor) => ({ id: vendor.id, name: vendor.legal_name })));
+    setGrns(
+      parsedGrns.data.map((grn) => ({
+        id: grn.id,
+        label: `${grn.grn_no || grn.id} • ${grn.received_at ? new Date(grn.received_at).toLocaleDateString() : "—"} • ${
+          grn.status
+        }`,
+      }))
+    );
+    setTransfers(
+      parsedTransfers.data.map((transfer) => ({
+        id: transfer.id,
+        label: `${transfer.reference || transfer.id} • ${transfer.transfer_date} • ${transfer.status}`,
+      }))
+    );
   };
 
   const loadExpense = async (expenseId: string) => {
@@ -137,7 +215,7 @@ export default function ExpenseEditPage() {
     const { data, error: expenseError } = await supabase
       .from("erp_expenses")
       .select(
-        "id, expense_date, amount, currency, category_id, channel_id, warehouse_id, vendor_id, payee_name, reference, description, is_recurring, recurring_rule, attachment_url"
+        "id, expense_date, amount, currency, category_id, channel_id, warehouse_id, vendor_id, payee_name, reference, description, is_recurring, recurring_rule, attachment_url, applies_to_type, applies_to_id, is_capitalizable, allocation_method, allocation_fixed_total, applied_to_inventory_at, applied_inventory_ref"
       )
       .eq("id", expenseId)
       .single();
@@ -167,6 +245,11 @@ export default function ExpenseEditPage() {
       is_recurring: parsed.data.is_recurring,
       recurring_rule: parsed.data.recurring_rule,
       attachment_url: parsed.data.attachment_url,
+      applies_to_type: parsed.data.applies_to_type,
+      applies_to_id: parsed.data.applies_to_id,
+      is_capitalizable: parsed.data.is_capitalizable,
+      allocation_method: parsed.data.allocation_method,
+      allocation_fixed_total: parsed.data.allocation_fixed_total,
     });
 
     if (!normalized.success) {
@@ -175,6 +258,8 @@ export default function ExpenseEditPage() {
     }
 
     setInitialValues(normalized.data);
+    setAppliedAt(parsed.data.applied_to_inventory_at);
+    setAppliedRef(parsed.data.applied_inventory_ref);
   };
 
   const handleSubmit = async (payload: ExpenseFormPayload) => {
@@ -211,7 +296,58 @@ export default function ExpenseEditPage() {
       return;
     }
 
+    const { error: linkError } = await supabase.rpc("erp_expense_link_update", {
+      p_expense_id: parsed.data,
+      p_applies_to_type: payload.applies_to_type,
+      p_applies_to_id: payload.applies_to_id,
+      p_is_capitalizable: payload.is_capitalizable,
+      p_allocation_method: payload.allocation_method,
+      p_allocation_fixed_total: payload.allocation_fixed_total,
+    });
+
+    if (linkError) {
+      setError(linkError.message);
+      return;
+    }
+
     await router.push("/erp/finance/expenses");
+  };
+
+  const handleApplyToInventory = async () => {
+    if (typeof id !== "string") {
+      setError("Expense id not found.");
+      return;
+    }
+    if (!window.confirm("Apply this expense to inventory? This cannot be undone.")) return;
+
+    setError(null);
+    setNotice(null);
+    const { data, error: applyError } = await supabase.rpc("erp_expense_apply_to_inventory", {
+      p_expense_id: id,
+    });
+
+    if (applyError) {
+      setError(applyError.message);
+      return;
+    }
+
+    const result = z
+      .object({
+        ok: z.boolean(),
+        posted_lines: z.number(),
+        total_allocated: z.number(),
+        warnings: z.array(z.string()).optional(),
+      })
+      .safeParse(data);
+
+    if (result.success) {
+      const warningText = result.data.warnings?.length ? ` Warnings: ${result.data.warnings.join("; ")}` : "";
+      setNotice(`Applied to inventory (${result.data.posted_lines} lines, ${result.data.total_allocated}).${warningText}`);
+    } else {
+      setNotice("Applied to inventory.");
+    }
+
+    await loadExpense(id);
   };
 
   if (loading) {
@@ -251,17 +387,56 @@ export default function ExpenseEditPage() {
             </Link>
           }
         />
+        {notice ? <div style={{ color: "#047857", marginBottom: 12 }}>{notice}</div> : null}
+        {appliedAt ? (
+          <div style={{ color: "#4b5563", marginBottom: 12 }}>
+            Applied to inventory at {new Date(appliedAt).toLocaleString()} ({appliedRef || "no ref"}).
+          </div>
+        ) : null}
         <ExpenseForm
           categories={categories}
           channels={channels}
           warehouses={warehouses}
           vendors={vendors}
+          grnOptions={grns}
+          transferOptions={transfers}
           canWrite={canWrite}
           submitLabel="Save Changes"
           onSubmit={handleSubmit}
           error={error}
           initialValues={initialValues}
         />
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={handleApplyToInventory}
+            disabled={
+              !canWrite ||
+              Boolean(appliedAt) ||
+              !initialValues?.is_capitalizable ||
+              !["grn", "stock_transfer"].includes(initialValues?.applies_to_type ?? "")
+            }
+            style={{
+              ...secondaryButtonStyle,
+              opacity:
+                !canWrite ||
+                Boolean(appliedAt) ||
+                !initialValues?.is_capitalizable ||
+                !["grn", "stock_transfer"].includes(initialValues?.applies_to_type ?? "")
+                  ? 0.6
+                  : 1,
+              cursor:
+                !canWrite ||
+                Boolean(appliedAt) ||
+                !initialValues?.is_capitalizable ||
+                !["grn", "stock_transfer"].includes(initialValues?.applies_to_type ?? "")
+                  ? "not-allowed"
+                  : "pointer",
+            }}
+          >
+            Apply to Inventory
+          </button>
+        </div>
       </div>
     </ErpShell>
   );

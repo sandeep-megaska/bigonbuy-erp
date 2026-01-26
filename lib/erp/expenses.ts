@@ -24,6 +24,14 @@ export const expenseFormSchema = z.object({
   is_recurring: z.boolean(),
   recurring_rule: z.string().nullable(),
   attachment_url: z.string().nullable(),
+  applies_to_type: z.enum(["period", "grn", "stock_transfer", "order"]).nullable(),
+  applies_to_id: z.string().uuid().nullable(),
+  is_capitalizable: z.boolean(),
+  allocation_method: z.enum(["by_qty", "by_value", "fixed", "none"]).nullable(),
+  allocation_fixed_total: z.preprocess(
+    (value) => (value === null || value === undefined || value === "" ? null : Number(value)),
+    z.number().nullable()
+  ),
 });
 
 export type ExpenseFormPayload = z.infer<typeof expenseFormSchema>;
