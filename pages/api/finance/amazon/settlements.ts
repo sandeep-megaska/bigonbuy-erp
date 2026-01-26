@@ -23,10 +23,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const nextToken = typeof req.query.nextToken === "string" ? req.query.nextToken : undefined;
 
   try {
-    const { reports, nextToken: responseNextToken } = await amazonListReports({
-      reportTypes: [REPORT_TYPE],
-      nextToken,
-    });
+    const { reports, nextToken: responseNextToken } = await amazonListReports(
+      nextToken
+        ? { reportTypes: [], nextToken }
+        : {
+            reportTypes: [REPORT_TYPE],
+          }
+    );
 
     const summaries = reports.map((report) => ({
       reportId: report.reportId,

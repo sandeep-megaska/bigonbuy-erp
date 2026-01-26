@@ -61,6 +61,10 @@ type NormalizedSettlementLine = {
   amount: number;
   currency: string;
   orderId?: string;
+  sku?: string;
+  asin?: string;
+  postedDate?: string;
+  quantity?: string;
   transactionType?: string;
   rowIndex: number;
 };
@@ -386,6 +390,8 @@ export default function AmazonSettlementReportsPage() {
       orderId: findColumnName(columns, ["amazon-order-id", "order-id", "amazon order id", "order id"]),
       sku: findColumnName(columns, ["sku", "seller-sku", "seller sku"]),
       asin: findColumnName(columns, ["asin"]),
+      postedDate: findColumnName(columns, ["posted-date", "posted date"]),
+      quantity: findColumnName(columns, ["quantity", "quantity-purchased", "quantity purchased"]),
       priceType: findColumnName(columns, ["price-type", "price type"]),
       priceAmount: findColumnName(columns, ["price-amount", "price amount"]),
       promotionType: findColumnName(columns, ["promotion-type", "promotion type"]),
@@ -422,6 +428,10 @@ export default function AmazonSettlementReportsPage() {
     preview.rows.forEach((row, rowIndex) => {
       const transactionType = getValue(row, columnMap.transactionType).trim();
       const orderId = getValue(row, columnMap.orderId).trim();
+      const sku = getValue(row, columnMap.sku).trim();
+      const asin = getValue(row, columnMap.asin).trim();
+      const postedDate = getValue(row, columnMap.postedDate).trim();
+      const quantity = getValue(row, columnMap.quantity).trim();
       const currencyRaw = getValue(row, columnMap.currency).trim();
       const currency = currencyRaw ? currencyRaw.toUpperCase() : "INR";
       const totalAmountRaw = getValue(row, columnMap.totalAmount);
@@ -448,6 +458,10 @@ export default function AmazonSettlementReportsPage() {
           amount,
           currency,
           orderId: orderId || undefined,
+          sku: sku || undefined,
+          asin: asin || undefined,
+          postedDate: postedDate || undefined,
+          quantity: quantity || undefined,
           transactionType: transactionType || undefined,
           rowIndex,
         });
@@ -512,6 +526,8 @@ export default function AmazonSettlementReportsPage() {
         line.description,
         line.transactionType,
         line.orderId,
+        line.sku,
+        line.asin,
         line.bucketSource,
       ]
         .filter((value) => value && value.trim().length > 0)
@@ -701,22 +717,45 @@ export default function AmazonSettlementReportsPage() {
     }
   };
 
-  const handleExportCsv = () => {
+  const handleExportNormalizedCsv = () => {
     if (!preview) return;
+    const reportId = preview.report.reportId;
     const columns = [
-      { header: "bucket", accessor: (row: typeof filteredLinesWithMeta[number]) => row.bucket },
-      { header: "bucket_source", accessor: (row: typeof filteredLinesWithMeta[number]) => row.bucketSource },
-      { header: "type", accessor: (row: typeof filteredLinesWithMeta[number]) => row.type },
-      { header: "description", accessor: (row: typeof filteredLinesWithMeta[number]) => row.description ?? "" },
-      { header: "transaction_type", accessor: (row: typeof filteredLinesWithMeta[number]) => row.transactionType ?? "" },
-      { header: "order_id", accessor: (row: typeof filteredLinesWithMeta[number]) => row.orderId ?? "" },
-      { header: "amount", accessor: (row: typeof filteredLinesWithMeta[number]) => row.amount.toFixed(2) },
+      { header: "settlementReportId", accessor: () => reportId },
+      { header: "posted-date", accessor: (row: typeof filteredLinesWithMeta[number]) => row.postedDate ?? "" },
+      {
+        header: "transaction-type",
+        accessor: (row: typeof filteredLinesWithMeta[number]) => row.transactionType ?? "",
+      },
+      { header: "order-id", accessor: (row: typeof filteredLinesWithMeta[number]) => row.orderId ?? "" },
+      { header: "sku", accessor: (row: typeof filteredLinesWithMeta[number]) => row.sku ?? "" },
+      { header: "asin", accessor: (row: typeof filteredLinesWithMeta[number]) => row.asin ?? "" },
+      { header: "quantity", accessor: (row: typeof filteredLinesWithMeta[number]) => row.quantity ?? "" },
+      {
+        header: "normalized_bucketSource",
+        accessor: (row: typeof filteredLinesWithMeta[number]) => row.bucketSource,
+      },
+      { header: "normalized_type", accessor: (row: typeof filteredLinesWithMeta[number]) => row.type },
+      {
+        header: "normalized_amount",
+        accessor: (row: typeof filteredLinesWithMeta[number]) => row.amount.toFixed(2),
+      },
       { header: "currency", accessor: (row: typeof filteredLinesWithMeta[number]) => row.currency },
-      { header: "row_index", accessor: (row: typeof filteredLinesWithMeta[number]) => String(row.rowIndex) },
     ];
     const timestamp = formatTimestampForFilename(new Date());
     const filename = `amazon-settlement-normalized-${preview.report.reportId}-${timestamp}.csv`;
     downloadCsv(filename, columns, filteredLinesWithMeta);
+  };
+
+  const handleExportRawCsv = () => {
+    if (!preview) return;
+    const columns = preview.columns.map((column) => ({
+      header: column,
+      accessor: (row: (typeof preview.rows)[number]) => row[column] ?? "",
+    }));
+    const timestamp = formatTimestampForFilename(new Date());
+    const filename = `amazon-settlement-raw-${preview.report.reportId}-${timestamp}.csv`;
+    downloadCsv(filename, columns, preview.rows);
   };
 
   if (loading) {
@@ -903,9 +942,14 @@ export default function AmazonSettlementReportsPage() {
                         </p>
                       ) : null}
                     </div>
-                    <button style={secondaryButtonStyle} onClick={handleExportCsv}>
-                      Export CSV
-                    </button>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button style={secondaryButtonStyle} onClick={handleExportRawCsv}>
+                        Export Raw CSV
+                      </button>
+                      <button style={secondaryButtonStyle} onClick={handleExportNormalizedCsv}>
+                        Export Normalized CSV
+                      </button>
+                    </div>
                   </div>
 
                   {currencies.length > 0 ? (
