@@ -165,7 +165,7 @@ export default function CogsEstimatePage() {
         <ErpPageHeader
           eyebrow="Finance Bridge"
           title="COGS Estimate"
-          description="Estimated cost of goods sold from sales movements and WAC overrides."
+          description="Estimated cost of goods sold from sales movements and inventory valuation."
           rightActions={
             <Link href="/erp/finance/bridge" style={linkButtonStyle}>
               Back to Bridge
@@ -251,7 +251,7 @@ export default function CogsEstimatePage() {
                         {row.est_cogs == null ? "—" : currencyFormatter.format(row.est_cogs)}
                       </td>
                       <td style={tableCellStyle}>
-                        {row.missing_cost ? "Missing" : row.cost_source.toUpperCase()}
+                        {row.cost_source}
                       </td>
                     </tr>
                   ))}
