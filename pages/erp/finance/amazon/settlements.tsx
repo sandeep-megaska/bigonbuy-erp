@@ -43,6 +43,28 @@ type SettlementPreview = {
   sampleCount: number;
 };
 
+type NormalizedBucketSource =
+  | "price"
+  | "promotion"
+  | "order-fee"
+  | "item-fee"
+  | "shipment-fee"
+  | "misc"
+  | "other"
+  | "direct-payment"
+  | "other-amount";
+
+type NormalizedSettlementLine = {
+  bucketSource: NormalizedBucketSource;
+  type: string;
+  description?: string;
+  amount: number;
+  currency: string;
+  orderId?: string;
+  transactionType?: string;
+  rowIndex: number;
+};
+
 const statusTone: Record<string, { backgroundColor: string; color: string }> = {
   DONE: { backgroundColor: "#dcfce7", color: "#166534" },
   IN_PROGRESS: { backgroundColor: "#fef3c7", color: "#92400e" },
@@ -163,6 +185,10 @@ function normalizeHeader(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeValue(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function findColumnName(columns: string[], candidates: string[]) {
   const normalized = columns.map(normalizeHeader);
   for (const candidate of candidates) {
@@ -202,15 +228,15 @@ const bucketLabels: { key: SettlementBucket; label: string }[] = [
 ];
 
 function classifySettlementBucket(values: {
-  amountType?: string;
-  amountDescription?: string;
+  type?: string;
+  description?: string;
   transactionType?: string;
+  amount: number;
+  bucketSource: NormalizedBucketSource;
 }): SettlementBucket {
-  const joined = `${values.amountType ?? ""} ${values.amountDescription ?? ""} ${
-    values.transactionType ?? ""
-  }`;
+  const joined = `${values.type ?? ""} ${values.description ?? ""} ${values.transactionType ?? ""}`;
   const raw = joined.toLowerCase();
-  const normalized = raw.replace(/[^a-z0-9]/g, "");
+  const normalized = normalizeValue(raw);
 
   if (normalized.includes("tcs") || normalized.includes("tds") || normalized.includes("itemtds")) {
     return "Withholdings";
@@ -229,26 +255,34 @@ function classifySettlementBucket(values: {
     "pickpackfee",
     "fulfillmentfee",
   ];
-  if (feeKeywords.some((keyword) => normalized.includes(keyword))) {
+  if (
+    ["order-fee", "item-fee", "shipment-fee", "misc", "other"].includes(values.bucketSource) &&
+    feeKeywords.some((keyword) => normalized.includes(keyword))
+  ) {
     return "Fees";
   }
 
+  const refundKeywords = ["refund", "reversal", "chargeback", "return"];
+  const transactionNormalized = normalizeValue(values.transactionType ?? "");
+  const typeNormalized = normalizeValue(values.type ?? "");
   if (
-    raw.includes("refund") ||
-    raw.includes("reversal") ||
-    raw.includes("chargeback") ||
-    raw.includes("return")
+    values.amount < 0 &&
+    (refundKeywords.some((keyword) => normalized.includes(keyword)) ||
+      refundKeywords.some((keyword) => transactionNormalized.includes(keyword)) ||
+      (values.bucketSource === "price" && typeNormalized.includes("principal")))
   ) {
     return "Refunds/Returns";
   }
 
-  if (
-    normalized.includes("principal") ||
-    normalized.includes("shippingcharge") ||
-    normalized.includes("giftwrap") ||
-    normalized.includes("tax")
-  ) {
-    return "Sales";
+  if (values.bucketSource === "price") {
+    const salesTypes = ["principal", "itemprice", "productprice", "shippingcharge", "giftwrap", "tax"];
+    if (values.amount > 0 && salesTypes.some((keyword) => typeNormalized.includes(keyword))) {
+      return "Sales";
+    }
+  }
+
+  if (["order-fee", "item-fee", "shipment-fee", "misc", "other"].includes(values.bucketSource)) {
+    return "Fees";
   }
 
   return "Other";
@@ -344,6 +378,7 @@ export default function AmazonSettlementReportsPage() {
     const columns = preview.columns;
     return {
       amount: findColumnName(columns, ["amount", "total-amount", "amount-total", "total amount"]),
+      totalAmount: findColumnName(columns, ["total-amount", "amount-total", "total amount"]),
       currency: findColumnName(columns, ["currency", "amount-currency", "currency-code"]),
       amountType: findColumnName(columns, ["amount-type", "amount type"]),
       amountDescription: findColumnName(columns, ["amount-description", "amount description", "description"]),
@@ -351,62 +386,164 @@ export default function AmazonSettlementReportsPage() {
       orderId: findColumnName(columns, ["amazon-order-id", "order-id", "amazon order id", "order id"]),
       sku: findColumnName(columns, ["sku", "seller-sku", "seller sku"]),
       asin: findColumnName(columns, ["asin"]),
+      priceType: findColumnName(columns, ["price-type", "price type"]),
+      priceAmount: findColumnName(columns, ["price-amount", "price amount"]),
+      promotionType: findColumnName(columns, ["promotion-type", "promotion type"]),
+      promotionAmount: findColumnName(columns, ["promotion-amount", "promotion amount"]),
+      orderFeeType: findColumnName(columns, ["order-fee-type", "order fee type"]),
+      orderFeeAmount: findColumnName(columns, ["order-fee-amount", "order fee amount"]),
+      itemFeeType: findColumnName(columns, ["item-related-fee-type", "item related fee type"]),
+      itemFeeAmount: findColumnName(columns, ["item-related-fee-amount", "item related fee amount"]),
+      shipmentFeeType: findColumnName(columns, ["shipment-fee-type", "shipment fee type"]),
+      shipmentFeeAmount: findColumnName(columns, ["shipment-fee-amount", "shipment fee amount"]),
+      miscFeeAmount: findColumnName(columns, ["misc-fee-amount", "misc fee amount"]),
+      otherFeeReason: findColumnName(columns, [
+        "other-fee-reason-description",
+        "other fee reason description",
+      ]),
+      otherFeeAmount: findColumnName(columns, ["other-fee-amount", "other fee amount"]),
+      directPaymentType: findColumnName(columns, ["direct-payment-type", "direct payment type"]),
+      directPaymentAmount: findColumnName(columns, ["direct-payment-amount", "direct payment amount"]),
+      otherAmount: findColumnName(columns, ["other-amount", "other amount"]),
     };
   }, [preview]);
 
-  const previewRowsWithMeta = useMemo(() => {
-    if (!preview || !columnMap) return [];
-    return preview.rows.map((row) => {
-      const amountRaw = columnMap.amount ? row[columnMap.amount] ?? "" : "";
-      const amount = amountRaw ? parseAmount(amountRaw) : null;
-      const currencyRaw = columnMap.currency ? row[columnMap.currency] ?? "" : "";
-      const currency = currencyRaw ? currencyRaw.trim().toUpperCase() : "INR";
-      const amountType = columnMap.amountType ? row[columnMap.amountType] ?? "" : "";
-      const amountDescription = columnMap.amountDescription ? row[columnMap.amountDescription] ?? "" : "";
-      const transactionType = columnMap.transactionType ? row[columnMap.transactionType] ?? "" : "";
-      const orderId = columnMap.orderId ? row[columnMap.orderId] ?? "" : "";
-      const sku = columnMap.sku ? row[columnMap.sku] ?? "" : "";
-      const asin = columnMap.asin ? row[columnMap.asin] ?? "" : "";
-      const bucket = classifySettlementBucket({ amountType, amountDescription, transactionType });
-      const searchable = [amountDescription, amountType, transactionType, orderId, sku, asin]
+  const normalizedPreview = useMemo(() => {
+    if (!preview || !columnMap) {
+      return { lines: [] as NormalizedSettlementLine[], netPayoutByCurrency: {} as Record<string, number> };
+    }
+
+    const lines: NormalizedSettlementLine[] = [];
+    const netPayoutByCurrency: Record<string, number> = {};
+
+    const getValue = (row: Record<string, string>, column: string | null) =>
+      column ? row[column] ?? "" : "";
+
+    preview.rows.forEach((row, rowIndex) => {
+      const transactionType = getValue(row, columnMap.transactionType).trim();
+      const orderId = getValue(row, columnMap.orderId).trim();
+      const currencyRaw = getValue(row, columnMap.currency).trim();
+      const currency = currencyRaw ? currencyRaw.toUpperCase() : "INR";
+      const totalAmountRaw = getValue(row, columnMap.totalAmount);
+      const totalAmount = totalAmountRaw ? parseAmount(totalAmountRaw) : null;
+
+      const isSummaryRow = totalAmount !== null && !transactionType && !orderId;
+      if (isSummaryRow) {
+        netPayoutByCurrency[currency] = (netPayoutByCurrency[currency] ?? 0) + totalAmount;
+        return;
+      }
+
+      const pushLine = (
+        bucketSource: NormalizedBucketSource,
+        type: string,
+        amountRawValue: string,
+        description?: string
+      ) => {
+        const amount = amountRawValue ? parseAmount(amountRawValue) : null;
+        if (amount === null || amount === 0) return;
+        lines.push({
+          bucketSource,
+          type,
+          description,
+          amount,
+          currency,
+          orderId: orderId || undefined,
+          transactionType: transactionType || undefined,
+          rowIndex,
+        });
+      };
+
+      pushLine(
+        "price",
+        getValue(row, columnMap.priceType).trim() || "price",
+        getValue(row, columnMap.priceAmount)
+      );
+      pushLine(
+        "promotion",
+        getValue(row, columnMap.promotionType).trim() || "promotion",
+        getValue(row, columnMap.promotionAmount)
+      );
+      pushLine(
+        "order-fee",
+        getValue(row, columnMap.orderFeeType).trim() || "order-fee",
+        getValue(row, columnMap.orderFeeAmount)
+      );
+      pushLine(
+        "item-fee",
+        getValue(row, columnMap.itemFeeType).trim() || "item-fee",
+        getValue(row, columnMap.itemFeeAmount)
+      );
+      pushLine(
+        "shipment-fee",
+        getValue(row, columnMap.shipmentFeeType).trim() || "shipment-fee",
+        getValue(row, columnMap.shipmentFeeAmount)
+      );
+      pushLine("misc", "misc-fee-amount", getValue(row, columnMap.miscFeeAmount));
+
+      const otherFeeReason = getValue(row, columnMap.otherFeeReason).trim();
+      pushLine(
+        "other",
+        otherFeeReason || "other-fee-amount",
+        getValue(row, columnMap.otherFeeAmount),
+        otherFeeReason || undefined
+      );
+      pushLine(
+        "direct-payment",
+        getValue(row, columnMap.directPaymentType).trim() || "direct-payment",
+        getValue(row, columnMap.directPaymentAmount)
+      );
+      pushLine("other-amount", "other-amount", getValue(row, columnMap.otherAmount));
+    });
+
+    return { lines, netPayoutByCurrency };
+  }, [preview, columnMap]);
+
+  const normalizedLinesWithMeta = useMemo(() => {
+    return normalizedPreview.lines.map((line) => {
+      const bucket = classifySettlementBucket({
+        type: line.type,
+        description: line.description,
+        transactionType: line.transactionType,
+        amount: line.amount,
+        bucketSource: line.bucketSource,
+      });
+      const searchable = [
+        line.type,
+        line.description,
+        line.transactionType,
+        line.orderId,
+        line.bucketSource,
+      ]
         .filter((value) => value && value.trim().length > 0)
         .join(" ")
         .toLowerCase();
 
       return {
-        row,
-        amount,
-        currency,
-        amountType,
-        amountDescription,
-        transactionType,
-        orderId,
-        sku,
-        asin,
+        ...line,
         bucket,
         searchable,
       };
     });
-  }, [preview, columnMap]);
+  }, [normalizedPreview.lines]);
 
   const amountTypeOptions = useMemo(() => {
     const values = new Set<string>();
-    previewRowsWithMeta.forEach((row) => {
-      if (row.amountType) values.add(row.amountType);
+    normalizedLinesWithMeta.forEach((line) => {
+      if (line.type) values.add(line.type);
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [previewRowsWithMeta]);
+  }, [normalizedLinesWithMeta]);
 
   const transactionTypeOptions = useMemo(() => {
     const values = new Set<string>();
-    previewRowsWithMeta.forEach((row) => {
-      if (row.transactionType) values.add(row.transactionType);
+    normalizedLinesWithMeta.forEach((line) => {
+      if (line.transactionType) values.add(line.transactionType);
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [previewRowsWithMeta]);
+  }, [normalizedLinesWithMeta]);
 
-  const filteredRowsWithMeta = useMemo(() => {
-    if (previewRowsWithMeta.length === 0) return [];
+  const filteredLinesWithMeta = useMemo(() => {
+    if (normalizedLinesWithMeta.length === 0) return [];
 
     const minParsed = minAmount ? Number.parseFloat(minAmount) : null;
     const maxParsed = maxAmount ? Number.parseFloat(maxAmount) : null;
@@ -414,22 +551,22 @@ export default function AmazonSettlementReportsPage() {
     const maxValue = maxParsed !== null && !Number.isNaN(maxParsed) ? maxParsed : null;
     const searchValue = debouncedSearch.toLowerCase();
 
-    return previewRowsWithMeta.filter((row) => {
-      if (searchValue && !row.searchable.includes(searchValue)) return false;
-      if (amountTypeFilter && row.amountType !== amountTypeFilter) return false;
-      if (transactionTypeFilter && row.transactionType !== transactionTypeFilter) return false;
-      if (bucketFilter && row.bucket !== bucketFilter) return false;
-      if (nonZeroOnly && (!row.amount || row.amount === 0)) return false;
+    return normalizedLinesWithMeta.filter((line) => {
+      if (searchValue && !line.searchable.includes(searchValue)) return false;
+      if (amountTypeFilter && line.type !== amountTypeFilter) return false;
+      if (transactionTypeFilter && line.transactionType !== transactionTypeFilter) return false;
+      if (bucketFilter && line.bucket !== bucketFilter) return false;
+      if (nonZeroOnly && (!line.amount || line.amount === 0)) return false;
       if (minValue !== null) {
-        if (row.amount === null || row.amount < minValue) return false;
+        if (line.amount < minValue) return false;
       }
       if (maxValue !== null) {
-        if (row.amount === null || row.amount > maxValue) return false;
+        if (line.amount > maxValue) return false;
       }
       return true;
     });
   }, [
-    previewRowsWithMeta,
+    normalizedLinesWithMeta,
     debouncedSearch,
     amountTypeFilter,
     transactionTypeFilter,
@@ -439,12 +576,31 @@ export default function AmazonSettlementReportsPage() {
     maxAmount,
   ]);
 
-  const filteredRows = useMemo(() => filteredRowsWithMeta.map((row) => row.row), [filteredRowsWithMeta]);
+  const settlementTotals = useMemo(() => buildTotals(normalizedLinesWithMeta), [normalizedLinesWithMeta]);
+  const filteredTotals = useMemo(() => buildTotals(filteredLinesWithMeta), [filteredLinesWithMeta]);
 
-  const settlementTotals = useMemo(() => buildTotals(previewRowsWithMeta), [previewRowsWithMeta]);
-  const filteredTotals = useMemo(() => buildTotals(filteredRowsWithMeta), [filteredRowsWithMeta]);
+  const normalizedSumsByCurrency = useMemo(() => {
+    return normalizedLinesWithMeta.reduce<Record<string, number>>((acc, line) => {
+      const currency = line.currency || "UNKNOWN";
+      acc[currency] = (acc[currency] ?? 0) + line.amount;
+      return acc;
+    }, {});
+  }, [normalizedLinesWithMeta]);
 
-  const currencies = useMemo(() => Object.keys(settlementTotals), [settlementTotals]);
+  const payoutWarnings = useMemo(() => {
+    return Object.entries(normalizedPreview.netPayoutByCurrency).filter(([currency, netPayout]) => {
+      const sum = normalizedSumsByCurrency[currency] ?? 0;
+      return Math.abs(sum - netPayout) > 1;
+    });
+  }, [normalizedPreview.netPayoutByCurrency, normalizedSumsByCurrency]);
+
+  const currencies = useMemo(() => {
+    const set = new Set<string>([
+      ...Object.keys(settlementTotals),
+      ...Object.keys(normalizedPreview.netPayoutByCurrency),
+    ]);
+    return Array.from(set);
+  }, [settlementTotals, normalizedPreview.netPayoutByCurrency]);
   const hasNonInrCurrency = useMemo(
     () => currencies.some((currency) => currency !== "INR"),
     [currencies]
@@ -547,13 +703,20 @@ export default function AmazonSettlementReportsPage() {
 
   const handleExportCsv = () => {
     if (!preview) return;
-    const columns = preview.columns.map((column) => ({
-      header: column,
-      accessor: (row: Record<string, string>) => row[column] ?? "",
-    }));
+    const columns = [
+      { header: "bucket", accessor: (row: typeof filteredLinesWithMeta[number]) => row.bucket },
+      { header: "bucket_source", accessor: (row: typeof filteredLinesWithMeta[number]) => row.bucketSource },
+      { header: "type", accessor: (row: typeof filteredLinesWithMeta[number]) => row.type },
+      { header: "description", accessor: (row: typeof filteredLinesWithMeta[number]) => row.description ?? "" },
+      { header: "transaction_type", accessor: (row: typeof filteredLinesWithMeta[number]) => row.transactionType ?? "" },
+      { header: "order_id", accessor: (row: typeof filteredLinesWithMeta[number]) => row.orderId ?? "" },
+      { header: "amount", accessor: (row: typeof filteredLinesWithMeta[number]) => row.amount.toFixed(2) },
+      { header: "currency", accessor: (row: typeof filteredLinesWithMeta[number]) => row.currency },
+      { header: "row_index", accessor: (row: typeof filteredLinesWithMeta[number]) => String(row.rowIndex) },
+    ];
     const timestamp = formatTimestampForFilename(new Date());
-    const filename = `amazon-settlement-${preview.report.reportId}-${timestamp}.csv`;
-    downloadCsv(filename, columns, filteredRows);
+    const filename = `amazon-settlement-normalized-${preview.report.reportId}-${timestamp}.csv`;
+    downloadCsv(filename, columns, filteredLinesWithMeta);
   };
 
   if (loading) {
@@ -718,6 +881,22 @@ export default function AmazonSettlementReportsPage() {
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={labelStyle}>Settlement summary</div>
+                      <p style={{ ...summaryMetaStyle, marginTop: 4 }}>
+                        Normalized lines: {normalizedLinesWithMeta.length} · Raw rows: {preview.rowCount}
+                      </p>
+                      {Object.keys(normalizedPreview.netPayoutByCurrency).length > 0 ? (
+                        <p style={{ ...summaryMetaStyle, marginTop: 4 }}>
+                          Summary row net payout:{" "}
+                          {Object.entries(normalizedPreview.netPayoutByCurrency)
+                            .map(([currency, amount]) => formatCurrency(amount, currency))
+                            .join(", ")}
+                        </p>
+                      ) : null}
+                      {payoutWarnings.length > 0 ? (
+                        <p style={{ ...summaryMetaStyle, marginTop: 4, color: "#b45309" }}>
+                          Settlement lines sum differs from net payout (timing/format/partial preview).
+                        </p>
+                      ) : null}
                       {hasNonInrCurrency ? (
                         <p style={{ ...summaryMetaStyle, marginTop: 4 }}>
                           Multiple currencies detected. Totals shown per currency.
@@ -733,16 +912,24 @@ export default function AmazonSettlementReportsPage() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       {currencies.map((currency) => {
                         const totals = settlementTotals[currency];
-                        if (!totals) return null;
+                        if (!totals) {
+                          const netPayout = normalizedPreview.netPayoutByCurrency[currency];
+                          if (netPayout === undefined) return null;
+                        }
                         const filtered = filteredTotals[currency];
+                        const netPayout = normalizedPreview.netPayoutByCurrency[currency];
                         return (
                           <div key={currency} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             <div style={{ ...labelStyle, marginBottom: 0 }}>{currency}</div>
                             <div style={summaryGridStyle}>
                               <div style={summaryCardStyle}>
                                 <div style={labelStyle}>Net Payout</div>
-                                <p style={valueStyle}>{formatCurrency(totals.net, currency)}</p>
-                                <div style={summaryMetaStyle}>{totals.lineCount} lines</div>
+                                <p style={valueStyle}>
+                                  {formatCurrency(netPayout ?? totals?.net ?? 0, currency)}
+                                </p>
+                                <div style={summaryMetaStyle}>
+                                  {totals?.lineCount ?? 0} lines
+                                </div>
                                 {filtersActive && filtered ? (
                                   <div style={summaryMetaStyle}>
                                     Filtered: {formatCurrency(filtered.net, currency)}
@@ -753,10 +940,10 @@ export default function AmazonSettlementReportsPage() {
                                 <div key={bucket.key} style={summaryCardStyle}>
                                   <div style={labelStyle}>{bucket.label}</div>
                                   <p style={valueStyle}>
-                                    {formatCurrency(totals.bucketTotals[bucket.key], currency)}
+                                    {formatCurrency(totals?.bucketTotals[bucket.key] ?? 0, currency)}
                                   </p>
                                   <div style={summaryMetaStyle}>
-                                    {totals.bucketCounts[bucket.key]} lines
+                                    {totals?.bucketCounts[bucket.key] ?? 0} lines
                                   </div>
                                   {filtersActive && filtered ? (
                                     <div style={summaryMetaStyle}>
@@ -776,7 +963,7 @@ export default function AmazonSettlementReportsPage() {
                   )}
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={labelStyle}>Preview rows</div>
+                    <div style={labelStyle}>Normalized lines</div>
                     <div style={filterBarStyle}>
                       <label style={filterLabelStyle}>
                         <span>Search</span>
@@ -862,7 +1049,57 @@ export default function AmazonSettlementReportsPage() {
                       </label>
                     </div>
                     <div style={{ color: "#6b7280", fontSize: 12 }}>
-                      Showing {filteredRows.length} of {preview.rows.length} preview rows
+                      Showing {filteredLinesWithMeta.length} of {normalizedLinesWithMeta.length} normalized
+                      lines
+                    </div>
+                  </div>
+
+                  <div style={previewTableWrapperStyle}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={tableHeaderCellStyle}>Bucket</th>
+                          <th style={tableHeaderCellStyle}>Source</th>
+                          <th style={tableHeaderCellStyle}>Type</th>
+                          <th style={tableHeaderCellStyle}>Description</th>
+                          <th style={tableHeaderCellStyle}>Transaction Type</th>
+                          <th style={tableHeaderCellStyle}>Order ID</th>
+                          <th style={tableHeaderCellStyle}>Amount</th>
+                          <th style={tableHeaderCellStyle}>Currency</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredLinesWithMeta.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}
+                            >
+                              No rows match the current filters.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredLinesWithMeta.map((line, lineIndex) => (
+                            <tr key={`${line.rowIndex}-${lineIndex}`}>
+                              <td style={tableCellStyle}>{line.bucket}</td>
+                              <td style={tableCellStyle}>{line.bucketSource}</td>
+                              <td style={tableCellStyle}>{line.type}</td>
+                              <td style={tableCellStyle}>{line.description ?? "—"}</td>
+                              <td style={tableCellStyle}>{line.transactionType ?? "—"}</td>
+                              <td style={tableCellStyle}>{line.orderId ?? "—"}</td>
+                              <td style={tableCellStyle}>{line.amount.toFixed(2)}</td>
+                              <td style={tableCellStyle}>{line.currency}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={labelStyle}>Raw preview rows</div>
+                    <div style={{ color: "#6b7280", fontSize: 12 }}>
+                      Showing {preview.sampleCount} of {preview.rowCount} raw rows
                     </div>
                   </div>
 
@@ -878,17 +1115,17 @@ export default function AmazonSettlementReportsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredRows.length === 0 ? (
+                        {preview.rows.length === 0 ? (
                           <tr>
                             <td
                               colSpan={preview.columns.length}
                               style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}
                             >
-                              No rows match the current filters.
+                              No preview rows available.
                             </td>
                           </tr>
                         ) : (
-                          filteredRows.map((row, rowIndex) => (
+                          preview.rows.map((row, rowIndex) => (
                             <tr key={rowIndex}>
                               {preview.columns.map((column) => (
                                 <td key={`${rowIndex}-${column}`} style={tableCellStyle}>
