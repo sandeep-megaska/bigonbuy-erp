@@ -212,12 +212,13 @@ const normalizeQueryValue = (value: string | string[] | undefined) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const shortenProductTitle = (title: string | null | undefined) => {
-  if (!title) return "";
-  const words = title.trim().split(/\s+/).filter(Boolean);
-  if (words.length <= 4) return words.join(" ");
-  return words.slice(-4).join(" ");
-};
+const toTitleCase = (value: string) =>
+  value
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 
 export default function GstInvoicePrintPage() {
   const router = useRouter();
@@ -377,13 +378,14 @@ export default function GstInvoicePrintPage() {
     : companyGst?.gst_state_code || "—";
 
   const invoiceNumber = invoiceHeader?.invoice_number || invoiceHeader?.invoice_no || "";
-  const invoiceNumberMissing = !invoiceHeader?.invoice_number;
+  const invoiceNumberMissing = !invoiceHeader?.invoice_number && !invoiceHeader?.invoice_no;
   const paymentGateways = Array.isArray(rawOrder?.payment_gateway_names)
     ? (rawOrder?.payment_gateway_names as string[]).filter(Boolean)
     : [];
   const paymentGatewayLabel = paymentGateways.join(", ") || invoiceHeader?.payment_gateway || "";
-  const paymentStatusLabel = invoiceHeader?.payment_status || "";
-  const rawPaymentMethod = paymentGatewayLabel || paymentStatusLabel;
+  const paymentStatusSource =
+    typeof rawOrder?.financial_status === "string" ? rawOrder.financial_status : invoiceHeader?.payment_status || "";
+  const paymentStatusLabel = paymentStatusSource ? paymentStatusSource.toLowerCase() : "";
   const rawGateway =
     typeof rawOrder?.gateway === "string"
       ? rawOrder.gateway
@@ -394,17 +396,15 @@ export default function GstInvoicePrintPage() {
     typeof rawOrder?.payment_terms?.payment_terms_name === "string"
       ? rawOrder.payment_terms.payment_terms_name
       : "";
-  const isCodGateway = [rawGateway, rawPaymentTerms, ...paymentGateways].some((gateway) =>
-    /cash on delivery|cod/i.test(gateway)
-  );
-  const normalizedPaymentMethod = rawPaymentMethod.trim().toLowerCase();
-  const paymentMethod = rawPaymentMethod
-    ? normalizedPaymentMethod === "pending"
-      ? "Cash on Delivery (COD)"
-      : rawPaymentMethod
-    : isCodGateway
-      ? "Cash on Delivery (COD)"
-      : "—";
+  const fallbackGateway = paymentGatewayLabel || rawGateway || rawPaymentTerms;
+  const paymentMethod =
+    paymentStatusLabel === "paid"
+      ? "Paid (Razorpay)"
+      : paymentStatusLabel === "pending"
+        ? "Cash On Delivery"
+        : fallbackGateway
+          ? toTitleCase(fallbackGateway)
+          : "—";
   const qrCodeUrl = useMemo(() => {
     const orderNumber = invoiceHeader?.order_number || "";
     const total = round2(totals.total);
@@ -497,6 +497,7 @@ export default function GstInvoicePrintPage() {
                 <div>Invoice No: {invoiceNumber || "—"}</div>
                 <div>Order Id: {invoiceHeader?.order_number || "—"}</div>
                 <div>Invoice Date: {formatDate(invoiceHeader?.order_date || order?.order_created_at || null)}</div>
+                <div>Payment Status: {paymentStatusLabel || "—"}</div>
                 <div>Payment Method: {paymentMethod}</div>
               </div>
               <div style={cardStyle}>
@@ -506,7 +507,7 @@ export default function GstInvoicePrintPage() {
               </div>
               <div style={cardStyle}>
                 <div style={sectionTitleStyle}>Order Status</div>
-                <div>Payment Status: {invoiceHeader?.payment_status || "—"}</div>
+                <div>Payment Status: {paymentStatusLabel || "—"}</div>
                 <div>Fulfillment: {invoiceHeader?.fulfillment_status || "—"}</div>
               </div>
             </section>
@@ -565,15 +566,19 @@ export default function GstInvoicePrintPage() {
                   const cgst = round2(row.cgst ?? 0);
                   const sgst = round2(row.sgst ?? 0);
                   const total = round2(taxable + cgst + sgst + igst);
-                  const rate = round2(lineData?.price ?? 0);
-                  const discount = round2(lineData?.line_discount ?? 0);
                   const qty = row.quantity ?? lineData?.quantity ?? 0;
-                  const fullTitle = row.product_title || lineData?.title || "";
-                  const shortTitle = fullTitle ? shortenProductTitle(fullTitle) : row.hsn || "—";
+                  const rateFromOrder = lineData?.price ?? null;
+                  const gross = rateFromOrder != null ? round2(rateFromOrder * qty) : null;
+                  const discountFromOrder = lineData?.line_discount ?? null;
+                  const discount =
+                    discountFromOrder != null ? round2(discountFromOrder) : Math.max(0, round2((gross ?? 0) - taxable));
+                  const effectiveGross = gross != null ? gross : round2(taxable + discount);
+                  const rate = qty ? round2(effectiveGross / qty) : 0;
+                  const fullTitle = row.product_title || lineData?.title || row.hsn || "—";
                   return (
                     <tr key={`${row.hsn}-${index}`}>
-                      <td style={tdStyle} title={fullTitle || undefined}>
-                        {shortTitle}
+                      <td style={{ ...tdStyle, whiteSpace: "normal", wordBreak: "break-word" }} title={fullTitle}>
+                        {fullTitle}
                       </td>
                       <td style={tdStyle}>{row.sku || lineData?.sku || "—"}</td>
                       <td style={tdStyle}>{qty}</td>
@@ -598,7 +603,7 @@ export default function GstInvoicePrintPage() {
                 <div style={amountWordsStyle}>{formatInrWords(totals.total)}</div>
                 <div style={{ ...sectionTitleStyle, marginTop: 16 }}>Payment Summary</div>
                 <div style={cardStyle}>
-                  <div>Payment Status: {invoiceHeader?.payment_status || "—"}</div>
+                  <div>Payment Status: {paymentStatusLabel || "—"}</div>
                   <div>Payment Method: {paymentMethod}</div>
                   <div>Fulfillment: {invoiceHeader?.fulfillment_status || "—"}</div>
                 </div>

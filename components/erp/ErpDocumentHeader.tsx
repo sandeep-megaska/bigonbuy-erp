@@ -28,6 +28,7 @@ export default function ErpDocumentHeader({
   const companyName = branding?.companyName || branding?.legalName || "Company";
   const legalName = branding?.legalName || companyName;
   const logoUrl = branding?.bigonbuyLogoUrl ?? null;
+  const contactItems = [contactPhone, contactEmail, contactWebsite].filter((item) => item && item.trim().length > 0);
 
   return (
     <div style={headerWrapStyle} className="erp-document-header">
@@ -53,11 +54,16 @@ export default function ErpDocumentHeader({
           {qrCodeUrl ? <img src={qrCodeUrl} alt="Invoice QR" style={qrStyle} /> : null}
         </div>
       </div>
-      <div style={contactRowStyle}>
-        <span>{contactEmail || "—"}</span>
-        <span>{contactWebsite || "—"}</span>
-        <span>{contactPhone || "—"}</span>
-      </div>
+      {contactItems.length ? (
+        <div style={contactRowStyle}>
+          {contactItems.map((item, index) => (
+            <span key={`${item}-${index}`}>
+              {item}
+              {index < contactItems.length - 1 ? " | " : ""}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
