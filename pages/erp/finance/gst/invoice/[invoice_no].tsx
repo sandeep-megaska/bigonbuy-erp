@@ -21,6 +21,8 @@ type GstRegisterRow = {
   variant_title: string | null;
   hsn: string | null;
   quantity: number | null;
+  gross_before_discount: number | null;
+  discount: number | null;
   taxable_value: number | null;
   gst_rate: number | null;
   cgst: number | null;
@@ -272,7 +274,7 @@ export default function GstInvoicePrintPage() {
     const { data, error: rowsError } = await supabase
       .from("erp_gst_sales_register")
       .select(
-        "invoice_number, invoice_no, order_number, order_date, customer_name, customer_gstin, place_of_supply_code, buyer_state_code, sku, product_title, variant_title, hsn, quantity, taxable_value, gst_rate, cgst, sgst, igst, total_tax, payment_status, payment_gateway, fulfillment_status, source_order_id, source_line_id"
+        "invoice_number, invoice_no, order_number, order_date, customer_name, customer_gstin, place_of_supply_code, buyer_state_code, sku, product_title, variant_title, hsn, quantity, gross_before_discount, discount, taxable_value, gst_rate, cgst, sgst, igst, total_tax, payment_status, payment_gateway, fulfillment_status, source_order_id, source_line_id"
       )
       .eq("is_void", false)
       .eq("source", "shopify")
@@ -568,10 +570,21 @@ export default function GstInvoicePrintPage() {
                   const total = round2(taxable + cgst + sgst + igst);
                   const qty = row.quantity ?? lineData?.quantity ?? 0;
                   const rateFromOrder = lineData?.price ?? null;
-                  const gross = rateFromOrder != null ? round2(rateFromOrder * qty) : null;
+                  const grossFromRegister = row.gross_before_discount ?? null;
+                  const gross =
+                    grossFromRegister != null
+                      ? round2(grossFromRegister)
+                      : rateFromOrder != null
+                      ? round2(rateFromOrder * qty)
+                      : null;
                   const discountFromOrder = lineData?.line_discount ?? null;
+                  const discountFromRegister = row.discount ?? null;
                   const discount =
-                    discountFromOrder != null ? round2(discountFromOrder) : Math.max(0, round2((gross ?? 0) - taxable));
+                    discountFromRegister != null
+                      ? round2(discountFromRegister)
+                      : discountFromOrder != null
+                      ? round2(discountFromOrder)
+                      : Math.max(0, round2((gross ?? 0) - taxable));
                   const effectiveGross = gross != null ? gross : round2(taxable + discount);
                   const rate = qty ? round2(effectiveGross / qty) : 0;
                   const fullTitle = row.product_title || lineData?.title || row.hsn || "—";
