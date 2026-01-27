@@ -1,10 +1,18 @@
 -- 0269_amazon_fc_inventory_locations.sql
--- Add rollup index and include external_location_code in inventory rows list
+-- Add rollup index and introduce v2 rows list RPC that includes external_location_code
+-- IMPORTANT: We do NOT change the return type of the existing erp_external_inventory_rows_list(...)
+-- because Postgres forbids changing OUT parameter rowtype via CREATE OR REPLACE (SQLSTATE 42P13).
 
+begin;
+
+-- 1) Helpful rollup index for batch+variant+location queries
 create index if not exists erp_external_inventory_rows_batch_variant_location_idx
   on public.erp_external_inventory_rows (batch_id, matched_variant_id, external_location_code);
 
-create or replace function public.erp_external_inventory_rows_list(
+-- 2) New v2 RPC with external_location_code included
+drop function if exists public.erp_external_inventory_rows_list_v2(uuid, boolean, int, int);
+
+create function public.erp_external_inventory_rows_list_v2(
   p_batch_id uuid,
   p_only_unmatched boolean default false,
   p_limit int default 500,
@@ -70,5 +78,7 @@ begin
 end;
 $$;
 
-revoke all on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) from public;
-grant execute on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) to authenticated;
+revoke all on function public.erp_external_inventory_rows_list_v2(uuid, boolean, int, int) from public;
+grant execute on function public.erp_external_inventory_rows_list_v2(uuid, boolean, int, int) to authenticated;
+
+commit;
