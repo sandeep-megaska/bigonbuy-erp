@@ -619,6 +619,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const locationHeader = pickHeader(headerIndex, [
       "fulfillment-center-id",
       "fulfillment center id",
+      "fulfillment_center_id",
+      "fc",
+      "fc_id",
       "location",
     ]);
 
