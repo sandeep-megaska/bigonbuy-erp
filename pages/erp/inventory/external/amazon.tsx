@@ -17,6 +17,7 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { createCsvBlob, triggerDownload } from "../../../../components/inventory/csvUtils";
+import VariantTypeahead, { VariantSearchResult } from "../../../../components/inventory/VariantTypeahead";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -29,6 +30,8 @@ type CompanyContext = {
 type LatestBatch = z.infer<typeof latestBatchSchema>;
 
 type InventoryRow = z.infer<typeof inventoryRowSchema>;
+
+type ChannelSkuMapping = z.infer<typeof channelSkuMappingSchema>;
 
 const latestBatchSchema = z
   .object({
@@ -65,6 +68,24 @@ const inventoryRowSchema = z.object({
   variant_title: z.string().nullable(),
   variant_size: z.string().nullable(),
   variant_color: z.string().nullable(),
+});
+
+const channelSkuMappingSchema = z.object({
+  id: z.string().uuid(),
+  external_sku: z.string(),
+  external_sku_norm: z.string(),
+  marketplace_id: z.string().nullable(),
+  asin: z.string().nullable(),
+  fnsku: z.string().nullable(),
+  active: z.boolean(),
+  notes: z.string().nullable(),
+  mapped_variant_id: z.string().uuid(),
+  sku: z.string().nullable(),
+  style_code: z.string().nullable(),
+  size: z.string().nullable(),
+  color: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 
 const reportRequestSchema = z.object({
@@ -110,6 +131,15 @@ export default function AmazonExternalInventoryPage() {
   const [reportBatchId, setReportBatchId] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const pollCountRef = useRef(0);
+  const [mappingRow, setMappingRow] = useState<InventoryRow | null>(null);
+  const [mappingVariant, setMappingVariant] = useState<VariantSearchResult | null>(null);
+  const [mappingNotes, setMappingNotes] = useState("");
+  const [mappingError, setMappingError] = useState<string | null>(null);
+  const [mappingSaving, setMappingSaving] = useState(false);
+  const [mappingsOpen, setMappingsOpen] = useState(false);
+  const [mappingsLoading, setMappingsLoading] = useState(false);
+  const [mappingsError, setMappingsError] = useState<string | null>(null);
+  const [mappings, setMappings] = useState<ChannelSkuMapping[]>([]);
 
   const canAccess = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -150,6 +180,7 @@ export default function AmazonExternalInventoryPage() {
     setIsLoadingRows(true);
     setError(null);
 
+    // Snapshot rows are served via erp_external_inventory_rows_list in the existing external inventory module.
     const { data, error: rowsError } = await supabase.rpc("erp_external_inventory_rows_list", {
       p_batch_id: batchId,
       p_only_unmatched: onlyUnmatchedRows,
@@ -175,6 +206,36 @@ export default function AmazonExternalInventoryPage() {
     setRows(parsed.data);
     setIsLoadingRows(false);
   }, [latestBatch?.report_processing_status, latestBatch?.row_count]);
+
+  const loadMappings = useCallback(async () => {
+    if (!ctx?.companyId) return;
+    setMappingsLoading(true);
+    setMappingsError(null);
+
+    const { data, error: mappingsError } = await supabase.rpc("erp_channel_sku_map_list", {
+      p_company_id: ctx.companyId,
+      p_channel_key: "amazon",
+      p_q: null,
+      p_limit: 200,
+      p_offset: 0,
+    });
+
+    if (mappingsError) {
+      setMappingsLoading(false);
+      setMappingsError(mappingsError.message || "Failed to load mappings.");
+      return;
+    }
+
+    const parsed = z.array(channelSkuMappingSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setMappingsLoading(false);
+      setMappingsError("Failed to load mappings.");
+      return;
+    }
+
+    setMappings(parsed.data);
+    setMappingsLoading(false);
+  }, [ctx?.companyId]);
 
   const loadBatchSummary = useCallback(async (batchId: string) => {
     const { data, error: batchError } = await supabase
@@ -403,21 +464,34 @@ export default function AmazonExternalInventoryPage() {
       return;
     }
 
-    const { data, error: exportError } = await supabase
-      .from("erp_external_inventory_rows")
-      .select(
-        "external_sku, asin, fnsku, available_qty, inbound_qty, reserved_qty, marketplace_id, match_status"
-      )
-      .eq("batch_id", latestBatch.id)
-      .eq("match_status", "unmatched")
-      .order("external_sku");
+    const exportRows: InventoryRow[] = [];
+    let offset = 0;
 
-    if (exportError) {
-      setError(exportError.message || "Failed to export unmatched rows.");
-      return;
+    while (true) {
+      const { data, error: exportError } = await supabase.rpc("erp_external_inventory_rows_list", {
+        p_batch_id: latestBatch.id,
+        p_only_unmatched: true,
+        p_limit: rowLimit,
+        p_offset: offset,
+      });
+
+      if (exportError) {
+        setError(exportError.message || "Failed to export unmatched rows.");
+        return;
+      }
+
+      const parsed = z.array(inventoryRowSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Failed to export unmatched rows.");
+        return;
+      }
+
+      const chunk = parsed.data;
+      exportRows.push(...chunk);
+      if (chunk.length < rowLimit) break;
+      offset += rowLimit;
     }
 
-    const exportRows = data ?? [];
     if (exportRows.length === 0) {
       setNotice("No unmatched rows to export.");
       return;
@@ -447,6 +521,60 @@ export default function AmazonExternalInventoryPage() {
     ].join("\n");
     triggerDownload("amazon_unmatched_inventory.csv", createCsvBlob(csv));
   }, [latestBatch?.id]);
+
+  const handleOpenMapping = useCallback((row: InventoryRow) => {
+    setMappingRow(row);
+    setMappingVariant(null);
+    setMappingNotes("");
+    setMappingError(null);
+  }, []);
+
+  const handleSaveMapping = useCallback(async () => {
+    if (!ctx?.companyId || !mappingRow) return;
+    if (!mappingVariant) {
+      setMappingError("Select a variant to map.");
+      return;
+    }
+
+    setMappingSaving(true);
+    setMappingError(null);
+
+    const { error: upsertError } = await supabase.rpc("erp_channel_sku_map_upsert", {
+      p_company_id: ctx.companyId,
+      p_channel_key: "amazon",
+      p_marketplace_id: mappingRow.marketplace_id ?? "",
+      p_external_sku: mappingRow.external_sku,
+      p_asin: mappingRow.asin ?? "",
+      p_fnsku: mappingRow.fnsku ?? "",
+      p_mapped_variant_id: mappingVariant.variant_id,
+      p_active: true,
+      p_notes: mappingNotes || "",
+    });
+
+    if (upsertError) {
+      setMappingSaving(false);
+      setMappingError(upsertError.message || "Failed to save mapping.");
+      return;
+    }
+
+    const { error: rematchError } = await supabase.rpc("erp_external_inventory_batch_rematch", {
+      p_batch_id: mappingRow.batch_id,
+    });
+
+    if (rematchError) {
+      setMappingSaving(false);
+      setMappingError(rematchError.message || "Saved mapping, but rematch failed.");
+      return;
+    }
+
+    await loadBatchSummary(mappingRow.batch_id);
+    await loadRows(mappingRow.batch_id, onlyUnmatched);
+    setNotice("Mapping saved and snapshot rematched.");
+    setMappingSaving(false);
+    setMappingRow(null);
+    setMappingVariant(null);
+    setMappingNotes("");
+  }, [ctx?.companyId, loadBatchSummary, loadRows, mappingNotes, mappingRow, mappingVariant, onlyUnmatched]);
 
   if (loading) {
     return (
@@ -611,6 +739,16 @@ export default function AmazonExternalInventoryPage() {
                 />
                 Only unmatched
               </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setMappingsOpen(true);
+                  loadMappings();
+                }}
+                style={secondaryButtonStyle}
+              >
+                View mappings
+              </button>
               <button type="button" onClick={handleExportUnmatched} style={secondaryButtonStyle}>
                 Export unmatched CSV
               </button>
@@ -629,12 +767,13 @@ export default function AmazonExternalInventoryPage() {
                   <th style={tableHeaderCellStyle}>Available</th>
                   <th style={tableHeaderCellStyle}>Inbound total</th>
                   <th style={tableHeaderCellStyle}>Location</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                    <td colSpan={10} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
                       {latestBatch
                         ? "No rows to display."
                         : reportBatchId
@@ -654,6 +793,19 @@ export default function AmazonExternalInventoryPage() {
                       <td style={tableCellStyle}>{row.available_qty}</td>
                       <td style={tableCellStyle}>{row.inbound_qty}</td>
                       <td style={tableCellStyle}>{row.location || "—"}</td>
+                      <td style={tableCellStyle}>
+                        {row.match_status === "unmatched" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMapping(row)}
+                            style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                          >
+                            Map
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -661,6 +813,141 @@ export default function AmazonExternalInventoryPage() {
             </table>
           </div>
         </section>
+        {mappingRow ? (
+          <div style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <div style={modalHeaderStyle}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Map external SKU</h3>
+                  <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 14 }}>
+                    Create or update a mapping for this Amazon SKU.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  style={modalCloseStyle}
+                  onClick={() => {
+                    setMappingRow(null);
+                    setMappingVariant(null);
+                    setMappingNotes("");
+                    setMappingError(null);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+                <div style={modalGridRowStyle}>
+                  <span>External SKU</span>
+                  <span style={summaryValueStyle}>{mappingRow.external_sku}</span>
+                </div>
+                <div style={modalGridRowStyle}>
+                  <span>Marketplace</span>
+                  <span style={summaryValueStyle}>{mappingRow.marketplace_id || "Amazon"}</span>
+                </div>
+                <div style={modalGridRowStyle}>
+                  <span>ASIN / FNSKU</span>
+                  <span style={summaryValueStyle}>
+                    {[mappingRow.asin, mappingRow.fnsku].filter(Boolean).join(" · ") || "—"}
+                  </span>
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>ERP Variant</label>
+                  {/* Reuse the existing ERP SKU typeahead (erp_variant_search RPC). */}
+                  <VariantTypeahead value={mappingVariant} onSelect={setMappingVariant} onError={setMappingError} />
+                </div>
+                <div>
+                  <label style={modalLabelStyle}>Notes (optional)</label>
+                  <textarea
+                    style={{ ...textAreaStyle, minHeight: 80 }}
+                    value={mappingNotes}
+                    onChange={(event) => setMappingNotes(event.target.value)}
+                    placeholder="Add any notes about this mapping"
+                  />
+                </div>
+                {mappingError ? <div style={{ color: "#b91c1c", fontSize: 13 }}>{mappingError}</div> : null}
+                <div style={modalActionsStyle}>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={() => {
+                      setMappingRow(null);
+                      setMappingVariant(null);
+                      setMappingNotes("");
+                      setMappingError(null);
+                    }}
+                    disabled={mappingSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handleSaveMapping}
+                    disabled={mappingSaving}
+                  >
+                    {mappingSaving ? "Saving…" : "Save mapping"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {mappingsOpen ? (
+          <div style={modalOverlayStyle}>
+            <div style={{ ...modalCardStyle, maxWidth: 840 }}>
+              <div style={modalHeaderStyle}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Amazon SKU mappings</h3>
+                  <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 14 }}>
+                    Review existing mappings for this company.
+                  </p>
+                </div>
+                <button type="button" style={modalCloseStyle} onClick={() => setMappingsOpen(false)}>
+                  ✕
+                </button>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                {mappingsLoading ? (
+                  <div style={{ color: "#6b7280" }}>Loading mappings…</div>
+                ) : mappingsError ? (
+                  <div style={{ color: "#b91c1c" }}>{mappingsError}</div>
+                ) : mappings.length === 0 ? (
+                  <div style={{ color: "#6b7280" }}>No mappings found.</div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={tableHeaderCellStyle}>External SKU</th>
+                          <th style={tableHeaderCellStyle}>ERP SKU</th>
+                          <th style={tableHeaderCellStyle}>Product</th>
+                          <th style={tableHeaderCellStyle}>Size</th>
+                          <th style={tableHeaderCellStyle}>Color</th>
+                          <th style={tableHeaderCellStyle}>Marketplace</th>
+                          <th style={tableHeaderCellStyle}>Active</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mappings.map((mapping) => (
+                          <tr key={mapping.id}>
+                            <td style={tableCellStyle}>{mapping.external_sku}</td>
+                            <td style={tableCellStyle}>{mapping.sku || "—"}</td>
+                            <td style={tableCellStyle}>{mapping.style_code || "—"}</td>
+                            <td style={tableCellStyle}>{mapping.size || "—"}</td>
+                            <td style={tableCellStyle}>{mapping.color || "—"}</td>
+                            <td style={tableCellStyle}>{mapping.marketplace_id || "Amazon"}</td>
+                            <td style={tableCellStyle}>{mapping.active ? "Yes" : "No"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </ErpShell>
   );
@@ -676,4 +963,73 @@ const summaryRowStyle: CSSProperties = {
 const summaryValueStyle: CSSProperties = {
   fontWeight: 600,
   color: "#111827",
+};
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  zIndex: 50,
+};
+
+const modalCardStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: 640,
+  backgroundColor: "#fff",
+  borderRadius: 16,
+  padding: 20,
+  boxShadow: "0 24px 60px rgba(15, 23, 42, 0.2)",
+};
+
+const modalHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+};
+
+const modalCloseStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  fontSize: 18,
+  cursor: "pointer",
+  color: "#6b7280",
+};
+
+const modalGridRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  fontSize: 14,
+  color: "#374151",
+};
+
+const modalLabelStyle: CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#6b7280",
+  marginBottom: 6,
+};
+
+const modalActionsStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 12,
+  marginTop: 8,
+};
+
+const textAreaStyle: CSSProperties = {
+  width: "100%",
+  border: "1px solid #e5e7eb",
+  borderRadius: 8,
+  padding: "10px 12px",
+  fontSize: 14,
+  color: "#111827",
+  fontFamily: "inherit",
+  resize: "vertical",
 };
