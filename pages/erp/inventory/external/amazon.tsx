@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ChangeEvent } from "react";
 import { useRouter } from "next/router";
+import Papa from "papaparse";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
 import {
@@ -32,6 +33,23 @@ type LatestBatch = z.infer<typeof latestBatchSchema>;
 type InventoryRow = z.infer<typeof inventoryRowSchema>;
 
 type ChannelSkuMapping = z.infer<typeof channelSkuMappingSchema>;
+
+type ImportErrorRow = {
+  row_index: number;
+  external_sku?: string | null;
+  erp_sku?: string | null;
+  reason: string;
+};
+
+type MappingImportRow = {
+  external_sku: string;
+  erp_sku?: string | null;
+  mapped_variant_id?: string | null;
+  asin?: string | null;
+  fnsku?: string | null;
+  notes?: string | null;
+  active?: boolean | null;
+};
 
 const latestBatchSchema = z
   .object({
@@ -112,8 +130,46 @@ const testResponseSchema = z.object({
   error: z.string().optional(),
 });
 
+const bulkUpsertResponseSchema = z.object({
+  ok: z.boolean(),
+  inserted_or_updated: z.number().optional(),
+  skipped: z.number().optional(),
+  errors: z
+    .array(
+      z.object({
+        row_index: z.number(),
+        reason: z.string(),
+        external_sku: z.string().nullable().optional(),
+      })
+    )
+    .optional(),
+});
+
+const variantResolveSchema = z.array(
+  z.object({
+    sku: z.string(),
+    variant_id: z.string().uuid(),
+    style_code: z.string().nullable().optional(),
+    size: z.string().nullable().optional(),
+    color: z.string().nullable().optional(),
+  })
+);
+
 const rowLimit = 500;
 const pollBackoffMs = [2000, 4000, 8000, 15000, 20000];
+
+const normalizeSku = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+
+const normalizeCsvHeader = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "_");
+
+const parseCsvBoolean = (value: string | null | undefined) => {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (["true", "yes", "1"].includes(normalized)) return true;
+  if (["false", "no", "0"].includes(normalized)) return false;
+  return null;
+};
 
 export default function AmazonExternalInventoryPage() {
   const router = useRouter();
@@ -140,6 +196,12 @@ export default function AmazonExternalInventoryPage() {
   const [mappingsLoading, setMappingsLoading] = useState(false);
   const [mappingsError, setMappingsError] = useState<string | null>(null);
   const [mappings, setMappings] = useState<ChannelSkuMapping[]>([]);
+  const [isRematchingBatch, setIsRematchingBatch] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importErrors, setImportErrors] = useState<ImportErrorRow[]>([]);
 
   const canAccess = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -557,24 +619,307 @@ export default function AmazonExternalInventoryPage() {
       return;
     }
 
-    const { error: rematchError } = await supabase.rpc("erp_external_inventory_batch_rematch", {
+    const { error: rematchError } = await supabase.rpc("erp_external_inventory_rematch_by_external_sku", {
       p_batch_id: mappingRow.batch_id,
+      p_external_sku: mappingRow.external_sku,
     });
 
     if (rematchError) {
       setMappingSaving(false);
-      setMappingError(rematchError.message || "Saved mapping, but rematch failed.");
+      setMappingError(rematchError.message || "Saved mapping, but SKU rematch failed.");
       return;
     }
 
     await loadBatchSummary(mappingRow.batch_id);
     await loadRows(mappingRow.batch_id, onlyUnmatched);
-    setNotice("Mapping saved and snapshot rematched.");
+    setNotice("Mapping saved and SKU rematched.");
     setMappingSaving(false);
     setMappingRow(null);
     setMappingVariant(null);
     setMappingNotes("");
   }, [ctx?.companyId, loadBatchSummary, loadRows, mappingNotes, mappingRow, mappingVariant, onlyUnmatched]);
+
+  const handleRecomputeBatch = useCallback(async () => {
+    if (!latestBatch?.id) {
+      setNotice("No snapshot batch available.");
+      return;
+    }
+
+    setNotice(null);
+    setError(null);
+    setIsRematchingBatch(true);
+
+    const { error: rematchError } = await supabase.rpc("erp_external_inventory_batch_rematch", {
+      p_batch_id: latestBatch.id,
+    });
+
+    if (rematchError) {
+      setError(rematchError.message || "Failed to recompute batch.");
+      setIsRematchingBatch(false);
+      return;
+    }
+
+    await loadBatchSummary(latestBatch.id);
+    await loadRows(latestBatch.id, onlyUnmatched);
+    setNotice("Batch recomputed.");
+    setIsRematchingBatch(false);
+  }, [latestBatch?.id, loadBatchSummary, loadRows, onlyUnmatched]);
+
+  const handleDownloadImportErrors = useCallback(() => {
+    if (!importErrors.length) return;
+    const headers = ["row_index", "external_sku", "erp_sku", "reason"];
+    const csvRows = importErrors.map((row) => [
+      row.row_index,
+      row.external_sku ?? "",
+      row.erp_sku ?? "",
+      row.reason,
+    ]);
+    const csv = [
+      headers.join(","),
+      ...csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    triggerDownload("amazon_mapping_import_errors.csv", createCsvBlob(csv));
+  }, [importErrors]);
+
+  const handleImportMappings = useCallback(
+    async (file: File) => {
+      if (!ctx?.companyId) return;
+      if (!latestBatch?.id) {
+        setImportError("Pull a snapshot before importing mappings.");
+        return;
+      }
+
+      setImportFileName(file.name);
+      setImportSummary(null);
+      setImportError(null);
+      setImportErrors([]);
+      setIsImporting(true);
+
+      Papa.parse<Record<string, string>>(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          if (results.errors.length) {
+            setImportError(results.errors[0]?.message || "Failed to parse CSV.");
+            setIsImporting(false);
+            return;
+          }
+
+          const rawRows = results.data ?? [];
+          if (!rawRows.length) {
+            setImportError("The CSV file appears to be empty.");
+            setIsImporting(false);
+            return;
+          }
+
+          const parsedRows: Array<MappingImportRow & { row_index: number }> = [];
+          const clientErrors: ImportErrorRow[] = [];
+
+          rawRows.forEach((raw, index) => {
+            const normalized: Record<string, string> = {};
+            Object.entries(raw).forEach(([key, value]) => {
+              normalized[normalizeCsvHeader(key)] = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+            });
+
+            const externalSku = normalized.external_sku || "";
+            const erpSku = normalized.erp_sku || "";
+            const mappedVariantId = normalized.mapped_variant_id || "";
+            const asin = normalized.asin || "";
+            const fnsku = normalized.fnsku || "";
+            const notes = normalized.notes || "";
+            const activeValue = normalized.active || "";
+            const active = parseCsvBoolean(activeValue);
+
+            const hasData = [externalSku, erpSku, mappedVariantId, asin, fnsku, notes, activeValue].some(Boolean);
+            if (!hasData) return;
+
+            const rowIndex = index + 1;
+            let rowHasError = false;
+
+            if (!externalSku) {
+              clientErrors.push({
+                row_index: rowIndex,
+                external_sku: null,
+                erp_sku: erpSku || null,
+                reason: "external_sku is required",
+              });
+              rowHasError = true;
+            }
+
+            if (!mappedVariantId && !erpSku) {
+              clientErrors.push({
+                row_index: rowIndex,
+                external_sku: externalSku || null,
+                erp_sku: erpSku || null,
+                reason: "erp_sku or mapped_variant_id is required",
+              });
+              rowHasError = true;
+            }
+
+            if (activeValue && active === null) {
+              clientErrors.push({
+                row_index: rowIndex,
+                external_sku: externalSku || null,
+                erp_sku: erpSku || null,
+                reason: "active must be true or false",
+              });
+              rowHasError = true;
+            }
+
+            if (rowHasError) return;
+
+            parsedRows.push({
+              row_index: rowIndex,
+              external_sku: externalSku,
+              erp_sku: erpSku || null,
+              mapped_variant_id: mappedVariantId || null,
+              asin: asin || null,
+              fnsku: fnsku || null,
+              notes: notes || null,
+              active,
+            });
+          });
+
+          const pendingResolve = parsedRows
+            .filter((row) => !row.mapped_variant_id && row.erp_sku)
+            .map((row) => row.erp_sku || "")
+            .filter(Boolean);
+          const uniqueSkus = Array.from(new Set(pendingResolve.map((sku) => normalizeSku(sku))));
+          const resolvedMap = new Map<string, string>();
+
+          if (uniqueSkus.length) {
+            const { data: resolveData, error: resolveError } = await supabase.rpc("erp_variants_resolve_by_sku", {
+              p_company_id: ctx.companyId,
+              p_skus: uniqueSkus,
+            });
+
+            if (resolveError) {
+              setImportError(resolveError.message || "Failed to resolve ERP SKUs.");
+              setIsImporting(false);
+              return;
+            }
+
+            const parsedResolve = variantResolveSchema.safeParse(resolveData ?? []);
+            if (!parsedResolve.success) {
+              setImportError("Failed to resolve ERP SKUs.");
+              setIsImporting(false);
+              return;
+            }
+
+            parsedResolve.data.forEach((row) => {
+              resolvedMap.set(normalizeSku(row.sku), row.variant_id);
+            });
+          }
+
+          const rowsForUpsert: MappingImportRow[] = [];
+          const upsertRowIndices: number[] = [];
+          const resolutionErrors: ImportErrorRow[] = [];
+
+          parsedRows.forEach((row) => {
+            let mappedVariantId = row.mapped_variant_id;
+            if (!mappedVariantId && row.erp_sku) {
+              mappedVariantId = resolvedMap.get(normalizeSku(row.erp_sku)) || null;
+            }
+
+            if (!mappedVariantId) {
+              resolutionErrors.push({
+                row_index: row.row_index,
+                external_sku: row.external_sku,
+                erp_sku: row.erp_sku ?? null,
+                reason: "Unable to resolve ERP SKU",
+              });
+              return;
+            }
+
+            rowsForUpsert.push({
+              external_sku: row.external_sku,
+              mapped_variant_id: mappedVariantId,
+              asin: row.asin ?? null,
+              fnsku: row.fnsku ?? null,
+              notes: row.notes ?? null,
+              active: row.active ?? null,
+            });
+            upsertRowIndices.push(row.row_index);
+          });
+
+          if (!rowsForUpsert.length) {
+            setImportErrors([...clientErrors, ...resolutionErrors]);
+            setImportError("No valid rows to import.");
+            setIsImporting(false);
+            return;
+          }
+
+          const { data: upsertData, error: upsertError } = await supabase.rpc("erp_channel_sku_map_bulk_upsert", {
+            p_company_id: ctx.companyId,
+            p_channel_key: "amazon",
+            p_marketplace_id: latestBatch.marketplace_id ?? "",
+            p_rows: rowsForUpsert,
+          });
+
+          if (upsertError) {
+            setImportError(upsertError.message || "Failed to import mappings.");
+            setIsImporting(false);
+            return;
+          }
+
+          const parsedUpsert = bulkUpsertResponseSchema.safeParse(upsertData ?? {});
+          if (!parsedUpsert.success || !parsedUpsert.data.ok) {
+            setImportError("Failed to import mappings.");
+            setIsImporting(false);
+            return;
+          }
+
+          const rpcErrors =
+            parsedUpsert.data.errors?.map((err) => {
+              const resolvedIndex = upsertRowIndices[err.row_index - 1] ?? err.row_index;
+              return {
+                row_index: resolvedIndex,
+                external_sku: err.external_sku ?? null,
+                erp_sku: null,
+                reason: err.reason,
+              };
+            }) ?? [];
+
+          const { error: rematchError } = await supabase.rpc("erp_external_inventory_batch_rematch", {
+            p_batch_id: latestBatch.id,
+          });
+
+          if (rematchError) {
+            setImportError(rematchError.message || "Import succeeded, but batch rematch failed.");
+            setIsImporting(false);
+            return;
+          }
+
+          await loadBatchSummary(latestBatch.id);
+          await loadRows(latestBatch.id, onlyUnmatched);
+
+          const inserted = parsedUpsert.data.inserted_or_updated ?? 0;
+          const skipped = parsedUpsert.data.skipped ?? 0;
+          const totalErrors = [...clientErrors, ...resolutionErrors, ...rpcErrors];
+
+          setImportErrors(totalErrors);
+          setImportSummary(`Imported ${inserted} mapping${inserted === 1 ? "" : "s"}. Skipped ${skipped}.`);
+          setNotice("Mappings imported and batch rematched.");
+          setIsImporting(false);
+        },
+        error: (parseError) => {
+          setImportError(parseError.message || "Failed to parse CSV.");
+          setIsImporting(false);
+        },
+      });
+    },
+    [ctx?.companyId, latestBatch?.id, latestBatch?.marketplace_id, loadBatchSummary, loadRows, onlyUnmatched]
+  );
+
+  const handleImportFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      handleImportMappings(file);
+      event.target.value = "";
+    },
+    [handleImportMappings]
+  );
 
   if (loading) {
     return (
@@ -741,6 +1086,14 @@ export default function AmazonExternalInventoryPage() {
               </label>
               <button
                 type="button"
+                onClick={handleRecomputeBatch}
+                style={secondaryButtonStyle}
+                disabled={!latestBatch?.id || isRematchingBatch}
+              >
+                {isRematchingBatch ? "Recomputing…" : "Recompute batch"}
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setMappingsOpen(true);
                   loadMappings();
@@ -749,11 +1102,38 @@ export default function AmazonExternalInventoryPage() {
               >
                 View mappings
               </button>
+              <label style={{ ...secondaryButtonStyle, cursor: "pointer" }}>
+                {isImporting ? "Importing…" : "Import mappings CSV"}
+                <input type="file" accept=".csv" style={{ display: "none" }} onChange={handleImportFileChange} />
+              </label>
               <button type="button" onClick={handleExportUnmatched} style={secondaryButtonStyle}>
                 Export unmatched CSV
               </button>
             </div>
           </div>
+          {importFileName ? (
+            <p style={{ margin: "8px 0 0", color: "#6b7280" }}>Last import file: {importFileName}</p>
+          ) : null}
+          {importSummary ? <p style={{ margin: "8px 0 0", color: "#047857" }}>{importSummary}</p> : null}
+          {importError ? <p style={{ margin: "8px 0 0", color: "#b91c1c" }}>{importError}</p> : null}
+          {importErrors.length ? (
+            <div style={{ marginTop: 8, color: "#b91c1c", fontSize: 13 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <strong>{importErrors.length} import error(s).</strong>
+                <button type="button" style={secondaryButtonStyle} onClick={handleDownloadImportErrors}>
+                  Download error CSV
+                </button>
+              </div>
+              <ul style={{ margin: "8px 0 0 16px" }}>
+                {importErrors.slice(0, 8).map((row) => (
+                  <li key={`${row.row_index}-${row.reason}`}>
+                    Row {row.row_index}: {row.reason}
+                  </li>
+                ))}
+                {importErrors.length > 8 ? <li>And {importErrors.length - 8} more…</li> : null}
+              </ul>
+            </div>
+          ) : null}
           <div style={{ overflowX: "auto", marginTop: 16 }}>
             <table style={tableStyle}>
               <thead>
