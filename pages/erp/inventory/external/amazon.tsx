@@ -39,6 +39,11 @@ const latestBatchSchema = z
     row_count: z.number(),
     matched_count: z.number(),
     unmatched_count: z.number(),
+    status: z.string().optional(),
+    report_id: z.string().nullable().optional(),
+    report_processing_status: z.string().nullable().optional(),
+    report_response: z.unknown().nullable().optional(),
+    error: z.string().nullable().optional(),
   })
   .nullable();
 
@@ -175,7 +180,9 @@ export default function AmazonExternalInventoryPage() {
   const loadBatchSummary = useCallback(async (batchId: string) => {
     const { data, error: batchError } = await supabase
       .from("erp_external_inventory_batches")
-      .select("id, channel_key, marketplace_id, pulled_at, rows_total, matched_count, unmatched_count")
+      .select(
+        "id, channel_key, marketplace_id, pulled_at, rows_total, matched_count, unmatched_count, status, report_id, external_report_id, report_processing_status, report_response, error"
+      )
       .eq("id", batchId)
       .maybeSingle();
 
@@ -191,6 +198,11 @@ export default function AmazonExternalInventoryPage() {
       row_count: data.rows_total ?? 0,
       matched_count: data.matched_count ?? 0,
       unmatched_count: data.unmatched_count ?? 0,
+      status: data.status ?? null,
+      report_id: data.report_id ?? data.external_report_id ?? null,
+      report_processing_status: data.report_processing_status ?? null,
+      report_response: data.report_response ?? null,
+      error: data.error ?? null,
     };
     const parsed = latestBatchSchema.safeParse(summary);
     if (parsed.success) {
@@ -279,6 +291,7 @@ export default function AmazonExternalInventoryPage() {
         setReportBatchId(parsed.data.batchId);
         setReportStatus("requested");
         setNotice("Status: requested — Report requested. Waiting for Amazon to generate the inventory snapshot…");
+        await loadBatchSummary(parsed.data.batchId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -344,8 +357,10 @@ export default function AmazonExternalInventoryPage() {
           await loadBatchSummary(reportBatchId);
         } else if (nextStatus === "failed") {
           setError(statusNotice || "Amazon report generation failed.");
+          await loadBatchSummary(reportBatchId);
         } else {
           setNotice(statusNotice || "Generating report…");
+          await loadBatchSummary(reportBatchId);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -487,6 +502,14 @@ export default function AmazonExternalInventoryPage() {
                 <span style={summaryValueStyle}>{latestBatch.id}</span>
               </div>
               <div style={summaryRowStyle}>
+                <span>Report ID</span>
+                <span style={summaryValueStyle}>{latestBatch.report_id || "—"}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span>Report status</span>
+                <span style={summaryValueStyle}>{latestBatch.report_processing_status || "—"}</span>
+              </div>
+              <div style={summaryRowStyle}>
                 <span>Pulled at</span>
                 <span style={summaryValueStyle}>{new Date(latestBatch.pulled_at).toLocaleString()}</span>
               </div>
@@ -504,6 +527,36 @@ export default function AmazonExternalInventoryPage() {
                   {latestBatch.matched_count} / {latestBatch.unmatched_count}
                 </span>
               </div>
+              {(latestBatch.status === "fatal" || latestBatch.report_processing_status === "FATAL") && (
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600, color: "#b91c1c" }}>
+                    Debug details
+                  </summary>
+                  <div style={{ marginTop: 8, color: "#111827", fontSize: 14 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>Last error</strong>
+                      <div style={{ marginTop: 4 }}>{latestBatch.error || "No error message captured."}</div>
+                    </div>
+                    <div>
+                      <strong>Report response</strong>
+                      <pre
+                        style={{
+                          marginTop: 4,
+                          padding: 12,
+                          background: "#f9fafb",
+                          borderRadius: 8,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {latestBatch.report_response
+                          ? JSON.stringify(latestBatch.report_response, null, 2)
+                          : "No report payload captured."}
+                      </pre>
+                    </div>
+                  </div>
+                </details>
+              )}
             </div>
           ) : (
             <div style={{ marginTop: 12, color: "#6b7280" }}>No snapshot pulled yet.</div>
