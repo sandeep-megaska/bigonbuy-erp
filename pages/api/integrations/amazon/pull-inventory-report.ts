@@ -32,11 +32,9 @@ const reportCreateSchema = z
 const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
 const REPORT_TYPES = {
   marketplace: "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA",
-  fc: "GET_FBA_MYI_ALL_INVENTORY_DATA",
+  fc: "GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA",
 } as const;
-const REPORT_OPTIONS: Record<string, Record<string, string>> = {
-  fc: { aggregateByLocation: "true" },
-};
+const REPORT_OPTIONS: Record<string, Record<string, string>> = {};
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(

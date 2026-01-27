@@ -58,6 +58,7 @@ type ExternalRowInsert = {
 const LOCATION_REPORT_TYPES = new Set([
   "GET_FBA_MYI_ALL_INVENTORY_DATA",
   "GET_AFN_INVENTORY_DATA",
+  "GET_FBA_FULFILLMENT_CURRENT_INVENTORY_DATA",
 ]);
 
 const querySchema = z.object({
@@ -256,7 +257,7 @@ function parseReportText(text: string): string[][] {
 }
 
 function normalizeHeaderName(header: string): string {
-  return header.replace(/\uFEFF/g, "").trim().toLowerCase();
+  return header.replace(/\uFEFF/g, "").trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function isSkippableRow(row: string[]): boolean {
@@ -570,14 +571,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const skuHeaderCandidates = [
-      "seller-sku",
-      "seller_sku",
-      "seller sku",
-      "merchant-sku",
-      "merchant sku",
-      "sku",
-    ];
+    const skuHeaderCandidates = ["seller-sku", "merchant-sku", "sku"];
 
     let headerRowIndex = rows.findIndex((row) => {
       const normalized = row.map((header) => normalizeHeaderName(header));
@@ -609,28 +603,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       (normalizedHeaders.find((header) => header.length > 0) ?? null);
 
     const asinHeader = pickHeader(headerIndex, ["asin"]);
-    const fnskuHeader = pickHeader(headerIndex, ["fnsku"]);
+    const fnskuHeader = pickHeader(headerIndex, ["fnsku", "fulfillment-network-sku"]);
     const conditionHeader = pickHeader(headerIndex, ["condition"]);
     const availableHeader = pickHeader(headerIndex, [
-      "available",
       "afn-fulfillable-quantity",
+      "fulfillable-quantity",
+      "quantity-available",
+      "available",
       "afn-warehouse-quantity",
     ]);
-    const reservedHeader = pickHeader(headerIndex, ["reserved", "afn-reserved-quantity"]);
+    const reservedHeader = pickHeader(headerIndex, [
+      "afn-reserved-quantity",
+      "reserved-quantity",
+      "reserved",
+    ]);
     const inboundWorkingHeader = pickHeader(headerIndex, ["afn-inbound-working-quantity"]);
     const inboundShippedHeader = pickHeader(headerIndex, ["afn-inbound-shipped-quantity"]);
     const inboundReceivingHeader = pickHeader(headerIndex, ["afn-inbound-receiving-quantity"]);
     const inboundHeader = pickHeader(headerIndex, ["inbound"]);
-    const locationHeader = pickHeader(headerIndex, [
+    const locationCodeHeader = pickHeader(headerIndex, [
       "fulfillment-center-id",
-      "fulfillment center id",
-      "fulfillment_center_id",
-      "fulfillment center",
+      "fulfillment-center",
+      "afn-warehouse-code",
+      "warehouse-id",
+      "warehouse",
+      "warehouse-code",
       "fc",
-      "fc_id",
-      "location",
-      "location_id",
+      "fc-id",
       "location-id",
+      "location-code",
+      "location",
+    ]);
+    const locationNameHeader = pickHeader(headerIndex, [
+      "fulfillment-center-name",
+      "warehouse-name",
+      "location-name",
+      "warehouse-location",
+      "location-description",
     ]);
 
     if (!skuHeader) {
@@ -697,7 +706,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving > 0
             ? qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving
             : inboundTotalRaw;
-        const location = isLocationReport ? getCell(row, locationHeader) || null : null;
+        const locationCode = isLocationReport ? getCell(row, locationCodeHeader) || null : null;
+        const locationName = isLocationReport ? getCell(row, locationNameHeader) || null : null;
 
         inserts.push({
           batch_id: batch.id,
@@ -716,8 +726,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           available_qty: qtyAvailable,
           reserved_qty: qtyReserved,
           inbound_qty: inboundTotal,
-          location,
-          external_location_code: isLocationReport ? location : null,
+          location: locationName,
+          external_location_code: locationCode,
           erp_variant_id: erpVariantId,
           matched_variant_id: erpVariantId,
           erp_warehouse_id: null,
@@ -738,6 +748,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           throw new Error(error.message || "Failed to insert inventory rows");
         }
       }
+    }
+
+    const { error: rematchError } = await client.rpc("erp_external_inventory_batch_rematch", {
+      p_batch_id: batch.id,
+    });
+    if (rematchError) {
+      throw new Error(rematchError.message || "Failed to rematch inventory batch");
     }
 
     const summary = await fetchBatchSummary(client, batch.id);

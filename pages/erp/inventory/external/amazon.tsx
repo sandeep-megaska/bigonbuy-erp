@@ -57,12 +57,27 @@ type MappingImportRow = {
   active?: boolean | null;
 };
 
+type LocationMapRow = z.infer<typeof locationMapSchema>;
+
+type LocationUnmappedRow = z.infer<typeof locationUnmappedSchema>;
+
+type LocationMapDraft = {
+  external_location_code: string;
+  state_code: string;
+  state_name: string;
+  city: string;
+  location_name: string;
+  active: boolean;
+  notes: string;
+};
+
 const latestBatchSchema = z
   .object({
     id: z.string().uuid(),
     channel_key: z.string(),
     marketplace_id: z.string().nullable(),
     type: z.string().nullable().optional(),
+    report_type: z.string().nullable().optional(),
     pulled_at: z.string(),
     row_count: z.number(),
     matched_count: z.number(),
@@ -110,6 +125,10 @@ const inventoryRowSchema = z.object({
 
 const locationRollupSchema = z.object({
   external_location_code: z.string(),
+  state_code: z.string().nullable().optional(),
+  state_name: z.string().nullable().optional(),
+  city: z.string().nullable().optional(),
+  location_name: z.string().nullable().optional(),
   rows_count: z.number(),
   matched_rows: z.number(),
   unmatched_rows: z.number(),
@@ -131,6 +150,24 @@ const locationSkuRollupSchema = z.object({
   inbound_total: z.number(),
   reserved_total: z.number(),
   unmatched_rows: z.number(),
+});
+
+const locationMapSchema = z.object({
+  id: z.string().uuid(),
+  channel_key: z.string(),
+  marketplace_id: z.string(),
+  external_location_code: z.string(),
+  state_code: z.string().nullable(),
+  state_name: z.string().nullable(),
+  city: z.string().nullable(),
+  location_name: z.string().nullable(),
+  active: z.boolean(),
+  notes: z.string().nullable(),
+});
+
+const locationUnmappedSchema = z.object({
+  external_location_code: z.string(),
+  rows_count: z.number(),
 });
 
 const channelSkuMappingSchema = z.object({
@@ -207,6 +244,8 @@ const normalizeSku = (value: string) => value.trim().replace(/\s+/g, " ").toLowe
 
 const normalizeCsvHeader = (value: string) => value.trim().toLowerCase().replace(/\s+/g, "_");
 
+const normalizeLocationCode = (value: string) => value.trim().toLowerCase();
+
 const parseCsvBoolean = (value: string | null | undefined) => {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
@@ -243,6 +282,13 @@ export default function AmazonExternalInventoryPage() {
   const [isLoadingLocationSkus, setIsLoadingLocationSkus] = useState(false);
   const [locationRollupError, setLocationRollupError] = useState<string | null>(null);
   const [locationSkuError, setLocationSkuError] = useState<string | null>(null);
+  const [locationMapOpen, setLocationMapOpen] = useState(false);
+  const [locationMapLoading, setLocationMapLoading] = useState(false);
+  const [locationMapSaving, setLocationMapSaving] = useState(false);
+  const [locationMapError, setLocationMapError] = useState<string | null>(null);
+  const [locationMaps, setLocationMaps] = useState<LocationMapRow[]>([]);
+  const [locationUnmapped, setLocationUnmapped] = useState<LocationUnmappedRow[]>([]);
+  const [locationMapDrafts, setLocationMapDrafts] = useState<Record<string, LocationMapDraft>>({});
   const [mappingRow, setMappingRow] = useState<InventoryRow | null>(null);
   const [mappingVariant, setMappingVariant] = useState<VariantSearchResult | null>(null);
   const [mappingNotes, setMappingNotes] = useState("");
@@ -345,7 +391,7 @@ export default function AmazonExternalInventoryPage() {
     setLocationRollupError(null);
 
     const { data, error: rollupError } = await supabase.rpc(
-      "erp_external_inventory_location_rollup",
+      "erp_external_inventory_location_rollup_v2",
       {
         p_batch_id: batchId,
         p_limit: rowLimit,
@@ -461,11 +507,163 @@ export default function AmazonExternalInventoryPage() {
     setMappingsLoading(false);
   }, [ctx?.companyId]);
 
+  const locationMarketplaceId = useMemo(
+    () => latestBatch?.marketplace_id ?? "A21TJRUUN4KGV",
+    [latestBatch?.marketplace_id]
+  );
+
+  const buildLocationDraft = (code: string, existing?: LocationMapRow): LocationMapDraft => ({
+    external_location_code: code,
+    state_code: existing?.state_code ?? "",
+    state_name: existing?.state_name ?? "",
+    city: existing?.city ?? "",
+    location_name: existing?.location_name ?? "",
+    active: existing?.active ?? true,
+    notes: existing?.notes ?? "",
+  });
+
+  const loadLocationMapData = useCallback(
+    async (batchId: string) => {
+      setLocationMapLoading(true);
+      setLocationMapError(null);
+
+      const [mapResult, unmappedResult] = await Promise.all([
+        supabase.rpc("erp_external_location_map_list", {
+          p_channel_key: "amazon",
+          p_marketplace_id: locationMarketplaceId,
+          p_q: null,
+          p_limit: 200,
+          p_offset: 0,
+        }),
+        supabase.rpc("erp_external_location_unmapped_list", {
+          p_batch_id: batchId,
+          p_limit: 200,
+          p_offset: 0,
+        }),
+      ]);
+
+      if (mapResult.error) {
+        setLocationMapLoading(false);
+        setLocationMapError(mapResult.error.message || "Failed to load location mappings.");
+        return;
+      }
+
+      if (unmappedResult.error) {
+        setLocationMapLoading(false);
+        setLocationMapError(unmappedResult.error.message || "Failed to load unmapped locations.");
+        return;
+      }
+
+      const parsedMaps = z.array(locationMapSchema).safeParse(mapResult.data ?? []);
+      const parsedUnmapped = z.array(locationUnmappedSchema).safeParse(unmappedResult.data ?? []);
+      if (!parsedMaps.success || !parsedUnmapped.success) {
+        setLocationMapLoading(false);
+        setLocationMapError("Failed to load location mappings.");
+        return;
+      }
+
+      const drafts: Record<string, LocationMapDraft> = {};
+      parsedMaps.data.forEach((row) => {
+        drafts[normalizeLocationCode(row.external_location_code)] = buildLocationDraft(
+          row.external_location_code,
+          row
+        );
+      });
+      parsedUnmapped.data.forEach((row) => {
+        const key = normalizeLocationCode(row.external_location_code);
+        if (!drafts[key]) {
+          drafts[key] = buildLocationDraft(row.external_location_code);
+        }
+      });
+
+      setLocationMaps(parsedMaps.data);
+      setLocationUnmapped(parsedUnmapped.data);
+      setLocationMapDrafts(drafts);
+      setLocationMapLoading(false);
+    },
+    [locationMarketplaceId]
+  );
+
+  const handleLocationDraftChange = useCallback(
+    (code: string, updates: Partial<LocationMapDraft>) => {
+      const key = normalizeLocationCode(code);
+      setLocationMapDrafts((prev) => ({
+        ...prev,
+        [key]: {
+          external_location_code: code,
+          state_code: prev[key]?.state_code ?? "",
+          state_name: prev[key]?.state_name ?? "",
+          city: prev[key]?.city ?? "",
+          location_name: prev[key]?.location_name ?? "",
+          active: prev[key]?.active ?? true,
+          notes: prev[key]?.notes ?? "",
+          ...updates,
+        },
+      }));
+    },
+    []
+  );
+
+  const refreshLocationViews = useCallback(
+    async (batchId: string) => {
+      if (!isLocationBatch || viewMode !== "location") return;
+      await loadLocationRollups(batchId);
+      if (selectedLocationCode) {
+        await loadLocationSkuRollups(batchId, selectedLocationCode);
+      }
+    },
+    [isLocationBatch, loadLocationRollups, loadLocationSkuRollups, selectedLocationCode, viewMode]
+  );
+
+  const handleSaveLocationMap = useCallback(
+    async (code: string) => {
+      const key = normalizeLocationCode(code);
+      const draft = locationMapDrafts[key];
+      if (!draft) return;
+
+      setLocationMapSaving(true);
+      setLocationMapError(null);
+
+      const { error: upsertError } = await supabase.rpc("erp_external_location_map_upsert", {
+        p_channel_key: "amazon",
+        p_marketplace_id: locationMarketplaceId,
+        p_external_location_code: draft.external_location_code,
+        p_state_code: draft.state_code || null,
+        p_state_name: draft.state_name || null,
+        p_city: draft.city || null,
+        p_location_name: draft.location_name || null,
+        p_active: draft.active ?? true,
+        p_notes: draft.notes || null,
+      });
+
+      if (upsertError) {
+        setLocationMapSaving(false);
+        setLocationMapError(upsertError.message || "Failed to save location mapping.");
+        return;
+      }
+
+      if (selectedBatchId) {
+        await loadLocationMapData(selectedBatchId);
+        await refreshLocationViews(selectedBatchId);
+      }
+
+      setNotice(`Location mapping saved for ${draft.external_location_code}.`);
+      setLocationMapSaving(false);
+    },
+    [
+      locationMapDrafts,
+      locationMarketplaceId,
+      loadLocationMapData,
+      refreshLocationViews,
+      selectedBatchId,
+    ]
+  );
+
   const loadBatchSummary = useCallback(async (batchId: string) => {
     const { data, error: batchError } = await supabase
       .from("erp_external_inventory_batches")
       .select(
-        "id, channel_key, marketplace_id, type, pulled_at, rows_total, matched_count, unmatched_count, status, report_id, external_report_id, report_processing_status, report_response, error"
+        "id, channel_key, marketplace_id, type, report_type, pulled_at, rows_total, matched_count, unmatched_count, status, report_id, external_report_id, report_processing_status, report_response, error"
       )
       .eq("id", batchId)
       .maybeSingle();
@@ -479,6 +677,7 @@ export default function AmazonExternalInventoryPage() {
       channel_key: data.channel_key,
       marketplace_id: data.marketplace_id,
       type: data.type ?? null,
+      report_type: data.report_type ?? null,
       pulled_at: data.pulled_at,
       row_count: data.rows_total ?? 0,
       matched_count: data.matched_count ?? 0,
@@ -834,17 +1033,6 @@ export default function AmazonExternalInventoryPage() {
     setMappingError(null);
   }, []);
 
-  const refreshLocationViews = useCallback(
-    async (batchId: string) => {
-      if (!isLocationBatch || viewMode !== "location") return;
-      await loadLocationRollups(batchId);
-      if (selectedLocationCode) {
-        await loadLocationSkuRollups(batchId, selectedLocationCode);
-      }
-    },
-    [isLocationBatch, loadLocationRollups, loadLocationSkuRollups, selectedLocationCode, viewMode]
-  );
-
   const handleSaveMapping = useCallback(async () => {
     if (!ctx?.companyId || !mappingRow) return;
     if (!mappingVariant) {
@@ -959,6 +1147,11 @@ export default function AmazonExternalInventoryPage() {
     if (mode === "marketplace") return "Marketplace totals";
     if (!mode) return "—";
     return mode;
+  }, []);
+
+  const formatLocationLabel = useCallback((rollup: LocationRollupRow) => {
+    const stateLabel = rollup.state_code || rollup.state_name;
+    return stateLabel ? `${rollup.external_location_code} — ${stateLabel}` : rollup.external_location_code;
   }, []);
 
   const locationCodesMissing = useMemo(() => {
@@ -1367,6 +1560,10 @@ export default function AmazonExternalInventoryPage() {
                 <span style={summaryValueStyle}>{latestBatch.report_processing_status || "—"}</span>
               </div>
               <div style={summaryRowStyle}>
+                <span>Report type</span>
+                <span style={summaryValueStyle}>{latestBatch.report_type || "—"}</span>
+              </div>
+              <div style={summaryRowStyle}>
                 <span>Mode</span>
                 <span style={summaryValueStyle}>{formatSnapshotMode(latestBatch.type)}</span>
               </div>
@@ -1522,11 +1719,26 @@ export default function AmazonExternalInventoryPage() {
                       {isLoadingLocationRollups ? "Loading locations…" : `${locationRollups.length} location(s).`}
                     </p>
                   </div>
-                  {locationCodesMissing ? (
-                    <span style={{ fontSize: 12, color: "#b45309" }}>
-                      This report did not include location codes. Try a different report type or verify SP-API permissions.
-                    </span>
-                  ) : null}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      disabled={!selectedBatchId}
+                      onClick={() => {
+                        if (!selectedBatchId) return;
+                        setLocationMapOpen(true);
+                        loadLocationMapData(selectedBatchId);
+                      }}
+                    >
+                      Map locations
+                    </button>
+                    {locationCodesMissing ? (
+                      <span style={{ fontSize: 12, color: "#b45309" }}>
+                        This report did not include location codes. Try a different report type or verify SP-API
+                        permissions.
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 {locationRollupError ? (
                   <div style={{ marginTop: 12, color: "#b91c1c" }}>{locationRollupError}</div>
@@ -1558,6 +1770,7 @@ export default function AmazonExternalInventoryPage() {
                         ) : (
                           locationRollups.map((rollup) => {
                             const isSelected = rollup.external_location_code === selectedLocationCode;
+                            const isUnmapped = !rollup.state_code && !rollup.state_name;
                             return (
                               <tr key={rollup.external_location_code}>
                                 <td style={tableCellStyle}>
@@ -1573,8 +1786,50 @@ export default function AmazonExternalInventoryPage() {
                                       padding: 0,
                                     }}
                                   >
-                                    {rollup.external_location_code}
+                                    {formatLocationLabel(rollup)}
                                   </button>
+                                  {isUnmapped ? (
+                                    <>
+                                      <span
+                                        style={{
+                                          marginLeft: 8,
+                                          padding: "2px 6px",
+                                          borderRadius: 999,
+                                          background: "#fee2e2",
+                                          color: "#991b1b",
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        Unmapped
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!selectedBatchId) return;
+                                          setLocationMapOpen(true);
+                                          loadLocationMapData(selectedBatchId);
+                                        }}
+                                        style={{
+                                          marginLeft: 8,
+                                          border: "none",
+                                          background: "transparent",
+                                          color: "#1d4ed8",
+                                          cursor: "pointer",
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                          padding: 0,
+                                        }}
+                                      >
+                                        Map state
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  {(rollup.city || rollup.location_name) && !isUnmapped ? (
+                                    <div style={{ marginTop: 4, fontSize: 12, color: "#6b7280" }}>
+                                      {[rollup.location_name, rollup.city].filter(Boolean).join(" · ")}
+                                    </div>
+                                  ) : null}
                                 </td>
                                 <td style={tableCellStyle}>{rollup.rows_count}</td>
                                 <td style={tableCellStyle}>{rollup.matched_rows}</td>
@@ -1730,6 +1985,247 @@ export default function AmazonExternalInventoryPage() {
             </div>
           )}
         </section>
+        {locationMapOpen ? (
+          <div style={modalOverlayStyle}>
+            <div style={{ ...modalCardStyle, maxWidth: 1040 }}>
+              <div style={modalHeaderStyle}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Map locations to states</h3>
+                  <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 14 }}>
+                    Maintain FC → State labels used in the location rollups.
+                  </p>
+                </div>
+                <button type="button" style={modalCloseStyle} onClick={() => setLocationMapOpen(false)}>
+                  ✕
+                </button>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                {locationMapLoading ? (
+                  <div style={{ color: "#6b7280" }}>Loading location mappings…</div>
+                ) : locationMapError ? (
+                  <div style={{ color: "#b91c1c" }}>{locationMapError}</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 24 }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 16, color: "#111827" }}>Unmapped locations</h4>
+                      <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
+                        {locationUnmapped.length
+                          ? `${locationUnmapped.length} location(s) need mapping.`
+                          : "All locations are mapped."}
+                      </p>
+                      {locationUnmapped.length ? (
+                        <div style={{ overflowX: "auto", marginTop: 12 }}>
+                          <table style={tableStyle}>
+                            <thead>
+                              <tr>
+                                <th style={tableHeaderCellStyle}>Location code</th>
+                                <th style={tableHeaderCellStyle}>Rows</th>
+                                <th style={tableHeaderCellStyle}>State code</th>
+                                <th style={tableHeaderCellStyle}>State name</th>
+                                <th style={tableHeaderCellStyle}>City</th>
+                                <th style={tableHeaderCellStyle}>Location name</th>
+                                <th style={tableHeaderCellStyle}>Active</th>
+                                <th style={tableHeaderCellStyle}>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {locationUnmapped.map((row) => {
+                                const draft =
+                                  locationMapDrafts[normalizeLocationCode(row.external_location_code)] ??
+                                  buildLocationDraft(row.external_location_code);
+                                return (
+                                  <tr key={`unmapped-${row.external_location_code}`}>
+                                    <td style={tableCellStyle}>{row.external_location_code}</td>
+                                    <td style={tableCellStyle}>{row.rows_count}</td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.state_code}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            state_code: event.target.value,
+                                          })
+                                        }
+                                        placeholder="KA"
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.state_name}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            state_name: event.target.value,
+                                          })
+                                        }
+                                        placeholder="Karnataka"
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.city}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            city: event.target.value,
+                                          })
+                                        }
+                                        placeholder="Bengaluru"
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.location_name}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            location_name: event.target.value,
+                                          })
+                                        }
+                                        placeholder="Amazon FC"
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={draft.active}
+                                          onChange={(event) =>
+                                            handleLocationDraftChange(row.external_location_code, {
+                                              active: event.target.checked,
+                                            })
+                                          }
+                                        />
+                                        <span>{draft.active ? "Yes" : "No"}</span>
+                                      </label>
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <button
+                                        type="button"
+                                        style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                                        disabled={locationMapSaving}
+                                        onClick={() => handleSaveLocationMap(row.external_location_code)}
+                                      >
+                                        {locationMapSaving ? "Saving…" : "Save"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: 16, color: "#111827" }}>Existing mappings</h4>
+                      <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
+                        {locationMaps.length ? `${locationMaps.length} mapping(s) configured.` : "No mappings yet."}
+                      </p>
+                      {locationMaps.length ? (
+                        <div style={{ overflowX: "auto", marginTop: 12 }}>
+                          <table style={tableStyle}>
+                            <thead>
+                              <tr>
+                                <th style={tableHeaderCellStyle}>Location code</th>
+                                <th style={tableHeaderCellStyle}>State code</th>
+                                <th style={tableHeaderCellStyle}>State name</th>
+                                <th style={tableHeaderCellStyle}>City</th>
+                                <th style={tableHeaderCellStyle}>Location name</th>
+                                <th style={tableHeaderCellStyle}>Active</th>
+                                <th style={tableHeaderCellStyle}>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {locationMaps.map((row) => {
+                                const draft =
+                                  locationMapDrafts[normalizeLocationCode(row.external_location_code)] ??
+                                  buildLocationDraft(row.external_location_code, row);
+                                return (
+                                  <tr key={`mapped-${row.id}`}>
+                                    <td style={tableCellStyle}>{row.external_location_code}</td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.state_code}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            state_code: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.state_name}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            state_name: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.city}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            city: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <input
+                                        style={inputStyle}
+                                        value={draft.location_name}
+                                        onChange={(event) =>
+                                          handleLocationDraftChange(row.external_location_code, {
+                                            location_name: event.target.value,
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={draft.active}
+                                          onChange={(event) =>
+                                            handleLocationDraftChange(row.external_location_code, {
+                                              active: event.target.checked,
+                                            })
+                                          }
+                                        />
+                                        <span>{draft.active ? "Yes" : "No"}</span>
+                                      </label>
+                                    </td>
+                                    <td style={tableCellStyle}>
+                                      <button
+                                        type="button"
+                                        style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                                        disabled={locationMapSaving}
+                                        onClick={() => handleSaveLocationMap(row.external_location_code)}
+                                      >
+                                        {locationMapSaving ? "Saving…" : "Save"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
         {mappingRow ? (
           <div style={modalOverlayStyle}>
             <div style={modalCardStyle}>
@@ -1949,4 +2445,14 @@ const textAreaStyle: CSSProperties = {
   color: "#111827",
   fontFamily: "inherit",
   resize: "vertical",
+};
+
+const inputStyle: CSSProperties = {
+  width: "100%",
+  padding: "6px 8px",
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  fontSize: 13,
+  color: "#111827",
+  fontFamily: "inherit",
 };
