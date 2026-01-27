@@ -49,25 +49,22 @@ const latestBatchSchema = z
 
 const inventoryRowSchema = z.object({
   id: z.string().uuid(),
+  batch_id: z.string().uuid(),
   external_sku: z.string(),
-  asin: z.string().nullable(),
-  fnsku: z.string().nullable(),
-  condition: z.string().nullable(),
-  qty_available: z.number(),
-  qty_reserved: z.number(),
-  qty_inbound_working: z.number(),
-  qty_inbound_shipped: z.number(),
-  qty_inbound_receiving: z.number(),
-  external_location_code: z.string().nullable(),
   match_status: z.string(),
   erp_variant_id: z.string().uuid().nullable(),
+  matched_variant_id: z.string().uuid().nullable(),
+  available_qty: z.number(),
+  inbound_qty: z.number(),
+  reserved_qty: z.number(),
+  location: z.string().nullable(),
+  marketplace_id: z.string().nullable(),
+  asin: z.string().nullable(),
+  fnsku: z.string().nullable(),
   sku: z.string().nullable(),
   variant_title: z.string().nullable(),
   variant_size: z.string().nullable(),
   variant_color: z.string().nullable(),
-  variant_hsn: z.string().nullable(),
-  erp_warehouse_id: z.string().uuid().nullable(),
-  warehouse_name: z.string().nullable(),
 });
 
 const reportRequestSchema = z.object({
@@ -162,20 +159,22 @@ export default function AmazonExternalInventoryPage() {
 
     if (rowsError) {
       setIsLoadingRows(false);
-      setError(rowsError.message);
+      const shouldShowLoadFailure =
+        latestBatch?.report_processing_status === "DONE" && (latestBatch?.row_count ?? 0) > 0;
+      setError(shouldShowLoadFailure ? "Failed to load snapshot rows." : rowsError.message);
       return;
     }
 
     const parsed = z.array(inventoryRowSchema).safeParse(data ?? []);
     if (!parsed.success) {
       setIsLoadingRows(false);
-      setError("Failed to parse inventory rows.");
+      setError("Failed to load snapshot rows.");
       return;
     }
 
     setRows(parsed.data);
     setIsLoadingRows(false);
-  }, []);
+  }, [latestBatch?.report_processing_status, latestBatch?.row_count]);
 
   const loadBatchSummary = useCallback(async (batchId: string) => {
     const { data, error: batchError } = await supabase
@@ -395,43 +394,59 @@ export default function AmazonExternalInventoryPage() {
     };
   }, [reportBatchId, reportStatus, loadBatchSummary]);
 
-  const handleExportUnmatched = () => {
-    const unmatchedRows = rows.filter((row) => row.match_status === "unmatched");
-    if (unmatchedRows.length === 0) {
+  const handleExportUnmatched = useCallback(async () => {
+    setNotice(null);
+    setError(null);
+
+    if (!latestBatch?.id) {
+      setNotice("No snapshot batch available.");
+      return;
+    }
+
+    const { data, error: exportError } = await supabase
+      .from("erp_external_inventory_rows")
+      .select(
+        "external_sku, asin, fnsku, available_qty, inbound_qty, reserved_qty, marketplace_id, match_status"
+      )
+      .eq("batch_id", latestBatch.id)
+      .eq("match_status", "unmatched")
+      .order("external_sku");
+
+    if (exportError) {
+      setError(exportError.message || "Failed to export unmatched rows.");
+      return;
+    }
+
+    const exportRows = data ?? [];
+    if (exportRows.length === 0) {
       setNotice("No unmatched rows to export.");
       return;
     }
 
     const headers = [
       "external_sku",
-      "external_location_code",
       "asin",
       "fnsku",
-      "condition",
-      "qty_available",
-      "qty_reserved",
-      "qty_inbound_working",
-      "qty_inbound_shipped",
-      "qty_inbound_receiving",
+      "available_qty",
+      "inbound_qty",
+      "reserved_qty",
+      "marketplace_id",
     ];
-    const csvRows = unmatchedRows.map((row) => [
+    const csvRows = exportRows.map((row) => [
       row.external_sku,
-      row.external_location_code || "",
       row.asin || "",
       row.fnsku || "",
-      row.condition || "",
-      row.qty_available,
-      row.qty_reserved,
-      row.qty_inbound_working,
-      row.qty_inbound_shipped,
-      row.qty_inbound_receiving,
+      row.available_qty ?? 0,
+      row.inbound_qty ?? 0,
+      row.reserved_qty ?? 0,
+      row.marketplace_id || "",
     ]);
     const csv = [
       headers.join(","),
       ...csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
     ].join("\n");
     triggerDownload("amazon_unmatched_inventory.csv", createCsvBlob(csv));
-  };
+  }, [latestBatch?.id]);
 
   if (loading) {
     return (
@@ -481,15 +496,23 @@ export default function AmazonExternalInventoryPage() {
           </div>
         </header>
 
-        {(notice || error) && (
+        {(notice || error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL") && (
           <div
             style={{
               ...cardStyle,
-              borderColor: error ? "#fca5a5" : "#bbf7d0",
-              color: error ? "#b91c1c" : "#047857",
+              borderColor: error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
+                ? "#fca5a5"
+                : "#bbf7d0",
+              color: error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
+                ? "#b91c1c"
+                : "#047857",
             }}
           >
-            {error || notice}
+            {error ||
+              (latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
+                ? "Report failed (FATAL)."
+                : null) ||
+              notice}
           </div>
         )}
 
@@ -628,11 +651,9 @@ export default function AmazonExternalInventoryPage() {
                       <td style={tableCellStyle}>{row.variant_title || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_size || "—"}</td>
                       <td style={tableCellStyle}>{row.variant_color || "—"}</td>
-                      <td style={tableCellStyle}>{row.qty_available}</td>
-                      <td style={tableCellStyle}>
-                        {row.qty_inbound_working + row.qty_inbound_shipped + row.qty_inbound_receiving}
-                      </td>
-                      <td style={tableCellStyle}>{row.external_location_code || "—"}</td>
+                      <td style={tableCellStyle}>{row.available_qty}</td>
+                      <td style={tableCellStyle}>{row.inbound_qty}</td>
+                      <td style={tableCellStyle}>{row.location || "—"}</td>
                     </tr>
                   ))
                 )}
