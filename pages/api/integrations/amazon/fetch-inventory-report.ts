@@ -356,6 +356,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         p_batch_id: batch.id,
         p_status: "fatal",
         p_error: "Missing report ID for batch.",
+        p_report_processing_status: "FATAL",
         p_report_response: { error: "Missing report ID for batch." },
       });
       return res.status(200).json({

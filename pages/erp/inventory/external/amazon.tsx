@@ -34,6 +34,8 @@ type InventoryRow = z.infer<typeof inventoryRowSchema>;
 
 type ChannelSkuMapping = z.infer<typeof channelSkuMappingSchema>;
 
+type BatchListItem = z.infer<typeof batchListItemSchema>;
+
 type ImportErrorRow = {
   row_index: number;
   external_sku?: string | null;
@@ -67,6 +69,17 @@ const latestBatchSchema = z
     error: z.string().nullable().optional(),
   })
   .nullable();
+
+const batchListItemSchema = z.object({
+  id: z.string().uuid(),
+  created_at: z.string(),
+  pulled_at: z.string(),
+  rows_total: z.number().nullable().optional(),
+  matched_count: z.number().nullable().optional(),
+  unmatched_count: z.number().nullable().optional(),
+  status: z.string().nullable().optional(),
+  report_processing_status: z.string().nullable().optional(),
+});
 
 const inventoryRowSchema = z.object({
   id: z.string().uuid(),
@@ -177,6 +190,8 @@ export default function AmazonExternalInventoryPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [batches, setBatches] = useState<BatchListItem[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [latestBatch, setLatestBatch] = useState<LatestBatch>(null);
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [onlyUnmatched, setOnlyUnmatched] = useState(false);
@@ -202,6 +217,13 @@ export default function AmazonExternalInventoryPage() {
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<ImportErrorRow[]>([]);
+
+  const batchIdFromQuery = useMemo(() => {
+    if (typeof router.query.batchId === "string") {
+      return router.query.batchId;
+    }
+    return null;
+  }, [router.query.batchId]);
 
   const canAccess = useMemo(() => {
     if (!ctx?.roleKey) return false;
@@ -269,6 +291,33 @@ export default function AmazonExternalInventoryPage() {
     setIsLoadingRows(false);
   }, [latestBatch?.report_processing_status, latestBatch?.row_count]);
 
+  const loadBatches = useCallback(async () => {
+    if (!ctx?.companyId) return;
+    setError(null);
+
+    const { data, error: batchesError } = await supabase
+      .from("erp_external_inventory_batches")
+      .select(
+        "id, created_at, pulled_at, rows_total, matched_count, unmatched_count, status, report_processing_status"
+      )
+      .eq("channel_key", "amazon")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (batchesError) {
+      setError(batchesError.message || "Failed to load batch history.");
+      return;
+    }
+
+    const parsed = z.array(batchListItemSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setError("Failed to load batch history.");
+      return;
+    }
+
+    setBatches(parsed.data);
+  }, [ctx?.companyId]);
+
   const loadMappings = useCallback(async () => {
     if (!ctx?.companyId) return;
     setMappingsLoading(true);
@@ -333,15 +382,58 @@ export default function AmazonExternalInventoryPage() {
   }, []);
 
   useEffect(() => {
-    if (!latestBatch?.id) {
+    if (!ctx?.companyId) return;
+    loadBatches();
+  }, [ctx?.companyId, loadBatches]);
+
+  const newestBatch = useMemo(() => batches[0] ?? null, [batches]);
+
+  const bestBatch = useMemo(() => {
+    if (!batches.length) return null;
+    const withRows = batches.find((batch) => (batch.rows_total ?? 0) > 0);
+    if (withRows) return withRows;
+    const doneBatch = batches.find((batch) => batch.report_processing_status === "DONE");
+    if (doneBatch) return doneBatch;
+    return batches[0];
+  }, [batches]);
+
+  useEffect(() => {
+    if (!batches.length) return;
+    if (selectedBatchId && batches.some((batch) => batch.id === selectedBatchId)) {
+      return;
+    }
+
+    if (batchIdFromQuery && batches.some((batch) => batch.id === batchIdFromQuery)) {
+      setSelectedBatchId(batchIdFromQuery);
+      return;
+    }
+
+    if (bestBatch) {
+      setSelectedBatchId(bestBatch.id);
+    }
+  }, [batches, batchIdFromQuery, bestBatch, selectedBatchId]);
+
+  useEffect(() => {
+    if (!selectedBatchId) {
+      setLatestBatch(null);
+      return;
+    }
+
+    (async () => {
+      await loadBatchSummary(selectedBatchId);
+    })();
+  }, [loadBatchSummary, selectedBatchId]);
+
+  useEffect(() => {
+    if (!selectedBatchId) {
       setRows([]);
       return;
     }
 
     (async () => {
-      await loadRows(latestBatch.id, onlyUnmatched);
+      await loadRows(selectedBatchId, onlyUnmatched);
     })();
-  }, [latestBatch?.id, loadRows, onlyUnmatched]);
+  }, [loadRows, onlyUnmatched, selectedBatchId]);
 
   const handleTestConnection = async () => {
     setNotice(null);
@@ -414,6 +506,7 @@ export default function AmazonExternalInventoryPage() {
         setReportStatus("requested");
         setNotice("Status: requested — Report requested. Waiting for Amazon to generate the inventory snapshot…");
         await loadBatchSummary(parsed.data.batchId);
+        await loadBatches();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -477,12 +570,15 @@ export default function AmazonExternalInventoryPage() {
           const total = matched + unmatched;
           setNotice(`${statusNotice}. Pulled ${total} rows (${matched} matched, ${unmatched} unmatched).`);
           await loadBatchSummary(reportBatchId);
+          await loadBatches();
         } else if (nextStatus === "failed") {
           setError(statusNotice || "Amazon report generation failed.");
           await loadBatchSummary(reportBatchId);
+          await loadBatches();
         } else {
           setNotice(statusNotice || "Generating report…");
           await loadBatchSummary(reportBatchId);
+          await loadBatches();
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -664,6 +760,30 @@ export default function AmazonExternalInventoryPage() {
     setNotice("Batch recomputed.");
     setIsRematchingBatch(false);
   }, [latestBatch?.id, loadBatchSummary, loadRows, onlyUnmatched]);
+
+  const showLatestFailedBanner = useMemo(() => {
+    if (!newestBatch || !bestBatch || !selectedBatchId) return false;
+    if (newestBatch.id === selectedBatchId) return false;
+    return (
+      newestBatch.report_processing_status === "FATAL" ||
+      newestBatch.status === "fatal" ||
+      (newestBatch.rows_total ?? 0) === 0
+    );
+  }, [bestBatch, newestBatch, selectedBatchId]);
+
+  const latestFailedBannerText = useMemo(() => {
+    if (!bestBatch) return null;
+    return `Latest pull failed (FATAL). Showing most recent batch with rows from ${new Date(
+      bestBatch.created_at
+    ).toLocaleString()}.`;
+  }, [bestBatch]);
+
+  const formatBatchLabel = useCallback((batch: BatchListItem) => {
+    const statusLabel = (batch.report_processing_status ?? batch.status ?? "unknown").toUpperCase();
+    const rowCount = batch.rows_total ?? 0;
+    const dateLabel = new Date(batch.created_at ?? batch.pulled_at).toLocaleString();
+    return `${dateLabel} — ${statusLabel} (${rowCount} rows)`;
+  }, []);
 
   const handleDownloadImportErrors = useCallback(() => {
     if (!importErrors.length) return;
@@ -988,9 +1108,47 @@ export default function AmazonExternalInventoryPage() {
               notice}
           </div>
         )}
+        {showLatestFailedBanner && latestFailedBannerText ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fcd34d",
+              color: "#92400e",
+              background: "#fffbeb",
+            }}
+          >
+            {latestFailedBannerText}
+          </div>
+        ) : null}
 
         <section style={cardStyle}>
-          <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Latest batch</h2>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 18, color: "#111827" }}>Latest batch</h2>
+            {batches.length ? (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
+                <span>Batch</span>
+                <select
+                  value={selectedBatchId ?? ""}
+                  onChange={(event) => setSelectedBatchId(event.target.value)}
+                  style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb" }}
+                >
+                  {batches.map((batch) => (
+                    <option key={batch.id} value={batch.id}>
+                      {formatBatchLabel(batch)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
           {latestBatch ? (
             <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
               <div style={summaryRowStyle}>
