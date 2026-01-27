@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gunzipSync } from "zlib";
 import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
-import { parseCsv, parseTsv } from "../../../../lib/erp/parseCsv";
+import { parseDelimited } from "../../../../lib/erp/parseCsv";
 import {
   createServiceRoleClient,
   createUserClient,
@@ -208,9 +208,43 @@ function buildRawRecord(headers: string[], row: string[]): Record<string, string
   return record;
 }
 
+function detectDelimiter(sampleLines: string[]): string {
+  const candidates = [",", "\t", "|"];
+  const scores = new Map<string, number>(candidates.map((candidate) => [candidate, 0]));
+
+  sampleLines.forEach((line) => {
+    candidates.forEach((delimiter) => {
+      const count = line.split(delimiter).length - 1;
+      scores.set(delimiter, (scores.get(delimiter) ?? 0) + count);
+    });
+  });
+
+  let bestDelimiter = ",";
+  let bestScore = -1;
+  scores.forEach((score, delimiter) => {
+    if (score > bestScore) {
+      bestDelimiter = delimiter;
+      bestScore = score;
+    }
+  });
+
+  return bestDelimiter;
+}
+
 function parseReportText(text: string): string[][] {
-  const rows = text.includes("\t") ? parseTsv(text) : parseCsv(text);
-  return rows;
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const delimiter = detectDelimiter(lines.slice(0, 10));
+  return parseDelimited(text, delimiter);
+}
+
+function normalizeHeaderName(header: string): string {
+  return header.replace(/\uFEFF/g, "").trim().toLowerCase();
+}
+
+function isSkippableRow(row: string[]): boolean {
+  if (row.every((cell) => cell.trim().length === 0)) return true;
+  if (row.length === 1 && row[0]?.trim().startsWith("#")) return true;
+  return false;
 }
 
 function pickHeader(headers: Map<string, number>, candidates: string[]): string | null {
@@ -436,7 +470,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const decompressed = parsedDocument.data.compressionAlgorithm === "GZIP" ? gunzipSync(buffer) : buffer;
     const text = decompressed.toString("utf8");
 
-    const rows = parseReportText(text);
+    const rawLines = text.split(/\r?\n/).slice(0, 10);
+    console.info("[amazon inventory] report first lines", rawLines);
+
+    const rows = parseReportText(text).filter((row) => !isSkippableRow(row));
     if (rows.length === 0) {
       await client.rpc("erp_inventory_external_batch_update", {
         p_batch_id: batch.id,
@@ -456,8 +493,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const [headerRow, ...dataRows] = rows;
-    const normalizedHeaders = headerRow.map((header) => header.trim().toLowerCase());
+    const skuHeaderCandidates = [
+      "seller-sku",
+      "seller_sku",
+      "seller sku",
+      "merchant-sku",
+      "merchant sku",
+      "sku",
+    ];
+
+    let headerRowIndex = rows.findIndex((row) => {
+      const normalized = row.map((header) => normalizeHeaderName(header));
+      if (normalized.length < 2) return false;
+      return normalized.some((header) => skuHeaderCandidates.includes(header));
+    });
+
+    if (headerRowIndex === -1) {
+      headerRowIndex = 0;
+    }
+
+    const headerRow = rows[headerRowIndex];
+    const dataRows = rows.slice(headerRowIndex + 1);
+    const normalizedHeaders = headerRow.map((header) => normalizeHeaderName(header));
     const headerIndex = new Map<string, number>();
     normalizedHeaders.forEach((header, index) => {
       headerIndex.set(header, index);
@@ -470,7 +527,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return row[idx]?.trim() ?? "";
     };
 
-    const skuHeader = pickHeader(headerIndex, ["seller-sku", "seller_sku", "seller sku", "sku"]);
+    const skuHeader =
+      pickHeader(headerIndex, skuHeaderCandidates) ??
+      (normalizedHeaders.find((header) => header.length > 0) ?? null);
 
     const asinHeader = pickHeader(headerIndex, ["asin"]);
     const fnskuHeader = pickHeader(headerIndex, ["fnsku"]);
