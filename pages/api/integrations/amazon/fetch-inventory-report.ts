@@ -89,6 +89,19 @@ function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&").replace(/,/g, "\\,");
 }
 
+function extractReportErrorMessage(status: string, payload: unknown): string {
+  const errors = (payload as { errors?: Array<{ code?: string; message?: string; details?: string }> })
+    ?.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    const error = errors[0] ?? {};
+    const details = [error.code, error.message, error.details].filter(Boolean).join(" — ");
+    if (details) {
+      return `Report status: ${status}. ${details}`;
+    }
+  }
+  return `Report status: ${status}`;
+}
+
 async function resolveCompanyClient(
   req: NextApiRequest,
   supabaseUrl: string,
@@ -310,6 +323,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Invalid query params" });
   }
 
+  let batchId: string | null = null;
+  let dataClient: SupabaseClient | null = null;
+
   try {
     const accessToken = await getAmazonAccessToken();
     const { companyId, client } = await resolveCompanyClient(
@@ -318,6 +334,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       anonKey,
       serviceRoleKey
     );
+    dataClient = client;
 
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
@@ -331,8 +348,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(404).json({ ok: false, error: batchError?.message || "Batch not found" });
     }
 
+    batchId = batch.id;
+
     const reportId = batch.report_id ?? batch.external_report_id;
     if (!reportId) {
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "fatal",
+        p_error: "Missing report ID for batch.",
+        p_report_response: { error: "Missing report ID for batch." },
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
@@ -367,10 +392,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const reportStatusJson = await reportStatusResponse.json();
     if (!reportStatusResponse.ok) {
+      const message = `SP-API error: ${JSON.stringify(reportStatusJson)}`;
+      await client.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batch.id,
+        p_status: "fatal",
+        p_error: message,
+        p_report_processing_status:
+          (reportStatusJson as { processingStatus?: string })?.processingStatus ?? "ERROR",
+        p_report_response: reportStatusJson,
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
-        message: `SP-API error: ${JSON.stringify(reportStatusJson)}`,
+        message,
       });
     }
 
@@ -380,11 +414,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       : (reportStatusJson as { processingStatus?: string })?.processingStatus;
 
     const normalizedStatus = processingStatus?.toUpperCase() ?? "UNKNOWN";
+    const baseUpdate = {
+      p_batch_id: batch.id,
+      p_report_processing_status: normalizedStatus,
+      p_report_response: reportStatusJson,
+    };
 
     if (["CANCELLED", "FATAL", "DONE_NO_DATA"].includes(normalizedStatus)) {
-      const fatalMessage = `Report status: ${normalizedStatus}`;
+      const fatalMessage = extractReportErrorMessage(normalizedStatus, reportStatusJson);
       await client.rpc("erp_inventory_external_batch_update", {
-        p_batch_id: batch.id,
+        ...baseUpdate,
         p_status: "fatal",
         p_error: fatalMessage,
       });
@@ -398,7 +437,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     if (["IN_QUEUE", "IN_PROGRESS"].includes(normalizedStatus)) {
       await client.rpc("erp_inventory_external_batch_update", {
-        p_batch_id: batch.id,
+        ...baseUpdate,
         p_status: "in_progress",
       });
       return res.status(200).json({
@@ -409,6 +448,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (normalizedStatus !== "DONE") {
+      await client.rpc("erp_inventory_external_batch_update", baseUpdate);
       return res.status(200).json({
         ok: true,
         status: "processing",
@@ -421,15 +461,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       : (reportStatusJson as { reportDocumentId?: string })?.reportDocumentId;
 
     if (!reportDocumentId) {
+      const message = "Missing reportDocumentId.";
+      await client.rpc("erp_inventory_external_batch_update", {
+        ...baseUpdate,
+        p_status: "fatal",
+        p_error: message,
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
-        message: "Missing reportDocumentId.",
+        message,
       });
     }
 
     await client.rpc("erp_inventory_external_batch_update", {
-      p_batch_id: batch.id,
+      ...baseUpdate,
       p_report_document_id: reportDocumentId,
     });
 
@@ -441,28 +487,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const documentJson = await documentResponse.json();
     if (!documentResponse.ok) {
+      const message = `SP-API error: ${JSON.stringify(documentJson)}`;
+      await client.rpc("erp_inventory_external_batch_update", {
+        ...baseUpdate,
+        p_status: "fatal",
+        p_error: message,
+        p_report_response: { reportStatus: reportStatusJson, reportDocument: documentJson },
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
-        message: `SP-API error: ${JSON.stringify(documentJson)}`,
+        message,
       });
     }
 
     const parsedDocument = reportDocumentSchema.safeParse(documentJson);
     if (!parsedDocument.success) {
+      const message = "Unexpected report document response.";
+      await client.rpc("erp_inventory_external_batch_update", {
+        ...baseUpdate,
+        p_status: "fatal",
+        p_error: message,
+        p_report_response: { reportStatus: reportStatusJson, reportDocument: documentJson },
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
-        message: "Unexpected report document response.",
+        message,
       });
     }
 
     const documentFetch = await fetch(parsedDocument.data.url);
     if (!documentFetch.ok) {
+      const message = "Failed to download report document.";
+      await client.rpc("erp_inventory_external_batch_update", {
+        ...baseUpdate,
+        p_status: "fatal",
+        p_error: message,
+        p_report_response: {
+          reportStatus: reportStatusJson,
+          reportDocument: documentJson,
+          downloadStatus: documentFetch.status,
+        },
+      });
       return res.status(200).json({
         ok: true,
         status: "failed",
-        message: "Failed to download report document.",
+        message,
       });
     }
 
@@ -476,7 +547,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const rows = parseReportText(text).filter((row) => !isSkippableRow(row));
     if (rows.length === 0) {
       await client.rpc("erp_inventory_external_batch_update", {
-        p_batch_id: batch.id,
+        ...baseUpdate,
         p_status: "done",
         p_pulled_at: new Date().toISOString(),
         p_rows_total: 0,
@@ -553,7 +624,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!skuHeader) {
       const fatalMessage = "Missing seller-sku column in report";
       await client.rpc("erp_inventory_external_batch_update", {
-        p_batch_id: batch.id,
+        ...baseUpdate,
         p_status: "fatal",
         p_error: fatalMessage,
       });
@@ -657,7 +728,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const summary = await fetchBatchSummary(client, batch.id);
 
     const updatedBatch = await client.rpc("erp_inventory_external_batch_update", {
-      p_batch_id: batch.id,
+      ...baseUpdate,
       p_status: "done",
       p_pulled_at: new Date().toISOString(),
       p_rows_total: summary.row_count,
@@ -679,6 +750,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    if (batchId && dataClient) {
+      await dataClient.rpc("erp_inventory_external_batch_update", {
+        p_batch_id: batchId,
+        p_status: "fatal",
+        p_error: message,
+        p_report_response: { error: message },
+      });
+    }
     return res.status(500).json({ ok: false, error: message });
   }
 }

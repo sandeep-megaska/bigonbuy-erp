@@ -140,20 +140,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const createReport = async (reportType: string) => {
       assertSupportedReportType(reportType);
+      const requestPayload = {
+        reportType,
+        marketplaceIds: MARKETPLACE_IDS,
+      };
       const response = await spApiSignedFetch({
         method: "POST",
         path: "/reports/2021-06-30/reports",
         accessToken,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          reportType,
-          marketplaceIds: MARKETPLACE_IDS,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
       const json = await response.json();
       if (!response.ok) {
-        return { ok: false as const, error: `SP-API error: ${JSON.stringify(json)}` };
+        return {
+          ok: false as const,
+          error: `SP-API error: ${JSON.stringify(json)}`,
+          response: json,
+          request: requestPayload,
+        };
       }
 
       const parsedReport = reportCreateSchema.safeParse(json);
@@ -161,10 +167,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         ? parsedReport.data.reportId
         : (json as { reportId?: string })?.reportId;
       if (!reportId) {
-        return { ok: false as const, error: "Missing reportId in SP-API response" };
+        return {
+          ok: false as const,
+          error: "Missing reportId in SP-API response",
+          response: json,
+          request: requestPayload,
+        };
       }
 
-      return { ok: true as const, reportId };
+      return { ok: true as const, reportId, request: requestPayload, response: json };
     };
 
     const reportType = PRIMARY_REPORT_TYPE;
@@ -175,6 +186,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         p_batch_id: batchId,
         p_status: "fatal",
         p_error: createResult.error,
+        p_report_request: createResult.request ?? null,
+        p_report_response: createResult.response ?? null,
       });
 
       return res.status(500).json({ ok: false, error: createResult.error });
@@ -186,6 +199,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       p_report_id: createResult.reportId,
       p_report_type: reportType,
       p_external_report_id: createResult.reportId,
+      p_report_request: createResult.request ?? null,
     });
 
     if (updateResult.error) {
