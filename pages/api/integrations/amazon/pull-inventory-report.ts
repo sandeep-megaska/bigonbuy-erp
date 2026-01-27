@@ -20,6 +20,7 @@ type ApiResponse =
 const requestSchema = z.object({
   marketplaceId: z.string().optional(),
   companyId: z.string().uuid().optional(),
+  snapshot_mode: z.enum(["marketplace", "fc"]).optional(),
 });
 
 const reportCreateSchema = z
@@ -29,7 +30,10 @@ const reportCreateSchema = z
   .passthrough();
 
 const MARKETPLACE_IDS = ["A21TJRUUN4KGV"];
-const PRIMARY_REPORT_TYPE = "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA";
+const REPORT_TYPES = {
+  marketplace: "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA",
+  fc: "GET_FBA_MYI_ALL_INVENTORY_DATA",
+} as const;
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -117,6 +121,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     const accessToken = await getAmazonAccessToken();
+    const snapshotMode = parseResult.data.snapshot_mode ?? "marketplace";
+    const reportType = REPORT_TYPES[snapshotMode];
     const marketplaceId = MARKETPLACE_IDS[0];
     const { companyId, client } = await resolveCompanyClient(
       req,
@@ -130,7 +136,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       p_marketplace_id: marketplaceId,
       p_type: "report",
       p_status: "requested",
-      p_report_type: PRIMARY_REPORT_TYPE,
+      p_report_type: reportType,
     });
 
     const batchId = typeof batch === "object" && batch ? (batch as { id?: string }).id : null;
@@ -178,7 +184,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return { ok: true as const, reportId, request: requestPayload, response: json };
     };
 
-    const reportType = PRIMARY_REPORT_TYPE;
     const createResult = await createReport(reportType);
 
     if (!createResult.ok) {

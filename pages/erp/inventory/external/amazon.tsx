@@ -92,6 +92,7 @@ const inventoryRowSchema = z.object({
   inbound_qty: z.number(),
   reserved_qty: z.number(),
   location: z.string().nullable(),
+  external_location_code: z.string().nullable(),
   marketplace_id: z.string().nullable(),
   asin: z.string().nullable(),
   fnsku: z.string().nullable(),
@@ -199,6 +200,8 @@ export default function AmazonExternalInventoryPage() {
   const [isPolling, setIsPolling] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
+  const [snapshotMode, setSnapshotMode] = useState<"marketplace" | "fc">("marketplace");
+  const [viewMode, setViewMode] = useState<"rows" | "location">("rows");
   const [reportBatchId, setReportBatchId] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const pollCountRef = useRef(0);
@@ -217,6 +220,12 @@ export default function AmazonExternalInventoryPage() {
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<ImportErrorRow[]>([]);
+
+  useEffect(() => {
+    if (snapshotMode !== "fc") {
+      setViewMode("rows");
+    }
+  }, [snapshotMode]);
 
   const batchIdFromQuery = useMemo(() => {
     if (typeof router.query.batchId === "string") {
@@ -491,7 +500,7 @@ export default function AmazonExternalInventoryPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ snapshot_mode: snapshotMode }),
       });
       const json: unknown = await response.json();
       const parsed = reportRequestSchema.safeParse(json);
@@ -785,6 +794,83 @@ export default function AmazonExternalInventoryPage() {
     return `${dateLabel} — ${statusLabel} (${rowCount} rows)`;
   }, []);
 
+  const locationGroups = useMemo(() => {
+    if (viewMode !== "location") return [];
+    const groupMap = new Map<
+      string,
+      {
+        location: string;
+        available: number;
+        inbound: number;
+        reserved: number;
+        items: Map<
+          string,
+          {
+            key: string;
+            skuLabel: string;
+            variantTitle: string | null;
+            variantSize: string | null;
+            variantColor: string | null;
+            available: number;
+            inbound: number;
+            reserved: number;
+            externalSkus: Set<string>;
+          }
+        >;
+      }
+    >();
+
+    rows.forEach((row) => {
+      const locationCode = row.external_location_code || row.location || "Unknown";
+      const group = groupMap.get(locationCode) ?? {
+        location: locationCode,
+        available: 0,
+        inbound: 0,
+        reserved: 0,
+        items: new Map(),
+      };
+
+      const itemKey = row.matched_variant_id ?? `external:${row.external_sku.toLowerCase()}`;
+      const skuLabel = row.sku || row.external_sku;
+      const item =
+        group.items.get(itemKey) ?? {
+          key: itemKey,
+          skuLabel,
+          variantTitle: row.variant_title ?? null,
+          variantSize: row.variant_size ?? null,
+          variantColor: row.variant_color ?? null,
+          available: 0,
+          inbound: 0,
+          reserved: 0,
+          externalSkus: new Set<string>(),
+        };
+
+      item.available += row.available_qty ?? 0;
+      item.inbound += row.inbound_qty ?? 0;
+      item.reserved += row.reserved_qty ?? 0;
+      item.externalSkus.add(row.external_sku);
+      group.items.set(itemKey, item);
+
+      group.available += row.available_qty ?? 0;
+      group.inbound += row.inbound_qty ?? 0;
+      group.reserved += row.reserved_qty ?? 0;
+
+      groupMap.set(locationCode, group);
+    });
+
+    return Array.from(groupMap.values())
+      .map((group) => ({
+        ...group,
+        items: Array.from(group.items.values())
+          .map((item) => ({
+            ...item,
+            externalSkuCount: item.externalSkus.size,
+          }))
+          .sort((a, b) => a.skuLabel.localeCompare(b.skuLabel)),
+      }))
+      .sort((a, b) => a.location.localeCompare(b.location));
+  }, [rows, viewMode]);
+
   const handleDownloadImportErrors = useCallback(() => {
     if (!importErrors.length) return;
     const headers = ["row_index", "external_sku", "erp_sku", "reason"];
@@ -1075,6 +1161,17 @@ export default function AmazonExternalInventoryPage() {
             <p style={subtitleStyle}>Pull a read-only snapshot from Amazon FBA to compare with ERP stock.</p>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
+              <span>Mode</span>
+              <select
+                value={snapshotMode}
+                onChange={(event) => setSnapshotMode(event.target.value as "marketplace" | "fc")}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb" }}
+              >
+                <option value="marketplace">Marketplace totals</option>
+                <option value="fc">FC breakdown</option>
+              </select>
+            </label>
             <button type="button" onClick={handleTestConnection} style={secondaryButtonStyle} disabled={isTesting}>
               {isTesting ? "Testing…" : "Test Connection"}
             </button>
@@ -1242,6 +1339,19 @@ export default function AmazonExternalInventoryPage() {
                 />
                 Only unmatched
               </label>
+              {snapshotMode === "fc" ? (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
+                  <span>View</span>
+                  <select
+                    value={viewMode}
+                    onChange={(event) => setViewMode(event.target.value as "rows" | "location")}
+                    style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb" }}
+                  >
+                    <option value="rows">Rows</option>
+                    <option value="location">By location</option>
+                  </select>
+                </label>
+              ) : null}
               <button
                 type="button"
                 onClick={handleRecomputeBatch}
@@ -1292,64 +1402,126 @@ export default function AmazonExternalInventoryPage() {
               </ul>
             </div>
           ) : null}
-          <div style={{ overflowX: "auto", marginTop: 16 }}>
-            <table style={tableStyle}>
-              <thead>
-                <tr>
-                  <th style={tableHeaderCellStyle}>External SKU</th>
-                  <th style={tableHeaderCellStyle}>Match status</th>
-                  <th style={tableHeaderCellStyle}>ERP SKU</th>
-                  <th style={tableHeaderCellStyle}>Product</th>
-                  <th style={tableHeaderCellStyle}>Size</th>
-                  <th style={tableHeaderCellStyle}>Color</th>
-                  <th style={tableHeaderCellStyle}>Available</th>
-                  <th style={tableHeaderCellStyle}>Inbound total</th>
-                  <th style={tableHeaderCellStyle}>Location</th>
-                  <th style={tableHeaderCellStyle}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 ? (
+          {viewMode === "location" ? (
+            <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
+              {locationGroups.length === 0 ? (
+                <div style={{ color: "#6b7280" }}>
+                  {latestBatch
+                    ? "No rows to display."
+                    : reportBatchId
+                      ? "Report in progress…"
+                      : "Pull a snapshot to view inventory."}
+                </div>
+              ) : (
+                locationGroups.map((group) => (
+                  <div key={group.location} style={{ ...cardStyle, padding: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>{group.location}</h3>
+                        <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>
+                          {group.items.length} SKU group{group.items.length === 1 ? "" : "s"}
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "#374151" }}>
+                        <span>Available: {group.available}</span>
+                        <span>Inbound: {group.inbound}</span>
+                        <span>Reserved: {group.reserved}</span>
+                      </div>
+                    </div>
+                    <div style={{ overflowX: "auto", marginTop: 12 }}>
+                      <table style={tableStyle}>
+                        <thead>
+                          <tr>
+                            <th style={tableHeaderCellStyle}>SKU</th>
+                            <th style={tableHeaderCellStyle}>Product</th>
+                            <th style={tableHeaderCellStyle}>Size</th>
+                            <th style={tableHeaderCellStyle}>Color</th>
+                            <th style={tableHeaderCellStyle}>External SKU count</th>
+                            <th style={tableHeaderCellStyle}>Available</th>
+                            <th style={tableHeaderCellStyle}>Inbound total</th>
+                            <th style={tableHeaderCellStyle}>Reserved</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.items.map((item) => (
+                            <tr key={item.key}>
+                              <td style={tableCellStyle}>{item.skuLabel}</td>
+                              <td style={tableCellStyle}>{item.variantTitle || "—"}</td>
+                              <td style={tableCellStyle}>{item.variantSize || "—"}</td>
+                              <td style={tableCellStyle}>{item.variantColor || "—"}</td>
+                              <td style={tableCellStyle}>{item.externalSkuCount}</td>
+                              <td style={tableCellStyle}>{item.available}</td>
+                              <td style={tableCellStyle}>{item.inbound}</td>
+                              <td style={tableCellStyle}>{item.reserved}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto", marginTop: 16 }}>
+              <table style={tableStyle}>
+                <thead>
                   <tr>
-                    <td colSpan={10} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
-                      {latestBatch
-                        ? "No rows to display."
-                        : reportBatchId
-                          ? "Report in progress…"
-                          : "Pull a snapshot to view inventory."}
-                    </td>
+                    <th style={tableHeaderCellStyle}>External SKU</th>
+                    <th style={tableHeaderCellStyle}>Match status</th>
+                    <th style={tableHeaderCellStyle}>ERP SKU</th>
+                    <th style={tableHeaderCellStyle}>Product</th>
+                    <th style={tableHeaderCellStyle}>Size</th>
+                    <th style={tableHeaderCellStyle}>Color</th>
+                    <th style={tableHeaderCellStyle}>Available</th>
+                    <th style={tableHeaderCellStyle}>Inbound total</th>
+                    <th style={tableHeaderCellStyle}>Location</th>
+                    <th style={tableHeaderCellStyle}>Action</th>
                   </tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr key={row.id}>
-                      <td style={tableCellStyle}>{row.external_sku}</td>
-                      <td style={tableCellStyle}>{row.match_status}</td>
-                      <td style={tableCellStyle}>{row.sku || "—"}</td>
-                      <td style={tableCellStyle}>{row.variant_title || "—"}</td>
-                      <td style={tableCellStyle}>{row.variant_size || "—"}</td>
-                      <td style={tableCellStyle}>{row.variant_color || "—"}</td>
-                      <td style={tableCellStyle}>{row.available_qty}</td>
-                      <td style={tableCellStyle}>{row.inbound_qty}</td>
-                      <td style={tableCellStyle}>{row.location || "—"}</td>
-                      <td style={tableCellStyle}>
-                        {row.match_status === "unmatched" ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenMapping(row)}
-                            style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
-                          >
-                            Map
-                          </button>
-                        ) : (
-                          "—"
-                        )}
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                        {latestBatch
+                          ? "No rows to display."
+                          : reportBatchId
+                            ? "Report in progress…"
+                            : "Pull a snapshot to view inventory."}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    rows.map((row) => (
+                      <tr key={row.id}>
+                        <td style={tableCellStyle}>{row.external_sku}</td>
+                        <td style={tableCellStyle}>{row.match_status}</td>
+                        <td style={tableCellStyle}>{row.sku || "—"}</td>
+                        <td style={tableCellStyle}>{row.variant_title || "—"}</td>
+                        <td style={tableCellStyle}>{row.variant_size || "—"}</td>
+                        <td style={tableCellStyle}>{row.variant_color || "—"}</td>
+                        <td style={tableCellStyle}>{row.available_qty}</td>
+                        <td style={tableCellStyle}>{row.inbound_qty}</td>
+                        <td style={tableCellStyle}>{row.external_location_code || row.location || "—"}</td>
+                        <td style={tableCellStyle}>
+                          {row.match_status === "unmatched" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMapping(row)}
+                              style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                            >
+                              Map
+                            </button>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
         {mappingRow ? (
           <div style={modalOverlayStyle}>
