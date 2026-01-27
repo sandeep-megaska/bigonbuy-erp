@@ -34,6 +34,9 @@ const REPORT_TYPES = {
   marketplace: "GET_FBA_MYI_UNSUPPRESSED_INVENTORY_DATA",
   fc: "GET_FBA_MYI_ALL_INVENTORY_DATA",
 } as const;
+const REPORT_OPTIONS: Record<string, Record<string, string>> = {
+  fc: { aggregateByLocation: "true" },
+};
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 async function resolveCompanyClient(
@@ -134,7 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data: batch, error: batchError } = await client.rpc("erp_inventory_external_batch_create", {
       p_channel_key: "amazon",
       p_marketplace_id: marketplaceId,
-      p_type: "report",
+      p_type: snapshotMode,
       p_status: "requested",
       p_report_type: reportType,
     });
@@ -144,11 +147,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(500).json({ ok: false, error: batchError?.message || "Failed to create batch" });
     }
 
-    const createReport = async (reportType: string) => {
+    const createReport = async (reportType: string, reportOptions?: Record<string, string>) => {
       assertSupportedReportType(reportType);
       const requestPayload = {
         reportType,
         marketplaceIds: MARKETPLACE_IDS,
+        ...(reportOptions ? { reportOptions } : {}),
       };
       const response = await spApiSignedFetch({
         method: "POST",
@@ -184,7 +188,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return { ok: true as const, reportId, request: requestPayload, response: json };
     };
 
-    const createResult = await createReport(reportType);
+    const createResult = await createReport(reportType, REPORT_OPTIONS[snapshotMode]);
 
     if (!createResult.ok) {
       await client.rpc("erp_inventory_external_batch_update", {

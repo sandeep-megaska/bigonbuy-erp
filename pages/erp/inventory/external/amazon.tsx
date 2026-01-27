@@ -36,6 +36,10 @@ type ChannelSkuMapping = z.infer<typeof channelSkuMappingSchema>;
 
 type BatchListItem = z.infer<typeof batchListItemSchema>;
 
+type LocationRollupRow = z.infer<typeof locationRollupSchema>;
+
+type LocationSkuRollupRow = z.infer<typeof locationSkuRollupSchema>;
+
 type ImportErrorRow = {
   row_index: number;
   external_sku?: string | null;
@@ -58,6 +62,7 @@ const latestBatchSchema = z
     id: z.string().uuid(),
     channel_key: z.string(),
     marketplace_id: z.string().nullable(),
+    type: z.string().nullable().optional(),
     pulled_at: z.string(),
     row_count: z.number(),
     matched_count: z.number(),
@@ -74,6 +79,7 @@ const batchListItemSchema = z.object({
   id: z.string().uuid(),
   created_at: z.string(),
   pulled_at: z.string(),
+  type: z.string().nullable().optional(),
   rows_total: z.number().nullable().optional(),
   matched_count: z.number().nullable().optional(),
   unmatched_count: z.number().nullable().optional(),
@@ -100,6 +106,31 @@ const inventoryRowSchema = z.object({
   variant_title: z.string().nullable(),
   variant_size: z.string().nullable(),
   variant_color: z.string().nullable(),
+});
+
+const locationRollupSchema = z.object({
+  external_location_code: z.string(),
+  rows_count: z.number(),
+  matched_rows: z.number(),
+  unmatched_rows: z.number(),
+  available_total: z.number(),
+  inbound_total: z.number(),
+  reserved_total: z.number(),
+});
+
+const locationSkuRollupSchema = z.object({
+  external_location_code: z.string(),
+  matched_variant_id: z.string().uuid().nullable(),
+  sku: z.string().nullable(),
+  variant_title: z.string().nullable(),
+  variant_size: z.string().nullable(),
+  variant_color: z.string().nullable(),
+  external_sku_sample: z.string().nullable(),
+  rows_count: z.number(),
+  available_total: z.number(),
+  inbound_total: z.number(),
+  reserved_total: z.number(),
+  unmatched_rows: z.number(),
 });
 
 const channelSkuMappingSchema = z.object({
@@ -205,6 +236,13 @@ export default function AmazonExternalInventoryPage() {
   const [reportBatchId, setReportBatchId] = useState<string | null>(null);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const pollCountRef = useRef(0);
+  const [locationRollups, setLocationRollups] = useState<LocationRollupRow[]>([]);
+  const [locationSkuRollups, setLocationSkuRollups] = useState<LocationSkuRollupRow[]>([]);
+  const [selectedLocationCode, setSelectedLocationCode] = useState<string | null>(null);
+  const [isLoadingLocationRollups, setIsLoadingLocationRollups] = useState(false);
+  const [isLoadingLocationSkus, setIsLoadingLocationSkus] = useState(false);
+  const [locationRollupError, setLocationRollupError] = useState<string | null>(null);
+  const [locationSkuError, setLocationSkuError] = useState<string | null>(null);
   const [mappingRow, setMappingRow] = useState<InventoryRow | null>(null);
   const [mappingVariant, setMappingVariant] = useState<VariantSearchResult | null>(null);
   const [mappingNotes, setMappingNotes] = useState("");
@@ -221,11 +259,13 @@ export default function AmazonExternalInventoryPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<ImportErrorRow[]>([]);
 
+  const isLocationBatch = useMemo(() => latestBatch?.type === "fc", [latestBatch?.type]);
+
   useEffect(() => {
-    if (snapshotMode !== "fc") {
+    if (!isLocationBatch && snapshotMode !== "fc") {
       setViewMode("rows");
     }
-  }, [snapshotMode]);
+  }, [isLocationBatch, snapshotMode]);
 
   const batchIdFromQuery = useMemo(() => {
     if (typeof router.query.batchId === "string") {
@@ -300,6 +340,70 @@ export default function AmazonExternalInventoryPage() {
     setIsLoadingRows(false);
   }, [latestBatch?.report_processing_status, latestBatch?.row_count]);
 
+  const loadLocationRollups = useCallback(async (batchId: string) => {
+    setIsLoadingLocationRollups(true);
+    setLocationRollupError(null);
+
+    const { data, error: rollupError } = await supabase.rpc(
+      "erp_external_inventory_location_rollup",
+      {
+        p_batch_id: batchId,
+        p_limit: rowLimit,
+        p_offset: 0,
+      }
+    );
+
+    if (rollupError) {
+      setIsLoadingLocationRollups(false);
+      setLocationRollupError(rollupError.message || "Failed to load location rollups.");
+      return;
+    }
+
+    const parsed = z.array(locationRollupSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setIsLoadingLocationRollups(false);
+      setLocationRollupError("Failed to load location rollups.");
+      return;
+    }
+
+    setLocationRollups(parsed.data);
+    if (!selectedLocationCode && parsed.data.length) {
+      setSelectedLocationCode(parsed.data[0].external_location_code);
+    }
+    setIsLoadingLocationRollups(false);
+  }, [selectedLocationCode]);
+
+  const loadLocationSkuRollups = useCallback(async (batchId: string, locationCode: string) => {
+    setIsLoadingLocationSkus(true);
+    setLocationSkuError(null);
+
+    const { data, error: rollupError } = await supabase.rpc(
+      "erp_external_inventory_location_sku_rollup",
+      {
+        p_batch_id: batchId,
+        p_external_location_code: locationCode,
+        p_limit: rowLimit,
+        p_offset: 0,
+      }
+    );
+
+    if (rollupError) {
+      setIsLoadingLocationSkus(false);
+      setLocationSkuError(rollupError.message || "Failed to load location SKU totals.");
+      return;
+    }
+
+    const parsed = z.array(locationSkuRollupSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setIsLoadingLocationSkus(false);
+      setLocationSkuError("Failed to load location SKU totals.");
+      return;
+    }
+
+    setLocationSkuRollups(parsed.data);
+    setIsLoadingLocationSkus(false);
+  }, []);
+
   const loadBatches = useCallback(async () => {
     if (!ctx?.companyId) return;
     setError(null);
@@ -307,7 +411,7 @@ export default function AmazonExternalInventoryPage() {
     const { data, error: batchesError } = await supabase
       .from("erp_external_inventory_batches")
       .select(
-        "id, created_at, pulled_at, rows_total, matched_count, unmatched_count, status, report_processing_status"
+        "id, created_at, pulled_at, type, rows_total, matched_count, unmatched_count, status, report_processing_status"
       )
       .eq("channel_key", "amazon")
       .order("created_at", { ascending: false })
@@ -361,7 +465,7 @@ export default function AmazonExternalInventoryPage() {
     const { data, error: batchError } = await supabase
       .from("erp_external_inventory_batches")
       .select(
-        "id, channel_key, marketplace_id, pulled_at, rows_total, matched_count, unmatched_count, status, report_id, external_report_id, report_processing_status, report_response, error"
+        "id, channel_key, marketplace_id, type, pulled_at, rows_total, matched_count, unmatched_count, status, report_id, external_report_id, report_processing_status, report_response, error"
       )
       .eq("id", batchId)
       .maybeSingle();
@@ -374,6 +478,7 @@ export default function AmazonExternalInventoryPage() {
       id: data.id,
       channel_key: data.channel_key,
       marketplace_id: data.marketplace_id,
+      type: data.type ?? null,
       pulled_at: data.pulled_at,
       row_count: data.rows_total ?? 0,
       matched_count: data.matched_count ?? 0,
@@ -443,6 +548,39 @@ export default function AmazonExternalInventoryPage() {
       await loadRows(selectedBatchId, onlyUnmatched);
     })();
   }, [loadRows, onlyUnmatched, selectedBatchId]);
+
+  useEffect(() => {
+    if (!selectedBatchId || !isLocationBatch) {
+      setLocationRollups([]);
+      setLocationSkuRollups([]);
+      setSelectedLocationCode(null);
+      return;
+    }
+
+    if (viewMode === "location") {
+      loadLocationRollups(selectedBatchId);
+    }
+  }, [isLocationBatch, loadLocationRollups, selectedBatchId, viewMode]);
+
+  useEffect(() => {
+    if (!locationRollups.length) return;
+    if (selectedLocationCode && locationRollups.some((row) => row.external_location_code === selectedLocationCode)) {
+      return;
+    }
+    setSelectedLocationCode(locationRollups[0].external_location_code);
+  }, [locationRollups, selectedLocationCode]);
+
+  useEffect(() => {
+    if (!selectedBatchId || !isLocationBatch || viewMode !== "location") {
+      return;
+    }
+
+    if (selectedLocationCode) {
+      loadLocationSkuRollups(selectedBatchId, selectedLocationCode);
+    } else {
+      setLocationSkuRollups([]);
+    }
+  }, [isLocationBatch, loadLocationSkuRollups, selectedBatchId, selectedLocationCode, viewMode]);
 
   const handleTestConnection = async () => {
     setNotice(null);
@@ -696,6 +834,17 @@ export default function AmazonExternalInventoryPage() {
     setMappingError(null);
   }, []);
 
+  const refreshLocationViews = useCallback(
+    async (batchId: string) => {
+      if (!isLocationBatch || viewMode !== "location") return;
+      await loadLocationRollups(batchId);
+      if (selectedLocationCode) {
+        await loadLocationSkuRollups(batchId, selectedLocationCode);
+      }
+    },
+    [isLocationBatch, loadLocationRollups, loadLocationSkuRollups, selectedLocationCode, viewMode]
+  );
+
   const handleSaveMapping = useCallback(async () => {
     if (!ctx?.companyId || !mappingRow) return;
     if (!mappingVariant) {
@@ -737,12 +886,22 @@ export default function AmazonExternalInventoryPage() {
 
     await loadBatchSummary(mappingRow.batch_id);
     await loadRows(mappingRow.batch_id, onlyUnmatched);
+    await refreshLocationViews(mappingRow.batch_id);
     setNotice("Mapping saved and SKU rematched.");
     setMappingSaving(false);
     setMappingRow(null);
     setMappingVariant(null);
     setMappingNotes("");
-  }, [ctx?.companyId, loadBatchSummary, loadRows, mappingNotes, mappingRow, mappingVariant, onlyUnmatched]);
+  }, [
+    ctx?.companyId,
+    loadBatchSummary,
+    loadRows,
+    mappingNotes,
+    mappingRow,
+    mappingVariant,
+    onlyUnmatched,
+    refreshLocationViews,
+  ]);
 
   const handleRecomputeBatch = useCallback(async () => {
     if (!latestBatch?.id) {
@@ -766,9 +925,10 @@ export default function AmazonExternalInventoryPage() {
 
     await loadBatchSummary(latestBatch.id);
     await loadRows(latestBatch.id, onlyUnmatched);
+    await refreshLocationViews(latestBatch.id);
     setNotice("Batch recomputed.");
     setIsRematchingBatch(false);
-  }, [latestBatch?.id, loadBatchSummary, loadRows, onlyUnmatched]);
+  }, [latestBatch?.id, loadBatchSummary, loadRows, onlyUnmatched, refreshLocationViews]);
 
   const showLatestFailedBanner = useMemo(() => {
     if (!newestBatch || !bestBatch || !selectedBatchId) return false;
@@ -794,82 +954,19 @@ export default function AmazonExternalInventoryPage() {
     return `${dateLabel} — ${statusLabel} (${rowCount} rows)`;
   }, []);
 
-  const locationGroups = useMemo(() => {
-    if (viewMode !== "location") return [];
-    const groupMap = new Map<
-      string,
-      {
-        location: string;
-        available: number;
-        inbound: number;
-        reserved: number;
-        items: Map<
-          string,
-          {
-            key: string;
-            skuLabel: string;
-            variantTitle: string | null;
-            variantSize: string | null;
-            variantColor: string | null;
-            available: number;
-            inbound: number;
-            reserved: number;
-            externalSkus: Set<string>;
-          }
-        >;
-      }
-    >();
+  const formatSnapshotMode = useCallback((mode?: string | null) => {
+    if (mode === "fc") return "FC / Location breakdown";
+    if (mode === "marketplace") return "Marketplace totals";
+    if (!mode) return "—";
+    return mode;
+  }, []);
 
-    rows.forEach((row) => {
-      const locationCode = row.external_location_code || row.location || "Unknown";
-      const group = groupMap.get(locationCode) ?? {
-        location: locationCode,
-        available: 0,
-        inbound: 0,
-        reserved: 0,
-        items: new Map(),
-      };
-
-      const itemKey = row.matched_variant_id ?? `external:${row.external_sku.toLowerCase()}`;
-      const skuLabel = row.sku || row.external_sku;
-      const item =
-        group.items.get(itemKey) ?? {
-          key: itemKey,
-          skuLabel,
-          variantTitle: row.variant_title ?? null,
-          variantSize: row.variant_size ?? null,
-          variantColor: row.variant_color ?? null,
-          available: 0,
-          inbound: 0,
-          reserved: 0,
-          externalSkus: new Set<string>(),
-        };
-
-      item.available += row.available_qty ?? 0;
-      item.inbound += row.inbound_qty ?? 0;
-      item.reserved += row.reserved_qty ?? 0;
-      item.externalSkus.add(row.external_sku);
-      group.items.set(itemKey, item);
-
-      group.available += row.available_qty ?? 0;
-      group.inbound += row.inbound_qty ?? 0;
-      group.reserved += row.reserved_qty ?? 0;
-
-      groupMap.set(locationCode, group);
-    });
-
-    return Array.from(groupMap.values())
-      .map((group) => ({
-        ...group,
-        items: Array.from(group.items.values())
-          .map((item) => ({
-            ...item,
-            externalSkuCount: item.externalSkus.size,
-          }))
-          .sort((a, b) => a.skuLabel.localeCompare(b.skuLabel)),
-      }))
-      .sort((a, b) => a.location.localeCompare(b.location));
-  }, [rows, viewMode]);
+  const locationCodesMissing = useMemo(() => {
+    if (!isLocationBatch || viewMode !== "location") return false;
+    if (!latestBatch || latestBatch.row_count === 0) return false;
+    if (!locationRollups.length) return false;
+    return locationRollups.every((row) => row.external_location_code === "UNKNOWN");
+  }, [isLocationBatch, latestBatch, locationRollups, viewMode]);
 
   const handleDownloadImportErrors = useCallback(() => {
     if (!importErrors.length) return;
@@ -1098,6 +1195,7 @@ export default function AmazonExternalInventoryPage() {
 
           await loadBatchSummary(latestBatch.id);
           await loadRows(latestBatch.id, onlyUnmatched);
+          await refreshLocationViews(latestBatch.id);
 
           const inserted = parsedUpsert.data.inserted_or_updated ?? 0;
           const skipped = parsedUpsert.data.skipped ?? 0;
@@ -1114,7 +1212,15 @@ export default function AmazonExternalInventoryPage() {
         },
       });
     },
-    [ctx?.companyId, latestBatch?.id, latestBatch?.marketplace_id, loadBatchSummary, loadRows, onlyUnmatched]
+    [
+      ctx?.companyId,
+      latestBatch?.id,
+      latestBatch?.marketplace_id,
+      loadBatchSummary,
+      loadRows,
+      onlyUnmatched,
+      refreshLocationViews,
+    ]
   );
 
   const handleImportFileChange = useCallback(
@@ -1261,6 +1367,10 @@ export default function AmazonExternalInventoryPage() {
                 <span style={summaryValueStyle}>{latestBatch.report_processing_status || "—"}</span>
               </div>
               <div style={summaryRowStyle}>
+                <span>Mode</span>
+                <span style={summaryValueStyle}>{formatSnapshotMode(latestBatch.type)}</span>
+              </div>
+              <div style={summaryRowStyle}>
                 <span>Pulled at</span>
                 <span style={summaryValueStyle}>{new Date(latestBatch.pulled_at).toLocaleString()}</span>
               </div>
@@ -1339,7 +1449,7 @@ export default function AmazonExternalInventoryPage() {
                 />
                 Only unmatched
               </label>
-              {snapshotMode === "fc" ? (
+              {snapshotMode === "fc" || isLocationBatch ? (
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
                   <span>View</span>
                   <select
@@ -1404,63 +1514,160 @@ export default function AmazonExternalInventoryPage() {
           ) : null}
           {viewMode === "location" ? (
             <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
-              {locationGroups.length === 0 ? (
-                <div style={{ color: "#6b7280" }}>
-                  {latestBatch
-                    ? "No rows to display."
-                    : reportBatchId
-                      ? "Report in progress…"
-                      : "Pull a snapshot to view inventory."}
-                </div>
-              ) : (
-                locationGroups.map((group) => (
-                  <div key={group.location} style={{ ...cardStyle, padding: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>{group.location}</h3>
-                        <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>
-                          {group.items.length} SKU group{group.items.length === 1 ? "" : "s"}
-                        </p>
-                      </div>
-                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "#374151" }}>
-                        <span>Available: {group.available}</span>
-                        <span>Inbound: {group.inbound}</span>
-                        <span>Reserved: {group.reserved}</span>
-                      </div>
-                    </div>
-                    <div style={{ overflowX: "auto", marginTop: 12 }}>
-                      <table style={tableStyle}>
-                        <thead>
-                          <tr>
-                            <th style={tableHeaderCellStyle}>SKU</th>
-                            <th style={tableHeaderCellStyle}>Product</th>
-                            <th style={tableHeaderCellStyle}>Size</th>
-                            <th style={tableHeaderCellStyle}>Color</th>
-                            <th style={tableHeaderCellStyle}>External SKU count</th>
-                            <th style={tableHeaderCellStyle}>Available</th>
-                            <th style={tableHeaderCellStyle}>Inbound total</th>
-                            <th style={tableHeaderCellStyle}>Reserved</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.items.map((item) => (
-                            <tr key={item.key}>
-                              <td style={tableCellStyle}>{item.skuLabel}</td>
-                              <td style={tableCellStyle}>{item.variantTitle || "—"}</td>
-                              <td style={tableCellStyle}>{item.variantSize || "—"}</td>
-                              <td style={tableCellStyle}>{item.variantColor || "—"}</td>
-                              <td style={tableCellStyle}>{item.externalSkuCount}</td>
-                              <td style={tableCellStyle}>{item.available}</td>
-                              <td style={tableCellStyle}>{item.inbound}</td>
-                              <td style={tableCellStyle}>{item.reserved}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+              <div style={cardStyle}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>Location summary</h3>
+                    <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
+                      {isLoadingLocationRollups ? "Loading locations…" : `${locationRollups.length} location(s).`}
+                    </p>
                   </div>
-                ))
-              )}
+                  {locationCodesMissing ? (
+                    <span style={{ fontSize: 12, color: "#b45309" }}>
+                      This report did not include location codes. Try a different report type or verify SP-API permissions.
+                    </span>
+                  ) : null}
+                </div>
+                {locationRollupError ? (
+                  <div style={{ marginTop: 12, color: "#b91c1c" }}>{locationRollupError}</div>
+                ) : (
+                  <div style={{ overflowX: "auto", marginTop: 12 }}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={tableHeaderCellStyle}>Location</th>
+                          <th style={tableHeaderCellStyle}>Rows</th>
+                          <th style={tableHeaderCellStyle}>Matched</th>
+                          <th style={tableHeaderCellStyle}>Unmatched</th>
+                          <th style={tableHeaderCellStyle}>Available</th>
+                          <th style={tableHeaderCellStyle}>Inbound</th>
+                          <th style={tableHeaderCellStyle}>Reserved</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {locationRollups.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                              {latestBatch
+                                ? "No rows to display."
+                                : reportBatchId
+                                  ? "Report in progress…"
+                                  : "Pull a snapshot to view inventory."}
+                            </td>
+                          </tr>
+                        ) : (
+                          locationRollups.map((rollup) => {
+                            const isSelected = rollup.external_location_code === selectedLocationCode;
+                            return (
+                              <tr key={rollup.external_location_code}>
+                                <td style={tableCellStyle}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLocationCode(rollup.external_location_code)}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      color: isSelected ? "#1d4ed8" : "#111827",
+                                      fontWeight: isSelected ? 600 : 500,
+                                      cursor: "pointer",
+                                      padding: 0,
+                                    }}
+                                  >
+                                    {rollup.external_location_code}
+                                  </button>
+                                </td>
+                                <td style={tableCellStyle}>{rollup.rows_count}</td>
+                                <td style={tableCellStyle}>{rollup.matched_rows}</td>
+                                <td style={tableCellStyle}>{rollup.unmatched_rows}</td>
+                                <td style={tableCellStyle}>{rollup.available_total}</td>
+                                <td style={tableCellStyle}>{rollup.inbound_total}</td>
+                                <td style={tableCellStyle}>{rollup.reserved_total}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div style={cardStyle}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>
+                      {selectedLocationCode ? `SKU totals — ${selectedLocationCode}` : "SKU totals"}
+                    </h3>
+                    <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
+                      {isLoadingLocationSkus
+                        ? "Loading SKU totals…"
+                        : `${locationSkuRollups.length} SKU group(s).`}
+                    </p>
+                  </div>
+                </div>
+                {locationSkuError ? (
+                  <div style={{ marginTop: 12, color: "#b91c1c" }}>{locationSkuError}</div>
+                ) : (
+                  <div style={{ overflowX: "auto", marginTop: 12 }}>
+                    <table style={tableStyle}>
+                      <thead>
+                        <tr>
+                          <th style={tableHeaderCellStyle}>ERP SKU</th>
+                          <th style={tableHeaderCellStyle}>Product</th>
+                          <th style={tableHeaderCellStyle}>Size</th>
+                          <th style={tableHeaderCellStyle}>Color</th>
+                          <th style={tableHeaderCellStyle}>Available</th>
+                          <th style={tableHeaderCellStyle}>Inbound</th>
+                          <th style={tableHeaderCellStyle}>Reserved</th>
+                          <th style={tableHeaderCellStyle}>Unmatched rows</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedLocationCode && locationSkuRollups.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                              {isLoadingLocationSkus ? "Loading SKU totals…" : "No SKU totals available."}
+                            </td>
+                          </tr>
+                        ) : (
+                          locationSkuRollups.map((rollup) => {
+                            const isUnmapped = !rollup.matched_variant_id;
+                            return (
+                              <tr key={`${rollup.external_location_code}-${rollup.matched_variant_id ?? rollup.external_sku_sample}`}>
+                                <td style={tableCellStyle}>
+                                  {rollup.sku || rollup.external_sku_sample || "—"}
+                                  {isUnmapped ? (
+                                    <span
+                                      style={{
+                                        marginLeft: 8,
+                                        padding: "2px 6px",
+                                        borderRadius: 999,
+                                        background: "#fef3c7",
+                                        color: "#92400e",
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      Unmapped
+                                    </span>
+                                  ) : null}
+                                </td>
+                                <td style={tableCellStyle}>{rollup.variant_title || "—"}</td>
+                                <td style={tableCellStyle}>{rollup.variant_size || "—"}</td>
+                                <td style={tableCellStyle}>{rollup.variant_color || "—"}</td>
+                                <td style={tableCellStyle}>{rollup.available_total}</td>
+                                <td style={tableCellStyle}>{rollup.inbound_total}</td>
+                                <td style={tableCellStyle}>{rollup.reserved_total}</td>
+                                <td style={tableCellStyle}>{rollup.unmatched_rows}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ overflowX: "auto", marginTop: 16 }}>

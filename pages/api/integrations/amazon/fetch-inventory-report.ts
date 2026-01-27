@@ -55,6 +55,11 @@ type ExternalRowInsert = {
   raw: unknown;
 };
 
+const LOCATION_REPORT_TYPES = new Set([
+  "GET_FBA_MYI_ALL_INVENTORY_DATA",
+  "GET_AFN_INVENTORY_DATA",
+]);
+
 const querySchema = z.object({
   batchId: z.string().uuid(),
 });
@@ -339,7 +344,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data: batch, error: batchError } = await client
       .from("erp_external_inventory_batches")
       .select(
-        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_document_id, report_type, rows_total, matched_count, unmatched_count, error"
+        "id, channel_key, marketplace_id, pulled_at, status, external_report_id, report_id, report_document_id, report_type, type, rows_total, matched_count, unmatched_count, error"
       )
       .eq("id", parseResult.data.batchId)
       .maybeSingle();
@@ -620,9 +625,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       "fulfillment-center-id",
       "fulfillment center id",
       "fulfillment_center_id",
+      "fulfillment center",
       "fc",
       "fc_id",
       "location",
+      "location_id",
+      "location-id",
     ]);
 
     if (!skuHeader) {
@@ -658,6 +666,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const matchesBySku = await fetchVariantMatches(client, companyId, externalSkus);
 
+    const isLocationReport =
+      batch.type === "fc" || LOCATION_REPORT_TYPES.has(batch.report_type ?? "");
+
     if ((existingRows.count ?? 0) === 0) {
       const inserts: ExternalRowInsert[] = [];
       dataRows.forEach((row) => {
@@ -686,7 +697,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving > 0
             ? qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving
             : inboundTotalRaw;
-        const location = getCell(row, locationHeader) || null;
+        const location = isLocationReport ? getCell(row, locationHeader) || null : null;
 
         inserts.push({
           batch_id: batch.id,
@@ -706,7 +717,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           reserved_qty: qtyReserved,
           inbound_qty: inboundTotal,
           location,
-          external_location_code: location,
+          external_location_code: isLocationReport ? location : null,
           erp_variant_id: erpVariantId,
           matched_variant_id: erpVariantId,
           erp_warehouse_id: null,
