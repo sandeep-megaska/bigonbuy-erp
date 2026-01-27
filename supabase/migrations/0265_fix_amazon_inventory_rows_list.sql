@@ -1,6 +1,12 @@
--- Fix Amazon inventory rows list RPC to use unified external inventory rows schema
+-- 0265_fix_amazon_inventory_rows_list.sql
+-- Fix external inventory rows list RPC to use unified external inventory rows schema
 
-create or replace function public.erp_external_inventory_rows_list(
+begin;
+
+-- Important: must DROP first to allow return type/column changes
+drop function if exists public.erp_external_inventory_rows_list(uuid, boolean, int, int);
+
+create function public.erp_external_inventory_rows_list(
   p_batch_id uuid,
   p_only_unmatched boolean default false,
   p_limit int default 500,
@@ -41,9 +47,9 @@ begin
     r.match_status,
     r.erp_variant_id,
     r.matched_variant_id,
-    r.available_qty,
-    r.inbound_qty,
-    r.reserved_qty,
+    r.available_qty::int,
+    r.inbound_qty::int,
+    r.reserved_qty::int,
     r.location,
     r.marketplace_id,
     r.asin,
@@ -66,3 +72,5 @@ $$;
 
 revoke all on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) from public;
 grant execute on function public.erp_external_inventory_rows_list(uuid, boolean, int, int) to authenticated;
+
+commit;
