@@ -274,7 +274,7 @@ export default function AmazonExternalInventoryPage() {
     setError(null);
 
     // Snapshot rows are served via erp_external_inventory_rows_list in the existing external inventory module.
-    const { data, error: rowsError } = await supabase.rpc("erp_external_inventory_rows_list", {
+    const { data, error: rowsError } = await supabase.rpc("erp_external_inventory_rows_list_v2", {
       p_batch_id: batchId,
       p_only_unmatched: onlyUnmatchedRows,
       p_limit: rowLimit,
@@ -635,7 +635,7 @@ export default function AmazonExternalInventoryPage() {
     let offset = 0;
 
     while (true) {
-      const { data, error: exportError } = await supabase.rpc("erp_external_inventory_rows_list", {
+      const { data, error: exportError } = await supabase.rpc("erp_external_inventory_rows_list_v2", {
         p_batch_id: latestBatch.id,
         p_only_unmatched: true,
         p_limit: rowLimit,
