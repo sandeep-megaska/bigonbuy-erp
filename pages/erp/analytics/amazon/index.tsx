@@ -24,26 +24,55 @@ import { supabase } from "../../../../lib/supabaseClient";
 const DEFAULT_MARKETPLACE_ID = "A21TJRUUN4KGV";
 
 const salesBySkuSchema = z.object({
-  period: z.string().nullable(),
-  sku: z.string().nullable(),
-  asin: z.string().nullable(),
-  title: z.string().nullable(),
+  grain_start: z.string().nullable(),
+  mapped_variant_id: z.string().nullable(),
+  erp_sku: z.string().nullable(),
+  style_code: z.string().nullable(),
+  size: z.string().nullable(),
+  color: z.string().nullable(),
   units: z.number().nullable(),
-  sales: z.number().nullable(),
+  gross: z.number().nullable(),
+  tax: z.number().nullable(),
+  net: z.number().nullable(),
 });
 
 const salesByGeoSchema = z.object({
-  geo: z.string().nullable(),
+  geo_key: z.string().nullable(),
+  state: z.string().nullable(),
+  city: z.string().nullable(),
   orders: z.number().nullable(),
+  customers: z.number().nullable(),
   units: z.number().nullable(),
-  sales: z.number().nullable(),
+  gross: z.number().nullable(),
 });
 
 const cohortSchema = z.object({
-  cohort_period: z.string().nullable(),
+  cohort_start: z.string().nullable(),
+  period_index: z.number().nullable(),
   customers: z.number().nullable(),
   repeat_customers: z.number().nullable(),
-  repeat_rate: z.number().nullable(),
+  orders: z.number().nullable(),
+  gross: z.number().nullable(),
+});
+
+const returnsSchema = z.object({
+  mapped_variant_id: z.string().nullable(),
+  erp_sku: z.string().nullable(),
+  units_sold: z.number().nullable(),
+  units_returned: z.number().nullable(),
+  return_rate: z.number().nullable(),
+});
+
+const reportRunSchema = z.object({
+  id: z.string(),
+  status: z.string().nullable(),
+  requested_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  row_count: z.number().nullable(),
+  report_type: z.string().nullable(),
+  report_id: z.string().nullable(),
+  report_document_id: z.string().nullable(),
+  error: z.string().nullable(),
 });
 
 const filtersGridStyle: CSSProperties = {
@@ -56,6 +85,12 @@ const filtersGridStyle: CSSProperties = {
 const errorStyle: CSSProperties = {
   margin: 0,
   color: "#b91c1c",
+  fontSize: 13,
+};
+
+const mutedStyle: CSSProperties = {
+  margin: 0,
+  color: "#6b7280",
   fontSize: 13,
 };
 
@@ -77,6 +112,11 @@ function formatCurrency(value: number | null): string {
   }
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "—";
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 export default function AmazonAnalyticsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -90,14 +130,50 @@ export default function AmazonAnalyticsPage() {
   const [salesBySku, setSalesBySku] = useState<z.infer<typeof salesBySkuSchema>[]>([]);
   const [salesByGeo, setSalesByGeo] = useState<z.infer<typeof salesByGeoSchema>[]>([]);
   const [cohorts, setCohorts] = useState<z.infer<typeof cohortSchema>[]>([]);
+  const [topReturns, setTopReturns] = useState<z.infer<typeof returnsSchema>[]>([]);
   const [hasReturns, setHasReturns] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastRun, setLastRun] = useState<z.infer<typeof reportRunSchema> | null>(null);
 
   const visibleTabs = useMemo(() => {
     const tabs: Array<typeof activeTab> = ["sku", "geo", "cohorts"];
     if (hasReturns) tabs.push("returns");
     return tabs;
   }, [hasReturns]);
+
+  const repeatSummary = useMemo(() => {
+    const totalCustomers = cohorts
+      .filter((row) => (row.period_index ?? 0) === 0)
+      .reduce((sum, row) => sum + (row.customers ?? 0), 0);
+    const repeatCustomers = cohorts
+      .filter((row) => (row.period_index ?? 0) > 0)
+      .reduce((sum, row) => sum + (row.repeat_customers ?? row.customers ?? 0), 0);
+    const repeatRate = totalCustomers > 0 ? repeatCustomers / totalCustomers : 0;
+    return { totalCustomers, repeatCustomers, repeatRate };
+  }, [cohorts]);
+
+  const loadReportRuns = useCallback(async () => {
+    const { data, error: rpcError } = await supabase.rpc("erp_channel_report_runs_list", {
+      p_channel_key: "amazon",
+      p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+      p_limit: 1,
+      p_offset: 0,
+    });
+
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+
+    const parsed = z.array(reportRunSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setError("Unable to parse report run history.");
+      return;
+    }
+
+    setLastRun(parsed.data[0] ?? null);
+  }, []);
 
   const loadSalesBySku = useCallback(async () => {
     if (!fromDate || !toDate) return;
@@ -182,7 +258,7 @@ export default function AmazonAnalyticsPage() {
 
   const loadReturnsAvailability = useCallback(async () => {
     const { count, error: countError } = await supabase
-      .from("erp_amazon_returns_items")
+      .from("erp_amazon_return_facts")
       .select("id", { count: "exact", head: true })
       .eq("marketplace_id", DEFAULT_MARKETPLACE_ID);
 
@@ -194,6 +270,33 @@ export default function AmazonAnalyticsPage() {
     setHasReturns((count ?? 0) > 0);
   }, []);
 
+  const loadTopReturns = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setIsLoadingData(true);
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_top_returns", {
+      p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+      p_from: fromDate,
+      p_to: toDate,
+      p_limit: 50,
+    });
+
+    if (rpcError) {
+      setError(rpcError.message);
+      setIsLoadingData(false);
+      return;
+    }
+
+    const parsed = z.array(returnsSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setError("Unable to parse returns response.");
+      setIsLoadingData(false);
+      return;
+    }
+
+    setTopReturns(parsed.data);
+    setIsLoadingData(false);
+  }, [fromDate, toDate]);
+
   const handleRefresh = useCallback(async () => {
     setError(null);
     if (activeTab === "sku") {
@@ -202,8 +305,41 @@ export default function AmazonAnalyticsPage() {
       await loadSalesByGeo();
     } else if (activeTab === "cohorts") {
       await loadCohorts();
+    } else if (activeTab === "returns") {
+      await loadTopReturns();
     }
-  }, [activeTab, loadSalesBySku, loadSalesByGeo, loadCohorts]);
+  }, [activeTab, loadSalesBySku, loadSalesByGeo, loadCohorts, loadTopReturns]);
+
+  const handleSync = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setIsSyncing(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/integrations/amazon/analytics/reports-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketplaceId: DEFAULT_MARKETPLACE_ID,
+          from: fromDate,
+          to: toDate,
+        }),
+      });
+
+      const payload = (await response.json()) as SyncResponse;
+      if (!response.ok || !payload.ok) {
+        setError(payload.ok ? "Failed to sync analytics report." : payload.error);
+        return;
+      }
+
+      await loadReportRuns();
+      await handleRefresh();
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : "Failed to sync analytics report.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [fromDate, toDate, handleRefresh, loadReportRuns]);
 
   useEffect(() => {
     let active = true;
@@ -239,7 +375,8 @@ export default function AmazonAnalyticsPage() {
 
   useEffect(() => {
     loadReturnsAvailability();
-  }, [loadReturnsAvailability]);
+    loadReportRuns();
+  }, [loadReportRuns, loadReturnsAvailability]);
 
   useEffect(() => {
     if (!visibleTabs.includes(activeTab)) {
@@ -264,10 +401,20 @@ export default function AmazonAnalyticsPage() {
             <p style={eyebrowStyle}>Analytics · Amazon</p>
             <h1 style={h1Style}>Amazon Analytics (India)</h1>
             <p style={subtitleStyle}>Sales, geo performance, and repeat customer signals from reports.</p>
+            {lastRun ? (
+              <p style={mutedStyle}>
+                Last sync: {lastRun.status ?? "unknown"} · {lastRun.requested_at ?? "—"} · rows {lastRun.row_count ?? 0}
+              </p>
+            ) : (
+              <p style={mutedStyle}>No report runs yet. Sync to load analytics facts.</p>
+            )}
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button type="button" style={secondaryButtonStyle} onClick={handleRefresh}>
+            <button type="button" style={secondaryButtonStyle} onClick={handleRefresh} disabled={isLoadingData}>
               Refresh
+            </button>
+            <button type="button" style={primaryButtonStyle} onClick={handleSync} disabled={isSyncing}>
+              {isSyncing ? "Syncing analytics…" : "Sync analytics (reports)"}
             </button>
           </div>
         </header>
@@ -332,29 +479,35 @@ export default function AmazonAnalyticsPage() {
               <thead>
                 <tr>
                   <th style={tableHeaderCellStyle}>Period</th>
-                  <th style={tableHeaderCellStyle}>SKU</th>
-                  <th style={tableHeaderCellStyle}>ASIN</th>
-                  <th style={tableHeaderCellStyle}>Title</th>
+                  <th style={tableHeaderCellStyle}>ERP SKU</th>
+                  <th style={tableHeaderCellStyle}>Style</th>
+                  <th style={tableHeaderCellStyle}>Size</th>
+                  <th style={tableHeaderCellStyle}>Color</th>
                   <th style={tableHeaderCellStyle}>Units</th>
-                  <th style={tableHeaderCellStyle}>Sales</th>
+                  <th style={tableHeaderCellStyle}>Gross</th>
+                  <th style={tableHeaderCellStyle}>Tax</th>
+                  <th style={tableHeaderCellStyle}>Net</th>
                 </tr>
               </thead>
               <tbody>
                 {salesBySku.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={6}>
+                    <td style={tableCellStyle} colSpan={9}>
                       {isLoadingData ? "Loading sales…" : "No sales data found."}
                     </td>
                   </tr>
                 ) : (
                   salesBySku.map((row, index) => (
-                    <tr key={`${row.sku ?? "sku"}-${row.period ?? index}`}>
-                      <td style={tableCellStyle}>{row.period ?? "—"}</td>
-                      <td style={tableCellStyle}>{row.sku ?? "—"}</td>
-                      <td style={tableCellStyle}>{row.asin ?? "—"}</td>
-                      <td style={tableCellStyle}>{row.title ?? "—"}</td>
+                    <tr key={`${row.erp_sku ?? "sku"}-${row.grain_start ?? index}`}>
+                      <td style={tableCellStyle}>{row.grain_start ?? "—"}</td>
+                      <td style={tableCellStyle}>{row.erp_sku ?? "Unmapped"}</td>
+                      <td style={tableCellStyle}>{row.style_code ?? "—"}</td>
+                      <td style={tableCellStyle}>{row.size ?? "—"}</td>
+                      <td style={tableCellStyle}>{row.color ?? "—"}</td>
                       <td style={tableCellStyle}>{row.units ?? 0}</td>
-                      <td style={tableCellStyle}>{formatCurrency(row.sales ?? 0)}</td>
+                      <td style={tableCellStyle}>{formatCurrency(row.gross ?? 0)}</td>
+                      <td style={tableCellStyle}>{formatCurrency(row.tax ?? 0)}</td>
+                      <td style={tableCellStyle}>{formatCurrency(row.net ?? 0)}</td>
                     </tr>
                   ))
                 )}
@@ -379,26 +532,30 @@ export default function AmazonAnalyticsPage() {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={tableHeaderCellStyle}>{geoLevel === "state" ? "State" : "City"}</th>
+                  <th style={tableHeaderCellStyle}>State</th>
+                  {geoLevel === "city" ? <th style={tableHeaderCellStyle}>City</th> : null}
                   <th style={tableHeaderCellStyle}>Orders</th>
+                  <th style={tableHeaderCellStyle}>Customers</th>
                   <th style={tableHeaderCellStyle}>Units</th>
-                  <th style={tableHeaderCellStyle}>Sales</th>
+                  <th style={tableHeaderCellStyle}>Gross</th>
                 </tr>
               </thead>
               <tbody>
                 {salesByGeo.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={4}>
+                    <td style={tableCellStyle} colSpan={geoLevel === "city" ? 6 : 5}>
                       {isLoadingData ? "Loading geo data…" : "No geography data found."}
                     </td>
                   </tr>
                 ) : (
                   salesByGeo.map((row, index) => (
-                    <tr key={`${row.geo ?? "geo"}-${index}`}>
-                      <td style={tableCellStyle}>{row.geo ?? "—"}</td>
+                    <tr key={`${row.geo_key ?? "geo"}-${index}`}>
+                      <td style={tableCellStyle}>{row.state ?? "—"}</td>
+                      {geoLevel === "city" ? <td style={tableCellStyle}>{row.city ?? "—"}</td> : null}
                       <td style={tableCellStyle}>{row.orders ?? 0}</td>
+                      <td style={tableCellStyle}>{row.customers ?? 0}</td>
                       <td style={tableCellStyle}>{row.units ?? 0}</td>
-                      <td style={tableCellStyle}>{formatCurrency(row.sales ?? 0)}</td>
+                      <td style={tableCellStyle}>{formatCurrency(row.gross ?? 0)}</td>
                     </tr>
                   ))
                 )}
@@ -420,19 +577,27 @@ export default function AmazonAnalyticsPage() {
                 Toggle cohort grain
               </button>
             </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              <span style={badgeStyle}>Total customers: {repeatSummary.totalCustomers}</span>
+              <span style={badgeStyle}>Repeat customers: {repeatSummary.repeatCustomers}</span>
+              <span style={badgeStyle}>Repeat rate: {formatPercent(repeatSummary.repeatRate)}</span>
+            </div>
+            <p style={mutedStyle}>Repeat rates depend on buyer email availability.</p>
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={tableHeaderCellStyle}>Cohort period</th>
+                  <th style={tableHeaderCellStyle}>Cohort start</th>
+                  <th style={tableHeaderCellStyle}>Period index</th>
                   <th style={tableHeaderCellStyle}>Customers</th>
                   <th style={tableHeaderCellStyle}>Repeat customers</th>
-                  <th style={tableHeaderCellStyle}>Repeat rate</th>
+                  <th style={tableHeaderCellStyle}>Orders</th>
+                  <th style={tableHeaderCellStyle}>Gross</th>
                 </tr>
               </thead>
               <tbody>
                 {cohorts.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={4}>
+                    <td style={tableCellStyle} colSpan={6}>
                       {isLoadingData
                         ? "Loading cohorts…"
                         : "No cohort data found (buyer email may be missing)."}
@@ -440,11 +605,13 @@ export default function AmazonAnalyticsPage() {
                   </tr>
                 ) : (
                   cohorts.map((row, index) => (
-                    <tr key={`${row.cohort_period ?? "cohort"}-${index}`}>
-                      <td style={tableCellStyle}>{row.cohort_period ?? "—"}</td>
+                    <tr key={`${row.cohort_start ?? "cohort"}-${row.period_index ?? index}`}>
+                      <td style={tableCellStyle}>{row.cohort_start ?? "—"}</td>
+                      <td style={tableCellStyle}>{row.period_index ?? 0}</td>
                       <td style={tableCellStyle}>{row.customers ?? 0}</td>
                       <td style={tableCellStyle}>{row.repeat_customers ?? 0}</td>
-                      <td style={tableCellStyle}>{row.repeat_rate ?? 0}</td>
+                      <td style={tableCellStyle}>{row.orders ?? 0}</td>
+                      <td style={tableCellStyle}>{formatCurrency(row.gross ?? 0)}</td>
                     </tr>
                   ))
                 )}
@@ -455,13 +622,45 @@ export default function AmazonAnalyticsPage() {
 
         {activeTab === "returns" ? (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0 }}>Returns & refunds</h2>
-            <p style={{ marginTop: 0, color: "#6b7280" }}>
-              Returns ingestion is not configured yet. This panel will populate once returns data is loaded.
-            </p>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              <p style={{ margin: 0, fontWeight: 600 }}>Returns & refunds</p>
+              <span style={badgeStyle}>Top returned SKUs</span>
+            </div>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>ERP SKU</th>
+                  <th style={tableHeaderCellStyle}>Units sold</th>
+                  <th style={tableHeaderCellStyle}>Units returned</th>
+                  <th style={tableHeaderCellStyle}>Return rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topReturns.length === 0 ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={4}>
+                      {isLoadingData ? "Loading returns…" : "No return data found."}
+                    </td>
+                  </tr>
+                ) : (
+                  topReturns.map((row, index) => (
+                    <tr key={`${row.erp_sku ?? "return"}-${index}`}>
+                      <td style={tableCellStyle}>{row.erp_sku ?? "Unmapped"}</td>
+                      <td style={tableCellStyle}>{row.units_sold ?? 0}</td>
+                      <td style={tableCellStyle}>{row.units_returned ?? 0}</td>
+                      <td style={tableCellStyle}>{formatPercent(row.return_rate ?? 0)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </section>
         ) : null}
       </div>
     </ErpShell>
   );
 }
+
+type SyncResponse =
+  | { ok: true; run_id: string; report_id: string; row_count: number; facts_upserted: number }
+  | { ok: false; error: string; details?: string };
