@@ -1,13 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAmazonAccessToken, spApiSignedFetch } from "../../../../lib/amazonSpApi";
+import { getAmazonAccessToken, spApiSignedFetch } from "../../../../../lib/amazonSpApi";
 import {
   createServiceRoleClient,
   createUserClient,
   getBearerToken,
   getSupabaseEnv,
-} from "../../../../lib/serverSupabase";
+} from "../../../../../lib/serverSupabase";
 
 type SyncResponse =
   | { ok: true; orders_upserted: number; items_written: number; next_watermark: string | null }
