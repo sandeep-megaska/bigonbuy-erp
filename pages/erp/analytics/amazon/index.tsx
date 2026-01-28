@@ -18,6 +18,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { createCsvBlob, triggerDownload } from "../../../../components/inventory/csvUtils";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -75,6 +76,12 @@ const reportRunSchema = z.object({
   error: z.string().nullable(),
 });
 
+const cohortEmailStatsSchema = z.object({
+  total_rows: z.number().nullable(),
+  missing_email_rows: z.number().nullable(),
+  missing_email_ratio: z.number().nullable(),
+});
+
 const filtersGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -91,6 +98,26 @@ const errorStyle: CSSProperties = {
 const mutedStyle: CSSProperties = {
   margin: 0,
   color: "#6b7280",
+  fontSize: 13,
+};
+
+const toastStyle = (type: "success" | "error"): CSSProperties => ({
+  marginTop: 12,
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: type === "success" ? "#ecfdf5" : "#fef2f2",
+  border: `1px solid ${type === "success" ? "#a7f3d0" : "#fecaca"}`,
+  color: type === "success" ? "#047857" : "#b91c1c",
+  fontSize: 13,
+});
+
+const warningBannerStyle: CSSProperties = {
+  margin: "0 0 12px",
+  padding: "8px 12px",
+  borderRadius: 8,
+  background: "#fffbeb",
+  border: "1px solid #fcd34d",
+  color: "#92400e",
   fontSize: 13,
 };
 
@@ -117,6 +144,24 @@ function formatPercent(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function escapeCsvValue(value: string) {
+  if (value.includes("\"") || value.includes(",") || value.includes("\n")) {
+    return `"${value.replace(/"/g, "\"\"")}"`;
+  }
+  return value;
+}
+
+function buildCsv(headers: string[], rows: (string | number | null | undefined)[][]): string {
+  const headerRow = headers.map((header) => escapeCsvValue(header));
+  const dataRows = rows.map((row) =>
+    row.map((cell) => {
+      const value = cell === null || cell === undefined ? "" : String(cell);
+      return escapeCsvValue(value);
+    })
+  );
+  return [headerRow, ...dataRows].map((row) => row.join(",")).join("\n");
+}
+
 export default function AmazonAnalyticsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -135,6 +180,10 @@ export default function AmazonAnalyticsPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastRun, setLastRun] = useState<z.infer<typeof reportRunSchema> | null>(null);
+  const [exportingTab, setExportingTab] = useState<null | "sku" | "geo" | "cohorts">(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [cohortEmailStats, setCohortEmailStats] =
+    useState<z.infer<typeof cohortEmailStatsSchema> | null>(null);
 
   const visibleTabs = useMemo(() => {
     const tabs: Array<typeof activeTab> = ["sku", "geo", "cohorts"];
@@ -256,6 +305,124 @@ export default function AmazonAnalyticsPage() {
     setIsLoadingData(false);
   }, [fromDate, toDate, cohortGrain]);
 
+  const loadCohortEmailStats = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_customer_cohort_email_stats", {
+      p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+      p_from: fromDate,
+      p_to: toDate,
+    });
+
+    if (rpcError) {
+      setError(rpcError.message);
+      return;
+    }
+
+    const parsed = z.array(cohortEmailStatsSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setError("Unable to parse cohort availability response.");
+      return;
+    }
+
+    setCohortEmailStats(parsed.data[0] ?? null);
+  }, [fromDate, toDate]);
+
+  const fetchAllSalesBySku = useCallback(async () => {
+    const limit = 500;
+    let offset = 0;
+    const rows: z.infer<typeof salesBySkuSchema>[] = [];
+
+    while (true) {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_sku", {
+        p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+        p_from: fromDate,
+        p_to: toDate,
+        p_grain: skuGrain,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(salesBySkuSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse sales by SKU response.");
+      }
+
+      if (parsed.data.length === 0) break;
+      rows.push(...parsed.data);
+      offset += limit;
+    }
+
+    return rows;
+  }, [fromDate, toDate, skuGrain]);
+
+  const fetchAllSalesByGeo = useCallback(async () => {
+    const limit = 500;
+    let offset = 0;
+    const rows: z.infer<typeof salesByGeoSchema>[] = [];
+
+    while (true) {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+        p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+        p_from: fromDate,
+        p_to: toDate,
+        p_level: geoLevel,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse sales by geo response.");
+      }
+
+      if (parsed.data.length === 0) break;
+      rows.push(...parsed.data);
+      offset += limit;
+    }
+
+    return rows;
+  }, [fromDate, toDate, geoLevel]);
+
+  const fetchAllCohorts = useCallback(async () => {
+    const limit = 500;
+    let offset = 0;
+    const rows: z.infer<typeof cohortSchema>[] = [];
+
+    while (true) {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_customer_cohorts_page", {
+        p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+        p_from: fromDate,
+        p_to: toDate,
+        p_cohort_grain: cohortGrain,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(cohortSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse customer cohort response.");
+      }
+
+      if (parsed.data.length === 0) break;
+      rows.push(...parsed.data);
+      offset += limit;
+    }
+
+    return rows;
+  }, [fromDate, toDate, cohortGrain]);
+
   const loadReturnsAvailability = useCallback(async () => {
     const { count, error: countError } = await supabase
       .from("erp_amazon_return_facts")
@@ -305,10 +472,107 @@ export default function AmazonAnalyticsPage() {
       await loadSalesByGeo();
     } else if (activeTab === "cohorts") {
       await loadCohorts();
+      await loadCohortEmailStats();
     } else if (activeTab === "returns") {
       await loadTopReturns();
     }
-  }, [activeTab, loadSalesBySku, loadSalesByGeo, loadCohorts, loadTopReturns]);
+  }, [activeTab, loadSalesBySku, loadSalesByGeo, loadCohorts, loadTopReturns, loadCohortEmailStats]);
+
+  const handleExportSku = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setExportingTab("sku");
+    setToast(null);
+    try {
+      const rows = await fetchAllSalesBySku();
+      const csv = buildCsv(
+        ["Period", "ERP SKU", "Style", "Size", "Color", "Units", "Gross", "Tax", "Net"],
+        rows.map((row) => [
+          row.grain_start ?? "",
+          row.erp_sku ?? "",
+          row.style_code ?? "",
+          row.size ?? "",
+          row.color ?? "",
+          row.units ?? 0,
+          row.gross ?? 0,
+          row.tax ?? 0,
+          row.net ?? 0,
+        ])
+      );
+      const filename = `amazon_sales_by_sku_${skuGrain}_${fromDate}_${toDate}.csv`;
+      triggerDownload(filename, createCsvBlob(csv));
+      setToast({ type: "success", message: `Exported ${rows.length} rows` });
+    } catch (exportError) {
+      setToast({
+        type: "error",
+        message: exportError instanceof Error ? exportError.message : "Failed to export CSV.",
+      });
+    } finally {
+      setExportingTab(null);
+    }
+  }, [fetchAllSalesBySku, fromDate, skuGrain, toDate]);
+
+  const handleExportGeo = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setExportingTab("geo");
+    setToast(null);
+    try {
+      const rows = await fetchAllSalesByGeo();
+      const headers = ["State"];
+      if (geoLevel === "city") headers.push("City");
+      headers.push("Orders", "Customers", "Units", "Gross");
+      const csv = buildCsv(
+        headers,
+        rows.map((row) => [
+          row.state ?? "",
+          ...(geoLevel === "city" ? [row.city ?? ""] : []),
+          row.orders ?? 0,
+          row.customers ?? 0,
+          row.units ?? 0,
+          row.gross ?? 0,
+        ])
+      );
+      const filename = `amazon_sales_by_geo_${geoLevel}_${fromDate}_${toDate}.csv`;
+      triggerDownload(filename, createCsvBlob(csv));
+      setToast({ type: "success", message: `Exported ${rows.length} rows` });
+    } catch (exportError) {
+      setToast({
+        type: "error",
+        message: exportError instanceof Error ? exportError.message : "Failed to export CSV.",
+      });
+    } finally {
+      setExportingTab(null);
+    }
+  }, [fetchAllSalesByGeo, fromDate, geoLevel, toDate]);
+
+  const handleExportCohorts = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setExportingTab("cohorts");
+    setToast(null);
+    try {
+      const rows = await fetchAllCohorts();
+      const csv = buildCsv(
+        ["Cohort start", "Period index", "Customers", "Repeat customers", "Orders", "Gross"],
+        rows.map((row) => [
+          row.cohort_start ?? "",
+          row.period_index ?? 0,
+          row.customers ?? 0,
+          row.repeat_customers ?? 0,
+          row.orders ?? 0,
+          row.gross ?? 0,
+        ])
+      );
+      const filename = `amazon_customer_cohorts_${cohortGrain}_${fromDate}_${toDate}.csv`;
+      triggerDownload(filename, createCsvBlob(csv));
+      setToast({ type: "success", message: `Exported ${rows.length} rows` });
+    } catch (exportError) {
+      setToast({
+        type: "error",
+        message: exportError instanceof Error ? exportError.message : "Failed to export CSV.",
+      });
+    } finally {
+      setExportingTab(null);
+    }
+  }, [fetchAllCohorts, fromDate, cohortGrain, toDate]);
 
   const handleSync = useCallback(async () => {
     if (!fromDate || !toDate) return;
@@ -399,6 +663,11 @@ export default function AmazonAnalyticsPage() {
     handleRefresh();
   }, [loading, fromDate, toDate, skuGrain, geoLevel, cohortGrain, activeTab, handleRefresh]);
 
+  useEffect(() => {
+    if (activeTab !== "cohorts") return;
+    loadCohortEmailStats();
+  }, [activeTab, loadCohortEmailStats]);
+
   if (loading) {
     return <div style={pageContainerStyle}>Loading Amazon analytics…</div>;
   }
@@ -430,6 +699,7 @@ export default function AmazonAnalyticsPage() {
         </header>
 
         {error ? <p style={errorStyle}>{error}</p> : null}
+        {toast ? <div style={toastStyle(toast.type)}>{toast.message}</div> : null}
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
           <div style={filtersGridStyle}>
@@ -474,15 +744,34 @@ export default function AmazonAnalyticsPage() {
 
         {activeTab === "sku" ? (
           <section style={cardStyle}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-              <p style={{ margin: 0, fontWeight: 600 }}>Sales by SKU</p>
-              <span style={badgeStyle}>Grain: {skuGrain}</span>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Sales by SKU</p>
+                <span style={badgeStyle}>Grain: {skuGrain}</span>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setSkuGrain(skuGrain === "day" ? "week" : "day")}
+                >
+                  Toggle grain
+                </button>
+              </div>
               <button
                 type="button"
                 style={secondaryButtonStyle}
-                onClick={() => setSkuGrain(skuGrain === "day" ? "week" : "day")}
+                onClick={handleExportSku}
+                disabled={exportingTab === "sku" || !fromDate || !toDate}
               >
-                Toggle grain
+                {exportingTab === "sku" ? "Exporting…" : "Export CSV"}
               </button>
             </div>
             <table style={tableStyle}>
@@ -528,15 +817,34 @@ export default function AmazonAnalyticsPage() {
 
         {activeTab === "geo" ? (
           <section style={cardStyle}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-              <p style={{ margin: 0, fontWeight: 600 }}>Sales by geography</p>
-              <span style={badgeStyle}>Level: {geoLevel}</span>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Sales by geography</p>
+                <span style={badgeStyle}>Level: {geoLevel}</span>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setGeoLevel(geoLevel === "state" ? "city" : "state")}
+                >
+                  Toggle level
+                </button>
+              </div>
               <button
                 type="button"
                 style={secondaryButtonStyle}
-                onClick={() => setGeoLevel(geoLevel === "state" ? "city" : "state")}
+                onClick={handleExportGeo}
+                disabled={exportingTab === "geo" || !fromDate || !toDate}
               >
-                Toggle level
+                {exportingTab === "geo" ? "Exporting…" : "Export CSV"}
               </button>
             </div>
             <table style={tableStyle}>
@@ -576,15 +884,34 @@ export default function AmazonAnalyticsPage() {
 
         {activeTab === "cohorts" ? (
           <section style={cardStyle}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-              <p style={{ margin: 0, fontWeight: 600 }}>Customer cohorts</p>
-              <span style={badgeStyle}>Cohort: {cohortGrain}</span>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Customer cohorts</p>
+                <span style={badgeStyle}>Cohort: {cohortGrain}</span>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setCohortGrain(cohortGrain === "month" ? "week" : "month")}
+                >
+                  Toggle cohort grain
+                </button>
+              </div>
               <button
                 type="button"
                 style={secondaryButtonStyle}
-                onClick={() => setCohortGrain(cohortGrain === "month" ? "week" : "month")}
+                onClick={handleExportCohorts}
+                disabled={exportingTab === "cohorts" || !fromDate || !toDate}
               >
-                Toggle cohort grain
+                {exportingTab === "cohorts" ? "Exporting…" : "Export CSV"}
               </button>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
@@ -592,6 +919,13 @@ export default function AmazonAnalyticsPage() {
               <span style={badgeStyle}>Repeat customers: {repeatSummary.repeatCustomers}</span>
               <span style={badgeStyle}>Repeat rate: {formatPercent(repeatSummary.repeatRate)}</span>
             </div>
+            {cohortEmailStats &&
+            (cohortEmailStats.missing_email_ratio ?? 0) > 0.8 &&
+            (cohortEmailStats.total_rows ?? 0) > 0 ? (
+              <div style={warningBannerStyle}>
+                Buyer email not available in this report. Cohorts are estimated using shipping postal/state fallback.
+              </div>
+            ) : null}
             <p style={mutedStyle}>Repeat rates depend on buyer email availability.</p>
             <table style={tableStyle}>
               <thead>
