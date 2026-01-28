@@ -1433,9 +1433,10 @@ export default function AmazonAnalyticsPage() {
                     secondary: `${formatNumber(overviewKpisV2?.cancellations_count ?? null)} orders`,
                   },
                   {
-                    label: "Returns",
+                    label: "Refunds/Returns (Settlement)",
                     value: formatCurrency(overviewKpisV2?.returns_value ?? null),
                     secondary: `${formatNumber(overviewKpisV2?.returns_count ?? null)} orders`,
+                    caption: "From Finance settlements; operational return reports not yet ingested.",
                   },
                   {
                     label: "Discount",
