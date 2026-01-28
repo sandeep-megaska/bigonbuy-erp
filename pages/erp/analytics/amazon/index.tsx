@@ -24,7 +24,13 @@ import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpC
 import { supabase } from "../../../../lib/supabaseClient";
 
 const DEFAULT_MARKETPLACE_ID = "A21TJRUUN4KGV";
-const MARKETPLACE_OPTIONS = [{ id: DEFAULT_MARKETPLACE_ID, label: "Amazon India" }];
+
+type ChannelAccount = {
+  id: string;
+  channel_key: string;
+  name: string;
+  is_active: boolean;
+};
 
 const overviewKpiSchema = z.object({
   gross: z.number().nullable(),
@@ -47,6 +53,17 @@ const overviewKpiV2Schema = z.object({
   returns_count: z.number().nullable(),
   returns_value: z.number().nullable(),
   discount_value: z.number().nullable(),
+  avg_per_day: z.number().nullable(),
+  days_count: z.number().nullable(),
+});
+
+const shopifyOverviewSchema = z.object({
+  gross_sales: z.number().nullable(),
+  confirmed_orders_count: z.number().nullable(),
+  cancellations_count: z.number().nullable(),
+  returns_count: z.number().nullable(),
+  discounts: z.number().nullable(),
+  net_sales_estimated: z.number().nullable(),
   avg_per_day: z.number().nullable(),
   days_count: z.number().nullable(),
 });
@@ -315,7 +332,10 @@ export default function AmazonAnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "sku" | "geo" | "customers" | "returns">("overview");
-  const [marketplaceId, setMarketplaceId] = useState(DEFAULT_MARKETPLACE_ID);
+  const marketplaceId = DEFAULT_MARKETPLACE_ID;
+  const [channelAccounts, setChannelAccounts] = useState<ChannelAccount[]>([]);
+  const [channelAccountId, setChannelAccountId] = useState<string | null>(null);
+  const [isLoadingChannels, setIsLoadingChannels] = useState(true);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [skuMode, setSkuMode] = useState<"summary" | "daily" | "weekly">("summary");
@@ -357,6 +377,30 @@ export default function AmazonAnalyticsPage() {
   const [cohortPage, setCohortPage] = useState(0);
   const [overviewView, setOverviewView] = useState<"analytics" | "financial" | "side-by-side">("side-by-side");
   const [isNarrowScreen, setIsNarrowScreen] = useState(false);
+
+  const selectedChannelAccount = useMemo(
+    () => channelAccounts.find((account) => account.id === channelAccountId) ?? null,
+    [channelAccounts, channelAccountId]
+  );
+  const selectedChannelKey = selectedChannelAccount?.channel_key ?? null;
+  const isAmazonChannel = selectedChannelKey === "amazon_in";
+  const isShopifyChannel = selectedChannelKey === "shopify";
+  const isUnsupportedChannel = Boolean(selectedChannelKey && !isAmazonChannel && !isShopifyChannel);
+  const reportChannelKey = isAmazonChannel ? "amazon" : isShopifyChannel ? "shopify" : null;
+  const reportMarketplaceId = isAmazonChannel ? marketplaceId : channelAccountId ?? null;
+  const exportPrefix = isAmazonChannel ? "amazon" : isShopifyChannel ? "shopify" : "channel";
+  const availableTabs = useMemo(() => {
+    const tabs = [
+      { key: "overview", label: "Overview" },
+      { key: "sku", label: "Sales by SKU" },
+      { key: "geo", label: "Sales by geography" },
+      { key: "customers", label: "Customers" },
+    ];
+    if (isAmazonChannel) {
+      tabs.push({ key: "returns", label: "Returns" });
+    }
+    return tabs;
+  }, [isAmazonChannel]);
 
   const exportOptions = useMemo(() => {
     if (activeTab === "overview") {
@@ -402,6 +446,23 @@ export default function AmazonAnalyticsPage() {
     return { totalCustomers, repeatCustomers, repeatRate };
   }, [cohorts]);
 
+  const overviewViewOptions = useMemo(() => {
+    if (!isAmazonChannel) {
+      return [{ key: "analytics", label: "Analytics (Estimated)" }];
+    }
+
+    return isNarrowScreen
+      ? [
+          { key: "analytics", label: "Analytics (Estimated)" },
+          { key: "financial", label: "Financial (Settlement)" },
+        ]
+      : [
+          { key: "analytics", label: "Analytics (Estimated)" },
+          { key: "financial", label: "Financial (Settlement)" },
+          { key: "side-by-side", label: "Side-by-side" },
+        ];
+  }, [isAmazonChannel, isNarrowScreen]);
+
   const filteredSkuRows = useMemo(() => {
     if (!skuQuery.trim() || skuMode === "summary") return salesBySku;
     const q = skuQuery.trim().toLowerCase();
@@ -419,9 +480,10 @@ export default function AmazonAnalyticsPage() {
   }, [geoTotalCount, salesByGeo.length, geoPage]);
 
   const loadReportRuns = useCallback(async () => {
+    if (!reportChannelKey || !reportMarketplaceId) return;
     const { data, error: rpcError } = await supabase.rpc("erp_channel_report_runs_list", {
-      p_channel_key: "amazon",
-      p_marketplace_id: marketplaceId,
+      p_channel_key: reportChannelKey,
+      p_marketplace_id: reportMarketplaceId,
       p_limit: 1,
       p_offset: 0,
     });
@@ -438,10 +500,14 @@ export default function AmazonAnalyticsPage() {
     }
 
     setLastRun(parsed.data[0] ?? null);
-  }, [marketplaceId]);
+  }, [reportChannelKey, reportMarketplaceId]);
 
   const loadOverviewKpis = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setOverviewKpis(null);
+      return;
+    }
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_overview_kpis", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -458,10 +524,48 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewKpis(parsed.data[0] ?? null);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, isAmazonChannel]);
 
   const loadOverviewKpisV2 = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_overview_v1", {
+        p_from: fromDate,
+        p_to: toDate,
+        p_channel_account_id: channelAccountId,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(shopifyOverviewSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse Shopify overview response.");
+      }
+
+      const overview = parsed.data[0] ?? null;
+      setOverviewKpisV2(
+        overview
+          ? {
+              gross_sales: overview.gross_sales ?? null,
+              net_sales_estimated: overview.net_sales_estimated ?? null,
+              confirmed_orders_count: overview.confirmed_orders_count ?? null,
+              confirmed_orders_value: overview.net_sales_estimated ?? null,
+              cancellations_count: overview.cancellations_count ?? 0,
+              cancellations_value: 0,
+              returns_count: overview.returns_count ?? 0,
+              returns_value: 0,
+              discount_value: overview.discounts ?? null,
+              avg_per_day: overview.avg_per_day ?? null,
+              days_count: overview.days_count ?? null,
+            }
+          : null
+      );
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_overview_v2", {
       p_from: fromDate,
       p_to: toDate,
@@ -480,10 +584,14 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewKpisV2(parsed.data[0] ?? null);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const loadFinancialOverview = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setFinancialOverview(null);
+      return;
+    }
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_financial_overview_v1", {
       p_from: fromDate,
       p_to: toDate,
@@ -501,10 +609,34 @@ export default function AmazonAnalyticsPage() {
     }
 
     setFinancialOverview(parsed.data[0] ?? null);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, isAmazonChannel]);
 
   const loadOverviewTopSkus = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sku_summary_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_sort: "units_desc",
+        p_limit: 20,
+        p_offset: 0,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(skuSummarySchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse Shopify top SKU response.");
+      }
+
+      setOverviewTopSkus(parsed.data);
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -524,10 +656,34 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewTopSkus(parsed.data);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const loadOverviewSlowMovers = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sku_summary_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_sort: "units_asc",
+        p_limit: 20,
+        p_offset: 0,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(skuSummarySchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse Shopify slow mover response.");
+      }
+
+      setOverviewSlowMovers(parsed.data.filter((row) => (row.units ?? 0) > 0));
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -547,10 +703,35 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewSlowMovers(parsed.data.filter((row) => (row.units ?? 0) > 0));
-  }, [fromDate, toDate, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const loadOverviewTopStates = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sales_by_geo_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_level: "state",
+        p_state: null,
+        p_limit: 20,
+        p_offset: 0,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse Shopify top state response.");
+      }
+
+      setOverviewTopStates(parsed.data);
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -571,10 +752,14 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewTopStates(parsed.data);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const loadOverviewMappingGaps = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setOverviewMappingGaps([]);
+      return;
+    }
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_unmapped_skus", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -592,7 +777,7 @@ export default function AmazonAnalyticsPage() {
     }
 
     setOverviewMappingGaps(parsed.data);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, isAmazonChannel]);
 
   const loadOverview = useCallback(async () => {
     setIsLoadingData(true);
@@ -622,6 +807,36 @@ export default function AmazonAnalyticsPage() {
   const loadSkuSummary = useCallback(async () => {
     if (!fromDate || !toDate) return;
     setIsLoadingData(true);
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sku_summary_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_sort: skuSort,
+        p_q: skuQuery.trim() === "" ? null : skuQuery.trim(),
+        p_limit: pageSize,
+        p_offset: skuPage * pageSize,
+      });
+
+      if (rpcError) {
+        setError(rpcError.message);
+        setIsLoadingData(false);
+        return;
+      }
+
+      const parsed = z.array(skuSummarySchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Unable to parse Shopify SKU summary response.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setSkuSummary(parsed.data);
+      setIsLoadingData(false);
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -647,11 +862,40 @@ export default function AmazonAnalyticsPage() {
 
     setSkuSummary(parsed.data);
     setIsLoadingData(false);
-  }, [fromDate, toDate, skuSort, skuQuery, marketplaceId, skuPage]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, skuPage, skuQuery, skuSort, toDate]);
 
   const loadSalesBySku = useCallback(async () => {
     if (!fromDate || !toDate) return;
     setIsLoadingData(true);
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sales_by_sku_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_grain: skuMode === "weekly" ? "week" : "day",
+        p_limit: pageSize,
+        p_offset: skuPage * pageSize,
+      });
+
+      if (rpcError) {
+        setError(rpcError.message);
+        setIsLoadingData(false);
+        return;
+      }
+
+      const parsed = z.array(salesBySkuSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Unable to parse Shopify sales by SKU response.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setSalesBySku(parsed.data);
+      setIsLoadingData(false);
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_sku", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -676,23 +920,37 @@ export default function AmazonAnalyticsPage() {
 
     setSalesBySku(parsed.data);
     setIsLoadingData(false);
-  }, [fromDate, toDate, skuMode, marketplaceId, skuPage]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, skuMode, skuPage, toDate]);
 
   const fetchAllSalesByGeo = useCallback(async () => {
+    if (isShopifyChannel && !channelAccountId) return [];
     const limit = 500;
     let offset = 0;
     const rows: z.infer<typeof salesByGeoSchema>[] = [];
 
     while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_level: geoLevel,
-        p_state: geoLevel === "city" ? geoStateFilter : null,
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        isShopifyChannel ? "erp_shopify_analytics_sales_by_geo_v1" : "erp_amazon_analytics_sales_by_geo_v2",
+        isShopifyChannel
+          ? {
+              p_channel_account_id: channelAccountId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_level: geoLevel,
+              p_state: geoLevel === "city" ? geoStateFilter : null,
+              p_limit: limit,
+              p_offset: offset,
+            }
+          : {
+              p_marketplace_id: marketplaceId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_level: geoLevel,
+              p_state: geoLevel === "city" ? geoStateFilter : null,
+              p_limit: limit,
+              p_offset: offset,
+            }
+      );
 
       if (rpcError) {
         throw new Error(rpcError.message);
@@ -709,21 +967,35 @@ export default function AmazonAnalyticsPage() {
     }
 
     return rows;
-  }, [fromDate, toDate, geoLevel, geoStateFilter, marketplaceId]);
+  }, [channelAccountId, fromDate, geoLevel, geoStateFilter, isShopifyChannel, marketplaceId, toDate]);
 
   const loadSalesByGeo = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isShopifyChannel && !channelAccountId) return;
     setIsLoadingData(true);
     try {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_level: geoLevel,
-        p_state: geoLevel === "city" ? geoStateFilter : null,
-        p_limit: pageSize,
-        p_offset: geoPage * pageSize,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        isShopifyChannel ? "erp_shopify_analytics_sales_by_geo_v1" : "erp_amazon_analytics_sales_by_geo_v2",
+        isShopifyChannel
+          ? {
+              p_channel_account_id: channelAccountId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_level: geoLevel,
+              p_state: geoLevel === "city" ? geoStateFilter : null,
+              p_limit: pageSize,
+              p_offset: geoPage * pageSize,
+            }
+          : {
+              p_marketplace_id: marketplaceId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_level: geoLevel,
+              p_state: geoLevel === "city" ? geoStateFilter : null,
+              p_limit: pageSize,
+              p_offset: geoPage * pageSize,
+            }
+      );
 
       if (rpcError) {
         setError(rpcError.message);
@@ -745,11 +1017,12 @@ export default function AmazonAnalyticsPage() {
       setError(geoError instanceof Error ? geoError.message : "Unable to load sales by geo data.");
       setIsLoadingData(false);
     }
-  }, [fromDate, toDate, geoLevel, geoPage, geoStateFilter, marketplaceId]);
+  }, [channelAccountId, fromDate, geoLevel, geoPage, geoStateFilter, isShopifyChannel, marketplaceId, toDate]);
 
   const loadTopSkusByGeo = useCallback(
     async (target: { state: string; city?: string }) => {
       if (!fromDate || !toDate) return;
+      if (!isAmazonChannel) return;
       setIsLoadingDrilldown(true);
       const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_top_skus_by_geo", {
         p_marketplace_id: marketplaceId,
@@ -777,12 +1050,41 @@ export default function AmazonAnalyticsPage() {
       setDrilldownSkus(parsed.data);
       setIsLoadingDrilldown(false);
     },
-    [fromDate, toDate, marketplaceId, geoLevel]
+    [fromDate, toDate, marketplaceId, geoLevel, isAmazonChannel]
   );
 
   const loadCohorts = useCallback(async () => {
     if (!fromDate || !toDate) return;
     setIsLoadingData(true);
+    if (isShopifyChannel) {
+      if (!channelAccountId) return;
+      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_customers_v1", {
+        p_channel_account_id: channelAccountId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_cohort_grain: cohortGrain,
+        p_limit: pageSize,
+        p_offset: cohortPage * pageSize,
+      });
+
+      if (rpcError) {
+        setError(rpcError.message);
+        setIsLoadingData(false);
+        return;
+      }
+
+      const parsed = z.array(cohortSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Unable to parse Shopify customer cohort response.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setCohorts(parsed.data);
+      setIsLoadingData(false);
+      return;
+    }
+
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_customer_cohorts_page", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -807,10 +1109,14 @@ export default function AmazonAnalyticsPage() {
 
     setCohorts(parsed.data);
     setIsLoadingData(false);
-  }, [fromDate, toDate, cohortGrain, marketplaceId, cohortPage]);
+  }, [channelAccountId, cohortGrain, cohortPage, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const loadCohortEmailStats = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setCohortEmailStats(null);
+      return;
+    }
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_customer_cohort_email_stats", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
@@ -829,23 +1135,37 @@ export default function AmazonAnalyticsPage() {
     }
 
     setCohortEmailStats(parsed.data[0] ?? null);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, isAmazonChannel]);
 
   const fetchAllSkuSummary = useCallback(async () => {
+    if (isShopifyChannel && !channelAccountId) return [];
     const limit = 500;
     let offset = 0;
     const rows: z.infer<typeof skuSummarySchema>[] = [];
 
     while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_sort: skuSort,
-        p_q: skuQuery.trim() === "" ? null : skuQuery.trim(),
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        isShopifyChannel ? "erp_shopify_analytics_sku_summary_v1" : "erp_amazon_analytics_sku_summary",
+        isShopifyChannel
+          ? {
+              p_channel_account_id: channelAccountId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_sort: skuSort,
+              p_q: skuQuery.trim() === "" ? null : skuQuery.trim(),
+              p_limit: limit,
+              p_offset: offset,
+            }
+          : {
+              p_marketplace_id: marketplaceId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_sort: skuSort,
+              p_q: skuQuery.trim() === "" ? null : skuQuery.trim(),
+              p_limit: limit,
+              p_offset: offset,
+            }
+      );
 
       if (rpcError) {
         throw new Error(rpcError.message);
@@ -862,22 +1182,35 @@ export default function AmazonAnalyticsPage() {
     }
 
     return rows;
-  }, [fromDate, toDate, skuSort, skuQuery, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, skuQuery, skuSort, toDate]);
 
   const fetchAllSalesBySku = useCallback(async () => {
+    if (isShopifyChannel && !channelAccountId) return [];
     const limit = 500;
     let offset = 0;
     const rows: z.infer<typeof salesBySkuSchema>[] = [];
 
     while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_sku", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_grain: skuMode === "weekly" ? "week" : "day",
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        isShopifyChannel ? "erp_shopify_analytics_sales_by_sku_v1" : "erp_amazon_analytics_sales_by_sku",
+        isShopifyChannel
+          ? {
+              p_channel_account_id: channelAccountId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_grain: skuMode === "weekly" ? "week" : "day",
+              p_limit: limit,
+              p_offset: offset,
+            }
+          : {
+              p_marketplace_id: marketplaceId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_grain: skuMode === "weekly" ? "week" : "day",
+              p_limit: limit,
+              p_offset: offset,
+            }
+      );
 
       if (rpcError) {
         throw new Error(rpcError.message);
@@ -894,22 +1227,35 @@ export default function AmazonAnalyticsPage() {
     }
 
     return rows;
-  }, [fromDate, toDate, skuMode, marketplaceId]);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, skuMode, toDate]);
 
   const fetchAllCohorts = useCallback(async () => {
+    if (isShopifyChannel && !channelAccountId) return [];
     const limit = 500;
     let offset = 0;
     const rows: z.infer<typeof cohortSchema>[] = [];
 
     while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_customer_cohorts_page", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_cohort_grain: cohortGrain,
-        p_limit: limit,
-        p_offset: offset,
-      });
+      const { data, error: rpcError } = await supabase.rpc(
+        isShopifyChannel ? "erp_shopify_analytics_customers_v1" : "erp_amazon_analytics_customer_cohorts_page",
+        isShopifyChannel
+          ? {
+              p_channel_account_id: channelAccountId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_cohort_grain: cohortGrain,
+              p_limit: limit,
+              p_offset: offset,
+            }
+          : {
+              p_marketplace_id: marketplaceId,
+              p_from: fromDate,
+              p_to: toDate,
+              p_cohort_grain: cohortGrain,
+              p_limit: limit,
+              p_offset: offset,
+            }
+      );
 
       if (rpcError) {
         throw new Error(rpcError.message);
@@ -926,10 +1272,11 @@ export default function AmazonAnalyticsPage() {
     }
 
     return rows;
-  }, [fromDate, toDate, cohortGrain, marketplaceId]);
+  }, [channelAccountId, cohortGrain, fromDate, isShopifyChannel, marketplaceId, toDate]);
 
   const fetchAllReturns = useCallback(async () => {
     if (!fromDate || !toDate) return [];
+    if (!isAmazonChannel) return [];
     const limit = 500;
     let offset = 0;
     const rows: z.infer<typeof returnsRowSchema>[] = [];
@@ -961,6 +1308,10 @@ export default function AmazonAnalyticsPage() {
   }, [fromDate, toDate, marketplaceId]);
 
   const loadReturnsAvailability = useCallback(async () => {
+    if (!isAmazonChannel) {
+      setHasReturns(false);
+      return;
+    }
     const { count, error: countError } = await supabase
       .from("erp_amazon_return_facts")
       .select("id", { count: "exact", head: true })
@@ -972,10 +1323,14 @@ export default function AmazonAnalyticsPage() {
     }
 
     setHasReturns((count ?? 0) > 0);
-  }, [marketplaceId]);
+  }, [marketplaceId, isAmazonChannel]);
 
   const loadReturnsSummary = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setReturnsSummary(null);
+      return;
+    }
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_returns_summary", {
       p_marketplace: marketplaceId,
       p_from: fromDate,
@@ -993,10 +1348,14 @@ export default function AmazonAnalyticsPage() {
     }
 
     setReturnsSummary(parsed.data[0] ?? null);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, isAmazonChannel]);
 
   const loadReturnsRows = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) {
+      setReturnRows([]);
+      return;
+    }
     setIsLoadingData(true);
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_returns_page", {
       p_marketplace: marketplaceId,
@@ -1021,10 +1380,11 @@ export default function AmazonAnalyticsPage() {
 
     setReturnRows(parsed.data);
     setIsLoadingData(false);
-  }, [fromDate, toDate, marketplaceId, returnsPage]);
+  }, [fromDate, toDate, marketplaceId, returnsPage, isAmazonChannel]);
 
   const handleRefresh = useCallback(async () => {
     setError(null);
+    if (isUnsupportedChannel || !selectedChannelKey) return;
     if (activeTab === "overview") {
       await loadOverview();
     } else if (activeTab === "sku") {
@@ -1055,6 +1415,8 @@ export default function AmazonAnalyticsPage() {
     loadReturnsSummary,
     loadReturnsRows,
     skuMode,
+    isUnsupportedChannel,
+    selectedChannelKey,
   ]);
 
   const handleExport = useCallback(async () => {
@@ -1079,7 +1441,7 @@ export default function AmazonAnalyticsPage() {
             row.asp ?? 0,
           ])
         );
-        triggerDownload(`amazon_overview_top_skus_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_overview_top_skus_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${overviewTopSkus.length} rows` });
         return;
       }
@@ -1089,7 +1451,7 @@ export default function AmazonAnalyticsPage() {
           ["State", "Orders", "Customers", "Units", "Gross"],
           overviewTopStates.map((row) => [row.state ?? "", row.orders ?? 0, row.customers ?? 0, row.units ?? 0, row.gross ?? 0])
         );
-        triggerDownload(`amazon_overview_top_states_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_overview_top_states_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${overviewTopStates.length} rows` });
         return;
       }
@@ -1110,7 +1472,7 @@ export default function AmazonAnalyticsPage() {
             row.asp ?? 0,
           ])
         );
-        triggerDownload(`amazon_overview_slow_movers_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_overview_slow_movers_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${overviewSlowMovers.length} rows` });
         return;
       }
@@ -1126,7 +1488,7 @@ export default function AmazonAnalyticsPage() {
             row.net ?? 0,
           ])
         );
-        triggerDownload(`amazon_overview_mapping_gaps_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_overview_mapping_gaps_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${overviewMappingGaps.length} rows` });
         return;
       }
@@ -1149,7 +1511,7 @@ export default function AmazonAnalyticsPage() {
               row.asp ?? 0,
             ])
           );
-          triggerDownload(`amazon_sku_summary_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_sku_summary_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
           setToast({ type: "success", message: `Exported ${rows.length} rows` });
           return;
         }
@@ -1184,7 +1546,7 @@ export default function AmazonAnalyticsPage() {
           ])
         );
         triggerDownload(
-          `amazon_sales_by_sku_${skuMode === "weekly" ? "week" : "day"}_${fromDate}_${toDate}.csv`,
+          `${exportPrefix}_sales_by_sku_${skuMode === "weekly" ? "week" : "day"}_${fromDate}_${toDate}.csv`,
           createCsvBlob(csv)
         );
         setToast({ type: "success", message: `Exported ${sorted.length} rows` });
@@ -1221,20 +1583,29 @@ export default function AmazonAnalyticsPage() {
               : [row.rank_overall ?? ""]),
           ])
         );
-        triggerDownload(`amazon_sales_by_geo_${geoLevel}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_sales_by_geo_${geoLevel}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${rows.length} rows` });
         return;
       }
 
       if (exportSelection === "customers_new_repeat") {
-        const csv = buildCsv(
-          ["Metric", "Known", "Estimated"],
-          [
-            ["Customers", overviewKpis?.customers_known ?? 0, overviewKpis?.customers_estimated ?? 0],
-            ["Repeat rate", overviewKpis?.repeat_rate_known ?? 0, overviewKpis?.repeat_rate_estimated ?? 0],
-          ]
-        );
-        triggerDownload(`amazon_customers_summary_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        const csv = isShopifyChannel
+          ? buildCsv(
+              ["Metric", "Value"],
+              [
+                ["Total customers", repeatSummary.totalCustomers],
+                ["Repeat customers", repeatSummary.repeatCustomers],
+                ["Repeat rate", repeatSummary.repeatRate],
+              ]
+            )
+          : buildCsv(
+              ["Metric", "Known", "Estimated"],
+              [
+                ["Customers", overviewKpis?.customers_known ?? 0, overviewKpis?.customers_estimated ?? 0],
+                ["Repeat rate", overviewKpis?.repeat_rate_known ?? 0, overviewKpis?.repeat_rate_estimated ?? 0],
+              ]
+            );
+        triggerDownload(`${exportPrefix}_customers_summary_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: "Exported 2 rows" });
         return;
       }
@@ -1252,7 +1623,7 @@ export default function AmazonAnalyticsPage() {
             row.gross ?? 0,
           ])
         );
-        triggerDownload(`amazon_customer_cohorts_${cohortGrain}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_customer_cohorts_${cohortGrain}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${rows.length} rows` });
         return;
       }
@@ -1274,7 +1645,7 @@ export default function AmazonAnalyticsPage() {
             row.status ?? "",
           ])
         );
-        triggerDownload(`amazon_returns_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        triggerDownload(`${exportPrefix}_returns_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
         setToast({ type: "success", message: `Exported ${rows.length} rows` });
       }
     } catch (exportError) {
@@ -1309,6 +1680,7 @@ export default function AmazonAnalyticsPage() {
 
   const handleSync = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (isUnsupportedChannel || !selectedChannelKey) return;
     setIsSyncing(true);
     setError(null);
 
@@ -1320,18 +1692,25 @@ export default function AmazonAnalyticsPage() {
         return;
       }
 
-      const response = await fetch("/api/integrations/amazon/analytics/reports-sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          marketplaceId,
-          from: fromDate,
-          to: toDate,
-        }),
-      });
+      const response = await fetch(
+        isShopifyChannel
+          ? `/api/analytics/shopify/sync-run?start=${fromDate}&end=${toDate}&channel_account_id=${channelAccountId ?? ""}`
+          : "/api/integrations/amazon/analytics/reports-sync",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: isShopifyChannel
+            ? undefined
+            : JSON.stringify({
+                marketplaceId,
+                from: fromDate,
+                to: toDate,
+              }),
+        }
+      );
 
       const payload = (await response.json()) as AnalyticsSyncResponse;
       if (!response.ok || !payload.ok) {
@@ -1346,10 +1725,21 @@ export default function AmazonAnalyticsPage() {
     } finally {
       setIsSyncing(false);
     }
-  }, [fromDate, toDate, marketplaceId, handleRefresh, loadReportRuns]);
+  }, [
+    channelAccountId,
+    fromDate,
+    handleRefresh,
+    isShopifyChannel,
+    isUnsupportedChannel,
+    loadReportRuns,
+    marketplaceId,
+    selectedChannelKey,
+    toDate,
+  ]);
 
   const handleReturnsSync = useCallback(async () => {
     if (!fromDate || !toDate) return;
+    if (!isAmazonChannel) return;
     setIsSyncingReturns(true);
     setError(null);
 
@@ -1389,7 +1779,7 @@ export default function AmazonAnalyticsPage() {
     } finally {
       setIsSyncingReturns(false);
     }
-  }, [fromDate, toDate, marketplaceId, handleRefresh, loadReportRuns, loadReturnsAvailability]);
+  }, [fromDate, toDate, marketplaceId, handleRefresh, loadReportRuns, loadReturnsAvailability, isAmazonChannel]);
 
   useEffect(() => {
     let active = true;
@@ -1403,10 +1793,23 @@ export default function AmazonAnalyticsPage() {
 
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found.");
+        setIsLoadingChannels(false);
         setLoading(false);
         return;
       }
 
+      const { data, error: channelError } = await supabase.rpc("erp_channel_account_list");
+      if (!active) return;
+
+      if (channelError) {
+        setError(channelError.message);
+        setIsLoadingChannels(false);
+        setLoading(false);
+        return;
+      }
+
+      setChannelAccounts((data ?? []) as ChannelAccount[]);
+      setIsLoadingChannels(false);
       setLoading(false);
     })();
 
@@ -1424,17 +1827,70 @@ export default function AmazonAnalyticsPage() {
   }, [fromDate, toDate]);
 
   useEffect(() => {
+    setOverviewKpis(null);
+    setOverviewKpisV2(null);
+    setFinancialOverview(null);
+    setOverviewTopSkus([]);
+    setOverviewTopStates([]);
+    setOverviewSlowMovers([]);
+    setOverviewMappingGaps([]);
+    setSalesBySku([]);
+    setSkuSummary([]);
+    setSalesByGeo([]);
+    setCohorts([]);
+    setReturnsSummary(null);
+    setReturnRows([]);
+    setHasReturns(false);
+    setLastRun(null);
+    setDrilldownTarget(null);
+    setDrilldownSkus([]);
+  }, [channelAccountId, selectedChannelKey]);
+
+  useEffect(() => {
+    if (activeTab === "returns" && !isAmazonChannel) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, isAmazonChannel]);
+
+  useEffect(() => {
+    if (!router.isReady || channelAccounts.length === 0) return;
+    const queryId = typeof router.query.channel_account_id === "string" ? router.query.channel_account_id : null;
+    const fallbackId = channelAccounts.find((account) => account.is_active)?.id ?? channelAccounts[0]?.id ?? null;
+    const nextId = queryId && channelAccounts.some((account) => account.id === queryId) ? queryId : fallbackId;
+    if (!nextId) return;
+    setChannelAccountId((prev) => prev ?? nextId);
+    if (queryId !== nextId) {
+      void router.replace(
+        { pathname: router.pathname, query: { ...router.query, channel_account_id: nextId } },
+        undefined,
+        { shallow: true }
+      );
+    }
+  }, [channelAccounts, router]);
+
+  useEffect(() => {
+    if (!router.isReady || !channelAccountId) return;
+    const queryId = typeof router.query.channel_account_id === "string" ? router.query.channel_account_id : null;
+    if (queryId === channelAccountId) return;
+    void router.replace(
+      { pathname: router.pathname, query: { ...router.query, channel_account_id: channelAccountId } },
+      undefined,
+      { shallow: true }
+    );
+  }, [channelAccountId, router]);
+
+  useEffect(() => {
     loadReturnsAvailability();
     loadReportRuns();
   }, [loadReportRuns, loadReturnsAvailability]);
 
   useEffect(() => {
     setSkuPage(0);
-  }, [skuMode, skuSort, skuQuery, fromDate, toDate, marketplaceId]);
+  }, [skuMode, skuSort, skuQuery, fromDate, toDate, channelAccountId, selectedChannelKey]);
 
   useEffect(() => {
     setGeoPage(0);
-  }, [geoLevel, fromDate, toDate, marketplaceId]);
+  }, [geoLevel, fromDate, toDate, channelAccountId, selectedChannelKey]);
 
   useEffect(() => {
     setGeoPage(0);
@@ -1442,11 +1898,11 @@ export default function AmazonAnalyticsPage() {
 
   useEffect(() => {
     setCohortPage(0);
-  }, [cohortGrain, fromDate, toDate, marketplaceId]);
+  }, [cohortGrain, fromDate, toDate, channelAccountId, selectedChannelKey]);
 
   useEffect(() => {
     setReturnsPage(0);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, channelAccountId, selectedChannelKey]);
 
   useEffect(() => {
     if (exportOptions.length === 0) return;
@@ -1456,7 +1912,7 @@ export default function AmazonAnalyticsPage() {
   useEffect(() => {
     setDrilldownTarget(null);
     setDrilldownSkus([]);
-  }, [geoLevel, geoStateFilter, fromDate, toDate, marketplaceId]);
+  }, [geoLevel, geoStateFilter, fromDate, toDate, channelAccountId, selectedChannelKey]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1468,10 +1924,14 @@ export default function AmazonAnalyticsPage() {
   }, []);
 
   useEffect(() => {
+    if (!isAmazonChannel && overviewView !== "analytics") {
+      setOverviewView("analytics");
+      return;
+    }
     if (isNarrowScreen && overviewView === "side-by-side") {
       setOverviewView("analytics");
     }
-  }, [isNarrowScreen, overviewView]);
+  }, [isAmazonChannel, isNarrowScreen, overviewView]);
 
   useEffect(() => {
     if (loading || !fromDate || !toDate) return;
@@ -1491,7 +1951,8 @@ export default function AmazonAnalyticsPage() {
     geoStateFilter,
     cohortPage,
     returnsPage,
-    marketplaceId,
+    channelAccountId,
+    selectedChannelKey,
     handleRefresh,
   ]);
 
@@ -1500,8 +1961,12 @@ export default function AmazonAnalyticsPage() {
     loadCohortEmailStats();
   }, [activeTab, loadCohortEmailStats]);
 
-  if (loading) {
-    return <div style={pageContainerStyle}>Loading Amazon analytics…</div>;
+  if (loading || isLoadingChannels) {
+    return <div style={pageContainerStyle}>Loading analytics…</div>;
+  }
+
+  if (!selectedChannelAccount) {
+    return <div style={pageContainerStyle}>No channel accounts available.</div>;
   }
 
   return (
@@ -1509,8 +1974,8 @@ export default function AmazonAnalyticsPage() {
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
-            <p style={eyebrowStyle}>Analytics · Amazon</p>
-            <h1 style={h1Style}>Amazon Analytics (India)</h1>
+            <p style={eyebrowStyle}>Analytics · {selectedChannelAccount?.name ?? "Channel"}</p>
+            <h1 style={h1Style}>Channel Analytics</h1>
             <p style={subtitleStyle}>Sales, geo performance, and repeat customer signals from reports.</p>
           </div>
         </header>
@@ -1521,13 +1986,14 @@ export default function AmazonAnalyticsPage() {
               <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "#4b5563" }}>
                 Marketplace
                 <select
-                  value={marketplaceId}
-                  onChange={(event) => setMarketplaceId(event.target.value)}
+                  value={channelAccountId ?? ""}
+                  onChange={(event) => setChannelAccountId(event.target.value)}
                   style={inputStyle}
                 >
-                  {MARKETPLACE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
+                  {channelAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                      {!account.is_active ? " (Inactive)" : ""}
                     </option>
                   ))}
                 </select>
@@ -1580,7 +2046,7 @@ export default function AmazonAnalyticsPage() {
                   <button type="button" style={secondaryButtonStyle} onClick={handleRefresh} disabled={isLoadingData}>
                     Refresh
                   </button>
-                  {activeTab === "returns" ? (
+                  {activeTab === "returns" && isAmazonChannel ? (
                     <button
                       type="button"
                       style={secondaryButtonStyle}
@@ -1590,7 +2056,13 @@ export default function AmazonAnalyticsPage() {
                       {isSyncingReturns ? "Syncing returns…" : "Sync returns"}
                     </button>
                   ) : null}
-                  <button type="button" style={primaryButtonStyle} onClick={handleSync} disabled={isSyncing}>
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handleSync}
+                    disabled={isSyncing || isUnsupportedChannel}
+                    title={isUnsupportedChannel ? "Not connected yet" : undefined}
+                  >
                     {isSyncing ? "Syncing analytics…" : "Sync analytics"}
                   </button>
                 </div>
@@ -1601,6 +2073,7 @@ export default function AmazonAnalyticsPage() {
           {error ? <p style={errorStyle}>{error}</p> : null}
           {toast ? <div style={toastStyle(toast.type)}>{toast.message}</div> : null}
 
+          {isUnsupportedChannel ? <div style={warningBannerStyle}>Not connected yet.</div> : null}
           <div style={statusBannerStyle}>
             {isLoadingData ? "Loading analytics… " : null}
             {lastRun ? (
@@ -1613,13 +2086,7 @@ export default function AmazonAnalyticsPage() {
           </div>
 
           <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {[
-              { key: "overview", label: "Overview" },
-              { key: "sku", label: "Sales by SKU" },
-              { key: "geo", label: "Sales by geography" },
-              { key: "customers", label: "Customers" },
-              { key: "returns", label: "Returns" },
-            ].map((tab) => (
+            {availableTabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
@@ -1638,17 +2105,7 @@ export default function AmazonAnalyticsPage() {
               <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                 <p style={{ margin: 0, fontWeight: 600 }}>Overview</p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {(isNarrowScreen
-                    ? [
-                        { key: "analytics", label: "Analytics (Estimated)" },
-                        { key: "financial", label: "Financial (Settlement)" },
-                      ]
-                    : [
-                        { key: "analytics", label: "Analytics (Estimated)" },
-                        { key: "financial", label: "Financial (Settlement)" },
-                        { key: "side-by-side", label: "Side-by-side" },
-                      ]
-                  ).map((option) => (
+                  {overviewViewOptions.map((option) => (
                     <button
                       key={option.key}
                       type="button"
@@ -2226,6 +2683,9 @@ export default function AmazonAnalyticsPage() {
                             setGeoPage(0);
                             return;
                           }
+                          if (!isAmazonChannel) {
+                            return;
+                          }
                           const target = { state, city: geoLevel === "city" ? city : undefined };
                           setDrilldownTarget(target);
                           loadTopSkusByGeo(target);
@@ -2276,7 +2736,7 @@ export default function AmazonAnalyticsPage() {
               </button>
             </div>
 
-            {drilldownTarget ? (
+            {isAmazonChannel && drilldownTarget ? (
               <div style={{ marginTop: 16 }}>
                 <p style={{ margin: "0 0 8px", fontWeight: 600 }}>
                   Top SKUs in {drilldownTarget.state}
@@ -2321,27 +2781,52 @@ export default function AmazonAnalyticsPage() {
           <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <section style={cardStyle}>
               <p style={{ margin: "0 0 12px", fontWeight: 600 }}>New vs repeat customers</p>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={tableHeaderCellStyle}>Metric</th>
-                    <th style={tableHeaderCellStyle}>Known</th>
-                    <th style={tableHeaderCellStyle}>Estimated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td style={tableCellStyle}>Customers</td>
-                    <td style={tableCellStyle}>{formatNumber(overviewKpis?.customers_known ?? null)}</td>
-                    <td style={tableCellStyle}>{formatNumber(overviewKpis?.customers_estimated ?? null)}</td>
-                  </tr>
-                  <tr>
-                    <td style={tableCellStyle}>Repeat rate</td>
-                    <td style={tableCellStyle}>{formatPercent(overviewKpis?.repeat_rate_known ?? null)}</td>
-                    <td style={tableCellStyle}>{formatPercent(overviewKpis?.repeat_rate_estimated ?? null)}</td>
-                  </tr>
-                </tbody>
-              </table>
+              {isShopifyChannel ? (
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Metric</th>
+                      <th style={tableHeaderCellStyle}>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={tableCellStyle}>Total customers</td>
+                      <td style={tableCellStyle}>{formatNumber(repeatSummary.totalCustomers)}</td>
+                    </tr>
+                    <tr>
+                      <td style={tableCellStyle}>Repeat customers</td>
+                      <td style={tableCellStyle}>{formatNumber(repeatSummary.repeatCustomers)}</td>
+                    </tr>
+                    <tr>
+                      <td style={tableCellStyle}>Repeat rate</td>
+                      <td style={tableCellStyle}>{formatPercent(repeatSummary.repeatRate)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              ) : (
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Metric</th>
+                      <th style={tableHeaderCellStyle}>Known</th>
+                      <th style={tableHeaderCellStyle}>Estimated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td style={tableCellStyle}>Customers</td>
+                      <td style={tableCellStyle}>{formatNumber(overviewKpis?.customers_known ?? null)}</td>
+                      <td style={tableCellStyle}>{formatNumber(overviewKpis?.customers_estimated ?? null)}</td>
+                    </tr>
+                    <tr>
+                      <td style={tableCellStyle}>Repeat rate</td>
+                      <td style={tableCellStyle}>{formatPercent(overviewKpis?.repeat_rate_known ?? null)}</td>
+                      <td style={tableCellStyle}>{formatPercent(overviewKpis?.repeat_rate_estimated ?? null)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              )}
             </section>
 
             <section style={cardStyle}>
@@ -2361,20 +2846,21 @@ export default function AmazonAnalyticsPage() {
                 <span style={badgeStyle}>Repeat customers: {repeatSummary.repeatCustomers}</span>
                 <span style={badgeStyle}>Repeat rate: {formatPercent(repeatSummary.repeatRate)}</span>
               </div>
-              {cohorts.length === 0 && cohortEmailStats ? (
+              {isAmazonChannel && cohorts.length === 0 && cohortEmailStats ? (
                 <div style={warningBannerStyle}>
                   Cohorts are empty. Buyer email is missing on {formatPercent(cohortEmailStats.missing_email_ratio ?? 0)} of
                   rows, so cohort attribution may be limited.
                 </div>
               ) : null}
-              {cohortEmailStats &&
+              {isAmazonChannel &&
+              cohortEmailStats &&
               (cohortEmailStats.missing_email_ratio ?? 0) > 0.8 &&
               (cohortEmailStats.total_rows ?? 0) > 0 ? (
                 <div style={warningBannerStyle}>
                   Buyer email not available in this report. Cohorts are estimated using shipping postal/state fallback.
                 </div>
               ) : null}
-              <p style={mutedStyle}>Repeat rates depend on buyer email availability.</p>
+              {isAmazonChannel ? <p style={mutedStyle}>Repeat rates depend on buyer email availability.</p> : null}
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -2556,12 +3042,14 @@ export default function AmazonAnalyticsPage() {
 type AnalyticsSyncResponse =
   | {
       ok: true;
-      run_id: string;
-      report_id: string;
-      row_count: number;
-      facts_upserted: number;
-      inserted_rows: number;
-      skipped_rows: number;
+      run_id?: string;
+      report_id?: string;
+      row_count?: number;
+      facts_upserted?: number;
+      inserted_rows?: number;
+      skipped_rows?: number;
+      orders_upserted?: number;
+      lines_upserted?: number;
     }
   | { ok: false; error: string; details?: string };
 
