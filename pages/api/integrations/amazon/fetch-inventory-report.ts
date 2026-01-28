@@ -257,7 +257,12 @@ function parseReportText(text: string): string[][] {
 }
 
 function normalizeHeaderName(header: string): string {
-  return header.replace(/\uFEFF/g, "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return header
+    .replace(/\uFEFF/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-");
 }
 
 function isSkippableRow(row: string[]): boolean {
@@ -623,16 +628,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const inboundHeader = pickHeader(headerIndex, ["inbound"]);
     const locationCodeHeader = pickHeader(headerIndex, [
       "fulfillment-center-id",
-      "fulfillment-center",
       "afn-warehouse-code",
       "warehouse-id",
       "warehouse",
-      "warehouse-code",
-      "fc",
-      "fc-id",
-      "location-id",
-      "location-code",
       "location",
+      "fc",
     ]);
     const locationNameHeader = pickHeader(headerIndex, [
       "fulfillment-center-name",
@@ -641,6 +641,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       "warehouse-location",
       "location-description",
     ]);
+    const debugLocationHeader = locationCodeHeader ?? locationNameHeader ?? null;
+    const debugHeaders = normalizedHeaders;
+    const reportResponseDebug = {
+      ...(typeof reportStatusJson === "object" && reportStatusJson ? reportStatusJson : {}),
+      debug_headers: debugHeaders,
+      debug_location_header: debugLocationHeader,
+    };
 
     if (!skuHeader) {
       const fatalMessage = "Missing seller-sku column in report";
@@ -677,6 +684,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const isLocationReport =
       batch.type === "fc" || LOCATION_REPORT_TYPES.has(batch.report_type ?? "");
+    const hasLocationHeader = Boolean(debugLocationHeader);
+    const useVirtualLocation = isLocationReport && !hasLocationHeader;
+    const virtualLocationCode = useVirtualLocation ? "AMAZON_FBA" : null;
 
     if ((existingRows.count ?? 0) === 0) {
       const inserts: ExternalRowInsert[] = [];
@@ -706,7 +716,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving > 0
             ? qtyInboundWorking + qtyInboundShipped + qtyInboundReceiving
             : inboundTotalRaw;
-        const locationCode = isLocationReport ? getCell(row, locationCodeHeader) || null : null;
+        const locationCode = isLocationReport
+          ? locationCodeHeader
+            ? getCell(row, locationCodeHeader) || null
+            : virtualLocationCode
+          : null;
         const locationName = isLocationReport ? getCell(row, locationNameHeader) || null : null;
 
         inserts.push({
@@ -766,6 +780,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       p_rows_total: summary.row_count,
       p_matched_count: summary.matched_count,
       p_unmatched_count: summary.unmatched_count,
+      p_report_response: reportResponseDebug,
     });
 
     if (updatedBatch.error) {
