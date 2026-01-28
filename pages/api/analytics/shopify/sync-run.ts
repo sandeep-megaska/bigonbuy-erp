@@ -259,7 +259,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       let grossSales = 0;
       let lineDiscounts = 0;
 
-      for (const [index, line] of lines.entries()) {
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         const qty = Number(line.quantity ?? 0);
         const lineGross = parseNumber(line.price) * qty;
         const lineDiscount = parseNumber(line.total_discount);
