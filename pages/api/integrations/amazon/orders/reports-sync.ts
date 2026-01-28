@@ -493,7 +493,9 @@ export default async function handler(
         .update({ status: "done", completed_at: new Date().toISOString(), row_count: 0 })
         .eq("id", runId);
 
-      res.status(200).json({ ok: true, run_id: runId, report_id: reportId ?? "", row_count: 0, orders_upserted: 0, items_upserted: 0 });
+      res
+        .status(200)
+        .json({ ok: true, run_id: runId ?? "", report_id: reportId ?? "", row_count: 0, orders_upserted: 0, items_upserted: 0 });
       return;
     }
 
