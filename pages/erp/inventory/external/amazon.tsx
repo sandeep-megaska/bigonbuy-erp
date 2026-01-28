@@ -1154,12 +1154,23 @@ export default function AmazonExternalInventoryPage() {
     return stateLabel ? `${rollup.external_location_code} — ${stateLabel}` : rollup.external_location_code;
   }, []);
 
+  const debugLocationHeader = useMemo(() => {
+    if (!latestBatch?.report_response || typeof latestBatch.report_response !== "object") return null;
+    const value = (latestBatch.report_response as { debug_location_header?: unknown }).debug_location_header;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  }, [latestBatch?.report_response]);
+
   const locationCodesMissing = useMemo(() => {
     if (!isLocationBatch || viewMode !== "location") return false;
     if (!latestBatch || latestBatch.row_count === 0) return false;
-    if (!locationRollups.length) return false;
-    return locationRollups.every((row) => row.external_location_code === "UNKNOWN");
-  }, [isLocationBatch, latestBatch, locationRollups, viewMode]);
+    return !debugLocationHeader;
+  }, [debugLocationHeader, isLocationBatch, latestBatch, viewMode]);
+
+  const displayError = useMemo(() => {
+    if (!error) return null;
+    if (snapshotMode === "fc" && error.includes("Unsupported reportType")) return null;
+    return error;
+  }, [error, snapshotMode]);
 
   const handleDownloadImportErrors = useCallback(() => {
     if (!importErrors.length) return;
@@ -1485,19 +1496,19 @@ export default function AmazonExternalInventoryPage() {
           </div>
         </header>
 
-        {(notice || error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL") && (
+        {(notice || displayError || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL") && (
           <div
             style={{
               ...cardStyle,
-              borderColor: error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
+              borderColor: displayError || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
                 ? "#fca5a5"
                 : "#bbf7d0",
-              color: error || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
+              color: displayError || latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
                 ? "#b91c1c"
                 : "#047857",
             }}
           >
-            {error ||
+            {displayError ||
               (latestBatch?.status === "fatal" || latestBatch?.report_processing_status === "FATAL"
                 ? "Report failed (FATAL)."
                 : null) ||
@@ -1734,8 +1745,7 @@ export default function AmazonExternalInventoryPage() {
                     </button>
                     {locationCodesMissing ? (
                       <span style={{ fontSize: 12, color: "#b45309" }}>
-                        This report did not include location codes. Try a different report type or verify SP-API
-                        permissions.
+                        Amazon did not include FC/location fields; showing network totals.
                       </span>
                     ) : null}
                   </div>
