@@ -647,7 +647,7 @@ export default async function handler(
 
     res.status(200).json({
       ok: true,
-      run_id: runId,
+      run_id: runId ?? "",
       report_id: reportId ?? "",
       row_count: draftItems.length,
       orders_upserted: ordersInsertPayload.length,
