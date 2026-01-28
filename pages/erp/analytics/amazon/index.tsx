@@ -309,6 +309,22 @@ function formatSharePercent(value: number | null): string {
   return `${value.toFixed(2)}%`;
 }
 
+const toNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return 0;
+  return Number(value);
+};
+
+const toInt = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return 0;
+  const parsed = parseInt(String(value), 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const toCurrencyCode = (value: unknown, fallback = "INR") => {
+  if (typeof value === "string" && value.trim()) return value;
+  return fallback;
+};
+
 function escapeCsvValue(value: string) {
   if (value.includes("\"") || value.includes(",") || value.includes("\n")) {
     return `"${value.replace(/"/g, "\"\"")}"`;
@@ -540,29 +556,50 @@ export default function AmazonAnalyticsPage() {
         throw new Error(rpcError.message);
       }
 
-      const parsed = z.array(shopifyOverviewSchema).safeParse(data ?? []);
-      if (!parsed.success) {
+      const row = Array.isArray(data) ? data[0] : data;
+      const rawOverview = row && typeof row === "object" ? row : {};
+
+      try {
+        const parsedOverview = {
+          gross_sales: toNumber((rawOverview as { gross_sales?: unknown }).gross_sales),
+          confirmed_orders_value: toNumber(
+            (rawOverview as { confirmed_orders_value?: unknown }).confirmed_orders_value ??
+              (rawOverview as { net_sales_estimated?: unknown }).net_sales_estimated
+          ),
+          confirmed_orders_count: toInt((rawOverview as { confirmed_orders_count?: unknown }).confirmed_orders_count),
+          cancellations_count: toInt((rawOverview as { cancellations_count?: unknown }).cancellations_count),
+          returns_value: toNumber((rawOverview as { returns_value?: unknown }).returns_value),
+          returns_count: toInt((rawOverview as { returns_count?: unknown }).returns_count),
+          discount_value: toNumber(
+            (rawOverview as { discount_value?: unknown }).discount_value ??
+              (rawOverview as { discounts?: unknown }).discounts
+          ),
+          net_sales_estimated: toNumber((rawOverview as { net_sales_estimated?: unknown }).net_sales_estimated),
+          avg_per_day: toNumber((rawOverview as { avg_per_day?: unknown }).avg_per_day),
+          days_count: toInt((rawOverview as { days_count?: unknown }).days_count),
+          currency: toCurrencyCode((rawOverview as { currency?: unknown }).currency),
+        };
+
+        setOverviewKpisV2({
+          gross_sales: parsedOverview.gross_sales,
+          net_sales_estimated: parsedOverview.net_sales_estimated,
+          confirmed_orders_count: parsedOverview.confirmed_orders_count,
+          confirmed_orders_value: parsedOverview.confirmed_orders_value,
+          cancellations_count: parsedOverview.cancellations_count,
+          cancellations_value: 0,
+          returns_count: parsedOverview.returns_count,
+          returns_value: parsedOverview.returns_value,
+          discount_value: parsedOverview.discount_value,
+          avg_per_day: parsedOverview.avg_per_day,
+          days_count: parsedOverview.days_count,
+        });
+      } catch (error) {
+        console.error("Unable to parse Shopify overview response.", {
+          error,
+          data,
+        });
         throw new Error("Unable to parse Shopify overview response.");
       }
-
-      const overview = parsed.data[0] ?? null;
-      setOverviewKpisV2(
-        overview
-          ? {
-              gross_sales: overview.gross_sales ?? null,
-              net_sales_estimated: overview.net_sales_estimated ?? null,
-              confirmed_orders_count: overview.confirmed_orders_count ?? null,
-              confirmed_orders_value: overview.net_sales_estimated ?? null,
-              cancellations_count: overview.cancellations_count ?? 0,
-              cancellations_value: 0,
-              returns_count: overview.returns_count ?? 0,
-              returns_value: 0,
-              discount_value: overview.discounts ?? null,
-              avg_per_day: overview.avg_per_day ?? null,
-              days_count: overview.days_count ?? null,
-            }
-          : null
-      );
       return;
     }
 
