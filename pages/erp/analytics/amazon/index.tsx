@@ -235,10 +235,12 @@ export default function AmazonAnalyticsPage() {
   const [skuSort, setSkuSort] = useState<"units_desc" | "net_desc" | "units_asc" | "net_asc">("units_desc");
   const [skuQuery, setSkuQuery] = useState("");
   const [geoLevel, setGeoLevel] = useState<"state" | "city">("state");
+  const [geoStateFilter, setGeoStateFilter] = useState<string | null>(null);
   const [cohortGrain, setCohortGrain] = useState<"month" | "week">("month");
   const [salesBySku, setSalesBySku] = useState<z.infer<typeof salesBySkuSchema>[]>([]);
   const [skuSummary, setSkuSummary] = useState<z.infer<typeof skuSummarySchema>[]>([]);
   const [salesByGeo, setSalesByGeo] = useState<z.infer<typeof salesByGeoSchema>[]>([]);
+  const [geoTotalCount, setGeoTotalCount] = useState<number | null>(null);
   const [drilldownTarget, setDrilldownTarget] = useState<{ state: string; city?: string } | null>(null);
   const [drilldownSkus, setDrilldownSkus] = useState<z.infer<typeof skuSummarySchema>[]>([]);
   const [cohorts, setCohorts] = useState<z.infer<typeof cohortSchema>[]>([]);
@@ -317,6 +319,10 @@ export default function AmazonAnalyticsPage() {
   }, [salesBySku, skuMode, skuQuery]);
 
   const pagedSkuSummary = useMemo(() => skuSummary, [skuSummary]);
+  const geoHasNextPage = useMemo(() => {
+    if (geoTotalCount === null) return salesByGeo.length >= pageSize;
+    return (geoPage + 1) * pageSize < geoTotalCount;
+  }, [geoTotalCount, salesByGeo.length, geoPage]);
 
   const loadReportRuns = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc("erp_channel_report_runs_list", {
@@ -532,34 +538,83 @@ export default function AmazonAnalyticsPage() {
     setIsLoadingData(false);
   }, [fromDate, toDate, skuMode, marketplaceId, skuPage]);
 
+  const fetchAllSalesByGeo = useCallback(async () => {
+    const limit = 500;
+    let offset = 0;
+    const rows: z.infer<typeof salesByGeoSchema>[] = [];
+
+    while (true) {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+        p_marketplace_id: marketplaceId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_level: geoLevel,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse sales by geo response.");
+      }
+
+      if (parsed.data.length === 0) break;
+      rows.push(...parsed.data);
+      offset += limit;
+    }
+
+    return rows;
+  }, [fromDate, toDate, geoLevel, marketplaceId]);
+
   const loadSalesByGeo = useCallback(async () => {
     if (!fromDate || !toDate) return;
     setIsLoadingData(true);
-    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
-      p_marketplace_id: marketplaceId,
-      p_from: fromDate,
-      p_to: toDate,
-      p_level: geoLevel,
-      p_limit: pageSize,
-      p_offset: geoPage * pageSize,
-    });
+    try {
+      if (geoLevel === "city" && geoStateFilter) {
+        const rows = await fetchAllSalesByGeo();
+        const filtered = rows.filter((row) => (row.state ?? "Unknown") === geoStateFilter);
+        const start = geoPage * pageSize;
+        const pageRows = filtered.slice(start, start + pageSize);
+        setSalesByGeo(pageRows);
+        setGeoTotalCount(filtered.length);
+        setIsLoadingData(false);
+        return;
+      }
 
-    if (rpcError) {
-      setError(rpcError.message);
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+        p_marketplace_id: marketplaceId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_level: geoLevel,
+        p_limit: pageSize,
+        p_offset: geoPage * pageSize,
+      });
+
+      if (rpcError) {
+        setError(rpcError.message);
+        setIsLoadingData(false);
+        return;
+      }
+
+      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Unable to parse sales by geo response.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setSalesByGeo(parsed.data);
+      setGeoTotalCount(null);
       setIsLoadingData(false);
-      return;
-    }
-
-    const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-    if (!parsed.success) {
-      setError("Unable to parse sales by geo response.");
+    } catch (geoError) {
+      setError(geoError instanceof Error ? geoError.message : "Unable to load sales by geo data.");
       setIsLoadingData(false);
-      return;
     }
-
-    setSalesByGeo(parsed.data);
-    setIsLoadingData(false);
-  }, [fromDate, toDate, geoLevel, marketplaceId, geoPage]);
+  }, [fromDate, toDate, geoLevel, geoPage, geoStateFilter, marketplaceId, fetchAllSalesByGeo]);
 
   const loadTopSkusByGeo = useCallback(
     async (target: { state: string; city?: string }) => {
@@ -709,38 +764,6 @@ export default function AmazonAnalyticsPage() {
 
     return rows;
   }, [fromDate, toDate, skuMode, marketplaceId]);
-
-  const fetchAllSalesByGeo = useCallback(async () => {
-    const limit = 500;
-    let offset = 0;
-    const rows: z.infer<typeof salesByGeoSchema>[] = [];
-
-    while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
-        p_marketplace_id: marketplaceId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_level: geoLevel,
-        p_limit: limit,
-        p_offset: offset,
-      });
-
-      if (rpcError) {
-        throw new Error(rpcError.message);
-      }
-
-      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-      if (!parsed.success) {
-        throw new Error("Unable to parse sales by geo response.");
-      }
-
-      if (parsed.data.length === 0) break;
-      rows.push(...parsed.data);
-      offset += limit;
-    }
-
-    return rows;
-  }, [fromDate, toDate, geoLevel, marketplaceId]);
 
   const fetchAllCohorts = useCallback(async () => {
     const limit = 500;
@@ -983,12 +1006,16 @@ export default function AmazonAnalyticsPage() {
 
       if (exportSelection === "geo_current") {
         const rows = await fetchAllSalesByGeo();
+        const filtered =
+          geoLevel === "city" && geoStateFilter
+            ? rows.filter((row) => (row.state ?? "Unknown") === geoStateFilter)
+            : rows;
         const headers = ["State"];
         if (geoLevel === "city") headers.push("City");
         headers.push("Orders", "Customers", "Units", "Gross");
         const csv = buildCsv(
           headers,
-          rows.map((row) => [
+          filtered.map((row) => [
             row.state ?? "",
             ...(geoLevel === "city" ? [row.city ?? ""] : []),
             row.orders ?? 0,
@@ -998,7 +1025,7 @@ export default function AmazonAnalyticsPage() {
           ])
         );
         triggerDownload(`amazon_sales_by_geo_${geoLevel}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
-        setToast({ type: "success", message: `Exported ${rows.length} rows` });
+        setToast({ type: "success", message: `Exported ${filtered.length} rows` });
         return;
       }
 
@@ -1073,6 +1100,7 @@ export default function AmazonAnalyticsPage() {
     skuSort,
     toDate,
     topReturns,
+    geoStateFilter,
   ]);
 
   const handleSync = useCallback(async () => {
@@ -1162,6 +1190,10 @@ export default function AmazonAnalyticsPage() {
   }, [geoLevel, fromDate, toDate, marketplaceId]);
 
   useEffect(() => {
+    setGeoPage(0);
+  }, [geoStateFilter]);
+
+  useEffect(() => {
     setCohortPage(0);
   }, [cohortGrain, fromDate, toDate, marketplaceId]);
 
@@ -1173,7 +1205,7 @@ export default function AmazonAnalyticsPage() {
   useEffect(() => {
     setDrilldownTarget(null);
     setDrilldownSkus([]);
-  }, [geoLevel, fromDate, toDate, marketplaceId]);
+  }, [geoLevel, geoStateFilter, fromDate, toDate, marketplaceId]);
 
   useEffect(() => {
     if (loading || !fromDate || !toDate) return;
@@ -1190,6 +1222,7 @@ export default function AmazonAnalyticsPage() {
     activeTab,
     skuPage,
     geoPage,
+    geoStateFilter,
     cohortPage,
     marketplaceId,
     handleRefresh,
@@ -1657,15 +1690,44 @@ export default function AmazonAnalyticsPage() {
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <p style={{ margin: 0, fontWeight: 600 }}>Sales by geography</p>
                 <span style={badgeStyle}>Level: {geoLevel}</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    style={geoLevel === "state" ? primaryButtonStyle : secondaryButtonStyle}
+                    onClick={() => {
+                      setGeoLevel("state");
+                      setGeoStateFilter(null);
+                    }}
+                  >
+                    State
+                  </button>
+                  <button
+                    type="button"
+                    style={geoLevel === "city" ? primaryButtonStyle : secondaryButtonStyle}
+                    onClick={() => {
+                      setGeoLevel("city");
+                    }}
+                  >
+                    City
+                  </button>
+                </div>
+              </div>
+            </div>
+            {geoLevel === "city" && geoStateFilter ? (
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>India &gt; {geoStateFilter}</p>
                 <button
                   type="button"
                   style={secondaryButtonStyle}
-                  onClick={() => setGeoLevel(geoLevel === "state" ? "city" : "state")}
+                  onClick={() => {
+                    setGeoLevel("state");
+                    setGeoStateFilter(null);
+                  }}
                 >
-                  Toggle level
+                  Back to States
                 </button>
               </div>
-            </div>
+            ) : null}
             <table style={tableStyle}>
               <thead>
                 <tr>
@@ -1696,11 +1758,20 @@ export default function AmazonAnalyticsPage() {
                       <tr
                         key={`${row.geo_key ?? "geo"}-${index}`}
                         onClick={() => {
+                          if (geoLevel === "state") {
+                            setGeoLevel("city");
+                            setGeoStateFilter(state);
+                            setGeoPage(0);
+                            return;
+                          }
                           const target = { state, city: geoLevel === "city" ? city : undefined };
                           setDrilldownTarget(target);
                           loadTopSkusByGeo(target);
                         }}
-                        style={{ cursor: "pointer", background: isSelected ? "#f1f5f9" : undefined }}
+                        style={{
+                          cursor: "pointer",
+                          background: isSelected ? "#f1f5f9" : undefined,
+                        }}
                       >
                         <td style={tableCellStyle}>{state}</td>
                         {geoLevel === "city" ? <td style={tableCellStyle}>{city}</td> : null}
@@ -1728,7 +1799,7 @@ export default function AmazonAnalyticsPage() {
                 type="button"
                 style={secondaryButtonStyle}
                 onClick={() => setGeoPage((prev) => prev + 1)}
-                disabled={isLoadingData || salesByGeo.length < pageSize}
+                disabled={isLoadingData || !geoHasNextPage}
               >
                 Next
               </button>
