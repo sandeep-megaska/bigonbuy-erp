@@ -185,7 +185,15 @@ export const ERP_NAV: NavItem[] = [
     label: "Amazon Orders",
     href: "/erp/oms/amazon/orders",
     section: "OMS",
-    description: "Amazon OMS orders (coming soon).",
+    description: "Amazon OMS orders (reports-backed).",
+    access: "manager",
+  },
+  {
+    id: "analytics-amazon",
+    label: "Amazon Analytics",
+    href: "/erp/analytics/amazon",
+    section: "Analytics",
+    description: "Sales, geo, and cohort analytics from Amazon reports.",
     access: "manager",
   },
   {

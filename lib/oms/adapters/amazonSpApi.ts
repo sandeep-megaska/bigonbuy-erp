@@ -1,5 +1,5 @@
 import { gunzipSync } from "zlib";
-import { getAmazonAccessToken, spApiSignedFetch } from "../../amazonSpApi";
+import { assertSupportedReportType, getAmazonAccessToken, spApiSignedFetch } from "../../amazonSpApi";
 
 const FINANCES_API_BASE = "/finances/v0";
 const REPORTS_API_BASE = "/reports/2021-06-30";
@@ -66,6 +66,20 @@ type AmazonReport = {
 type AmazonReportDocument = {
   url: string;
   compressionAlgorithm?: string | null;
+};
+
+type CreateReportPayload = {
+  reportType: string;
+  marketplaceIds: string[];
+  dataStartTime?: string;
+  dataEndTime?: string;
+  reportOptions?: Record<string, string>;
+};
+
+type CreateReportResult = {
+  reportId: string;
+  request: CreateReportPayload;
+  response: Record<string, unknown>;
 };
 
 const FINANCES_PAGE_DELAY_MS = 200;
@@ -275,6 +289,49 @@ export async function amazonListReports({
   const next = typeof payload.nextToken === "string" ? payload.nextToken : undefined;
 
   return { reports, nextToken: next };
+}
+
+export async function amazonCreateReport({
+  reportType,
+  marketplaceIds,
+  dataStartTime,
+  dataEndTime,
+  reportOptions,
+  signal,
+}: CreateReportPayload & { signal?: AbortSignal }): Promise<CreateReportResult> {
+  assertSupportedReportType(reportType);
+
+  const accessToken = await getAmazonAccessToken();
+  const payload: CreateReportPayload = {
+    reportType,
+    marketplaceIds,
+    ...(dataStartTime ? { dataStartTime } : {}),
+    ...(dataEndTime ? { dataEndTime } : {}),
+    ...(reportOptions ? { reportOptions } : {}),
+  };
+
+  const res = await spApiSignedFetch({
+    method: "POST",
+    path: `${REPORTS_API_BASE}/reports`,
+    accessToken,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  const json = (await res.json()) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(`Create report error: ${JSON.stringify(json)}`);
+  }
+
+  const reportId = (json.reportId ?? (json.payload as { reportId?: string } | undefined)?.reportId) as
+    | string
+    | undefined;
+  if (!reportId) {
+    throw new Error("Missing reportId in create report response.");
+  }
+
+  return { reportId, request: payload, response: json };
 }
 
 export async function amazonGetReport({
