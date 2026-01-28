@@ -1,541 +1,406 @@
-import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import { useRouter } from "next/router";
+import { z } from "zod";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
   eyebrowStyle,
   h1Style,
-  h2Style,
   inputStyle,
   pageContainerStyle,
   pageHeaderStyle,
   primaryButtonStyle,
+  secondaryButtonStyle,
   subtitleStyle,
   tableCellStyle,
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { supabase } from "../../../../../lib/supabaseClient";
 
-const MAX_RANGE_DAYS = 60;
-
-type CashflowTotals = {
-  grossSales: number;
-  refunds: number;
-  netSales: number;
-  amazonFees: number;
-  withholdings: number;
-  otherAdjustments: number;
-  netCashflow: number;
+type CompanyContext = {
+  companyId: string | null;
+  roleKey: string | null;
+  membershipError: string | null;
 };
 
-type BreakdownEntry = {
-  key: string;
-  amount: number;
-  count: number;
-};
+type OrderRow = z.infer<typeof orderRowSchema>;
 
-type CashflowResponse = {
-  range: { start: string; end: string };
-  partialTotals: Record<string, CashflowTotals>;
-  breakdown: {
-    revenue: BreakdownEntry[];
-    refunds: BreakdownEntry[];
-    fees: BreakdownEntry[];
-    withholdings: BreakdownEntry[];
-    otherAdjustments: BreakdownEntry[];
-    excluded: BreakdownEntry[];
-  };
-  nextToken?: string;
-  debug: {
-    eventGroupsCount: number;
-    pagesFetchedThisCall: number;
-    eventsCountThisCall: number;
-    warnings: string[];
-    unknownLargeBuckets?: {
-      bucketKey: string;
-      totalAmount: number;
-      currency: string;
-      sample: {
-        eventType: string;
-        listName: string;
-        amountType?: string;
-        amountDescription?: string;
-        amount: number;
-        currency: string;
-        rawKeys: string[];
-      };
-    }[];
-  };
-};
+type SyncResponse =
+  | { ok: true; orders_upserted: number; items_written: number; next_watermark: string | null }
+  | { ok: false; error: string };
 
-const gridStyle: React.CSSProperties = {
+const orderRowSchema = z.object({
+  amazon_order_id: z.string(),
+  order_status: z.string().nullable(),
+  purchase_date: z.string().nullable(),
+  last_update_date: z.string().nullable(),
+  fulfillment_channel: z.string().nullable(),
+  sales_channel: z.string().nullable(),
+  order_type: z.string().nullable(),
+  buyer_email: z.string().nullable(),
+  buyer_name: z.string().nullable(),
+  ship_service_level: z.string().nullable(),
+  currency: z.string().nullable(),
+  order_total: z.number().nullable(),
+  number_of_items_shipped: z.number().nullable(),
+  number_of_items_unshipped: z.number().nullable(),
+  is_prime: z.boolean().nullable(),
+  is_business_order: z.boolean().nullable(),
+  shipping_address_city: z.string().nullable(),
+  shipping_address_state: z.string().nullable(),
+  shipping_address_country_code: z.string().nullable(),
+});
+
+const DEFAULT_MARKETPLACE_ID = "A21TJRUUN4KGV";
+
+const statusOptions = [
+  "",
+  "Pending",
+  "PendingAvailability",
+  "Unshipped",
+  "PartiallyShipped",
+  "Shipped",
+  "Canceled",
+  "Unfulfillable",
+  "InvoiceUnconfirmed",
+];
+
+const filtersGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 16,
-};
-
-const inlineFieldStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: 12,
-  alignItems: "flex-end",
+  alignItems: "end",
 };
 
-const labelStyle: React.CSSProperties = {
+const fieldLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 6,
-  fontSize: 13,
+  fontSize: 12,
   color: "#4b5563",
 };
 
-const warningStyle: React.CSSProperties = {
-  margin: 0,
-  color: "#b45309",
-  fontSize: 13,
-};
-
-const errorStyle: React.CSSProperties = {
+const errorStyle: CSSProperties = {
   margin: 0,
   color: "#b91c1c",
   fontSize: 13,
 };
 
-function formatCurrency(amount: number, currency: string): string {
+const noticeStyle: CSSProperties = {
+  margin: 0,
+  color: "#047857",
+  fontSize: 13,
+};
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-IN", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatCurrency(amount: number | null, currency: string | null): string {
+  if (amount === null || Number.isNaN(amount)) return "—";
+  const safeCurrency = currency || "INR";
   try {
-    return new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount);
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: safeCurrency,
+      maximumFractionDigits: 2,
+    }).format(amount);
   } catch (error) {
-    return `${amount.toFixed(2)} ${currency}`;
+    return `${amount.toFixed(2)} ${safeCurrency}`;
   }
 }
 
-function getRangeDiffDays(start: string, end: string): number | null {
-  if (!start || !end) return null;
-  const startDate = new Date(`${start}T00:00:00.000Z`);
-  const endDate = new Date(`${end}T23:59:59.999Z`);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
-  return Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-}
+export default function AmazonOrdersPage() {
+  const router = useRouter();
+  const [ctx, setCtx] = useState<CompanyContext | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
 
-export default function AmazonOmsOrdersPlaceholder() {
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
-  const [rangeError, setRangeError] = useState<string | null>(null);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [cashflow, setCashflow] = useState<{
-    range: { start: string; end: string };
-    totalsByCurrency: Record<string, CashflowTotals>;
-    breakdown: {
-      revenue: BreakdownEntry[];
-      refunds: BreakdownEntry[];
-      fees: BreakdownEntry[];
-      withholdings: BreakdownEntry[];
-      otherAdjustments: BreakdownEntry[];
-      excluded: BreakdownEntry[];
-    };
-    debug: {
-      warnings: string[];
-      pagesFetched: number;
-      eventsFetched: number;
-    };
-  } | null>(null);
-  const [isStopped, setIsStopped] = useState(false);
-  const [showAllWarnings, setShowAllWarnings] = useState(false);
-  const stopRef = useRef(false);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [query, setQuery] = useState("");
 
-  const breakdownCurrency = useMemo(() => {
-    if (!cashflow) return "INR";
-    const currencies = Object.keys(cashflow.totalsByCurrency);
-    return currencies.length === 1 ? currencies[0] : "INR";
-  }, [cashflow]);
+  const canSync = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin"].includes(ctx.roleKey)),
+    [ctx]
+  );
 
-  const rangeSummary = useMemo(() => {
-    const diff = getRangeDiffDays(startDate, endDate);
-    if (!diff || diff <= 0) return null;
-    return `${diff} day${diff === 1 ? "" : "s"} selected`;
-  }, [startDate, endDate]);
+  const fetchOrders = useCallback(async () => {
+    if (!ctx?.companyId) return;
+    setError(null);
+    setNotice(null);
+    setIsFetching(true);
 
-  const validateRange = (): boolean => {
-    const diff = getRangeDiffDays(startDate, endDate);
-    if (!startDate || !endDate) {
-      setRangeError("Select a start and end date.");
-      return false;
+    const { data, error: listError } = await supabase.rpc("erp_amazon_orders_list", {
+      p_marketplace_id: DEFAULT_MARKETPLACE_ID,
+      p_status: statusFilter || null,
+      p_from: fromDate || null,
+      p_to: toDate || null,
+      p_q: query || null,
+      p_limit: 100,
+      p_offset: 0,
+    });
+
+    if (listError) {
+      setError(listError.message);
+      setIsFetching(false);
+      return;
     }
-    if (!diff || diff <= 0) {
-      setRangeError("End date must be on or after start date.");
-      return false;
+
+    const parsed = z.array(orderRowSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      setError("Unable to parse orders list response.");
+      setIsFetching(false);
+      return;
     }
-    if (diff > MAX_RANGE_DAYS) {
-      setRangeError(`Date range must be ${MAX_RANGE_DAYS} days or less.`);
-      return false;
-    }
-    setRangeError(null);
-    return true;
-  };
 
-  const mergeTotals = (
-    existing: Record<string, CashflowTotals>,
-    incoming: Record<string, CashflowTotals>
-  ): Record<string, CashflowTotals> => {
-    const merged = { ...existing };
-    Object.entries(incoming).forEach(([currency, totals]) => {
-      const current = merged[currency] ?? {
-        grossSales: 0,
-        refunds: 0,
-        netSales: 0,
-        amazonFees: 0,
-        withholdings: 0,
-        otherAdjustments: 0,
-        netCashflow: 0,
-      };
-      merged[currency] = {
-        grossSales: current.grossSales + totals.grossSales,
-        refunds: current.refunds + totals.refunds,
-        netSales: current.netSales + totals.netSales,
-        amazonFees: current.amazonFees + totals.amazonFees,
-        withholdings: current.withholdings + totals.withholdings,
-        otherAdjustments: current.otherAdjustments + totals.otherAdjustments,
-        netCashflow: current.netCashflow + totals.netCashflow,
-      };
-    });
-    return merged;
-  };
+    setOrders(parsed.data);
+    setIsFetching(false);
+  }, [ctx?.companyId, statusFilter, fromDate, toDate, query]);
 
-  const mergeBreakdown = (existing: BreakdownEntry[], incoming: BreakdownEntry[]): BreakdownEntry[] => {
-    const map = new Map<string, BreakdownEntry>();
-    existing.forEach((entry) => {
-      map.set(entry.key, { ...entry });
-    });
-    incoming.forEach((entry) => {
-      const current = map.get(entry.key);
-      if (current) {
-        current.amount += entry.amount;
-        current.count += entry.count;
-      } else {
-        map.set(entry.key, { ...entry });
-      }
-    });
-    return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
-  };
-
-  const handleFetch = async () => {
-    setApiError(null);
-    if (!validateRange()) return;
-    setIsStopped(false);
-    stopRef.current = false;
-    setIsLoading(true);
-    setCashflow({
-      range: { start: startDate, end: endDate },
-      totalsByCurrency: {},
-      breakdown: { revenue: [], refunds: [], fees: [], withholdings: [], otherAdjustments: [], excluded: [] },
-      debug: { warnings: [], pagesFetched: 0, eventsFetched: 0 },
-    });
+  const handleSync = async () => {
+    setNotice(null);
+    setError(null);
+    setIsSyncing(true);
     try {
-      let nextToken: string | undefined;
-      do {
-        if (stopRef.current) break;
-        const params = new URLSearchParams({ start: startDate, end: endDate });
-        if (nextToken) params.set("nextToken", nextToken);
-        const res = await fetch(`/api/oms/amazon/cashflow?${params.toString()}`);
-        const json = await res.json();
-        if (!res.ok) {
-          const errorMessage = typeof json?.error === "string" ? json.error : "Unable to fetch cashflow.";
-          throw new Error(errorMessage);
-        }
+      const response = await fetch("/api/integrations/amazon/orders/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marketplaceId: DEFAULT_MARKETPLACE_ID }),
+      });
 
-        const data = json as CashflowResponse;
-        nextToken = data.nextToken;
-        setCashflow((prev) => {
-          if (!prev) {
-            return {
-              range: data.range,
-              totalsByCurrency: data.partialTotals,
-              breakdown: data.breakdown,
-              debug: {
-                warnings: data.debug.warnings,
-                pagesFetched: data.debug.pagesFetchedThisCall,
-                eventsFetched: data.debug.eventsCountThisCall,
-              },
-            };
-          }
-          return {
-            range: data.range,
-            totalsByCurrency: mergeTotals(prev.totalsByCurrency, data.partialTotals),
-            breakdown: {
-              revenue: mergeBreakdown(prev.breakdown.revenue, data.breakdown.revenue),
-              refunds: mergeBreakdown(prev.breakdown.refunds, data.breakdown.refunds),
-              fees: mergeBreakdown(prev.breakdown.fees, data.breakdown.fees),
-              withholdings: mergeBreakdown(prev.breakdown.withholdings, data.breakdown.withholdings),
-              otherAdjustments: mergeBreakdown(prev.breakdown.otherAdjustments, data.breakdown.otherAdjustments),
-              excluded: mergeBreakdown(prev.breakdown.excluded, data.breakdown.excluded),
-            },
-            debug: {
-              warnings: [...prev.debug.warnings, ...data.debug.warnings],
-              pagesFetched: prev.debug.pagesFetched + data.debug.pagesFetchedThisCall,
-              eventsFetched: prev.debug.eventsFetched + data.debug.eventsCountThisCall,
-            },
-          };
-        });
-      } while (nextToken);
-    } catch (error) {
-      setApiError(String(error));
+      const payload = (await response.json()) as SyncResponse;
+      if (!response.ok || !payload.ok) {
+        setError(payload.ok ? "Sync failed." : payload.error);
+      } else {
+        setNotice(
+          `Synced ${payload.orders_upserted} order(s), ${payload.items_written} item(s). Next watermark: ${
+            payload.next_watermark ?? "—"
+          }`
+        );
+        await fetchOrders();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Sync failed.";
+      setError(message);
     } finally {
-      setIsLoading(false);
+      setIsSyncing(false);
     }
   };
 
-  const dedupedWarnings = useMemo(() => {
-    if (!cashflow) return [];
-    return Array.from(new Set(cashflow.debug.warnings));
-  }, [cashflow]);
-  const warningsToShow = showAllWarnings ? dedupedWarnings : dedupedWarnings.slice(0, 3);
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const context = await getCompanyContext(session);
+      if (!active) return;
+
+      setCtx(context);
+      if (!context.companyId) {
+        setError(context.membershipError || "No active company membership found.");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!ctx?.companyId) return;
+    fetchOrders();
+  }, [ctx?.companyId, fetchOrders]);
+
+  if (loading) {
+    return <div style={pageContainerStyle}>Loading Amazon orders…</div>;
+  }
+
+  if (error && !ctx?.companyId) {
+    return <div style={pageContainerStyle}>{error}</div>;
+  }
 
   return (
-    <ErpShell activeModule="oms">
+    <ErpShell>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
             <p style={eyebrowStyle}>OMS · Amazon</p>
-            <h1 style={h1Style}>Orders</h1>
-            <p style={subtitleStyle}>Track Amazon OMS orders and cashflow insights for India.</p>
+            <h1 style={h1Style}>Amazon Orders (India)</h1>
+            <p style={subtitleStyle}>
+              Sync near real-time Amazon orders via SP-API and review operational details.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={fetchOrders}
+              disabled={isFetching}
+            >
+              {isFetching ? "Refreshing…" : "Refresh"}
+            </button>
+            <button
+              type="button"
+              style={primaryButtonStyle}
+              onClick={handleSync}
+              disabled={!canSync || isSyncing}
+            >
+              {isSyncing ? "Syncing…" : "Sync now"}
+            </button>
           </div>
         </header>
-        <section style={cardStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
-            <div>
-              <h2 style={h2Style}>Amazon Cashflow Summary (India)</h2>
-              <p style={subtitleStyle}>Pull financial events from Amazon SP-API for a date range (max 60 days).</p>
-            </div>
-            {rangeSummary ? <span style={badgeStyle}>{rangeSummary}</span> : null}
-          </div>
-          <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-            <div style={inlineFieldStyle}>
-              <label style={labelStyle}>
-                Start date
-                <input type="date" style={inputStyle} value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-              </label>
-              <label style={labelStyle}>
-                End date
-                <input type="date" style={inputStyle} value={endDate} onChange={(event) => setEndDate(event.target.value)} />
-              </label>
-              <button style={primaryButtonStyle} onClick={handleFetch} disabled={isLoading}>
-                {isLoading ? "Fetching..." : "Fetch Cashflow"}
+
+        {notice ? <p style={noticeStyle}>{notice}</p> : null}
+        {error ? <p style={errorStyle}>{error}</p> : null}
+
+        <section style={{ ...cardStyle, marginBottom: 16 }}>
+          <div style={filtersGridStyle}>
+            <label style={fieldLabelStyle}>
+              Status
+              <select
+                value={statusFilter}
+                style={inputStyle}
+                onChange={(event) => setStatusFilter(event.target.value)}
+              >
+                {statusOptions.map((status) => (
+                  <option key={status || "all"} value={status}>
+                    {status ? status.replace(/([A-Z])/g, " $1").trim() : "All statuses"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldLabelStyle}>
+              From date
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label style={fieldLabelStyle}>
+              To date
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label style={fieldLabelStyle}>
+              Search (Order ID / SKU)
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search order id, SKU"
+                style={inputStyle}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={secondaryButtonStyle} onClick={fetchOrders}>
+                Apply filters
               </button>
-              {isLoading ? (
-                <button
-                  style={{ ...primaryButtonStyle, backgroundColor: "#9ca3af" }}
-                  onClick={() => {
-                    stopRef.current = true;
-                    setIsStopped(true);
-                  }}
-                >
-                  Stop
-                </button>
-              ) : null}
             </div>
-            {rangeError ? <p style={errorStyle}>{rangeError}</p> : null}
-            {apiError ? <p style={errorStyle}>{apiError}</p> : null}
-            {cashflow ? (
-              <p style={warningStyle}>
-                Pages fetched: {cashflow.debug.pagesFetched} · Events fetched: {cashflow.debug.eventsFetched}
-                {isStopped ? " · Stopped" : ""}
-              </p>
-            ) : null}
           </div>
         </section>
 
-        {cashflow ? (
-          <section style={{ display: "grid", gap: 20 }}>
-            {Object.entries(cashflow.totalsByCurrency).map(([currency, totals]) => (
-              <div key={currency} style={cardStyle}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                  <h2 style={h2Style}>Totals ({currency})</h2>
-                  <span style={badgeStyle}>{currency}</span>
-                </div>
-                <div style={gridStyle}>
-                  <div>
-                    <p style={eyebrowStyle}>Gross Sales</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.grossSales, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Refunds / Returns</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.refunds, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Net Sales</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.netSales, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Amazon Fees</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.amazonFees, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Withholdings (TCS/TDS)</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.withholdings, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Other Adjustments</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.otherAdjustments, currency)}</h2>
-                  </div>
-                  <div>
-                    <p style={eyebrowStyle}>Net Cashflow</p>
-                    <h2 style={h2Style}>{formatCurrency(totals.netCashflow, currency)}</h2>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {dedupedWarnings.length > 0 ? (
-              <section style={cardStyle}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <h2 style={h2Style}>Warnings</h2>
-                  {dedupedWarnings.length > 3 ? (
-                    <button
-                      style={{ ...primaryButtonStyle, padding: "6px 12px", fontSize: 12 }}
-                      onClick={() => setShowAllWarnings((prev) => !prev)}
-                    >
-                      {showAllWarnings ? "Show less" : "Show all"}
-                    </button>
-                  ) : null}
-                </div>
-                <ul style={{ margin: 0, paddingLeft: 18, color: "#92400e", fontSize: 13 }}>
-                  {warningsToShow.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-            <section style={{ display: "grid", gap: 16 }}>
-              <div>
-                <h2 style={h2Style}>Revenue Breakdown</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.revenue.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2 style={h2Style}>Refund Breakdown</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.refunds.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2 style={h2Style}>Amazon Fees Breakdown</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.fees.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2 style={h2Style}>Withholdings Breakdown</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.withholdings.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2 style={h2Style}>Other Adjustments Breakdown</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.otherAdjustments.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2 style={h2Style}>Excluded Metadata</h2>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Type + Description</th>
-                      <th style={tableHeaderCellStyle}>Count</th>
-                      <th style={tableHeaderCellStyle}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflow.breakdown.excluded.map((row) => (
-                      <tr key={row.key}>
-                        <td style={tableCellStyle}>{row.key}</td>
-                        <td style={tableCellStyle}>{row.count}</td>
-                        <td style={tableCellStyle}>{formatCurrency(row.amount, breakdownCurrency)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-            <p style={warningStyle}>All values reflect Amazon financial events. SKU/ASIN and COGS are out of scope.</p>
-          </section>
-        ) : null}
+        <section style={cardStyle}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeaderCellStyle}>Order</th>
+                <th style={tableHeaderCellStyle}>Status</th>
+                <th style={tableHeaderCellStyle}>Purchase date</th>
+                <th style={tableHeaderCellStyle}>Last update</th>
+                <th style={tableHeaderCellStyle}>Buyer</th>
+                <th style={tableHeaderCellStyle}>Total</th>
+                <th style={tableHeaderCellStyle}>Items</th>
+                <th style={tableHeaderCellStyle}>Ship to</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.length === 0 ? (
+                <tr>
+                  <td style={tableCellStyle} colSpan={8}>
+                    {isFetching ? "Loading orders…" : "No Amazon orders found."}
+                  </td>
+                </tr>
+              ) : (
+                orders.map((order) => (
+                  <tr key={order.amazon_order_id}>
+                    <td style={tableCellStyle}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <Link href={`/erp/oms/amazon/orders/${order.amazon_order_id}`}>
+                          {order.amazon_order_id}
+                        </Link>
+                        <span style={badgeStyle}>{order.fulfillment_channel ?? "—"}</span>
+                      </div>
+                    </td>
+                    <td style={tableCellStyle}>{order.order_status ?? "—"}</td>
+                    <td style={tableCellStyle}>{formatDateTime(order.purchase_date)}</td>
+                    <td style={tableCellStyle}>{formatDateTime(order.last_update_date)}</td>
+                    <td style={tableCellStyle}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span>{order.buyer_name ?? "—"}</span>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>
+                          {order.buyer_email ?? "—"}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={tableCellStyle}>
+                      {formatCurrency(order.order_total, order.currency)}
+                    </td>
+                    <td style={tableCellStyle}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span>Shipped: {order.number_of_items_shipped ?? "—"}</span>
+                        <span>Unshipped: {order.number_of_items_unshipped ?? "—"}</span>
+                      </div>
+                    </td>
+                    <td style={tableCellStyle}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span>
+                          {[order.shipping_address_city, order.shipping_address_state]
+                            .filter(Boolean)
+                            .join(", ") || "—"}
+                        </span>
+                        <span style={{ color: "#6b7280", fontSize: 12 }}>
+                          {order.shipping_address_country_code ?? "—"}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </section>
       </div>
     </ErpShell>
   );
