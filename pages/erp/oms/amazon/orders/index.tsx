@@ -144,6 +144,16 @@ export default function AmazonOrdersPage() {
     [ctx]
   );
 
+  const getAccessToken = useCallback(async () => {
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) {
+      setError("Missing session token. Please sign in again.");
+      return null;
+    }
+    return token;
+  }, []);
+
   const fetchOrders = useCallback(async () => {
     if (!ctx?.companyId) return;
     setError(null);
@@ -182,9 +192,13 @@ export default function AmazonOrdersPage() {
     setError(null);
     setIsSyncing(true);
     try {
+      const token = await getAccessToken();
+      if (!token) {
+        return;
+      }
       const response = await fetch("/api/integrations/amazon/orders/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ marketplaceId: DEFAULT_MARKETPLACE_ID }),
       });
 
