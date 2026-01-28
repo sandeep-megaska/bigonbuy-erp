@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ErpModuleKey } from "./ErpTopBar";
-import { getCompanyContext } from "../../lib/erpContext";
+import { getCompanyContext, isAnalyticsReader } from "../../lib/erpContext";
 import { getFinanceNavGroups } from "../../lib/erp/financeNav";
 
 export type SidebarItem = {
@@ -105,6 +105,13 @@ const workspaceSidebarGroups: SidebarGroup[] = [
   },
 ];
 
+const analyticsSidebarGroups: SidebarGroup[] = [
+  {
+    label: "Analytics",
+    items: [{ label: "Amazon", href: "/erp/analytics/amazon", icon: "AN" }],
+  },
+];
+
 const employeeSidebarGroups: SidebarGroup[] = [
   {
     label: "Employee",
@@ -163,6 +170,10 @@ export default function ErpSidebar({
   const groups = useMemo(() => {
     if (activeModule === "finance") {
       return getFinanceNavGroups(roleKey);
+    }
+    if (activeModule === "workspace") {
+      const analyticsGroups = isAnalyticsReader(roleKey) ? analyticsSidebarGroups : [];
+      return [...workspaceSidebarGroups, ...analyticsGroups];
     }
     return moduleSidebarMap[activeModule];
   }, [activeModule, roleKey]);
