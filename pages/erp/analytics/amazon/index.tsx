@@ -36,6 +36,20 @@ const overviewKpiSchema = z.object({
   repeat_rate_estimated: z.number().nullable(),
 });
 
+const overviewKpiV2Schema = z.object({
+  gross_sales: z.number().nullable(),
+  net_sales_estimated: z.number().nullable(),
+  confirmed_orders_count: z.number().nullable(),
+  confirmed_orders_value: z.number().nullable(),
+  cancellations_count: z.number().nullable(),
+  cancellations_value: z.number().nullable(),
+  returns_count: z.number().nullable(),
+  returns_value: z.number().nullable(),
+  discount_value: z.number().nullable(),
+  avg_per_day: z.number().nullable(),
+  days_count: z.number().nullable(),
+});
+
 const skuSummarySchema = z.object({
   mapped_variant_id: z.string().nullable(),
   erp_sku: z.string().nullable(),
@@ -254,6 +268,7 @@ export default function AmazonAnalyticsPage() {
   const [cohorts, setCohorts] = useState<z.infer<typeof cohortSchema>[]>([]);
   const [topReturns, setTopReturns] = useState<z.infer<typeof returnsSchema>[]>([]);
   const [overviewKpis, setOverviewKpis] = useState<z.infer<typeof overviewKpiSchema> | null>(null);
+  const [overviewKpisV2, setOverviewKpisV2] = useState<z.infer<typeof overviewKpiV2Schema> | null>(null);
   const [overviewTopSkus, setOverviewTopSkus] = useState<z.infer<typeof skuSummarySchema>[]>([]);
   const [overviewTopStates, setOverviewTopStates] = useState<z.infer<typeof salesByGeoSchema>[]>([]);
   const [overviewSlowMovers, setOverviewSlowMovers] = useState<z.infer<typeof skuSummarySchema>[]>([]);
@@ -374,6 +389,28 @@ export default function AmazonAnalyticsPage() {
     setOverviewKpis(parsed.data[0] ?? null);
   }, [fromDate, toDate, marketplaceId]);
 
+  const loadOverviewKpisV2 = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_overview_v2", {
+      p_from: fromDate,
+      p_to: toDate,
+      p_marketplace: marketplaceId,
+      p_channel_account_id: null,
+      p_fulfillment_mode: null,
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message);
+    }
+
+    const parsed = z.array(overviewKpiV2Schema).safeParse(data ?? []);
+    if (!parsed.success) {
+      throw new Error("Unable to parse overview KPI response.");
+    }
+
+    setOverviewKpisV2(parsed.data[0] ?? null);
+  }, [fromDate, toDate, marketplaceId]);
+
   const loadOverviewTopSkus = useCallback(async () => {
     if (!fromDate || !toDate) return;
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
@@ -469,7 +506,7 @@ export default function AmazonAnalyticsPage() {
     setIsLoadingData(true);
     try {
       await Promise.all([
-        loadOverviewKpis(),
+        loadOverviewKpisV2(),
         loadOverviewTopSkus(),
         loadOverviewTopStates(),
         loadOverviewSlowMovers(),
@@ -481,7 +518,7 @@ export default function AmazonAnalyticsPage() {
       setIsLoadingData(false);
     }
   }, [
-    loadOverviewKpis,
+    loadOverviewKpisV2,
     loadOverviewMappingGaps,
     loadOverviewSlowMovers,
     loadOverviewTopSkus,
@@ -1376,12 +1413,46 @@ export default function AmazonAnalyticsPage() {
                 }}
               >
                 {[
-                  { label: "Gross sales", value: formatCurrency(overviewKpis?.gross ?? null) },
-                  { label: "Net sales", value: formatCurrency(overviewKpis?.net ?? null) },
-                  { label: "Units", value: formatNumber(overviewKpis?.units ?? null) },
-                  { label: "Orders", value: formatNumber(overviewKpis?.orders ?? null) },
-                  { label: "Known customers", value: formatNumber(overviewKpis?.customers_known ?? null) },
-                  { label: "Estimated customers", value: formatNumber(overviewKpis?.customers_estimated ?? null) },
+                  {
+                    label: "Gross sales",
+                    value: formatCurrency(overviewKpisV2?.gross_sales ?? null),
+                  },
+                  {
+                    label: "Net sales (estimated)",
+                    value: formatCurrency(overviewKpisV2?.net_sales_estimated ?? null),
+                    caption: "Estimated (Orders/Returns reports). Fees & payouts in Finance → Settlements.",
+                  },
+                  {
+                    label: "Confirmed orders",
+                    value: formatCurrency(overviewKpisV2?.confirmed_orders_value ?? null),
+                    secondary: `${formatNumber(overviewKpisV2?.confirmed_orders_count ?? null)} orders`,
+                  },
+                  {
+                    label: "Cancellations",
+                    value: formatCurrency(overviewKpisV2?.cancellations_value ?? null),
+                    secondary: `${formatNumber(overviewKpisV2?.cancellations_count ?? null)} orders`,
+                  },
+                  {
+                    label: "Returns",
+                    value: formatCurrency(overviewKpisV2?.returns_value ?? null),
+                    secondary: `${formatNumber(overviewKpisV2?.returns_count ?? null)} orders`,
+                  },
+                  {
+                    label: "Discount",
+                    value: formatCurrency(overviewKpisV2?.discount_value ?? null),
+                    secondary:
+                      overviewKpisV2?.gross_sales && overviewKpisV2.gross_sales > 0
+                        ? `${formatPercent(overviewKpisV2.discount_value / overviewKpisV2.gross_sales)} of gross`
+                        : "—",
+                  },
+                  {
+                    label: "Avg per day",
+                    value: formatCurrency(overviewKpisV2?.avg_per_day ?? null),
+                    secondary:
+                      overviewKpisV2?.days_count !== null && overviewKpisV2?.days_count !== undefined
+                        ? `${formatNumber(overviewKpisV2?.days_count ?? null)} days`
+                        : "—",
+                  },
                 ].map((tile) => (
                   <div
                     key={tile.label}
@@ -1390,10 +1461,15 @@ export default function AmazonAnalyticsPage() {
                       borderRadius: 8,
                       padding: 12,
                       background: "#f9fafb",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
                     }}
                   >
                     <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.label}</p>
-                    <p style={{ margin: "6px 0 0", fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
+                    <p style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
+                    {tile.secondary ? <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.secondary}</p> : null}
+                    {tile.caption ? <p style={{ margin: 0, fontSize: 11, color: "#6b7280" }}>{tile.caption}</p> : null}
                   </div>
                 ))}
               </div>
