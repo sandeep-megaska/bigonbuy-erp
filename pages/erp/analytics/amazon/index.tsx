@@ -1441,7 +1441,9 @@ export default function AmazonAnalyticsPage() {
                     label: "Discount",
                     value: formatCurrency(overviewKpisV2?.discount_value ?? null),
                     secondary:
-                      overviewKpisV2?.gross_sales && overviewKpisV2.gross_sales > 0
+                      overviewKpisV2?.gross_sales &&
+                      overviewKpisV2.gross_sales > 0 &&
+                      overviewKpisV2.discount_value != null
                         ? `${formatPercent(overviewKpisV2.discount_value / overviewKpisV2.gross_sales)} of gross`
                         : "—",
                   },
