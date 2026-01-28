@@ -71,6 +71,9 @@ const salesByGeoSchema = z.object({
   customers: z.number().nullable(),
   units: z.number().nullable(),
   gross: z.number().nullable(),
+  gross_share_within_state: z.number().nullable(),
+  rank_within_state: z.number().nullable(),
+  rank_overall: z.number().nullable(),
 });
 
 const unmappedSkuSchema = z.object({
@@ -203,6 +206,11 @@ function formatNumber(value: number | null): string {
 function formatPercent(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "—";
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatSharePercent(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "—";
+  return `${value.toFixed(2)}%`;
 }
 
 function escapeCsvValue(value: string) {
@@ -414,11 +422,12 @@ export default function AmazonAnalyticsPage() {
 
   const loadOverviewTopStates = useCallback(async () => {
     if (!fromDate || !toDate) return;
-    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
       p_marketplace_id: marketplaceId,
       p_from: fromDate,
       p_to: toDate,
       p_level: "state",
+      p_state: null,
       p_limit: 20,
       p_offset: 0,
     });
@@ -544,11 +553,12 @@ export default function AmazonAnalyticsPage() {
     const rows: z.infer<typeof salesByGeoSchema>[] = [];
 
     while (true) {
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
         p_marketplace_id: marketplaceId,
         p_from: fromDate,
         p_to: toDate,
         p_level: geoLevel,
+        p_state: geoLevel === "city" ? geoStateFilter : null,
         p_limit: limit,
         p_offset: offset,
       });
@@ -568,28 +578,18 @@ export default function AmazonAnalyticsPage() {
     }
 
     return rows;
-  }, [fromDate, toDate, geoLevel, marketplaceId]);
+  }, [fromDate, toDate, geoLevel, geoStateFilter, marketplaceId]);
 
   const loadSalesByGeo = useCallback(async () => {
     if (!fromDate || !toDate) return;
     setIsLoadingData(true);
     try {
-      if (geoLevel === "city" && geoStateFilter) {
-        const rows = await fetchAllSalesByGeo();
-        const filtered = rows.filter((row) => (row.state ?? "Unknown") === geoStateFilter);
-        const start = geoPage * pageSize;
-        const pageRows = filtered.slice(start, start + pageSize);
-        setSalesByGeo(pageRows);
-        setGeoTotalCount(filtered.length);
-        setIsLoadingData(false);
-        return;
-      }
-
-      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo", {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
         p_marketplace_id: marketplaceId,
         p_from: fromDate,
         p_to: toDate,
         p_level: geoLevel,
+        p_state: geoLevel === "city" ? geoStateFilter : null,
         p_limit: pageSize,
         p_offset: geoPage * pageSize,
       });
@@ -614,7 +614,7 @@ export default function AmazonAnalyticsPage() {
       setError(geoError instanceof Error ? geoError.message : "Unable to load sales by geo data.");
       setIsLoadingData(false);
     }
-  }, [fromDate, toDate, geoLevel, geoPage, geoStateFilter, marketplaceId, fetchAllSalesByGeo]);
+  }, [fromDate, toDate, geoLevel, geoPage, geoStateFilter, marketplaceId]);
 
   const loadTopSkusByGeo = useCallback(
     async (target: { state: string; city?: string }) => {
@@ -1006,26 +1006,36 @@ export default function AmazonAnalyticsPage() {
 
       if (exportSelection === "geo_current") {
         const rows = await fetchAllSalesByGeo();
-        const filtered =
-          geoLevel === "city" && geoStateFilter
-            ? rows.filter((row) => (row.state ?? "Unknown") === geoStateFilter)
-            : rows;
         const headers = ["State"];
         if (geoLevel === "city") headers.push("City");
         headers.push("Orders", "Customers", "Units", "Gross");
+        if (geoLevel === "city") {
+          headers.push("Share %", "Rank in state", "Rank overall");
+        } else {
+          headers.push("Rank overall");
+        }
         const csv = buildCsv(
           headers,
-          filtered.map((row) => [
+          rows.map((row) => [
             row.state ?? "",
             ...(geoLevel === "city" ? [row.city ?? ""] : []),
             row.orders ?? 0,
             row.customers ?? 0,
             row.units ?? 0,
             row.gross ?? 0,
+            ...(geoLevel === "city"
+              ? [
+                  row.gross_share_within_state === null || row.gross_share_within_state === undefined
+                    ? ""
+                    : row.gross_share_within_state.toFixed(2),
+                  row.rank_within_state ?? "",
+                  row.rank_overall ?? "",
+                ]
+              : [row.rank_overall ?? ""]),
           ])
         );
         triggerDownload(`amazon_sales_by_geo_${geoLevel}_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
-        setToast({ type: "success", message: `Exported ${filtered.length} rows` });
+        setToast({ type: "success", message: `Exported ${rows.length} rows` });
         return;
       }
 
@@ -1737,12 +1747,21 @@ export default function AmazonAnalyticsPage() {
                   <th style={tableHeaderCellStyle}>Customers</th>
                   <th style={tableHeaderCellStyle}>Units</th>
                   <th style={tableHeaderCellStyle}>Gross</th>
+                  {geoLevel === "city" ? (
+                    <>
+                      <th style={tableHeaderCellStyle}>Share %</th>
+                      <th style={tableHeaderCellStyle}>Rank in state</th>
+                      <th style={tableHeaderCellStyle}>Rank overall</th>
+                    </>
+                  ) : (
+                    <th style={tableHeaderCellStyle}>Rank overall</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {salesByGeo.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={geoLevel === "city" ? 6 : 5}>
+                    <td style={tableCellStyle} colSpan={geoLevel === "city" ? 9 : 6}>
                       {isLoadingData ? "Loading geo data…" : "No geography data found."}
                     </td>
                   </tr>
@@ -1779,6 +1798,15 @@ export default function AmazonAnalyticsPage() {
                         <td style={tableCellStyle}>{formatNumber(row.customers ?? 0)}</td>
                         <td style={tableCellStyle}>{formatNumber(row.units ?? 0)}</td>
                         <td style={tableCellStyle}>{formatCurrency(row.gross ?? 0)}</td>
+                        {geoLevel === "city" ? (
+                          <>
+                            <td style={tableCellStyle}>{formatSharePercent(row.gross_share_within_state ?? null)}</td>
+                            <td style={tableCellStyle}>{formatNumber(row.rank_within_state ?? null)}</td>
+                            <td style={tableCellStyle}>{formatNumber(row.rank_overall ?? null)}</td>
+                          </>
+                        ) : (
+                          <td style={tableCellStyle}>{formatNumber(row.rank_overall ?? null)}</td>
+                        )}
                       </tr>
                     );
                   })
