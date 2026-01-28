@@ -1,14 +1,14 @@
 export type CanonGeoRow = {
   state: string | null;
   city: string | null;
-  orders: number;
-  customers: number;
-  units: number;
-  gross: number;
-  rank_overall?: number | null;
-  geo_key?: string | null;
-  gross_share_within_state?: number | null;
-  rank_within_state?: number | null;
+  geo_key: string | null;
+  orders: number | null;
+  customers: number | null;
+  units: number | null;
+  gross: number | null;
+  gross_share_within_state: number | null;
+  rank_within_state: number | null;
+  rank_overall: number | null;
 };
 
 const toNumber = (value: unknown, fallback = 0) => {
@@ -52,5 +52,20 @@ export function normalizeGeoRows(channelKey: string, rows: unknown): CanonGeoRow
     });
   }
 
-  return safeRows as CanonGeoRow[];
+  return safeRows.map((row) => {
+    const record = row as Record<string, unknown>;
+    return {
+      ...record,
+      geo_key: toGeoKey(record),
+      state: record.state !== undefined && record.state !== null ? String(record.state) : null,
+      city: record.city !== undefined && record.city !== null ? String(record.city) : null,
+      orders: toNullableNumber(record.orders),
+      customers: toNullableNumber(record.customers),
+      units: toNullableNumber(record.units),
+      gross: toNullableNumber(record.gross),
+      gross_share_within_state: toNullableNumber(record.gross_share_within_state),
+      rank_within_state: toNullableNumber(record.rank_within_state),
+      rank_overall: toNullableNumber(record.rank_overall ?? record.rank),
+    };
+  });
 }
