@@ -107,12 +107,24 @@ const cohortSchema = z.object({
   gross: z.number().nullable(),
 });
 
-const returnsSchema = z.object({
-  mapped_variant_id: z.string().nullable(),
-  erp_sku: z.string().nullable(),
-  units_sold: z.number().nullable(),
-  units_returned: z.number().nullable(),
-  return_rate: z.number().nullable(),
+const returnsSummarySchema = z.object({
+  returns_orders_count: z.number().nullable(),
+  returns_units: z.number().nullable(),
+  returns_value_estimated: z.number().nullable(),
+});
+
+const returnsRowSchema = z.object({
+  id: z.string(),
+  return_date: z.string().nullable(),
+  source: z.string().nullable(),
+  amazon_order_id: z.string().nullable(),
+  rma_id: z.string().nullable(),
+  asin: z.string().nullable(),
+  sku: z.string().nullable(),
+  quantity: z.number().nullable(),
+  reason: z.string().nullable(),
+  disposition: z.string().nullable(),
+  status: z.string().nullable(),
 });
 
 const reportRunSchema = z.object({
@@ -199,6 +211,13 @@ function formatDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function formatDateLabel(value: string | null): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toISOString().slice(0, 10);
+}
+
 function formatCurrency(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "—";
   try {
@@ -266,7 +285,9 @@ export default function AmazonAnalyticsPage() {
   const [drilldownTarget, setDrilldownTarget] = useState<{ state: string; city?: string } | null>(null);
   const [drilldownSkus, setDrilldownSkus] = useState<z.infer<typeof skuSummarySchema>[]>([]);
   const [cohorts, setCohorts] = useState<z.infer<typeof cohortSchema>[]>([]);
-  const [topReturns, setTopReturns] = useState<z.infer<typeof returnsSchema>[]>([]);
+  const [returnsSummary, setReturnsSummary] = useState<z.infer<typeof returnsSummarySchema> | null>(null);
+  const [returnRows, setReturnRows] = useState<z.infer<typeof returnsRowSchema>[]>([]);
+  const [returnsPage, setReturnsPage] = useState(0);
   const [overviewKpis, setOverviewKpis] = useState<z.infer<typeof overviewKpiSchema> | null>(null);
   const [overviewKpisV2, setOverviewKpisV2] = useState<z.infer<typeof overviewKpiV2Schema> | null>(null);
   const [overviewTopSkus, setOverviewTopSkus] = useState<z.infer<typeof skuSummarySchema>[]>([]);
@@ -277,6 +298,7 @@ export default function AmazonAnalyticsPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isLoadingDrilldown, setIsLoadingDrilldown] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingReturns, setIsSyncingReturns] = useState(false);
   const [lastRun, setLastRun] = useState<z.infer<typeof reportRunSchema> | null>(null);
   const [exportSelection, setExportSelection] = useState<string>("");
   const [exportingKey, setExportingKey] = useState<string | null>(null);
@@ -317,7 +339,7 @@ export default function AmazonAnalyticsPage() {
       ];
     }
 
-    return [{ value: "returns_top", label: "Returns · Top returned SKUs" }];
+    return [{ value: "returns_rows", label: "Returns · Return rows" }];
   }, [activeTab, geoLevel, skuMode]);
 
   const repeatSummary = useMemo(() => {
@@ -834,6 +856,38 @@ export default function AmazonAnalyticsPage() {
     return rows;
   }, [fromDate, toDate, cohortGrain, marketplaceId]);
 
+  const fetchAllReturns = useCallback(async () => {
+    if (!fromDate || !toDate) return [];
+    const limit = 500;
+    let offset = 0;
+    const rows: z.infer<typeof returnsRowSchema>[] = [];
+
+    while (true) {
+      const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_returns_page", {
+        p_marketplace: marketplaceId,
+        p_from: fromDate,
+        p_to: toDate,
+        p_limit: limit,
+        p_offset: offset,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message);
+      }
+
+      const parsed = z.array(returnsRowSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        throw new Error("Unable to parse returns rows response.");
+      }
+
+      if (parsed.data.length === 0) break;
+      rows.push(...parsed.data);
+      offset += limit;
+    }
+
+    return rows;
+  }, [fromDate, toDate, marketplaceId]);
+
   const loadReturnsAvailability = useCallback(async () => {
     const { count, error: countError } = await supabase
       .from("erp_amazon_return_facts")
@@ -848,14 +902,36 @@ export default function AmazonAnalyticsPage() {
     setHasReturns((count ?? 0) > 0);
   }, [marketplaceId]);
 
-  const loadTopReturns = useCallback(async () => {
+  const loadReturnsSummary = useCallback(async () => {
     if (!fromDate || !toDate) return;
-    setIsLoadingData(true);
-    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_top_returns", {
-      p_marketplace_id: marketplaceId,
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_returns_summary", {
+      p_marketplace: marketplaceId,
       p_from: fromDate,
       p_to: toDate,
-      p_limit: 50,
+      p_channel_account_id: null,
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message);
+    }
+
+    const parsed = z.array(returnsSummarySchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      throw new Error("Unable to parse returns summary response.");
+    }
+
+    setReturnsSummary(parsed.data[0] ?? null);
+  }, [fromDate, toDate, marketplaceId]);
+
+  const loadReturnsRows = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setIsLoadingData(true);
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_returns_page", {
+      p_marketplace: marketplaceId,
+      p_from: fromDate,
+      p_to: toDate,
+      p_limit: pageSize,
+      p_offset: returnsPage * pageSize,
     });
 
     if (rpcError) {
@@ -864,16 +940,16 @@ export default function AmazonAnalyticsPage() {
       return;
     }
 
-    const parsed = z.array(returnsSchema).safeParse(data ?? []);
+    const parsed = z.array(returnsRowSchema).safeParse(data ?? []);
     if (!parsed.success) {
       setError("Unable to parse returns response.");
       setIsLoadingData(false);
       return;
     }
 
-    setTopReturns(parsed.data);
+    setReturnRows(parsed.data);
     setIsLoadingData(false);
-  }, [fromDate, toDate, marketplaceId]);
+  }, [fromDate, toDate, marketplaceId, returnsPage]);
 
   const handleRefresh = useCallback(async () => {
     setError(null);
@@ -892,7 +968,8 @@ export default function AmazonAnalyticsPage() {
       await loadCohorts();
       await loadCohortEmailStats();
     } else if (activeTab === "returns") {
-      await loadTopReturns();
+      await loadReturnsSummary();
+      await loadReturnsRows();
     }
   }, [
     activeTab,
@@ -903,7 +980,8 @@ export default function AmazonAnalyticsPage() {
     loadOverviewKpis,
     loadCohorts,
     loadCohortEmailStats,
-    loadTopReturns,
+    loadReturnsSummary,
+    loadReturnsRows,
     skuMode,
   ]);
 
@@ -1107,18 +1185,25 @@ export default function AmazonAnalyticsPage() {
         return;
       }
 
-      if (exportSelection === "returns_top") {
+      if (exportSelection === "returns_rows") {
+        const rows = await fetchAllReturns();
         const csv = buildCsv(
-          ["ERP SKU", "Units sold", "Units returned", "Return rate"],
-          topReturns.map((row) => [
-            row.erp_sku ?? "",
-            row.units_sold ?? 0,
-            row.units_returned ?? 0,
-            row.return_rate ?? 0,
+          ["Return date", "Source", "Order ID", "RMA ID", "SKU", "ASIN", "Quantity", "Reason", "Disposition", "Status"],
+          rows.map((row) => [
+            formatDateLabel(row.return_date ?? null),
+            row.source ?? "",
+            row.amazon_order_id ?? "",
+            row.rma_id ?? "",
+            row.sku ?? "",
+            row.asin ?? "",
+            row.quantity ?? 0,
+            row.reason ?? "",
+            row.disposition ?? "",
+            row.status ?? "",
           ])
         );
-        triggerDownload(`amazon_returns_top_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
-        setToast({ type: "success", message: `Exported ${topReturns.length} rows` });
+        triggerDownload(`amazon_returns_${fromDate}_${toDate}.csv`, createCsvBlob(csv));
+        setToast({ type: "success", message: `Exported ${rows.length} rows` });
       }
     } catch (exportError) {
       setToast({
@@ -1132,6 +1217,7 @@ export default function AmazonAnalyticsPage() {
     cohortGrain,
     exportSelection,
     fetchAllCohorts,
+    fetchAllReturns,
     fetchAllSalesByGeo,
     fetchAllSalesBySku,
     fetchAllSkuSummary,
@@ -1146,7 +1232,6 @@ export default function AmazonAnalyticsPage() {
     skuQuery,
     skuSort,
     toDate,
-    topReturns,
     geoStateFilter,
   ]);
 
@@ -1176,7 +1261,7 @@ export default function AmazonAnalyticsPage() {
         }),
       });
 
-      const payload = (await response.json()) as SyncResponse;
+      const payload = (await response.json()) as AnalyticsSyncResponse;
       if (!response.ok || !payload.ok) {
         setError(payload.ok ? "Failed to sync analytics report." : payload.error);
         return;
@@ -1190,6 +1275,49 @@ export default function AmazonAnalyticsPage() {
       setIsSyncing(false);
     }
   }, [fromDate, toDate, marketplaceId, handleRefresh, loadReportRuns]);
+
+  const handleReturnsSync = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    setIsSyncingReturns(true);
+    setError(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        setError("No active session found to sync returns.");
+        return;
+      }
+
+      const response = await fetch("/api/analytics/amazon/returns-sync-run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          marketplaceId,
+          start: fromDate,
+          end: toDate,
+          mode: "all",
+        }),
+      });
+
+      const payload = (await response.json()) as ReturnsSyncResponse;
+      if (!response.ok || !payload.ok) {
+        setError(payload.ok ? "Failed to sync returns report." : payload.error);
+        return;
+      }
+
+      await loadReportRuns();
+      await loadReturnsAvailability();
+      await handleRefresh();
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : "Failed to sync returns report.");
+    } finally {
+      setIsSyncingReturns(false);
+    }
+  }, [fromDate, toDate, marketplaceId, handleRefresh, loadReportRuns, loadReturnsAvailability]);
 
   useEffect(() => {
     let active = true;
@@ -1245,6 +1373,10 @@ export default function AmazonAnalyticsPage() {
   }, [cohortGrain, fromDate, toDate, marketplaceId]);
 
   useEffect(() => {
+    setReturnsPage(0);
+  }, [fromDate, toDate, marketplaceId]);
+
+  useEffect(() => {
     if (exportOptions.length === 0) return;
     setExportSelection(exportOptions[0]?.value ?? "");
   }, [exportOptions]);
@@ -1271,6 +1403,7 @@ export default function AmazonAnalyticsPage() {
     geoPage,
     geoStateFilter,
     cohortPage,
+    returnsPage,
     marketplaceId,
     handleRefresh,
   ]);
@@ -1360,6 +1493,16 @@ export default function AmazonAnalyticsPage() {
                   <button type="button" style={secondaryButtonStyle} onClick={handleRefresh} disabled={isLoadingData}>
                     Refresh
                   </button>
+                  {activeTab === "returns" ? (
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      onClick={handleReturnsSync}
+                      disabled={isSyncingReturns}
+                    >
+                      {isSyncingReturns ? "Syncing returns…" : "Sync returns"}
+                    </button>
+                  ) : null}
                   <button type="button" style={primaryButtonStyle} onClick={handleSync} disabled={isSyncing}>
                     {isSyncing ? "Syncing analytics…" : "Sync analytics"}
                   </button>
@@ -1433,10 +1576,10 @@ export default function AmazonAnalyticsPage() {
                     secondary: `${formatNumber(overviewKpisV2?.cancellations_count ?? null)} orders`,
                   },
                   {
-                    label: "Refunds/Returns (Settlement)",
+                    label: "Returns (estimated)",
                     value: formatCurrency(overviewKpisV2?.returns_value ?? null),
                     secondary: `${formatNumber(overviewKpisV2?.returns_count ?? null)} orders`,
-                    caption: "From Finance settlements; operational return reports not yet ingested.",
+                    caption: "Estimated from orders gross; settlement view in Finance is financial truth.",
                   },
                   {
                     label: "Discount",
@@ -2067,43 +2210,121 @@ export default function AmazonAnalyticsPage() {
         ) : null}
 
         {activeTab === "returns" ? (
-          <section style={cardStyle}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-              <p style={{ margin: 0, fontWeight: 600 }}>Returns & refunds</p>
-              <span style={badgeStyle}>Top returned SKUs</span>
-            </div>
-            {!hasReturns ? (
-              <p style={mutedStyle}>No return data yet.</p>
-            ) : (
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={tableHeaderCellStyle}>ERP SKU</th>
-                    <th style={tableHeaderCellStyle}>Units sold</th>
-                    <th style={tableHeaderCellStyle}>Units returned</th>
-                    <th style={tableHeaderCellStyle}>Return rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topReturns.length === 0 ? (
+          <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <section style={cardStyle}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Returns</p>
+                <span style={badgeStyle}>Estimated from orders gross</span>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {[
+                  {
+                    label: "Return orders",
+                    value: formatNumber(returnsSummary?.returns_orders_count ?? null),
+                  },
+                  {
+                    label: "Return units",
+                    value: formatNumber(returnsSummary?.returns_units ?? null),
+                  },
+                  {
+                    label: "Estimated value",
+                    value: formatCurrency(returnsSummary?.returns_value_estimated ?? null),
+                    caption: "Estimated from orders gross; settlement view in Finance is financial truth.",
+                  },
+                ].map((tile) => (
+                  <div
+                    key={tile.label}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 8,
+                      padding: 12,
+                      background: "#f9fafb",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
+                    <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.label}</p>
+                    <p style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
+                    {tile.caption ? <p style={{ margin: 0, fontSize: 11, color: "#6b7280" }}>{tile.caption}</p> : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section style={cardStyle}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Return rows</p>
+                <span style={badgeStyle}>FBA + MFN</span>
+              </div>
+              {!hasReturns ? (
+                <p style={mutedStyle}>No return data yet.</p>
+              ) : (
+                <table style={tableStyle}>
+                  <thead>
                     <tr>
-                      <td style={tableCellStyle} colSpan={4}>
-                        {isLoadingData ? "Loading returns…" : "No return data found."}
-                      </td>
+                      <th style={tableHeaderCellStyle}>Return date</th>
+                      <th style={tableHeaderCellStyle}>Source</th>
+                      <th style={tableHeaderCellStyle}>Order ID</th>
+                      <th style={tableHeaderCellStyle}>SKU / ASIN</th>
+                      <th style={tableHeaderCellStyle}>Qty</th>
+                      <th style={tableHeaderCellStyle}>Reason</th>
+                      <th style={tableHeaderCellStyle}>Disposition</th>
+                      <th style={tableHeaderCellStyle}>Status</th>
                     </tr>
-                  ) : (
-                    topReturns.map((row, index) => (
-                      <tr key={`${row.erp_sku ?? "return"}-${index}`}>
-                        <td style={tableCellStyle}>{row.erp_sku ?? "Unmapped"}</td>
-                        <td style={tableCellStyle}>{formatNumber(row.units_sold ?? 0)}</td>
-                        <td style={tableCellStyle}>{formatNumber(row.units_returned ?? 0)}</td>
-                        <td style={tableCellStyle}>{formatPercent(row.return_rate ?? 0)}</td>
+                  </thead>
+                  <tbody>
+                    {returnRows.length === 0 ? (
+                      <tr>
+                        <td style={tableCellStyle} colSpan={8}>
+                          {isLoadingData ? "Loading returns…" : "No return data found."}
+                        </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
+                    ) : (
+                      returnRows.map((row) => (
+                        <tr key={row.id}>
+                          <td style={tableCellStyle}>{formatDateLabel(row.return_date ?? null)}</td>
+                          <td style={tableCellStyle}>{row.source?.toUpperCase() ?? "—"}</td>
+                          <td style={tableCellStyle}>{row.amazon_order_id ?? row.rma_id ?? "—"}</td>
+                          <td style={tableCellStyle}>
+                            {[row.sku, row.asin].filter(Boolean).join(" · ") || "—"}
+                          </td>
+                          <td style={tableCellStyle}>{formatNumber(row.quantity ?? 0)}</td>
+                          <td style={tableCellStyle}>{row.reason ?? "—"}</td>
+                          <td style={tableCellStyle}>{row.disposition ?? "—"}</td>
+                          <td style={tableCellStyle}>{row.status ?? "—"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setReturnsPage((prev) => Math.max(prev - 1, 0))}
+                  disabled={returnsPage === 0 || isLoadingData}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => setReturnsPage((prev) => prev + 1)}
+                  disabled={isLoadingData || returnRows.length < pageSize}
+                >
+                  Next
+                </button>
+              </div>
+            </section>
           </section>
         ) : null}
       </div>
@@ -2111,11 +2332,30 @@ export default function AmazonAnalyticsPage() {
   );
 }
 
-type SyncResponse =
+type AnalyticsSyncResponse =
   | {
       ok: true;
       run_id: string;
       report_id: string;
+      row_count: number;
+      facts_upserted: number;
+      inserted_rows: number;
+      skipped_rows: number;
+    }
+  | { ok: false; error: string; details?: string };
+
+type ReturnsSyncResponse =
+  | {
+      ok: true;
+      runs: Array<{
+        run_id: string;
+        report_id: string;
+        report_type: string;
+        row_count: number;
+        facts_upserted: number;
+        inserted_rows: number;
+        skipped_rows: number;
+      }>;
       row_count: number;
       facts_upserted: number;
       inserted_rows: number;
