@@ -32,7 +32,15 @@ const MAX_BACKOFF_MS = 20000;
 const ALLOWED_ROLE_KEYS = ["owner", "admin", "inventory", "finance"] as const;
 
 type SyncResponse =
-  | { ok: true; run_id: string; report_id: string; row_count: number; facts_upserted: number }
+  | {
+      ok: true;
+      run_id: string;
+      report_id: string;
+      row_count: number;
+      facts_upserted: number;
+      inserted_rows: number;
+      skipped_rows: number;
+    }
   | { ok: false; error: string; details?: string };
 
 type VariantRow = {
@@ -80,11 +88,73 @@ function normalizeHeader(value: string): string {
     .replace(/[^a-z0-9-]/g, "");
 }
 
-function parseDateValue(value: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
+const DATE_PARSE_ATTEMPTS = [
+  "Date",
+  "YYYY-MM-DD",
+  "YYYY-MM-DD HH:mm:ss",
+  "YYYY/MM/DD",
+  "MM/DD/YYYY",
+  "MM/DD/YYYY HH:mm:ss",
+  "YYYY-MM-DDTHH:mm:ssZ",
+  "YYYY-MM-DDTHH:mm:ss.SSSZ",
+] as const;
+
+function parseDateValue(
+  value: string | null
+): { iso: string | null; attempts: string[]; normalized: string | null } {
+  if (!value) return { iso: null, attempts: [...DATE_PARSE_ATTEMPTS], normalized: null };
+  const trimmed = value.trim();
+  const attempts: string[] = [...DATE_PARSE_ATTEMPTS];
+
+  const tryDate = (input: string): string | null => {
+    const date = new Date(input);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+  };
+
+  let normalized = trimmed;
+  let parsed = tryDate(normalized);
+  if (parsed) return { iso: parsed, attempts, normalized };
+
+  normalized = normalized.replace(/\s*UTC$/i, "Z");
+  parsed = tryDate(normalized);
+  if (parsed) return { iso: parsed, attempts, normalized };
+
+  const isoDateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const iso = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).toISOString();
+    return { iso, attempts, normalized };
+  }
+
+  const isoDateTimeMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (isoDateTimeMatch) {
+    const [, year, month, day, hour, minute, second] = isoDateTimeMatch;
+    const iso = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))
+    ).toISOString();
+    return { iso, attempts, normalized };
+  }
+
+  const slashDateMatch = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (slashDateMatch) {
+    const [, month, day, year] = slashDateMatch;
+    const iso = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).toISOString();
+    return { iso, attempts, normalized };
+  }
+
+  const slashDateTimeMatch = normalized.match(
+    /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2}):(\d{2})$/
+  );
+  if (slashDateTimeMatch) {
+    const [, month, day, year, hour, minute, second] = slashDateTimeMatch;
+    const iso = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second))
+    ).toISOString();
+    return { iso, attempts, normalized };
+  }
+
+  return { iso: null, attempts, normalized };
 }
 
 function parseNumber(value: string | null): number {
@@ -159,6 +229,22 @@ function parseReportText(text: string): string[][] {
   const sample = text.split(/\r?\n/)[0] ?? "";
   const delimiter = sample.includes("\t") ? "\t" : ",";
   return parseDelimited(text, delimiter);
+}
+
+function getValueWithKey(
+  row: string[],
+  keys: string[],
+  headerIndex: Map<string, number>
+): { value: string | null; key: string | null } {
+  for (const key of keys) {
+    const index = headerIndex.get(key);
+    if (index === undefined) continue;
+    const value = row[index];
+    if (value !== undefined && value !== null && value.trim() !== "") {
+      return { value: value.trim(), key };
+    }
+  }
+  return { value: null, key: null };
 }
 
 export default async function handler(
@@ -308,12 +394,34 @@ export default async function handler(
 
     const rows = parseReportText(reportText);
     if (rows.length <= 1) {
+      const normalizedHeaders = (rows[0] ?? []).map((header) => normalizeHeader(header));
+      const debugResponse = {
+        reportStatus,
+        reportDocument,
+        debug_headers: normalizedHeaders,
+        debug_counts: {
+          parsed_rows: 0,
+          inserted_rows: 0,
+          skipped_rows: 0,
+          upserted_rows: 0,
+        },
+        debug_skip_reasons: [],
+        debug_samples: [],
+        debug_date_parse: {
+          attempted_formats: DATE_PARSE_ATTEMPTS,
+          used_columns: {},
+          missing_count: 0,
+          invalid_count: 0,
+        },
+      };
+
       await auth.serviceClient
         .from("erp_channel_report_runs")
         .update({
           status: "done",
           completed_at: new Date().toISOString(),
           row_count: 0,
+          report_response: debugResponse,
         })
         .eq("id", runId);
 
@@ -323,6 +431,8 @@ export default async function handler(
         report_id: reportId ?? "",
         row_count: 0,
         facts_upserted: 0,
+        inserted_rows: 0,
+        skipped_rows: 0,
       });
       return;
     }
@@ -332,6 +442,7 @@ export default async function handler(
     headers.forEach((header, idx) => {
       headerIndex.set(normalizeHeader(header), idx);
     });
+    const normalizedHeaders = headers.map((header) => normalizeHeader(header));
 
     const getValue = (row: string[], keys: string[]): string | null => {
       for (const key of keys) {
@@ -346,7 +457,7 @@ export default async function handler(
     };
 
     const orderIdKeys = ["order-id", "amazon-order-id"];
-    const purchaseDateKeys = ["purchase-date", "order-date", "order-date-utc", "purchase-date-time"];
+    const purchaseDateKeys = ["purchase-date", "order-date", "purchase-date-utc", "order-date-utc"];
     const statusKeys = ["order-status", "status"];
     const fulfillmentKeys = ["fulfillment-channel"];
     const salesChannelKeys = ["sales-channel", "saleschannel"];
@@ -378,14 +489,45 @@ export default async function handler(
     }
 
     const draftFacts: DraftFact[] = [];
+    const debugSamples: Array<Record<string, unknown>> = [];
+    const skipReasons = new Map<string, number>();
+    let skippedRows = 0;
+    const purchaseDateColumnCounts = new Map<string, number>();
+    const purchaseDateFailed = { missing: 0, invalid: 0 };
     const skuCandidates = new Set<string>();
     const skuNorms = new Set<string>();
 
+    const trackSkip = (reason: string) => {
+      skippedRows += 1;
+      skipReasons.set(reason, (skipReasons.get(reason) ?? 0) + 1);
+    };
+
     rows.slice(1).forEach((row, index) => {
       const orderId = getValue(row, orderIdKeys);
-      if (!orderId) return;
+      if (!orderId) {
+        trackSkip("missing_order_id");
+        return;
+      }
 
-      const purchaseDate = parseDateValue(getValue(row, purchaseDateKeys));
+      const purchaseDateSelection = getValueWithKey(row, purchaseDateKeys, headerIndex);
+      if (!purchaseDateSelection.value) {
+        purchaseDateFailed.missing += 1;
+        trackSkip("missing_purchase_date");
+        return;
+      }
+
+      const parsedDate = parseDateValue(purchaseDateSelection.value);
+      if (!parsedDate.iso) {
+        purchaseDateFailed.invalid += 1;
+        trackSkip("invalid_purchase_date");
+        return;
+      }
+      if (purchaseDateSelection.key) {
+        purchaseDateColumnCounts.set(
+          purchaseDateSelection.key,
+          (purchaseDateColumnCounts.get(purchaseDateSelection.key) ?? 0) + 1
+        );
+      }
       const orderStatus = getValue(row, statusKeys);
       const fulfillmentChannel = getValue(row, fulfillmentKeys);
       const salesChannel = getValue(row, salesChannelKeys);
@@ -407,8 +549,6 @@ export default async function handler(
       const currency = getValue(row, currencyKeys);
       const orderItemId = getValue(row, orderItemIdKeys);
 
-      if (!purchaseDate) return;
-
       const orderItemKey =
         orderItemId ??
         crypto
@@ -419,7 +559,7 @@ export default async function handler(
       draftFacts.push({
         amazon_order_id: orderId,
         order_item_id: orderItemKey,
-        purchase_date: purchaseDate,
+        purchase_date: parsedDate.iso,
         order_status: orderStatus,
         fulfillment_channel: fulfillmentChannel,
         sales_channel: salesChannel,
@@ -441,6 +581,20 @@ export default async function handler(
         currency,
       });
 
+      if (debugSamples.length < 3) {
+        debugSamples.push({
+          amazon_order_id: orderId,
+          order_item_id: orderItemKey,
+          purchase_date: parsedDate.iso,
+          purchase_date_source: purchaseDateSelection.key,
+          external_sku: externalSku,
+          asin,
+          quantity,
+          item_amount: itemAmount,
+          currency,
+        });
+      }
+
       if (externalSku) {
         skuCandidates.add(externalSku.trim());
         skuCandidates.add(normalizeSku(externalSku));
@@ -449,14 +603,48 @@ export default async function handler(
     });
 
     if (draftFacts.length === 0) {
+      const debugResponse = {
+        reportStatus,
+        reportDocument,
+        debug_headers: normalizedHeaders,
+        debug_counts: {
+          parsed_rows: rows.length - 1,
+          inserted_rows: 0,
+          skipped_rows: skippedRows,
+          upserted_rows: 0,
+        },
+        debug_skip_reasons: Array.from(skipReasons.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([reason, count]) => ({ reason, count }))
+          .slice(0, 5),
+        debug_samples: debugSamples,
+        debug_date_parse: {
+          attempted_formats: DATE_PARSE_ATTEMPTS,
+          used_columns: Object.fromEntries(purchaseDateColumnCounts),
+          missing_count: purchaseDateFailed.missing,
+          invalid_count: purchaseDateFailed.invalid,
+        },
+      };
+
       await auth.serviceClient
         .from("erp_channel_report_runs")
         .update({ status: "done", completed_at: new Date().toISOString(), row_count: 0 })
         .eq("id", runId);
 
-      res
-        .status(200)
-        .json({ ok: true, run_id: runId ?? "", report_id: reportId ?? "", row_count: 0, facts_upserted: 0 });
+      await auth.serviceClient
+        .from("erp_channel_report_runs")
+        .update({ report_response: debugResponse })
+        .eq("id", runId);
+
+      res.status(200).json({
+        ok: true,
+        run_id: runId ?? "",
+        report_id: reportId ?? "",
+        row_count: 0,
+        facts_upserted: 0,
+        inserted_rows: 0,
+        skipped_rows: skippedRows,
+      });
       return;
     }
 
@@ -565,12 +753,36 @@ export default async function handler(
       }
     }
 
+    const debugResponse = {
+      reportStatus,
+      reportDocument,
+      debug_headers: normalizedHeaders,
+      debug_counts: {
+        parsed_rows: rows.length - 1,
+        inserted_rows: factsInsertPayload.length,
+        skipped_rows: skippedRows,
+        upserted_rows: factsInsertPayload.length,
+      },
+      debug_skip_reasons: Array.from(skipReasons.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([reason, count]) => ({ reason, count }))
+        .slice(0, 5),
+      debug_samples: debugSamples,
+      debug_date_parse: {
+        attempted_formats: DATE_PARSE_ATTEMPTS,
+        used_columns: Object.fromEntries(purchaseDateColumnCounts),
+        missing_count: purchaseDateFailed.missing,
+        invalid_count: purchaseDateFailed.invalid,
+      },
+    };
+
     await auth.serviceClient
       .from("erp_channel_report_runs")
       .update({
         status: "done",
         completed_at: new Date().toISOString(),
         row_count: draftFacts.length,
+        report_response: debugResponse,
       })
       .eq("id", runId);
 
@@ -580,6 +792,8 @@ export default async function handler(
       report_id: reportId ?? "",
       row_count: draftFacts.length,
       facts_upserted: factsInsertPayload.length,
+      inserted_rows: factsInsertPayload.length,
+      skipped_rows: skippedRows,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to sync report";

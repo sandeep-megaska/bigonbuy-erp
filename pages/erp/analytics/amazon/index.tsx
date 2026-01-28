@@ -316,9 +316,19 @@ export default function AmazonAnalyticsPage() {
     setError(null);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        setError("No active session found to sync analytics.");
+        return;
+      }
+
       const response = await fetch("/api/integrations/amazon/analytics/reports-sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           marketplaceId: DEFAULT_MARKETPLACE_ID,
           from: fromDate,
@@ -662,5 +672,13 @@ export default function AmazonAnalyticsPage() {
 }
 
 type SyncResponse =
-  | { ok: true; run_id: string; report_id: string; row_count: number; facts_upserted: number }
+  | {
+      ok: true;
+      run_id: string;
+      report_id: string;
+      row_count: number;
+      facts_upserted: number;
+      inserted_rows: number;
+      skipped_rows: number;
+    }
   | { ok: false; error: string; details?: string };
