@@ -21,6 +21,7 @@ import {
 } from "../../../../components/erp/uiStyles";
 import { createCsvBlob, triggerDownload } from "../../../../components/inventory/csvUtils";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { normalizeGeoRows } from "../../../../lib/analytics/geoNormalize";
 import { supabase } from "../../../../lib/supabaseClient";
 
 const DEFAULT_MARKETPLACE_ID = "A21TJRUUN4KGV";
@@ -744,52 +745,49 @@ export default function AmazonAnalyticsPage() {
 
   const loadOverviewTopStates = useCallback(async () => {
     if (!fromDate || !toDate) return;
-    if (isShopifyChannel) {
-      if (!channelAccountId) return;
-      const { data, error: rpcError } = await supabase.rpc("erp_shopify_analytics_sales_by_geo_v1", {
-        p_channel_account_id: channelAccountId,
-        p_from: fromDate,
-        p_to: toDate,
-        p_level: "state",
-        p_state: null,
-        p_limit: 20,
-        p_offset: 0,
-      });
-
-      if (rpcError) {
-        throw new Error(rpcError.message);
-      }
-
-      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-      if (!parsed.success) {
-        throw new Error("Unable to parse Shopify top state response.");
-      }
-
-      setOverviewTopStates(parsed.data);
-      return;
-    }
-
-    const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sales_by_geo_v2", {
-      p_marketplace_id: marketplaceId,
-      p_from: fromDate,
-      p_to: toDate,
-      p_level: "state",
-      p_state: null,
-      p_limit: 20,
-      p_offset: 0,
-    });
+    if (isShopifyChannel && !channelAccountId) return;
+    const { data, error: rpcError } = await supabase.rpc(
+      isShopifyChannel ? "erp_shopify_analytics_sales_by_geo_v1" : "erp_amazon_analytics_sales_by_geo_v2",
+      isShopifyChannel
+        ? {
+            p_channel_account_id: channelAccountId,
+            p_from: fromDate,
+            p_to: toDate,
+            p_level: "state",
+            p_state: null,
+            p_limit: 20,
+            p_offset: 0,
+          }
+        : {
+            p_marketplace_id: marketplaceId,
+            p_from: fromDate,
+            p_to: toDate,
+            p_level: "state",
+            p_state: null,
+            p_limit: 20,
+            p_offset: 0,
+          }
+    );
 
     if (rpcError) {
       throw new Error(rpcError.message);
     }
 
-    const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-    if (!parsed.success) {
-      throw new Error("Unable to parse top state response.");
+    if (data !== null && data !== undefined && typeof data !== "object") {
+      throw new Error(isShopifyChannel ? "Unable to parse Shopify top state response." : "Unable to parse top state response.");
     }
 
-    setOverviewTopStates(parsed.data);
-  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, toDate]);
+    const rawRows = Array.isArray(data) ? data : data ? [data] : [];
+    const normalizedRows = normalizeGeoRows(selectedChannelKey ?? "", data);
+    const parsed = z.array(salesByGeoSchema).safeParse(normalizedRows);
+    const rows = parsed.success ? parsed.data : normalizedRows;
+
+    if (rows.length === 0 && rawRows.length > 0) {
+      throw new Error(isShopifyChannel ? "Unable to parse Shopify top state response." : "Unable to parse top state response.");
+    }
+
+    setOverviewTopStates(rows);
+  }, [channelAccountId, fromDate, isShopifyChannel, marketplaceId, selectedChannelKey, toDate]);
 
   const loadOverviewMappingGaps = useCallback(async () => {
     if (!fromDate || !toDate) return;
@@ -993,18 +991,26 @@ export default function AmazonAnalyticsPage() {
         throw new Error(rpcError.message);
       }
 
-      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-      if (!parsed.success) {
+      if (data !== null && data !== undefined && typeof data !== "object") {
         throw new Error("Unable to parse sales by geo response.");
       }
 
-      if (parsed.data.length === 0) break;
-      rows.push(...parsed.data);
+      const rawRows = Array.isArray(data) ? data : data ? [data] : [];
+      const normalizedRows = normalizeGeoRows(selectedChannelKey ?? "", data);
+      const parsed = z.array(salesByGeoSchema).safeParse(normalizedRows);
+      const batch = parsed.success ? parsed.data : normalizedRows;
+
+      if (batch.length === 0 && rawRows.length > 0) {
+        throw new Error("Unable to parse sales by geo response.");
+      }
+
+      if (batch.length === 0) break;
+      rows.push(...batch);
       offset += limit;
     }
 
     return rows;
-  }, [channelAccountId, fromDate, geoLevel, geoStateFilter, isShopifyChannel, marketplaceId, toDate]);
+  }, [channelAccountId, fromDate, geoLevel, geoStateFilter, isShopifyChannel, marketplaceId, selectedChannelKey, toDate]);
 
   const loadSalesByGeo = useCallback(async () => {
     if (!fromDate || !toDate) return;
@@ -1040,21 +1046,41 @@ export default function AmazonAnalyticsPage() {
         return;
       }
 
-      const parsed = z.array(salesByGeoSchema).safeParse(data ?? []);
-      if (!parsed.success) {
+      if (data !== null && data !== undefined && typeof data !== "object") {
         setError("Unable to parse sales by geo response.");
         setIsLoadingData(false);
         return;
       }
 
-      setSalesByGeo(parsed.data);
+      const rawRows = Array.isArray(data) ? data : data ? [data] : [];
+      const normalizedRows = normalizeGeoRows(selectedChannelKey ?? "", data);
+      const parsed = z.array(salesByGeoSchema).safeParse(normalizedRows);
+      const rows = parsed.success ? parsed.data : normalizedRows;
+
+      if (rows.length === 0 && rawRows.length > 0) {
+        setError("Unable to parse sales by geo response.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setSalesByGeo(rows);
       setGeoTotalCount(null);
       setIsLoadingData(false);
     } catch (geoError) {
       setError(geoError instanceof Error ? geoError.message : "Unable to load sales by geo data.");
       setIsLoadingData(false);
     }
-  }, [channelAccountId, fromDate, geoLevel, geoPage, geoStateFilter, isShopifyChannel, marketplaceId, toDate]);
+  }, [
+    channelAccountId,
+    fromDate,
+    geoLevel,
+    geoPage,
+    geoStateFilter,
+    isShopifyChannel,
+    marketplaceId,
+    selectedChannelKey,
+    toDate,
+  ]);
 
   const loadTopSkusByGeo = useCallback(
     async (target: { state: string; city?: string }) => {
