@@ -304,6 +304,8 @@ export default function AmazonExternalInventoryPage() {
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<ImportErrorRow[]>([]);
+  const [includeInactiveMappings, setIncludeInactiveMappings] = useState(false);
+  const [isExportingMappings, setIsExportingMappings] = useState(false);
 
   const isLocationBatch = useMemo(() => latestBatch?.type === "fc", [latestBatch?.type]);
 
@@ -1026,6 +1028,96 @@ export default function AmazonExternalInventoryPage() {
     triggerDownload("amazon_unmatched_inventory.csv", createCsvBlob(csv));
   }, [latestBatch?.id]);
 
+  const handleExportMappings = useCallback(async () => {
+    if (!ctx?.companyId) return;
+    setNotice(null);
+    setError(null);
+    setIsExportingMappings(true);
+
+    const exportRows: ChannelSkuMapping[] = [];
+    let offset = 0;
+
+    while (true) {
+      const { data, error: exportError } = await supabase.rpc("erp_channel_sku_map_list", {
+        p_company_id: ctx.companyId,
+        p_channel_key: "amazon",
+        p_q: null,
+        p_limit: rowLimit,
+        p_offset: offset,
+      });
+
+      if (exportError) {
+        setError(exportError.message || "Failed to export mappings.");
+        setIsExportingMappings(false);
+        return;
+      }
+
+      const parsed = z.array(channelSkuMappingSchema).safeParse(data ?? []);
+      if (!parsed.success) {
+        setError("Failed to export mappings.");
+        setIsExportingMappings(false);
+        return;
+      }
+
+      const chunk = parsed.data;
+      exportRows.push(...chunk);
+      if (chunk.length < rowLimit) break;
+      offset += rowLimit;
+    }
+
+    const selectedMarketplaceId = latestBatch?.marketplace_id ?? null;
+    const filteredRows = exportRows.filter((row) => {
+      if (!includeInactiveMappings && !row.active) return false;
+      if (selectedMarketplaceId && row.marketplace_id !== selectedMarketplaceId) return false;
+      return true;
+    });
+
+    if (filteredRows.length === 0) {
+      setNotice("No mappings to export.");
+      setIsExportingMappings(false);
+      return;
+    }
+
+    const headers = [
+      "channel_key",
+      "marketplace_id",
+      "external_sku",
+      "external_sku_norm",
+      "asin",
+      "fnsku",
+      "erp_sku",
+      "product",
+      "size",
+      "color",
+      "active",
+      "notes",
+      "updated_at",
+    ];
+    const csvRows = filteredRows.map((row) => [
+      "amazon",
+      row.marketplace_id ?? "",
+      row.external_sku,
+      row.external_sku_norm,
+      row.asin ?? "",
+      row.fnsku ?? "",
+      row.sku ?? "",
+      row.style_code ?? "",
+      row.size ?? "",
+      row.color ?? "",
+      row.active ? "true" : "false",
+      row.notes ?? "",
+      row.updated_at ?? "",
+    ]);
+    const csv = [
+      headers.join(","),
+      ...csvRows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    triggerDownload(`amazon_mappings_${dateStamp}.csv`, createCsvBlob(csv));
+    setNotice(`Exported ${filteredRows.length} mappings.`);
+    setIsExportingMappings(false);
+  }, [ctx?.companyId, includeInactiveMappings, latestBatch?.marketplace_id]);
+
   const handleOpenMapping = useCallback((row: InventoryRow) => {
     setMappingRow(row);
     setMappingVariant(null);
@@ -1687,6 +1779,22 @@ export default function AmazonExternalInventoryPage() {
                 style={secondaryButtonStyle}
               >
                 View mappings
+              </button>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#374151" }}>
+                <input
+                  type="checkbox"
+                  checked={includeInactiveMappings}
+                  onChange={(event) => setIncludeInactiveMappings(event.target.checked)}
+                />
+                Include inactive
+              </label>
+              <button
+                type="button"
+                onClick={handleExportMappings}
+                style={secondaryButtonStyle}
+                disabled={isExportingMappings}
+              >
+                {isExportingMappings ? "Exporting…" : "Export mappings CSV"}
               </button>
               <label style={{ ...secondaryButtonStyle, cursor: "pointer" }}>
                 {isImporting ? "Importing…" : "Import mappings CSV"}
