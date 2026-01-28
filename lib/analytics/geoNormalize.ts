@@ -26,7 +26,8 @@ const toGeoKey = (row: Record<string, unknown>) => {
   const state = typeof row.state === "string" ? row.state : null;
   const city = typeof row.city === "string" ? row.city : null;
   const geoKey = typeof row.geo_key === "string" ? row.geo_key : null;
-  return geoKey ?? [state, city].filter(Boolean).join(" / ") || null;
+  const fallbackKey = [state, city].filter(Boolean).join(" / ");
+  return geoKey ?? (fallbackKey || null);
 };
 
 export function normalizeGeoRows(channelKey: string, rows: unknown): CanonGeoRow[] {
