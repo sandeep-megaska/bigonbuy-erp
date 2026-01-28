@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
+import ErpTooltip from "../../../../components/erp/ErpTooltip";
 import {
   badgeStyle,
   cardStyle,
@@ -48,6 +49,15 @@ const overviewKpiV2Schema = z.object({
   discount_value: z.number().nullable(),
   avg_per_day: z.number().nullable(),
   days_count: z.number().nullable(),
+});
+
+const financialOverviewSchema = z.object({
+  settlement_gross_sales: z.number().nullable(),
+  settlement_refunds_returns: z.number().nullable(),
+  settlement_fees: z.number().nullable(),
+  settlement_withholdings: z.number().nullable(),
+  settlement_net_payout: z.number().nullable(),
+  currency: z.string().nullable(),
 });
 
 const skuSummarySchema = z.object({
@@ -206,6 +216,28 @@ const statusBannerStyle: CSSProperties = {
 
 const pageSize = 50;
 
+const overviewTooltipText = {
+  grossSalesOperational:
+    "Gross Sales (Operational) = Sum of item gross for CONFIRMED (non-cancelled) orders.\nSource: Orders Report (Reports API).\nNote: Cancelled orders are excluded at source.",
+  confirmedOrders:
+    "Confirmed Orders = Orders that were placed and NOT cancelled.\nValue equals Operational Gross Sales.",
+  cancellations:
+    "Cancellations = Orders cancelled before confirmation.\nShown as COUNT only.\nMoney impact is handled in Finance via settlements.",
+  returnsOperational:
+    "Returns (Operational) = Returns from returns reports (FBA + MFN).\nReturns Value is ESTIMATED by matching return quantity to original order gross proportionally.\nFinancial truth is in settlements.",
+  discounts:
+    "Discounts = Promotional reductions applied to confirmed orders.\nSource: Orders report discount/promotion fields.",
+  netSalesEstimated:
+    "Net Sales (Estimated) = Confirmed Sales − Estimated Returns Value − Discounts.\nCancelled orders are NOT subtracted here (they were never part of confirmed sales).\nThis is operational/estimated, not payout truth.",
+  avgPerDay: "Avg per Day = Net Sales (Estimated) ÷ number of days in selected range.",
+  refundsSettlement:
+    "Refunds/Returns (Settlement) = Actual refunded amounts recorded in Amazon settlements.\nThis is financial truth.",
+  amazonFees: "Amazon Fees = Fees/charges recorded in settlements (referral, fulfillment, storage, etc.).",
+  withholdings: "Withholdings = Reserves/holds recorded in settlements.",
+  netPayout:
+    "Net Payout = Amount deposited to bank.\nSource: Settlements.\nThis is the single source of truth for actual net.",
+};
+
 function formatDateInput(date: Date): string {
   if (Number.isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
@@ -228,6 +260,20 @@ function formatCurrency(value: number | null): string {
     }).format(value);
   } catch (error) {
     return value.toFixed(2);
+  }
+}
+
+function formatCurrencyWithCode(value: number | null, currency: string | null): string {
+  if (value === null || Number.isNaN(value)) return "—";
+  if (!currency) return formatCurrency(value);
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch (error) {
+    return `${currency} ${value.toFixed(2)}`;
   }
 }
 
@@ -290,6 +336,7 @@ export default function AmazonAnalyticsPage() {
   const [returnsPage, setReturnsPage] = useState(0);
   const [overviewKpis, setOverviewKpis] = useState<z.infer<typeof overviewKpiSchema> | null>(null);
   const [overviewKpisV2, setOverviewKpisV2] = useState<z.infer<typeof overviewKpiV2Schema> | null>(null);
+  const [financialOverview, setFinancialOverview] = useState<z.infer<typeof financialOverviewSchema> | null>(null);
   const [overviewTopSkus, setOverviewTopSkus] = useState<z.infer<typeof skuSummarySchema>[]>([]);
   const [overviewTopStates, setOverviewTopStates] = useState<z.infer<typeof salesByGeoSchema>[]>([]);
   const [overviewSlowMovers, setOverviewSlowMovers] = useState<z.infer<typeof skuSummarySchema>[]>([]);
@@ -308,6 +355,8 @@ export default function AmazonAnalyticsPage() {
   const [skuPage, setSkuPage] = useState(0);
   const [geoPage, setGeoPage] = useState(0);
   const [cohortPage, setCohortPage] = useState(0);
+  const [overviewView, setOverviewView] = useState<"analytics" | "financial" | "side-by-side">("side-by-side");
+  const [isNarrowScreen, setIsNarrowScreen] = useState(false);
 
   const exportOptions = useMemo(() => {
     if (activeTab === "overview") {
@@ -433,6 +482,27 @@ export default function AmazonAnalyticsPage() {
     setOverviewKpisV2(parsed.data[0] ?? null);
   }, [fromDate, toDate, marketplaceId]);
 
+  const loadFinancialOverview = useCallback(async () => {
+    if (!fromDate || !toDate) return;
+    const { data, error: rpcError } = await supabase.rpc("erp_amazon_financial_overview_v1", {
+      p_from: fromDate,
+      p_to: toDate,
+      p_marketplace: marketplaceId,
+      p_channel_account_id: null,
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message);
+    }
+
+    const parsed = z.array(financialOverviewSchema).safeParse(data ?? []);
+    if (!parsed.success) {
+      throw new Error("Unable to parse financial overview response.");
+    }
+
+    setFinancialOverview(parsed.data[0] ?? null);
+  }, [fromDate, toDate, marketplaceId]);
+
   const loadOverviewTopSkus = useCallback(async () => {
     if (!fromDate || !toDate) return;
     const { data, error: rpcError } = await supabase.rpc("erp_amazon_analytics_sku_summary", {
@@ -529,6 +599,7 @@ export default function AmazonAnalyticsPage() {
     try {
       await Promise.all([
         loadOverviewKpisV2(),
+        loadFinancialOverview(),
         loadOverviewTopSkus(),
         loadOverviewTopStates(),
         loadOverviewSlowMovers(),
@@ -541,6 +612,7 @@ export default function AmazonAnalyticsPage() {
     }
   }, [
     loadOverviewKpisV2,
+    loadFinancialOverview,
     loadOverviewMappingGaps,
     loadOverviewSlowMovers,
     loadOverviewTopSkus,
@@ -1387,6 +1459,21 @@ export default function AmazonAnalyticsPage() {
   }, [geoLevel, geoStateFilter, fromDate, toDate, marketplaceId]);
 
   useEffect(() => {
+    const handleResize = () => {
+      setIsNarrowScreen(window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (isNarrowScreen && overviewView === "side-by-side") {
+      setOverviewView("analytics");
+    }
+  }, [isNarrowScreen, overviewView]);
+
+  useEffect(() => {
     if (loading || !fromDate || !toDate) return;
     handleRefresh();
   }, [
@@ -1548,77 +1635,211 @@ export default function AmazonAnalyticsPage() {
         {activeTab === "overview" ? (
           <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <section style={cardStyle}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                {[
-                  {
-                    label: "Gross sales",
-                    value: formatCurrency(overviewKpisV2?.gross_sales ?? null),
-                  },
-                  {
-                    label: "Net sales (estimated)",
-                    value: formatCurrency(overviewKpisV2?.net_sales_estimated ?? null),
-                    caption: "Estimated (Orders/Returns reports). Fees & payouts in Finance → Settlements.",
-                  },
-                  {
-                    label: "Confirmed orders",
-                    value: formatCurrency(overviewKpisV2?.confirmed_orders_value ?? null),
-                    secondary: `${formatNumber(overviewKpisV2?.confirmed_orders_count ?? null)} orders`,
-                  },
-                  {
-                    label: "Cancellations",
-                    value: formatCurrency(overviewKpisV2?.cancellations_value ?? null),
-                    secondary: `${formatNumber(overviewKpisV2?.cancellations_count ?? null)} orders`,
-                  },
-                  {
-                    label: "Returns (estimated)",
-                    value: formatCurrency(overviewKpisV2?.returns_value ?? null),
-                    secondary: `${formatNumber(overviewKpisV2?.returns_count ?? null)} orders`,
-                    caption: "Estimated from orders gross; settlement view in Finance is financial truth.",
-                  },
-                  {
-                    label: "Discount",
-                    value: formatCurrency(overviewKpisV2?.discount_value ?? null),
-                    secondary:
-                      overviewKpisV2?.gross_sales &&
-                      overviewKpisV2.gross_sales > 0 &&
-                      overviewKpisV2.discount_value != null
-                        ? `${formatPercent(overviewKpisV2.discount_value / overviewKpisV2.gross_sales)} of gross`
-                        : "—",
-                  },
-                  {
-                    label: "Avg per day",
-                    value: formatCurrency(overviewKpisV2?.avg_per_day ?? null),
-                    secondary:
-                      overviewKpisV2?.days_count !== null && overviewKpisV2?.days_count !== undefined
-                        ? `${formatNumber(overviewKpisV2?.days_count ?? null)} days`
-                        : "—",
-                  },
-                ].map((tile) => (
+              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                <p style={{ margin: 0, fontWeight: 600 }}>Overview</p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {(isNarrowScreen
+                    ? [
+                        { key: "analytics", label: "Analytics (Estimated)" },
+                        { key: "financial", label: "Financial (Settlement)" },
+                      ]
+                    : [
+                        { key: "analytics", label: "Analytics (Estimated)" },
+                        { key: "financial", label: "Financial (Settlement)" },
+                        { key: "side-by-side", label: "Side-by-side" },
+                      ]
+                  ).map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      style={overviewView === option.key ? primaryButtonStyle : secondaryButtonStyle}
+                      onClick={() => setOverviewView(option.key as typeof overviewView)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  overviewView === "side-by-side" && !isNarrowScreen ? "repeat(2, minmax(0, 1fr))" : "1fr",
+                gap: 16,
+              }}
+            >
+              {overviewView !== "financial" ? (
+                <div style={cardStyle}>
+                  <p style={{ margin: 0, fontWeight: 600 }}>Analytics (Estimated)</p>
                   <div
-                    key={tile.label}
                     style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 8,
-                      padding: 12,
-                      background: "#f9fafb",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 12,
+                      marginTop: 12,
                     }}
                   >
-                    <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.label}</p>
-                    <p style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
-                    {tile.secondary ? <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.secondary}</p> : null}
-                    {tile.caption ? <p style={{ margin: 0, fontSize: 11, color: "#6b7280" }}>{tile.caption}</p> : null}
+                    {[
+                      {
+                        label: "Gross Sales (Operational)",
+                        value: formatCurrency(overviewKpisV2?.gross_sales ?? null),
+                        tooltip: overviewTooltipText.grossSalesOperational,
+                      },
+                      {
+                        label: "Confirmed Orders",
+                        value: formatCurrency(overviewKpisV2?.confirmed_orders_value ?? null),
+                        secondary: `${formatNumber(overviewKpisV2?.confirmed_orders_count ?? null)} orders`,
+                        tooltip: overviewTooltipText.confirmedOrders,
+                      },
+                      {
+                        label: "Cancellations",
+                        value: formatNumber(overviewKpisV2?.cancellations_count ?? null),
+                        tooltip: overviewTooltipText.cancellations,
+                      },
+                      {
+                        label: "Returns (Operational – Estimated)",
+                        value: formatCurrency(overviewKpisV2?.returns_value ?? null),
+                        secondary: `${formatNumber(overviewKpisV2?.returns_count ?? null)} orders`,
+                        tooltip: overviewTooltipText.returnsOperational,
+                      },
+                      {
+                        label: "Discounts",
+                        value: formatCurrency(overviewKpisV2?.discount_value ?? null),
+                        secondary:
+                          overviewKpisV2?.gross_sales &&
+                          overviewKpisV2.gross_sales > 0 &&
+                          overviewKpisV2.discount_value != null
+                            ? `${formatPercent(overviewKpisV2.discount_value / overviewKpisV2.gross_sales)} of gross`
+                            : "—",
+                        tooltip: overviewTooltipText.discounts,
+                      },
+                      {
+                        label: "Net Sales (Estimated)",
+                        value: formatCurrency(overviewKpisV2?.net_sales_estimated ?? null),
+                        tooltip: overviewTooltipText.netSalesEstimated,
+                      },
+                      {
+                        label: "Avg per Day",
+                        value: formatCurrency(overviewKpisV2?.avg_per_day ?? null),
+                        secondary:
+                          overviewKpisV2?.days_count !== null && overviewKpisV2?.days_count !== undefined
+                            ? `${formatNumber(overviewKpisV2?.days_count ?? null)} days`
+                            : "—",
+                        tooltip: overviewTooltipText.avgPerDay,
+                      },
+                    ].map((tile) => (
+                      <div
+                        key={tile.label}
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 8,
+                          padding: 12,
+                          background: "#f9fafb",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.label}</p>
+                          {tile.tooltip ? <ErpTooltip content={tile.tooltip} /> : null}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
+                        {tile.secondary ? (
+                          <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.secondary}</p>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  <p style={{ margin: "12px 0 0", fontSize: 12, color: "#6b7280" }}>
+                    Estimated (Orders/Returns reports). Fees & payouts in Settlements.
+                  </p>
+                </div>
+              ) : null}
+
+              {overviewView !== "analytics" ? (
+                <div style={cardStyle}>
+                  <p style={{ margin: 0, fontWeight: 600 }}>Financial (Settlement)</p>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 12,
+                      marginTop: 12,
+                    }}
+                  >
+                    {[
+                      {
+                        label: "Gross Sales (Settlement)",
+                        value: formatCurrencyWithCode(financialOverview?.settlement_gross_sales ?? 0, financialOverview?.currency ?? null),
+                      },
+                      {
+                        label: "Refunds/Returns (Settlement)",
+                        value: formatCurrencyWithCode(
+                          financialOverview?.settlement_refunds_returns ?? 0,
+                          financialOverview?.currency ?? null
+                        ),
+                        tooltip: overviewTooltipText.refundsSettlement,
+                      },
+                      {
+                        label: "Amazon Fees",
+                        value: formatCurrencyWithCode(financialOverview?.settlement_fees ?? 0, financialOverview?.currency ?? null),
+                        tooltip: overviewTooltipText.amazonFees,
+                      },
+                      {
+                        label: "Withholdings",
+                        value: formatCurrencyWithCode(
+                          financialOverview?.settlement_withholdings ?? 0,
+                          financialOverview?.currency ?? null
+                        ),
+                        tooltip: overviewTooltipText.withholdings,
+                      },
+                      {
+                        label: "Net Payout",
+                        value: formatCurrencyWithCode(
+                          financialOverview?.settlement_net_payout ?? 0,
+                          financialOverview?.currency ?? null
+                        ),
+                        tooltip: overviewTooltipText.netPayout,
+                      },
+                    ].map((tile) => (
+                      <div
+                        key={tile.label}
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 8,
+                          padding: 12,
+                          background: "#f9fafb",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>{tile.label}</p>
+                          {tile.tooltip ? <ErpTooltip content={tile.tooltip} /> : null}
+                        </div>
+                        <p style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{tile.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ margin: "12px 0 0", fontSize: 12, color: "#6b7280" }}>
+                    Financial truth (Settlement-based).
+                  </p>
+                  {financialOverview &&
+                  (financialOverview.settlement_gross_sales ?? 0) === 0 &&
+                  (financialOverview.settlement_refunds_returns ?? 0) === 0 &&
+                  (financialOverview.settlement_fees ?? 0) === 0 &&
+                  (financialOverview.settlement_withholdings ?? 0) === 0 &&
+                  (financialOverview.settlement_net_payout ?? 0) === 0 ? (
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6b7280" }}>
+                      No settlement data in range.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
 
             <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
