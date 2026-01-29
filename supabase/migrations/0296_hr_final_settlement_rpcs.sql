@@ -78,13 +78,13 @@ $$;
 
 revoke all on function public.erp_hr_final_settlements_list(date, date, text, text) from public;
 grant execute on function public.erp_hr_final_settlements_list(date, date, text, text) to authenticated;
-
+drop function if exists public.erp_hr_final_settlement_line_upsert cascade;
 create or replace function public.erp_hr_final_settlement_line_upsert(
   p_settlement_id uuid,
-  p_line_id uuid default null,
-  p_line_type text,
+   p_line_type text,
   p_title text,
   p_amount numeric,
+  p_line_id uuid default null,   
   p_remarks text default null,
   p_sort int default 0
 ) returns uuid
@@ -179,8 +179,9 @@ begin
 end;
 $$;
 
-revoke all on function public.erp_hr_final_settlement_line_upsert(uuid, uuid, text, text, numeric, text, int) from public;
-grant execute on function public.erp_hr_final_settlement_line_upsert(uuid, uuid, text, text, numeric, text, int) to authenticated;
+revoke all on function public.erp_hr_final_settlement_line_upsert from public;
+grant execute on function public.erp_hr_final_settlement_line_upsert to authenticated;
+
 
 create or replace function public.erp_hr_final_settlement_line_delete(
   p_settlement_id uuid,
