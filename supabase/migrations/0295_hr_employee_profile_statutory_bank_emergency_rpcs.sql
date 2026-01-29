@@ -148,9 +148,9 @@ grant execute on function public.erp_hr_employee_bank_get(uuid) to authenticated
 create or replace function public.erp_hr_employee_bank_upsert(
   p_employee_id uuid,
   p_bank_name text,
-  p_branch_name text default null,
-  p_account_holder_name text default null,
   p_account_number text,
+  p_branch_name text default null,
+  p_account_holder_name text default null,  
   p_ifsc_code text default null,
   p_account_type text default null,
   p_is_primary boolean default true
