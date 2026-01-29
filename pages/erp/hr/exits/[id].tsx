@@ -63,6 +63,8 @@ export default function EmployeeExitDetailPage() {
   const [error, setError] = useState<string>("");
   const [toast, setToast] = useState<ToastState>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [settlementId, setSettlementId] = useState<string | null>(null);
+  const [settlementLoading, setSettlementLoading] = useState(false);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
 
@@ -120,6 +122,23 @@ export default function EmployeeExitDetailPage() {
       return;
     }
     setExitData(data as ExitDetail);
+    await loadSettlementId();
+  }
+
+  async function loadSettlementId() {
+    if (!exitId) return;
+    setSettlementLoading(true);
+    const { data, error: settlementError } = await supabase.rpc(
+      "erp_hr_final_settlement_by_exit_get",
+      { p_exit_id: exitId }
+    );
+    if (settlementError) {
+      setSettlementId(null);
+      setSettlementLoading(false);
+      return;
+    }
+    setSettlementId((data as string) ?? null);
+    setSettlementLoading(false);
   }
 
   function showToast(message: string, type: "success" | "error" = "success") {
@@ -159,6 +178,30 @@ export default function EmployeeExitDetailPage() {
     showToast(`Exit request ${status} successfully.`);
     setActionLoading(false);
     await loadExit();
+  }
+
+  async function handleSettlementCTA() {
+    if (!exitRecord?.id) return;
+    if (settlementId) {
+      router.push(`/erp/hr/final-settlements/${exitRecord.id}`);
+      return;
+    }
+
+    setActionLoading(true);
+    const { data, error: createError } = await supabase.rpc("erp_hr_final_settlement_upsert", {
+      p_exit_id: exitRecord.id,
+      p_notes: null,
+    });
+
+    if (createError) {
+      showToast(createError.message || "Unable to create settlement draft.", "error");
+      setActionLoading(false);
+      return;
+    }
+
+    setActionLoading(false);
+    await loadSettlementId();
+    router.push(`/erp/hr/final-settlements/${exitRecord.id}`);
   }
 
   if (loading) {
@@ -300,6 +343,37 @@ export default function EmployeeExitDetailPage() {
                 ) : null}
                 {!canManage ? (
                   <span style={{ color: "#6b7280" }}>You do not have access to manage exits.</span>
+                ) : null}
+              </div>
+            </section>
+
+            <section style={cardStyle}>
+              <h3 style={{ marginTop: 0 }}>Final Settlement</h3>
+              <p style={{ color: "#6b7280", marginTop: 4 }}>
+                Create or open the HR settlement statement tied to this exit.
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  disabled={
+                    !isHrAdmin ||
+                    actionLoading ||
+                    settlementLoading ||
+                    (!settlementId && !["approved", "completed"].includes(exitRecord.status))
+                  }
+                  onClick={handleSettlementCTA}
+                >
+                  {settlementLoading
+                    ? "Checking…"
+                    : settlementId
+                      ? "Open Final Settlement"
+                      : "Create Final Settlement"}
+                </button>
+                {exitRecord.status !== "approved" && exitRecord.status !== "completed" ? (
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>
+                    Settlement can be created once the exit is approved.
+                  </span>
                 ) : null}
               </div>
             </section>
