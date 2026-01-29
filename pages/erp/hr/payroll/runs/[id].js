@@ -20,10 +20,11 @@ export default function PayrollRunDetailPage() {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [financeStatus, setFinanceStatus] = useState(null);
   const [financePreview, setFinancePreview] = useState(null);
   const [financeLoading, setFinanceLoading] = useState(false);
-  const [financePosting, setFinancePosting] = useState(false);
+  const [financeConfig, setFinanceConfig] = useState(null);
+  const [financeConfigLoading, setFinanceConfigLoading] = useState(false);
+  const [financeConfigError, setFinanceConfigError] = useState("");
   const [financeError, setFinanceError] = useState("");
   const [overrideDrafts, setOverrideDrafts] = useState({});
   const [overrideSaving, setOverrideSaving] = useState({});
@@ -68,6 +69,9 @@ export default function PayrollRunDetailPage() {
   const attendanceStatus = run?.attendance_period_status || "not_generated";
   const attendanceLabel = attendanceStatus === "not_generated" ? "not generated" : attendanceStatus;
   const isAttendanceFrozen = attendanceStatus === "frozen";
+  const hasFinanceConfig = Boolean(
+    financeConfig?.salary_expense_account_id && financeConfig?.payroll_payable_account_id
+  );
 
   useEffect(() => {
     if (!items?.length) {
@@ -180,24 +184,25 @@ export default function PayrollRunDetailPage() {
   }, [ctx, runId]);
 
   useEffect(() => {
-    if (!ctx?.companyId || !runId) return;
+    if (!ctx?.companyId) return;
     let active = true;
     (async () => {
-      setFinanceError("");
-      const { data, error } = await supabase.rpc("erp_payroll_finance_posting_get", {
-        p_run_id: runId,
-      });
+      setFinanceConfigLoading(true);
+      setFinanceConfigError("");
+      const { data, error } = await supabase.rpc("erp_payroll_finance_posting_config_get");
       if (!active) return;
       if (error) {
-        setFinanceError(error.message || "Unable to load finance posting status.");
-        return;
+        setFinanceConfigError(error.message || "Unable to load finance posting config.");
+        setFinanceConfig(null);
+      } else {
+        setFinanceConfig(data || null);
       }
-      setFinanceStatus(data || null);
+      setFinanceConfigLoading(false);
     })();
     return () => {
       active = false;
     };
-  }, [ctx, runId]);
+  }, [ctx]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -306,48 +311,10 @@ export default function PayrollRunDetailPage() {
       });
       if (error) throw error;
       setFinancePreview(data || null);
-      if (data?.validation?.already_posted && data?.validation?.finance_doc_id) {
-        setFinanceStatus({
-          posted: true,
-          finance_doc_id: data.validation.finance_doc_id,
-          journal_no: data?.journal_no,
-        });
-      }
     } catch (e) {
       setFinanceError(e.message || "Unable to load finance preview.");
     } finally {
       setFinanceLoading(false);
-    }
-  }
-
-  async function postToFinance() {
-    if (!runId) return;
-    if (!canFinanceWrite) {
-      setFinanceError("Only finance roles can post payroll runs to finance.");
-      return;
-    }
-    const confirmCopy = "Post this payroll run to Finance? This will create a journal entry.";
-    if (!window.confirm(confirmCopy)) return;
-    setFinancePosting(true);
-    setFinanceError("");
-    try {
-      const { data, error } = await supabase.rpc("erp_payroll_finance_post", {
-        p_run_id: runId,
-        p_post_date: null,
-        p_notes: null,
-      });
-      if (error) throw error;
-      showToast("Payroll posted to finance.");
-      await loadFinancePreview();
-      const { data: statusData, error: statusError } = await supabase.rpc("erp_payroll_finance_posting_get", {
-        p_run_id: runId,
-      });
-      if (statusError) throw statusError;
-      setFinanceStatus(statusData || null);
-    } catch (e) {
-      setFinanceError(e.message || "Failed to post payroll to finance.");
-    } finally {
-      setFinancePosting(false);
     }
   }
 
@@ -875,7 +842,7 @@ export default function PayrollRunDetailPage() {
           <div>
             <h3 style={{ margin: 0 }}>Finance Posting</h3>
             <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
-              Post finalized payroll to Finance as a journal entry.
+              Preview-only payroll journal lines for Finance.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -884,24 +851,34 @@ export default function PayrollRunDetailPage() {
               onClick={loadFinancePreview}
               disabled={financeLoading}
             >
-              {financeLoading ? "Loading…" : "Preview Posting"}
-            </button>
-            <button
-              style={{
-                ...smallButtonStyle,
-                opacity: !canFinanceWrite || financePosting || financeStatus?.posted || !isRunFinalized ? 0.6 : 1,
-              }}
-              onClick={postToFinance}
-              disabled={!canFinanceWrite || financePosting || financeStatus?.posted || !isRunFinalized}
-            >
-              {financePosting ? "Posting…" : "Post to Finance"}
+              {financeLoading ? "Loading…" : "Preview Finance Posting"}
             </button>
           </div>
         </div>
 
+        <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+          {financeConfigLoading ? "Loading posting config…" : null}
+          {!financeConfigLoading ? (
+            hasFinanceConfig ? (
+              <span style={{ color: "#047857" }}>Posting config: accounts set.</span>
+            ) : (
+              <span style={{ color: "#b45309" }}>Posting config: missing required accounts.</span>
+            )
+          ) : null}
+          <span style={{ marginLeft: 10 }}>
+            <a href="/erp/finance/settings/payroll-posting" style={{ color: "#2563eb", textDecoration: "none" }}>
+              {canFinanceWrite ? "Edit config" : "View config"}
+            </a>
+          </span>
+        </div>
+
+        {financeConfigError ? (
+          <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c" }}>{financeConfigError}</div>
+        ) : null}
+
         {!isRunFinalized ? (
           <div style={{ marginTop: 12, fontSize: 13, color: "#b45309" }}>
-            Finalize payroll to enable posting.
+            Finalize payroll to enable posting previews.
           </div>
         ) : null}
 
@@ -911,70 +888,56 @@ export default function PayrollRunDetailPage() {
           </div>
         ) : null}
 
-        {financeStatus?.posted ? (
-          <div style={{ marginTop: 12, padding: 12, background: "#ecfdf3", border: "1px solid #bbf7d0", borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, color: "#047857" }}>Posted to Finance</div>
-            <div style={{ fontSize: 13, color: "#065f46", marginTop: 4 }}>
-              Finance Doc ID: <b>{financeStatus.finance_doc_id}</b>
-            </div>
-            {financeStatus.journal_no ? (
-              <div style={{ fontSize: 12, color: "#065f46", marginTop: 2 }}>
-                Journal No: {financeStatus.journal_no}
-              </div>
-            ) : null}
-            {financeStatus.posted_at ? (
-              <div style={{ fontSize: 12, color: "#065f46", marginTop: 2 }}>
-                Posted at: {new Date(financeStatus.posted_at).toLocaleString()}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
         {financePreview ? (
           <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
             <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#f9fafb" }}>
               <div style={{ fontWeight: 600 }}>Preview</div>
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                Employees: {financePreview?.totals?.employee_count ?? 0} · Net Pay: {formatAmount(financePreview?.totals?.total_net_pay)}
+                Net Pay: {formatAmount(financePreview?.totals?.net_pay)} · Earnings:{" "}
+                {formatAmount(financePreview?.totals?.earnings)} · Deductions:{" "}
+                {formatAmount(financePreview?.totals?.deductions)}
               </div>
-              {financePreview?.validation?.missing_config ? (
-                <div style={{ marginTop: 6, fontSize: 12, color: "#b45309" }}>
-                  Posting config missing. Set Salary Expense + Payroll Payable accounts before posting.
+              {financePreview?.errors?.length ? (
+                <div style={{ marginTop: 8, padding: 10, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, color: "#9a3412" }}>Errors</div>
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "#9a3412" }}>
+                    {financePreview.errors.map((item, index) => (
+                      <li key={`${item}-${index}`}>{item}</li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
-              {financePreview?.validation?.already_posted ? (
-                <div style={{ marginTop: 6, fontSize: 12, color: "#2563eb" }}>
-                  Already posted. Finance Doc ID: {financePreview?.validation?.finance_doc_id}
-                </div>
-              ) : null}
+              <div style={{ marginTop: 8, fontSize: 12, color: financePreview?.can_post ? "#047857" : "#6b7280" }}>
+                {financePreview?.can_post ? "Ready for posting in Phase 2." : "Not ready to post."}
+              </div>
             </div>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ textAlign: "left" }}>
+                    <th style={thStyle}>Side</th>
                     <th style={thStyle}>Account</th>
-                    <th style={thStyle}>Debit</th>
-                    <th style={thStyle}>Credit</th>
+                    <th style={thStyle}>Amount</th>
+                    <th style={thStyle}>Memo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(financePreview.lines || []).map((line) => (
-                    <tr key={`${line.line_no}-${line.account_name || "line"}`}>
+                  {(financePreview.lines || []).map((line, index) => (
+                    <tr key={`${line.side || "line"}-${line.account_id || index}`}>
+                      <td style={tdStyle}>{line.side || "—"}</td>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 600 }}>{line.account_name || "—"}</div>
-                        {line.account_code ? (
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>{line.account_code}</div>
-                        ) : null}
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>{line.account_id || "Unassigned account"}</div>
                       </td>
-                      <td style={tdStyle}>{formatAmount(line.debit)}</td>
-                      <td style={tdStyle}>{formatAmount(line.credit)}</td>
+                      <td style={tdStyle}>{formatAmount(line.amount)}</td>
+                      <td style={tdStyle}>{line.memo || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div style={{ padding: 12, borderTop: "1px solid #eee", background: "#f9fafb", fontSize: 12, color: "#6b7280" }}>
-              Debits: {formatAmount(financePreview?.totals?.debit_total)} · Credits: {formatAmount(financePreview?.totals?.credit_total)}
+              Preview totals reflect net pay; actual posting will be handled in Phase 2.
             </div>
           </div>
         ) : null}

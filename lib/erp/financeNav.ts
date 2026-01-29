@@ -199,6 +199,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-payroll-posting-settings",
+    label: "Payroll Posting",
+    href: "/erp/finance/settings/payroll-posting",
+    description: "Configure accounts for payroll finance posting previews.",
+    group: "Settings",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "PP",
+    cardIcon: "🧾",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-bank-import",
     label: "Bank Import",
     href: "/erp/finance/bank/import",
