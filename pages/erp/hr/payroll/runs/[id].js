@@ -208,10 +208,11 @@ export default function PayrollRunDetailPage() {
         if (active) setAttendanceSummaryRows([]);
         return;
       }
-      const { data, error } = await supabase.rpc("erp_attendance_month_rollups_list", {
-        p_month: monthStart,
-        p_employee_ids: employeeIds,
-      });
+      const { data, error } = await supabase
+        .from("erp_attendance_month_effective")
+        .select("employee_id, present_days, absent_days, paid_leave_days, ot_minutes, source")
+        .eq("month", monthStart)
+        .in("employee_id", employeeIds);
       if (!active) return;
       if (error) {
         setToast({ type: "error", message: error.message });
@@ -789,10 +790,10 @@ export default function PayrollRunDetailPage() {
                         ) : null}
                         {attendanceSummary ? (
                           <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
-                            Present: {formatDays(attendanceSummary.present_days_effective)} · Absent:{" "}
-                            {formatDays(attendanceSummary.absent_days_effective)} · Leave:{" "}
-                            {formatDays(attendanceSummary.paid_leave_days_effective)} · OT:{" "}
-                            {formatOtHours(attendanceSummary.ot_minutes_effective)}
+                            Present: {formatDays(attendanceSummary.present_days)} · Absent:{" "}
+                            {formatDays(attendanceSummary.absent_days)} · Leave:{" "}
+                            {formatDays(attendanceSummary.paid_leave_days)} · OT:{" "}
+                            {formatOtHours(attendanceSummary.ot_minutes)}
                           </div>
                         ) : null}
                       </td>
