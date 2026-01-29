@@ -121,7 +121,7 @@ export default function HrRolesPage() {
 
     try {
       const accessToken = sdata.session.access_token;
-      const { res, data } = await fetchJson("/api/hr/roles/list", {
+      const { res, data } = await fetchJson("/api/erp/hr/roles/list", {
         method: "GET",
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -174,7 +174,7 @@ export default function HrRolesPage() {
       }
 
       setBusyKey(key);
-      const { res, data } = await fetchJson("/api/hr/roles/create", {
+      const { res, data } = await fetchJson("/api/erp/hr/roles/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -214,7 +214,7 @@ export default function HrRolesPage() {
       }
 
       setBusyKey(role.key);
-      const { res, data } = await fetchJson("/api/hr/roles/update", {
+      const { res, data } = await fetchJson("/api/erp/hr/roles/update", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -251,7 +251,7 @@ export default function HrRolesPage() {
       if (!window.confirm(`Delete role “${role.name}”?`)) return;
 
       setBusyKey(role.key);
-      const { res, data } = await fetchJson("/api/hr/roles/delete", {
+      const { res, data } = await fetchJson("/api/erp/hr/roles/delete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

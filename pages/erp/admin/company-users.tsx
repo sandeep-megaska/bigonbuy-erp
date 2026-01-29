@@ -85,7 +85,7 @@ export default function CompanyUsersPage() {
 
   async function loadRoles(token: string, isActive = true) {
     if (!token) return;
-    const res = await fetch("/api/hr/roles/list", {
+    const res = await fetch("/api/erp/hr/roles/list", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();

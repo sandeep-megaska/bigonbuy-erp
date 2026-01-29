@@ -1,0 +1,5 @@
+import { handleRoleUpdate } from "../../../../../lib/erp/hr/roleHandlers";
+
+export default async function handler(req, res) {
+  return handleRoleUpdate(req, res);
+}
