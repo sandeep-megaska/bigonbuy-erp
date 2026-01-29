@@ -469,7 +469,7 @@ export default function EmployeeProfilePage() {
   }
 
   async function loadEmployeeDirectory(token = accessToken) {
-    const res = await fetch("/api/hr/employees", {
+    const res = await fetch("/api/erp/hr/employees", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();

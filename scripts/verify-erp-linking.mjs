@@ -33,7 +33,7 @@ if (missing.length > 0) {
 }
 
 const redirectTo = process.env.ERP_REDIRECT_URL || "<ERP_REDIRECT_URL>";
-const apiUrl = "http://localhost:3000/api/hr/link-employee-user";
+const apiUrl = "http://localhost:3000/api/erp/hr/link-employee-user";
 
 console.log("\nNext steps for manual QA when dev server is running:");
 console.log("1) Start the Next.js dev server: npm run dev");
