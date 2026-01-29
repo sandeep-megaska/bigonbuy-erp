@@ -393,9 +393,14 @@ export default function FinalSettlementDetailPage() {
           </section>
         ) : (
           <section style={cardStyle}>
-            <div style={{ fontWeight: 600 }}>No settlement found for this exit.</div>
+            <div style={{ fontWeight: 600 }}>Settlement not found.</div>
             <div style={{ marginTop: 6, color: "#6b7280", fontSize: 13 }}>
               Return to the exit detail page to create a draft settlement.
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Link href="/erp/hr/exits" style={{ ...secondaryButtonStyle, textDecoration: "none" }}>
+                Back to Exits
+              </Link>
             </div>
           </section>
         )}
