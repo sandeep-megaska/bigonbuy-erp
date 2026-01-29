@@ -248,6 +248,8 @@ export default function HrAttendancePage() {
     const { data, error } = await supabase
       .from("erp_employees")
       .select("id, full_name, employee_code")
+      .in("lifecycle_status", ["active", "on_notice"])
+      .or("is_active.eq.true,is_active.is.null")
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -1298,7 +1300,7 @@ function formatDays(value: number | null | undefined) {
 function formatOtHours(minutes: number | null | undefined) {
   if (minutes === null || minutes === undefined) return "—";
   const fixed = (Number(minutes) / 60).toFixed(2);
-  return `${fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}h`;
+  return `${fixed}h`;
 }
 
 function formatNumberInput(value: number | null | undefined) {
@@ -1322,17 +1324,7 @@ function parseOptionalNumber(value: string) {
 }
 
 function hasSummaryOverride(summary: AttendanceSummaryRow | undefined) {
-  if (!summary || !summary.use_override) return false;
-  const overrideValues = [
-    summary.present_days_override,
-    summary.absent_days_override,
-    summary.paid_leave_days_override,
-    summary.ot_minutes_override,
-  ];
-  const hasOverrideValues = overrideValues.some(
-    (value) => value !== null && value !== undefined
-  );
-  return hasOverrideValues || Boolean(summary.override_notes);
+  return Boolean(summary?.use_override);
 }
 
 function renderSummaryMetric({
