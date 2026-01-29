@@ -1,0 +1,1098 @@
+[
+  {
+    "routePath": "/erp",
+    "filePath": "pages/erp/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-15T14:21:41+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/admin/company-settings",
+    "filePath": "pages/erp/admin/company-settings.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-26T23:50:05+03:00",
+    "inferredModule": "admin"
+  },
+  {
+    "routePath": "/erp/admin/company-users",
+    "filePath": "pages/erp/admin/company-users.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "admin"
+  },
+  {
+    "routePath": "/erp/analytics/amazon",
+    "filePath": "pages/erp/analytics/amazon/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-28T22:14:36+03:00",
+    "inferredModule": "analytics"
+  },
+  {
+    "routePath": "/erp/dev/schema",
+    "filePath": "pages/erp/dev/schema.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/employee/attendance",
+    "filePath": "pages/erp/employee/attendance.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/employee/leaves",
+    "filePath": "pages/erp/employee/leaves.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/finance",
+    "filePath": "pages/erp/finance/index.js",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-23T23:22:35+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/amazon/settlements",
+    "filePath": "pages/erp/finance/amazon/settlements.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-26T13:44:09+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/ap/outstanding",
+    "filePath": "pages/erp/finance/ap/outstanding/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T21:11:04+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/ap/payments",
+    "filePath": "pages/erp/finance/ap/payments/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T20:17:07+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bank/import",
+    "filePath": "pages/erp/finance/bank/import.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-24T12:44:52+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bridge",
+    "filePath": "pages/erp/finance/bridge/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T23:52:44+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bridge/cogs",
+    "filePath": "pages/erp/finance/bridge/cogs.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-26T22:13:17+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bridge/grn-register",
+    "filePath": "pages/erp/finance/bridge/grn-register.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T23:49:37+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bridge/inventory-closing",
+    "filePath": "pages/erp/finance/bridge/inventory-closing.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T23:49:37+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/bridge/movements",
+    "filePath": "pages/erp/finance/bridge/movements.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T23:49:37+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses",
+    "filePath": "pages/erp/finance/expenses/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-19T07:57:09+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/[id]",
+    "filePath": "pages/erp/finance/expenses/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-26T16:40:00+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/import",
+    "filePath": "pages/erp/finance/expenses/import.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-19T00:05:13+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/new",
+    "filePath": "pages/erp/finance/expenses/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-26T16:40:00+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/recurring",
+    "filePath": "pages/erp/finance/expenses/recurring/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/recurring/[id]",
+    "filePath": "pages/erp/finance/expenses/recurring/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-19T07:51:56+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/recurring/new",
+    "filePath": "pages/erp/finance/expenses/recurring/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-19T07:51:56+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/expenses/reports",
+    "filePath": "pages/erp/finance/expenses/reports.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-19T00:05:13+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/gst",
+    "filePath": "pages/erp/finance/gst/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-26T23:50:05+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/gst/invoice/[invoice_no]",
+    "filePath": "pages/erp/finance/gst/invoice/[invoice_no].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-27T07:04:34+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/gst/invoices/[invoiceNo]",
+    "filePath": "pages/erp/finance/gst/invoices/[invoiceNo].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-26T23:26:42+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/gst/purchases",
+    "filePath": "pages/erp/finance/gst/purchases/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T01:28:31+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/gst/sku-master",
+    "filePath": "pages/erp/finance/gst/sku-master.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-23T22:33:09+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/invoices",
+    "filePath": "pages/erp/finance/invoices/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T18:06:28+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/invoices/[id]",
+    "filePath": "pages/erp/finance/invoices/[id]/index.tsx",
+    "isDynamic": true,
+    "isIndex": true,
+    "lastModified": "2026-01-22T22:30:53+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/invoices/[id]/print",
+    "filePath": "pages/erp/finance/invoices/[id]/print.tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T22:30:53+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/invoices/new",
+    "filePath": "pages/erp/finance/invoices/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T22:30:53+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/marketplace-margin",
+    "filePath": "pages/erp/finance/marketplace-margin/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/notes",
+    "filePath": "pages/erp/finance/notes/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-21T18:54:40+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/notes/[id]",
+    "filePath": "pages/erp/finance/notes/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-21T20:33:04+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/notes/[id]/print",
+    "filePath": "pages/erp/finance/notes/[id]/print.tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T16:36:08+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/notes/new",
+    "filePath": "pages/erp/finance/notes/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-21T19:27:14+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/recon",
+    "filePath": "pages/erp/finance/recon/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T21:11:04+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/settlements",
+    "filePath": "pages/erp/finance/settlements/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-23T19:10:47+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/shopify-sync",
+    "filePath": "pages/erp/finance/shopify-sync.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-24T22:11:25+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/vendor-payments",
+    "filePath": "pages/erp/finance/vendor-payments/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T20:17:07+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/finance/vendor-payments/[id]",
+    "filePath": "pages/erp/finance/vendor-payments/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-24T19:54:58+03:00",
+    "inferredModule": "finance"
+  },
+  {
+    "routePath": "/erp/hr",
+    "filePath": "pages/erp/hr/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-15T14:21:41+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/attendance",
+    "filePath": "pages/erp/hr/attendance/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/calendars",
+    "filePath": "pages/erp/hr/calendars/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/calendars/[id]",
+    "filePath": "pages/erp/hr/calendars/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/calendars/new",
+    "filePath": "pages/erp/hr/calendars/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/employee-logins",
+    "filePath": "pages/erp/hr/employee-logins.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2025-12-28T19:31:52+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/employees",
+    "filePath": "pages/erp/hr/employees.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/employees/[id]",
+    "filePath": "pages/erp/hr/employees/[id]/index.js",
+    "isDynamic": true,
+    "isIndex": true,
+    "lastModified": "2026-01-17T17:25:57+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/exits",
+    "filePath": "pages/erp/hr/exits/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-17T14:42:30+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/exits/[id]",
+    "filePath": "pages/erp/hr/exits/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-16T23:21:38+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/leave",
+    "filePath": "pages/erp/hr/leave.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/leaves/requests",
+    "filePath": "pages/erp/hr/leaves/requests.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/leaves/types",
+    "filePath": "pages/erp/hr/leaves/types.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/location-shifts",
+    "filePath": "pages/erp/hr/location-shifts.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/masters",
+    "filePath": "pages/erp/hr/masters.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/masters/employee-exit-reasons",
+    "filePath": "pages/erp/hr/masters/employee-exit-reasons.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/masters/employee-exit-types",
+    "filePath": "pages/erp/hr/masters/employee-exit-types.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/masters/employee-genders",
+    "filePath": "pages/erp/hr/masters/employee-genders.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/masters/employee-titles",
+    "filePath": "pages/erp/hr/masters/employee-titles.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/payroll",
+    "filePath": "pages/erp/hr/payroll.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-13T16:57:11+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/payroll/payslips/[id]",
+    "filePath": "pages/erp/hr/payroll/payslips/[id].js",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-14T16:09:01+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/payroll/runs",
+    "filePath": "pages/erp/hr/payroll/runs/index.js",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-14T16:49:41+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/payroll/runs/[id]",
+    "filePath": "pages/erp/hr/payroll/runs/[id].js",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/payslips/[runId]/[employeeId]",
+    "filePath": "pages/erp/hr/payslips/[runId]/[employeeId].js",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-13T16:57:11+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/reports/attendance-exceptions",
+    "filePath": "pages/erp/hr/reports/attendance-exceptions.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T13:55:57+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/reports/attendance-payroll",
+    "filePath": "pages/erp/hr/reports/attendance-payroll.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/reports/attendance-payroll-summary",
+    "filePath": "pages/erp/hr/reports/attendance-payroll-summary.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T13:55:57+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/reports/attendance-register",
+    "filePath": "pages/erp/hr/reports/attendance-register.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T13:55:57+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/roles",
+    "filePath": "pages/erp/hr/roles.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2025-12-28T08:50:27+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/salary",
+    "filePath": "pages/erp/hr/salary.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-17T19:16:33+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/schema",
+    "filePath": "pages/erp/hr/schema.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/shifts",
+    "filePath": "pages/erp/hr/shifts.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/hr/weekly-off",
+    "filePath": "pages/erp/hr/weekly-off/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "hr"
+  },
+  {
+    "routePath": "/erp/inventory",
+    "filePath": "pages/erp/inventory.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/dashboard",
+    "filePath": "pages/erp/inventory/dashboard/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-19T21:13:52+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/external/amazon",
+    "filePath": "pages/erp/inventory/external/amazon.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-28T09:16:53+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/grns",
+    "filePath": "pages/erp/inventory/grns/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-24T13:26:18+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/grns/[id]",
+    "filePath": "pages/erp/inventory/grns/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-26T17:20:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/health",
+    "filePath": "pages/erp/inventory/health/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-25T11:25:16+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/health/available",
+    "filePath": "pages/erp/inventory/health/available.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-25T11:25:16+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/health/low-stock",
+    "filePath": "pages/erp/inventory/health/low-stock.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-25T11:25:16+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/health/negative",
+    "filePath": "pages/erp/inventory/health/negative.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-25T11:25:16+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/import",
+    "filePath": "pages/erp/inventory/import.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T22:16:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/movements",
+    "filePath": "pages/erp/inventory/movements/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/products",
+    "filePath": "pages/erp/inventory/products/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/purchase-orders",
+    "filePath": "pages/erp/inventory/purchase-orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:47:11+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/purchase-orders/[id]",
+    "filePath": "pages/erp/inventory/purchase-orders/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-26T15:09:36+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/purchase-orders/[id]/edit",
+    "filePath": "pages/erp/inventory/purchase-orders/[id]/edit.tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:47:11+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/purchase-orders/[id]/print",
+    "filePath": "pages/erp/inventory/purchase-orders/[id]/print.tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:47:11+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/quotes",
+    "filePath": "pages/erp/inventory/quotes/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T01:01:04+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/quotes/[id]",
+    "filePath": "pages/erp/inventory/quotes/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/quotes/new",
+    "filePath": "pages/erp/inventory/quotes/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/reorder",
+    "filePath": "pages/erp/inventory/reorder/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T21:37:23+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/returns",
+    "filePath": "pages/erp/inventory/returns/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T19:59:57+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/returns/[id]",
+    "filePath": "pages/erp/inventory/returns/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T22:58:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/returns/new",
+    "filePath": "pages/erp/inventory/returns/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T19:59:57+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/rfqs",
+    "filePath": "pages/erp/inventory/rfqs/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T01:01:04+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/rfqs/[id]",
+    "filePath": "pages/erp/inventory/rfqs/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/rfqs/[id]/print",
+    "filePath": "pages/erp/inventory/rfqs/[id]/print.tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T16:25:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/rfqs/new",
+    "filePath": "pages/erp/inventory/rfqs/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/sales-consumption",
+    "filePath": "pages/erp/inventory/sales-consumption/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T20:52:21+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/sales-consumption/[id]",
+    "filePath": "pages/erp/inventory/sales-consumption/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T22:58:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/sales-consumption/new",
+    "filePath": "pages/erp/inventory/sales-consumption/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T20:52:21+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/skus",
+    "filePath": "pages/erp/inventory/skus/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-26T18:32:56+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/stock",
+    "filePath": "pages/erp/inventory/stock/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T19:33:55+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/stock/[warehouseId]/[variantId]",
+    "filePath": "pages/erp/inventory/stock/[warehouseId]/[variantId].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T19:36:41+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/stocktakes",
+    "filePath": "pages/erp/inventory/stocktakes/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T21:52:14+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/stocktakes/[id]",
+    "filePath": "pages/erp/inventory/stocktakes/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/stocktakes/new",
+    "filePath": "pages/erp/inventory/stocktakes/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T21:52:14+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/transfers",
+    "filePath": "pages/erp/inventory/transfers/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T19:59:57+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/transfers/[id]",
+    "filePath": "pages/erp/inventory/transfers/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T22:58:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/transfers/new",
+    "filePath": "pages/erp/inventory/transfers/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T19:59:57+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/valuation",
+    "filePath": "pages/erp/inventory/valuation/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T21:57:32+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/vendors",
+    "filePath": "pages/erp/inventory/vendors/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/warehouses",
+    "filePath": "pages/erp/inventory/warehouses/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/writeoffs",
+    "filePath": "pages/erp/inventory/writeoffs/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-18T21:44:22+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/writeoffs/[id]",
+    "filePath": "pages/erp/inventory/writeoffs/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-18T22:58:29+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/inventory/writeoffs/new",
+    "filePath": "pages/erp/inventory/writeoffs/new.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-18T21:44:22+03:00",
+    "inferredModule": "inventory"
+  },
+  {
+    "routePath": "/erp/login",
+    "filePath": "pages/erp/login.tsx",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2025-12-28T16:07:23+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/my/payslips",
+    "filePath": "pages/erp/my/payslips/index.js",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-15T14:46:15+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/my/payslips/[id]",
+    "filePath": "pages/erp/my/payslips/[id].js",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-14T16:09:01+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/oms/amazon/orders",
+    "filePath": "pages/erp/oms/amazon/orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-28T10:22:37+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/amazon/orders/[amazon_order_id]",
+    "filePath": "pages/erp/oms/amazon/orders/[amazon_order_id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-28T10:22:37+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/channels",
+    "filePath": "pages/erp/oms/channels/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-21T21:40:03+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/channels/[id]",
+    "filePath": "pages/erp/oms/channels/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-21T23:26:03+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/flipkart/orders",
+    "filePath": "pages/erp/oms/flipkart/orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-25T19:06:51+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/myntra/orders",
+    "filePath": "pages/erp/oms/myntra/orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-25T19:06:51+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/orders",
+    "filePath": "pages/erp/oms/orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-25T16:41:27+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/orders/[id]",
+    "filePath": "pages/erp/oms/orders/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-25T16:41:27+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/shopify/orders",
+    "filePath": "pages/erp/oms/shopify/orders/index.tsx",
+    "isDynamic": false,
+    "isIndex": true,
+    "lastModified": "2026-01-25T21:31:12+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/oms/shopify/orders/[id]",
+    "filePath": "pages/erp/oms/shopify/orders/[id].tsx",
+    "isDynamic": true,
+    "isIndex": false,
+    "lastModified": "2026-01-25T20:15:51+03:00",
+    "inferredModule": "integrations"
+  },
+  {
+    "routePath": "/erp/products",
+    "filePath": "pages/erp/products.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "misc"
+  },
+  {
+    "routePath": "/erp/variants",
+    "filePath": "pages/erp/variants.js",
+    "isDynamic": false,
+    "isIndex": false,
+    "lastModified": "2026-01-22T11:20:07+03:00",
+    "inferredModule": "misc"
+  }
+]

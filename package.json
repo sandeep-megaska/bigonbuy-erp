@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check:migrations": "bash scripts/check-migrations.sh"
+    "check:migrations": "bash scripts/check-migrations.sh",
+    "erp:routes": "node scripts/erp_route_inventory.js"
   },
   "dependencies": {
     "@sparticuz/chromium": "^123.0.1",
