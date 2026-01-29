@@ -84,8 +84,20 @@ function getRowMonthValue(row: SettlementRow) {
 }
 
 function normalizeStatusLabel(status: string) {
-  if (!status) return "Draft";
-  return status.charAt(0).toUpperCase() + status.slice(1);
+  switch (status) {
+    case "draft":
+      return "Draft";
+    case "submitted":
+      return "Submitted";
+    case "approved":
+      return "Approved";
+    case "paid":
+      return "Paid";
+    case "finalized":
+      return "Finalized";
+    default:
+      return status ? status.charAt(0).toUpperCase() + status.slice(1) : "Draft";
+  }
 }
 
 const bannerStyle: CSSProperties = {
@@ -95,6 +107,11 @@ const bannerStyle: CSSProperties = {
   border: "1px solid #fbbf24",
   color: "#92400e",
   fontSize: 13,
+};
+
+const netAmountCellStyle: CSSProperties = {
+  textAlign: "right",
+  fontVariantNumeric: "tabular-nums",
 };
 
 export default function FinalSettlementsIndexPage() {
@@ -296,7 +313,7 @@ export default function FinalSettlementsIndexPage() {
                   <th style={tableHeaderCellStyle}>Name</th>
                   <th style={tableHeaderCellStyle}>Exit LWD</th>
                   <th style={tableHeaderCellStyle}>Status</th>
-                  <th style={tableHeaderCellStyle}>Net Amount</th>
+                  <th style={{ ...tableHeaderCellStyle, ...netAmountCellStyle }}>Net Amount</th>
                   <th style={tableHeaderCellStyle}>Updated</th>
                   <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
@@ -311,9 +328,25 @@ export default function FinalSettlementsIndexPage() {
                 ) : rows.length === 0 ? (
                   <tr>
                     <td style={tableCellStyle} colSpan={7}>
-                      {filtersActive
-                        ? "No settlements match current filters. Clear filters to see all."
-                        : "No final settlements yet."}
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div style={{ fontWeight: 600 }}>
+                          {filtersActive
+                            ? "No settlements match the current filters."
+                            : "No final settlements yet."}
+                        </div>
+                        <div style={{ color: "#6b7280", fontSize: 13 }}>
+                          {filtersActive
+                            ? "Try clearing filters or adjusting your search."
+                            : "Create a final settlement from an approved employee exit."}
+                        </div>
+                        {!filtersActive ? (
+                          <div>
+                            <Link href="/erp/hr/exits" style={{ color: "#2563eb", textDecoration: "none" }}>
+                              Go to Exits
+                            </Link>
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -329,7 +362,9 @@ export default function FinalSettlementsIndexPage() {
                       <td style={tableCellStyle}>
                         <span style={badgeStyle}>{normalizeStatusLabel(row.status)}</span>
                       </td>
-                      <td style={tableCellStyle}>{formatCurrency(row.net_amount)}</td>
+                      <td style={{ ...tableCellStyle, ...netAmountCellStyle }}>
+                        {formatCurrency(row.net_amount)}
+                      </td>
                       <td style={tableCellStyle}>{formatDate(row.updated_at)}</td>
                       <td style={tableCellStyle}>
                         <button
