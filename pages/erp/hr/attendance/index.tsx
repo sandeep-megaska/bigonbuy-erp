@@ -811,19 +811,41 @@ export default function HrAttendancePage() {
                     <td style={stickyCellStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <strong>{employee.full_name || "Employee"}</strong>
-                        {summaryMap[employee.id]?.use_override ? (
-                          <span style={overrideBadgeStyle}>OVR</span>
+                        {hasSummaryOverride(summaryMap[employee.id]) ? (
+                          <span style={overrideBadgeStyle} title="Manual override active">
+                            OVR
+                          </span>
                         ) : null}
                       </div>
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || employee.id}
                       </div>
                       {summaryMap[employee.id] ? (
-                        <div style={summaryLineStyle}>
-                          Eff: P {formatDays(summaryMap[employee.id]?.present_days_effective)} | A{" "}
-                          {formatDays(summaryMap[employee.id]?.absent_days_effective)} | L{" "}
-                          {formatDays(summaryMap[employee.id]?.paid_leave_days_effective)} | OT{" "}
-                          {formatOtHours(summaryMap[employee.id]?.ot_minutes_effective)}
+                        <div style={summaryMetricsRowStyle}>
+                          {renderSummaryMetric({
+                            label: "Present",
+                            effective: formatDays(summaryMap[employee.id]?.present_days_effective),
+                            computed: formatDays(summaryMap[employee.id]?.present_days_computed),
+                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                          })}
+                          {renderSummaryMetric({
+                            label: "Absent",
+                            effective: formatDays(summaryMap[employee.id]?.absent_days_effective),
+                            computed: formatDays(summaryMap[employee.id]?.absent_days_computed),
+                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                          })}
+                          {renderSummaryMetric({
+                            label: "Leave",
+                            effective: formatDays(summaryMap[employee.id]?.paid_leave_days_effective),
+                            computed: formatDays(summaryMap[employee.id]?.paid_leave_days_computed),
+                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                          })}
+                          {renderSummaryMetric({
+                            label: "OT",
+                            effective: formatOtHours(summaryMap[employee.id]?.ot_minutes_effective),
+                            computed: formatOtHours(summaryMap[employee.id]?.ot_minutes_computed),
+                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                          })}
                         </div>
                       ) : null}
                       <button
@@ -1299,6 +1321,47 @@ function parseOptionalNumber(value: string) {
   return parsed;
 }
 
+function hasSummaryOverride(summary: AttendanceSummaryRow | undefined) {
+  if (!summary || !summary.use_override) return false;
+  const overrideValues = [
+    summary.present_days_override,
+    summary.absent_days_override,
+    summary.paid_leave_days_override,
+    summary.ot_minutes_override,
+  ];
+  const hasOverrideValues = overrideValues.some(
+    (value) => value !== null && value !== undefined
+  );
+  return hasOverrideValues || Boolean(summary.override_notes);
+}
+
+function renderSummaryMetric({
+  label,
+  effective,
+  computed,
+  showOverride,
+}: {
+  label: string;
+  effective: string;
+  computed: string;
+  showOverride: boolean;
+}) {
+  return (
+    <div style={summaryMetricStyle}>
+      <div style={summaryMetricLabelStyle}>{label}</div>
+      <div style={summaryMetricValueStyle}>
+        {effective}
+        {showOverride ? (
+          <span style={summaryOverrideBadgeStyle} title="Manual override active">
+            OVR
+          </span>
+        ) : null}
+      </div>
+      {showOverride ? <div style={summaryComputedStyle}>Computed: {computed}</div> : null}
+    </div>
+  );
+}
+
 const headerStyle: CSSProperties = {
   ...pageHeaderStyle,
   marginBottom: 20,
@@ -1404,10 +1467,47 @@ const overrideBadgeStyle: CSSProperties = {
   letterSpacing: 0.4,
 };
 
-const summaryLineStyle: CSSProperties = {
-  marginTop: 6,
+const summaryMetricsRowStyle: CSSProperties = {
+  marginTop: 8,
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
   color: "#4b5563",
   fontSize: 12,
+};
+
+const summaryMetricStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+};
+
+const summaryMetricLabelStyle: CSSProperties = {
+  fontSize: 11,
+  color: "#6b7280",
+};
+
+const summaryMetricValueStyle: CSSProperties = {
+  fontWeight: 600,
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  color: "#111827",
+};
+
+const summaryComputedStyle: CSSProperties = {
+  fontSize: 11,
+  color: "#888",
+};
+
+const summaryOverrideBadgeStyle: CSSProperties = {
+  backgroundColor: "#e0f2ff",
+  color: "#0369a1",
+  fontSize: 10,
+  fontWeight: 700,
+  padding: "2px 6px",
+  borderRadius: 999,
+  textTransform: "uppercase",
 };
 
 const inlineButtonStyle: CSSProperties = {
