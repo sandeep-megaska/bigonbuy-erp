@@ -579,6 +579,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["hr"],
   },
   {
+    id: "hr-final-settlements",
+    label: "Final Settlements",
+    href: "/erp/hr/final-settlements",
+    icon: "FS",
+    groupId: "hr",
+    requiredGuard: "hr_reader",
+    status: "active",
+    moduleKeys: ["hr"],
+  },
+  {
     id: "hr-weekly-off",
     label: "Weekly Off Rules",
     href: "/erp/hr/weekly-off",
