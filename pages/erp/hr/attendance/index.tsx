@@ -249,7 +249,6 @@ export default function HrAttendancePage() {
       .from("erp_employees")
       .select("id, full_name, employee_code")
       .in("lifecycle_status", ["active", "on_notice"])
-      .or("is_active.eq.true,is_active.is.null")
       .order("full_name", { ascending: true });
 
     if (error) {
