@@ -389,6 +389,31 @@ export default function EmployeeExitsPage() {
     });
   }
 
+  async function handleFinalSettlement(exitId: string) {
+    setActionLoading(exitId);
+    const { data, error } = await supabase.rpc("erp_hr_final_settlement_upsert_header", {
+      p_exit_id: exitId,
+      p_settlement_id: null,
+      p_notes: null,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message || "Unable to open final settlement." });
+      setActionLoading(null);
+      return;
+    }
+
+    const settlementId = (data as string | null) ?? null;
+    if (!settlementId) {
+      setToast({ type: "error", message: "Unable to open final settlement." });
+      setActionLoading(null);
+      return;
+    }
+
+    setActionLoading(null);
+    router.push(`/erp/hr/final-settlements/${settlementId}`);
+  }
+
   return (
     <ErpShell activeModule="hr">
 
@@ -569,6 +594,16 @@ export default function EmployeeExitsPage() {
                                   style={secondaryButtonStyle}
                                 >
                                   {actionLoading === r.id ? "Completing…" : "Complete"}
+                                </button>
+                              ) : null}
+                              {["approved", "completed"].includes(r.status) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleFinalSettlement(r.id)}
+                                  disabled={actionLoading === r.id}
+                                  style={secondaryButtonStyle}
+                                >
+                                  {actionLoading === r.id ? "Opening…" : "Final Settlement"}
                                 </button>
                               ) : null}
                             </div>
