@@ -61,6 +61,9 @@ type SettlementPayload = {
   clearances: SettlementClearance[];
   employee: SettlementEmployee | null;
   exit: SettlementExit | null;
+  earnings_total?: number | string | null;
+  deductions_total?: number | string | null;
+  net_amount?: number | string | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
@@ -87,6 +90,13 @@ function formatCurrency(amount: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(amount);
+}
+
+function normalizeAmount(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const numeric = typeof value === "string" ? Number(value) : value;
+  if (Number.isNaN(numeric)) return null;
+  return numeric;
 }
 
 function sumTotals(lines: EditableLine[], kind: "earning" | "deduction") {
@@ -318,9 +328,14 @@ export default function FinalSettlementDetailPage() {
     await loadData();
   }
 
-  const totalEarnings = sumTotals(lines, "earning");
-  const totalDeductions = sumTotals(lines, "deduction");
-  const netPayable = totalEarnings - totalDeductions;
+  const computedEarnings = sumTotals(lines, "earning");
+  const computedDeductions = sumTotals(lines, "deduction");
+  const dbEarnings = normalizeAmount(settlementData?.earnings_total ?? null);
+  const dbDeductions = normalizeAmount(settlementData?.deductions_total ?? null);
+  const dbNet = normalizeAmount(settlementData?.net_amount ?? null);
+  const totalEarnings = dbEarnings ?? computedEarnings;
+  const totalDeductions = dbDeductions ?? computedDeductions;
+  const netPayable = dbNet ?? totalEarnings - totalDeductions;
 
   if (loading) {
     return (
