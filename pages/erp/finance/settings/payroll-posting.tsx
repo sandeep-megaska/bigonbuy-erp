@@ -10,6 +10,15 @@ import {
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
+type CompanyContext = {
+  session: unknown;
+  email: string | null;
+  userId: string | null;
+  companyId: string | null;
+  roleKey: string | null;
+  membershipError: string | null;
+};
+
 const inputStyle = {
   width: "100%",
   padding: "10px 12px",
@@ -36,7 +45,7 @@ const cardStyle = {
 
 export default function PayrollPostingSettingsPage() {
   const router = useRouter();
-  const [ctx, setCtx] = useState(null);
+  const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
