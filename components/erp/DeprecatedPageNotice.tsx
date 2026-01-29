@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
+import { supabase } from "../../lib/supabaseClient";
 
 type DeprecatedPageNoticeProps = {
   title: string;
@@ -14,9 +15,10 @@ export default function DeprecatedPageNotice({
   title,
   newHref,
   message,
-  autoRedirectSeconds = null,
+  autoRedirectSeconds = 3,
 }: DeprecatedPageNoticeProps) {
   const router = useRouter();
+  const hasTrackedRef = useRef(false);
 
   useEffect(() => {
     if (!autoRedirectSeconds || autoRedirectSeconds <= 0) return;
@@ -26,13 +28,47 @@ export default function DeprecatedPageNotice({
     return () => clearTimeout(timer);
   }, [autoRedirectSeconds, newHref, router]);
 
+  useEffect(() => {
+    if (!router.isReady || hasTrackedRef.current) return;
+    hasTrackedRef.current = true;
+
+    const trackDeprecatedHit = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) return;
+        const route = router.asPath.split("?")[0] || router.asPath;
+        await fetch("/api/erp/ui/route-hit", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            route,
+            kind: "deprecated",
+            referrer: typeof document === "undefined" ? null : document.referrer || null,
+            meta: {
+              newHref,
+              autoRedirectSeconds,
+            },
+          }),
+        });
+      } catch {
+        // Fail silently for telemetry.
+      }
+    };
+
+    void trackDeprecatedHit();
+  }, [autoRedirectSeconds, newHref, router.asPath, router.isReady]);
+
   return (
     <section style={noticeStyle} aria-live="polite">
       <div style={badgeStyle}>Moved</div>
       <div style={contentStyle}>
         <div style={titleStyle}>{title}</div>
         <div style={messageStyle}>
-          {message ?? "This page has moved to a new location. Use the button below to continue."}
+          {message ?? "This page is deprecated. Use the button below to continue."}
         </div>
       </div>
       <Link href={newHref} style={buttonStyle}>

@@ -33,6 +33,7 @@ export type ErpNavItem = {
   groupId: ErpNavGroupId;
   requiredGuard?: ErpNavGuard;
   status: ErpNavStatus;
+  showDeprecatedInNav?: boolean;
   deprecatedTo?: string;
   description?: string;
   moduleKeys?: ErpModuleKey[];
@@ -116,7 +117,8 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "PR",
     groupId: "inventory",
     requiredGuard: "authenticated",
-    status: "active",
+    status: "deprecated",
+    deprecatedTo: "/erp/inventory/products",
     description: "Create and manage your product catalog.",
     moduleKeys: ["workspace"],
   },
@@ -127,7 +129,8 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "VA",
     groupId: "inventory",
     requiredGuard: "authenticated",
-    status: "active",
+    status: "deprecated",
+    deprecatedTo: "/erp/inventory/skus",
     description: "Organize options and product variations.",
     moduleKeys: ["workspace"],
   },
@@ -138,7 +141,8 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "IN",
     groupId: "inventory",
     requiredGuard: "authenticated",
-    status: "active",
+    status: "deprecated",
+    deprecatedTo: "/erp/inventory/dashboard",
     description: "Track stock levels across variants.",
     moduleKeys: ["workspace"],
   },
@@ -656,6 +660,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["admin"],
   },
   {
+    id: "admin-route-diagnostics",
+    label: "Route Diagnostics",
+    href: "/erp/admin/diagnostics/route-hits",
+    icon: "RD",
+    groupId: "admin",
+    requiredGuard: "admin",
+    status: "hidden",
+    moduleKeys: ["admin"],
+  },
+  {
     id: "settings-company",
     label: "Company Settings",
     href: "/erp/admin/company-settings",
@@ -685,6 +699,7 @@ export const getErpNavGroups = ({
 }: ErpNavContext): ErpNavGroupWithItems[] => {
   const items = ERP_NAV_ITEMS.filter((item) => {
     if (item.status === "hidden") return false;
+    if (item.status === "deprecated" && !item.showDeprecatedInNav) return false;
     if (item.companyScoped !== false && !companyId) return false;
     if (item.moduleKeys && !item.moduleKeys.includes(activeModule)) return false;
     return isGuardAllowed(item.requiredGuard, roleKey);
