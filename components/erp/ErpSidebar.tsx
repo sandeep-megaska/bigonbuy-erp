@@ -1,146 +1,10 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ErpModuleKey } from "./ErpTopBar";
-import { getCompanyContext, isAnalyticsReader } from "../../lib/erpContext";
-import { getFinanceNavGroups } from "../../lib/erp/financeNav";
-
-export type SidebarItem = {
-  label: string;
-  href: string;
-  icon?: string;
-};
-
-type SidebarGroup = {
-  label: string;
-  items: SidebarItem[];
-};
-
-const hrSidebarGroups: SidebarGroup[] = [
-  {
-    label: "HR Home",
-    items: [{ label: "HR Home", href: "/erp/hr", icon: "HR" }],
-  },
-  {
-    label: "Masters",
-    items: [
-      { label: "Designations", href: "/erp/hr/masters", icon: "DE" },
-      { label: "Departments", href: "/erp/hr/masters", icon: "DP" },
-      { label: "Grades", href: "/erp/hr/masters", icon: "GR" },
-      { label: "Leave Types", href: "/erp/hr/leaves/types", icon: "LV" },
-      { label: "Employee Titles", href: "/erp/hr/masters/employee-titles", icon: "ET" },
-      { label: "Employee Genders", href: "/erp/hr/masters/employee-genders", icon: "EG" },
-      { label: "Exit Types", href: "/erp/hr/masters/employee-exit-types", icon: "XT" },
-      { label: "Exit Reasons", href: "/erp/hr/masters/employee-exit-reasons", icon: "XR" },
-      { label: "Locations", href: "/erp/hr/masters", icon: "LO" },
-      { label: "Cost Centers", href: "/erp/hr/masters", icon: "CC" },
-      { label: "Weekly Off Rules", href: "/erp/hr/weekly-off", icon: "WO" },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { label: "Employees", href: "/erp/hr/employees", icon: "EM" },
-      { label: "Employee Exits", href: "/erp/hr/exits", icon: "EX" },
-      { label: "Attendance", href: "/erp/hr/attendance", icon: "AT" },
-      { label: "Leave Requests", href: "/erp/hr/leaves/requests", icon: "LR" },
-      { label: "Calendars", href: "/erp/hr/calendars", icon: "CA" },
-      { label: "Salary Structures", href: "/erp/hr/salary", icon: "SS" },
-      { label: "Payroll", href: "/erp/hr/payroll/runs", icon: "PR" },
-    ],
-  },
-  {
-    label: "Reports",
-    items: [
-      {
-        label: "Attendance → Payroll Summary",
-        href: "/erp/hr/reports/attendance-payroll-summary",
-        icon: "PS",
-      },
-      { label: "Attendance Exceptions", href: "/erp/hr/reports/attendance-exceptions", icon: "EX" },
-      { label: "Attendance Register", href: "/erp/hr/reports/attendance-register", icon: "AR" },
-    ],
-  },
-];
-
-const adminSidebarGroups: SidebarGroup[] = [
-  {
-    label: "Admin",
-    items: [
-      { label: "Company Users", href: "/erp/admin/company-users", icon: "CU" },
-      { label: "Company Settings", href: "/erp/admin/company-settings", icon: "CS" },
-    ],
-  },
-];
-
-const workspaceSidebarGroups: SidebarGroup[] = [
-  {
-    label: "Workspace",
-    items: [
-      { label: "ERP Home", href: "/erp", icon: "ER" },
-      { label: "Products", href: "/erp/products", icon: "PR" },
-      { label: "Variants", href: "/erp/variants", icon: "VA" },
-      { label: "Inventory", href: "/erp/inventory", icon: "IN" },
-    ],
-  },
-  {
-    label: "Inventory",
-    items: [
-      { label: "Dashboard", href: "/erp/inventory/dashboard", icon: "DB" },
-      { label: "Vendors", href: "/erp/inventory/vendors", icon: "VE" },
-      { label: "RFQs", href: "/erp/inventory/rfqs", icon: "RF" },
-      { label: "Quotes", href: "/erp/inventory/quotes", icon: "QT" },
-      { label: "Purchase Orders", href: "/erp/inventory/purchase-orders", icon: "PO" },
-      { label: "GRNs", href: "/erp/inventory/grns", icon: "GR" },
-      { label: "Products", href: "/erp/inventory/products", icon: "PR" },
-      { label: "SKUs", href: "/erp/inventory/skus", icon: "SK" },
-      { label: "Warehouses", href: "/erp/inventory/warehouses", icon: "WH" },
-      { label: "Stock Movements", href: "/erp/inventory/movements", icon: "SM" },
-      { label: "Health", href: "/erp/inventory/health", icon: "HL" },
-    ],
-  },
-  {
-    label: "External",
-    items: [{ label: "Amazon Snapshot", href: "/erp/inventory/external/amazon", icon: "AM" }],
-  },
-];
-
-const analyticsSidebarGroups: SidebarGroup[] = [
-  {
-    label: "Analytics",
-    items: [{ label: "Amazon", href: "/erp/analytics/amazon", icon: "AN" }],
-  },
-];
-
-const employeeSidebarGroups: SidebarGroup[] = [
-  {
-    label: "Employee",
-    items: [{ label: "My Payslips", href: "/erp/my/payslips", icon: "PS" }],
-  },
-];
-
-const omsSidebarGroups: SidebarGroup[] = [
-  {
-    label: "OMS",
-    items: [
-      { label: "Channels", href: "/erp/oms/channels", icon: "CH" },
-      { label: "Shopify Orders", href: "/erp/oms/shopify/orders", icon: "SH" },
-      { label: "Sync / Backfill", href: "/erp/finance/shopify-sync", icon: "SY" },
-      { label: "Amazon Orders", href: "/erp/oms/amazon/orders", icon: "AM" },
-      { label: "Myntra Orders", href: "/erp/oms/myntra/orders", icon: "MY" },
-      { label: "Flipkart Orders", href: "/erp/oms/flipkart/orders", icon: "FK" },
-    ],
-  },
-];
-
-const moduleSidebarMap: Record<ErpModuleKey, SidebarGroup[]> = {
-  workspace: workspaceSidebarGroups,
-  hr: hrSidebarGroups,
-  employee: employeeSidebarGroups,
-  oms: omsSidebarGroups,
-  admin: adminSidebarGroups,
-  finance: [],
-};
+import { getCompanyContext } from "../../lib/erpContext";
+import { getErpNavGroups } from "../../lib/erp/nav/erpNavRegistry";
 
 export default function ErpSidebar({
   activeModule,
@@ -151,7 +15,11 @@ export default function ErpSidebar({
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const [roleKey, setRoleKey] = useState<string | null>(null);
+  const router = useRouter();
+  const [companyContext, setCompanyContext] = useState<{
+    roleKey: string | null;
+    companyId: string | null;
+  }>({ roleKey: null, companyId: null });
 
   useEffect(() => {
     let active = true;
@@ -159,7 +27,10 @@ export default function ErpSidebar({
     (async () => {
       const context = await getCompanyContext();
       if (!active) return;
-      setRoleKey(context.roleKey ?? null);
+      setCompanyContext({
+        roleKey: context.roleKey ?? null,
+        companyId: context.companyId ?? null,
+      });
     })();
 
     return () => {
@@ -168,15 +39,19 @@ export default function ErpSidebar({
   }, []);
 
   const groups = useMemo(() => {
-    if (activeModule === "finance") {
-      return getFinanceNavGroups(roleKey);
+    return getErpNavGroups({
+      roleKey: companyContext.roleKey,
+      companyId: companyContext.companyId,
+      activeModule,
+    });
+  }, [activeModule, companyContext]);
+
+  const isActiveRoute = (href: string) => {
+    if (href === "/erp") {
+      return router.asPath === "/erp";
     }
-    if (activeModule === "workspace") {
-      const analyticsGroups = isAnalyticsReader(roleKey) ? analyticsSidebarGroups : [];
-      return [...workspaceSidebarGroups, ...analyticsGroups];
-    }
-    return moduleSidebarMap[activeModule];
-  }, [activeModule, roleKey]);
+    return router.asPath === href || router.asPath.startsWith(`${href}/`);
+  };
 
   return (
     <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }} data-erp-sidebar>
@@ -188,12 +63,19 @@ export default function ErpSidebar({
           <div key={group.label} style={groupStyle}>
             {!collapsed ? <div style={groupLabelStyle}>{group.label}</div> : null}
             <div style={itemStackStyle}>
-              {group.items.map((item) => (
-                <Link key={item.href} href={item.href} style={navItemStyle}>
-                  <span style={iconBadgeStyle}>{item.icon || item.label.slice(0, 2)}</span>
-                  {!collapsed ? <span>{item.label}</span> : null}
-                </Link>
-              ))}
+              {group.items.map((item) => {
+                const isActive = isActiveRoute(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    style={{ ...navItemStyle, ...(isActive ? activeNavItemStyle : null) }}
+                  >
+                    <span style={iconBadgeStyle}>{item.icon || item.label.slice(0, 2)}</span>
+                    {!collapsed ? <span>{item.label}</span> : null}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         ))}
@@ -267,6 +149,11 @@ const navItemStyle: CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   backgroundColor: "rgba(255,255,255,0.04)",
+};
+
+const activeNavItemStyle: CSSProperties = {
+  backgroundColor: "rgba(59,130,246,0.2)",
+  color: "#ffffff",
 };
 
 const iconBadgeStyle: CSSProperties = {
