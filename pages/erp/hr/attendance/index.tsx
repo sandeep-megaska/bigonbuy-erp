@@ -70,21 +70,22 @@ type AttendancePeriod = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
-type AttendanceComputedRow = {
+type AttendanceGridCounts = {
   employee_id: string;
-  present_days_computed: number | null;
-  absent_days_computed: number | null;
-  paid_leave_days_computed: number | null;
-  ot_minutes_computed: number | null;
+  present_days_computed: number;
+  absent_days_computed: number;
+  paid_leave_days_computed: number;
 };
 
-type AttendanceEffectiveRow = {
+type AttendancePayrollInputRow = {
   employee_id: string;
   present_days: number | null;
   absent_days: number | null;
   paid_leave_days: number | null;
-  ot_minutes: number | null;
+  ot_hours: number | null;
   source: string | null;
+  notes: string | null;
+  updated_at: string | null;
 };
 
 type MonthMeta = {
@@ -121,12 +122,12 @@ export default function HrAttendancePage() {
     notes: "",
     statusOverride: "unmarked",
   });
-  const [effectiveRows, setEffectiveRows] = useState<AttendanceEffectiveRow[]>([]);
+  const [payrollInputs, setPayrollInputs] = useState<AttendancePayrollInputRow[]>([]);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideLoading, setOverrideLoading] = useState(false);
   const [overrideEmployee, setOverrideEmployee] = useState<EmployeeRow | null>(null);
   const [overrideExists, setOverrideExists] = useState(false);
-  const [overrideComputed, setOverrideComputed] = useState<AttendanceComputedRow | null>(null);
+  const [overrideComputed, setOverrideComputed] = useState<AttendanceGridCounts | null>(null);
   const [overrideForm, setOverrideForm] = useState({
     presentDays: "",
     absentDays: "",
@@ -150,14 +151,37 @@ export default function HrAttendancePage() {
     }, {});
   }, [attendanceRows]);
 
-  const effectiveByEmployeeId = useMemo(() => {
-    return effectiveRows.reduce<Record<string, AttendanceEffectiveRow>>((acc, row) => {
+  const payrollInputsByEmployeeId = useMemo(() => {
+    return payrollInputs.reduce<Record<string, AttendancePayrollInputRow>>((acc, row) => {
       acc[row.employee_id] = row;
       return acc;
     }, {});
-  }, [effectiveRows]);
+  }, [payrollInputs]);
 
-  const overrideEffective = overrideEmployee ? effectiveByEmployeeId[overrideEmployee.id] : undefined;
+  const overrideEffective = overrideEmployee
+    ? payrollInputsByEmployeeId[overrideEmployee.id]
+    : undefined;
+
+  const computedByEmployeeId = useMemo(() => {
+    return attendanceRows.reduce<Record<string, AttendanceGridCounts>>((acc, row) => {
+      const entry =
+        acc[row.employee_id] ??
+        (acc[row.employee_id] = {
+          employee_id: row.employee_id,
+          present_days_computed: 0,
+          absent_days_computed: 0,
+          paid_leave_days_computed: 0,
+        });
+      if (row.status === "present") {
+        entry.present_days_computed += 1;
+      } else if (row.status === "absent") {
+        entry.absent_days_computed += 1;
+      } else if (row.status === "leave") {
+        entry.paid_leave_days_computed += 1;
+      }
+      return acc;
+    }, {});
+  }, [attendanceRows]);
 
   useEffect(() => {
     let active = true;
@@ -207,11 +231,16 @@ export default function HrAttendancePage() {
   useEffect(() => {
     if (!ctx?.companyId || !monthMeta || !canManage) return;
     if (employees.length === 0) {
-      setEffectiveRows([]);
+      setPayrollInputs([]);
       return;
     }
-    loadAttendanceEffective(monthMeta);
+    loadPayrollInputs(monthMeta);
   }, [ctx?.companyId, monthMeta, canManage, employees]);
+
+  useEffect(() => {
+    if (!overrideEmployee) return;
+    setOverrideComputed(computedByEmployeeId[overrideEmployee.id] ?? null);
+  }, [overrideEmployee, computedByEmployeeId]);
 
   async function loadEmployees() {
     const { data, error } = await supabase
@@ -245,33 +274,16 @@ export default function HrAttendancePage() {
     setAttendanceRows((data as AttendanceDayRow[]) || []);
   }
 
-  async function loadAttendanceEffective(meta: MonthMeta) {
+  async function loadPayrollInputs(meta: MonthMeta) {
     const employeeIds = employees.map((employee) => employee.id);
     if (employeeIds.length === 0) {
-      setEffectiveRows([]);
+      setPayrollInputs([]);
       return;
     }
 
-    const { data, error } = await supabase
-      .from("erp_attendance_month_effective")
-      .select("employee_id, present_days, absent_days, paid_leave_days, ot_minutes, source")
-      .eq("month", meta.monthStart)
-      .in("employee_id", employeeIds)
-      .order("employee_id", { ascending: true });
-
-    if (error) {
-      setToast({ type: "error", message: error.message });
-      return;
-    }
-
-    setEffectiveRows((data as AttendanceEffectiveRow[]) || []);
-  }
-
-  async function loadOverrideComputed(employeeId: string) {
-    if (!monthMeta) return;
-    const { data, error } = await supabase.rpc("erp_attendance_month_employee_summary", {
-      p_month: monthMeta.monthStart,
-      p_employee_ids: [employeeId],
+    const { data, error } = await supabase.rpc("erp_attendance_month_payroll_inputs_get", {
+      p_month: meta.monthStart,
+      p_employee_ids: employeeIds,
     });
 
     if (error) {
@@ -279,8 +291,7 @@ export default function HrAttendancePage() {
       return;
     }
 
-    const row = Array.isArray(data) ? data[0] : null;
-    setOverrideComputed((row as AttendanceComputedRow) || null);
+    setPayrollInputs((data as AttendancePayrollInputRow[]) || []);
   }
 
   async function loadPeriodStatus(monthStart: string) {
@@ -305,6 +316,47 @@ export default function HrAttendancePage() {
     );
   }
 
+  async function recomputePayrollInputs(
+    employeeIds: string[],
+    options?: { loadingKey?: string; successMessage?: string }
+  ) {
+    if (!monthMeta) return;
+    if (employeeIds.length === 0) {
+      setToast({ type: "error", message: "No employees available to recompute." });
+      return;
+    }
+    if (options?.loadingKey) {
+      setActionLoading(options.loadingKey);
+    }
+
+    let recomputeError: string | null = null;
+    for (const employeeId of employeeIds) {
+      const { error } = await supabase.rpc(
+        "erp_attendance_month_payroll_inputs_recompute_from_grid",
+        {
+          p_month: monthMeta.monthStart,
+          p_employee_id: employeeId,
+        }
+      );
+      if (error) {
+        recomputeError = error.message;
+        break;
+      }
+    }
+
+    if (recomputeError) {
+      setToast({ type: "error", message: recomputeError });
+    } else if (options?.successMessage) {
+      setToast({ type: "success", message: options.successMessage });
+    }
+
+    await loadPayrollInputs(monthMeta);
+
+    if (options?.loadingKey) {
+      setActionLoading(null);
+    }
+  }
+
   async function handleGenerateMonth() {
     if (!monthMeta) return;
     setActionLoading("generate");
@@ -317,7 +369,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance month generated." });
       await loadAttendanceMonth(monthMeta);
-      await loadAttendanceEffective(monthMeta);
+      await loadPayrollInputs(monthMeta);
       await loadPeriodStatus(monthMeta.monthStart);
     }
     setActionLoading(null);
@@ -343,7 +395,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Weekdays marked present for selected month." });
       await loadAttendanceMonth(monthMeta);
-      await loadAttendanceEffective(monthMeta);
+      await recomputePayrollInputs(employeeIds);
     }
     setActionLoading(null);
   }
@@ -380,7 +432,7 @@ export default function HrAttendancePage() {
       notes: row?.notes ?? "",
     });
 
-    await loadOverrideComputed(employee.id);
+    setOverrideComputed(computedByEmployeeId[employee.id] ?? null);
     setOverrideLoading(false);
   }
 
@@ -413,8 +465,8 @@ export default function HrAttendancePage() {
     }
 
     setToast({ type: "success", message: "Attendance override saved." });
-    await loadAttendanceEffective(monthMeta);
-    await loadOverrideComputed(overrideEmployee.id);
+    await loadPayrollInputs(monthMeta);
+    setOverrideComputed(computedByEmployeeId[overrideEmployee.id] ?? null);
     setOverrideExists(true);
     setActionLoading(null);
   }
@@ -435,8 +487,8 @@ export default function HrAttendancePage() {
     }
 
     setToast({ type: "success", message: "Attendance override cleared." });
-    await loadAttendanceEffective(monthMeta);
-    await loadOverrideComputed(overrideEmployee.id);
+    await loadPayrollInputs(monthMeta);
+    setOverrideComputed(computedByEmployeeId[overrideEmployee.id] ?? null);
     setOverrideExists(false);
     setOverrideForm({
       presentDays: "",
@@ -594,27 +646,19 @@ export default function HrAttendancePage() {
 
     setToast({ type: "success", message: "Attendance updated." });
     await loadAttendanceMonth(monthMeta);
-    await loadAttendanceEffective(monthMeta);
+    await recomputePayrollInputs([editorEmployee.id]);
     await loadAttendanceDetail(editorEmployee.id, editorDay);
     setActionLoading(null);
   }
 
   async function handleRecomputeMonth() {
-    if (!monthMeta) return;
-    setActionLoading("recompute-month");
-    const { error } = await supabase.rpc("erp_attendance_recompute_month", {
-      p_month: monthMeta.monthStart,
-      p_employee_ids: null,
-    });
-
-    if (error) {
-      setToast({ type: "error", message: error.message });
-    } else {
-      setToast({ type: "success", message: "Attendance metrics recomputed for the month." });
-      await loadAttendanceMonth(monthMeta);
-      await loadAttendanceEffective(monthMeta);
-    }
-    setActionLoading(null);
+    await recomputePayrollInputs(
+      employees.map((employee) => employee.id),
+      {
+        loadingKey: "recompute-payroll",
+        successMessage: "Payroll totals recomputed from grid.",
+      }
+    );
   }
 
   async function handleRecomputeDay() {
@@ -630,7 +674,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance metrics recomputed." });
       await loadAttendanceMonth(monthMeta);
-      await loadAttendanceEffective(monthMeta);
+      await recomputePayrollInputs([editorEmployee.id]);
       if (editorDay) {
         await loadAttendanceDetail(editorEmployee.id, editorDay);
       }
@@ -775,9 +819,11 @@ export default function HrAttendancePage() {
             type="button"
             onClick={handleRecomputeMonth}
             style={secondaryButtonStyle}
-            disabled={actionLoading === "recompute-month"}
+            disabled={actionLoading === "recompute-payroll"}
           >
-            {actionLoading === "recompute-month" ? "Recomputing..." : "Recompute Metrics"}
+            {actionLoading === "recompute-payroll"
+              ? "Recomputing..."
+              : "Recompute Totals from Grid"}
           </button>
         </div>
 
@@ -813,11 +859,11 @@ export default function HrAttendancePage() {
                 </tr>
               ) : (
                 employees.map((employee) => {
-                  const effective = effectiveByEmployeeId[employee.id];
+                  const effective = payrollInputsByEmployeeId[employee.id];
                   const present = effective?.present_days ?? null;
                   const absent = effective?.absent_days ?? null;
                   const leave = effective?.paid_leave_days ?? null;
-                  const ot = effective?.ot_minutes ?? null;
+                  const ot = effective?.ot_hours ?? null;
 
                   return (
                   <tr key={employee.id}>
@@ -849,7 +895,7 @@ export default function HrAttendancePage() {
                           })}
                           {renderEffectiveMetric({
                             label: "OT",
-                            value: ot === null ? "—" : (ot / 60).toFixed(2),
+                            value: formatHours(ot),
                           })}
                         </div>
                       ) : null}
@@ -1156,27 +1202,27 @@ export default function HrAttendancePage() {
                   <h3 style={{ marginTop: 0 }}>Computed & Effective Totals</h3>
                   <div style={metricsGridStyle}>
                     <div>
-                      <div style={metricsLabelStyle}>Present (computed)</div>
+                      <div style={metricsLabelStyle}>Present (grid)</div>
                       <div style={metricsValueStyle}>
                         {formatDays(overrideComputed?.present_days_computed)}
                       </div>
                     </div>
                     <div>
-                      <div style={metricsLabelStyle}>Absent (computed)</div>
+                      <div style={metricsLabelStyle}>Absent (grid)</div>
                       <div style={metricsValueStyle}>
                         {formatDays(overrideComputed?.absent_days_computed)}
                       </div>
                     </div>
                     <div>
-                      <div style={metricsLabelStyle}>Paid leave (computed)</div>
+                      <div style={metricsLabelStyle}>Paid leave (grid)</div>
                       <div style={metricsValueStyle}>
                         {formatDays(overrideComputed?.paid_leave_days_computed)}
                       </div>
                     </div>
                     <div>
-                      <div style={metricsLabelStyle}>OT hours (computed)</div>
+                      <div style={metricsLabelStyle}>OT hours (manual)</div>
                       <div style={metricsValueStyle}>
-                        {formatOtHours(overrideComputed?.ot_minutes_computed)}
+                        {formatHours(overrideEffective?.ot_hours ?? null)}
                       </div>
                     </div>
                     <div>
@@ -1198,9 +1244,17 @@ export default function HrAttendancePage() {
                       </div>
                     </div>
                     <div>
-                      <div style={metricsLabelStyle}>OT hours (effective)</div>
+                      <div style={metricsLabelStyle}>
+                        OT hours (effective)
+                      </div>
                       <div style={metricsValueStyle}>
-                        {formatOtHours(overrideEffective?.ot_minutes)}
+                        {formatHours(overrideEffective?.ot_hours ?? null)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Source</div>
+                      <div style={metricsValueStyle}>
+                        {overrideEffective?.source || "—"}
                       </div>
                     </div>
                   </div>
@@ -1301,9 +1355,10 @@ function formatDays(value: number | null | undefined) {
   return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-function formatOtHours(minutes: number | null | undefined) {
-  if (minutes === null || minutes === undefined) return "—";
-  return (Number(minutes) / 60).toFixed(2);
+function formatHours(hours: number | null | undefined) {
+  if (hours === null || hours === undefined) return "—";
+  const fixed = Number(hours).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
 function formatNumberInput(value: number | null | undefined) {
@@ -1326,7 +1381,7 @@ function parseOptionalNumber(value: string) {
   return parsed;
 }
 
-function hasEffectiveOverride(effective: AttendanceEffectiveRow | undefined) {
+function hasEffectiveOverride(effective: AttendancePayrollInputRow | undefined) {
   return effective?.source === "override";
 }
 
