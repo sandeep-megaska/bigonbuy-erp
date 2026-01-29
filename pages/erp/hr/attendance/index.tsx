@@ -72,6 +72,24 @@ type AttendancePeriod = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
+type AttendanceSummaryRow = {
+  employee_id: string;
+  present_days_computed: number | null;
+  absent_days_computed: number | null;
+  paid_leave_days_computed: number | null;
+  ot_minutes_computed: number | null;
+  present_days_override: number | null;
+  absent_days_override: number | null;
+  paid_leave_days_override: number | null;
+  ot_minutes_override: number | null;
+  use_override: boolean;
+  present_days_effective: number | null;
+  absent_days_effective: number | null;
+  paid_leave_days_effective: number | null;
+  ot_minutes_effective: number | null;
+  override_notes: string | null;
+};
+
 type MonthMeta = {
   monthStart: string;
   monthEnd: string;
@@ -106,6 +124,19 @@ export default function HrAttendancePage() {
     notes: "",
     statusOverride: "unmarked",
   });
+  const [summaryRows, setSummaryRows] = useState<AttendanceSummaryRow[]>([]);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideLoading, setOverrideLoading] = useState(false);
+  const [overrideEmployee, setOverrideEmployee] = useState<EmployeeRow | null>(null);
+  const [overrideExists, setOverrideExists] = useState(false);
+  const [overrideForm, setOverrideForm] = useState({
+    presentDays: "",
+    absentDays: "",
+    paidLeaveDays: "",
+    otHours: "",
+    useOverride: true,
+    notes: "",
+  });
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -120,6 +151,13 @@ export default function HrAttendancePage() {
       return acc;
     }, {});
   }, [attendanceRows]);
+
+  const summaryMap = useMemo(() => {
+    return summaryRows.reduce<Record<string, AttendanceSummaryRow>>((acc, row) => {
+      acc[row.employee_id] = row;
+      return acc;
+    }, {});
+  }, [summaryRows]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {
@@ -149,6 +187,8 @@ export default function HrAttendancePage() {
 
     return counts;
   }, [attendanceRows, employees.length, monthMeta]);
+
+  const overrideSummary = overrideEmployee ? summaryMap[overrideEmployee.id] : undefined;
 
   useEffect(() => {
     let active = true;
@@ -195,6 +235,15 @@ export default function HrAttendancePage() {
     loadPeriodStatus(monthMeta.monthStart);
   }, [ctx?.companyId, monthMeta, canManage]);
 
+  useEffect(() => {
+    if (!ctx?.companyId || !monthMeta || !canManage) return;
+    if (employees.length === 0) {
+      setSummaryRows([]);
+      return;
+    }
+    loadAttendanceSummary(monthMeta);
+  }, [ctx?.companyId, monthMeta, canManage, employees]);
+
   async function loadEmployees() {
     const { data, error } = await supabase
       .from("erp_employees")
@@ -224,6 +273,26 @@ export default function HrAttendancePage() {
     }
 
     setAttendanceRows((data as AttendanceDayRow[]) || []);
+  }
+
+  async function loadAttendanceSummary(meta: MonthMeta) {
+    const employeeIds = employees.map((employee) => employee.id);
+    if (employeeIds.length === 0) {
+      setSummaryRows([]);
+      return;
+    }
+
+    const { data, error } = await supabase.rpc("erp_attendance_month_employee_summary", {
+      p_month: meta.monthStart,
+      p_employee_ids: employeeIds,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      return;
+    }
+
+    setSummaryRows((data as AttendanceSummaryRow[]) || []);
   }
 
   async function loadPeriodStatus(monthStart: string) {
@@ -287,6 +356,95 @@ export default function HrAttendancePage() {
       await loadAttendanceMonth(monthMeta);
     }
     setActionLoading(null);
+  }
+
+  async function handleOpenOverride(employee: EmployeeRow) {
+    if (!monthMeta) return;
+    setOverrideEmployee(employee);
+    setOverrideOpen(true);
+    setOverrideLoading(true);
+    setOverrideExists(false);
+
+    const { data, error } = await supabase.rpc("erp_attendance_month_override_get", {
+      p_month: monthMeta.monthStart,
+      p_employee_id: employee.id,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setOverrideLoading(false);
+      return;
+    }
+
+    const row = data as any;
+    const hasOverride = Boolean(row);
+
+    setOverrideExists(hasOverride);
+    setOverrideForm({
+      presentDays: formatNumberInput(row?.present_days_override),
+      absentDays: formatNumberInput(row?.absent_days_override),
+      paidLeaveDays: formatNumberInput(row?.paid_leave_days_override),
+      otHours: formatHoursInput(row?.ot_minutes_override),
+      useOverride: row?.use_override ?? true,
+      notes: row?.notes ?? "",
+    });
+
+    setOverrideLoading(false);
+  }
+
+  async function handleSaveOverride() {
+    if (!monthMeta || !overrideEmployee) return;
+
+    const presentDays = parseOptionalNumber(overrideForm.presentDays);
+    const absentDays = parseOptionalNumber(overrideForm.absentDays);
+    const paidLeaveDays = parseOptionalNumber(overrideForm.paidLeaveDays);
+    const otHours = parseOptionalNumber(overrideForm.otHours);
+    const otMinutes = otHours === null ? null : Math.round(otHours * 60);
+
+    setActionLoading("save-override");
+
+    const { error } = await supabase.rpc("erp_attendance_month_override_upsert", {
+      p_month: monthMeta.monthStart,
+      p_employee_id: overrideEmployee.id,
+      p_present_days: presentDays,
+      p_absent_days: absentDays,
+      p_paid_leave_days: paidLeaveDays,
+      p_ot_minutes: otMinutes,
+      p_use_override: overrideForm.useOverride,
+      p_notes: overrideForm.notes || null,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setActionLoading(null);
+      return;
+    }
+
+    setToast({ type: "success", message: "Attendance override saved." });
+    await loadAttendanceSummary(monthMeta);
+    setActionLoading(null);
+    closeOverride();
+  }
+
+  async function handleClearOverride() {
+    if (!monthMeta || !overrideEmployee) return;
+
+    setActionLoading("clear-override");
+    const { error } = await supabase.rpc("erp_attendance_month_override_clear", {
+      p_month: monthMeta.monthStart,
+      p_employee_id: overrideEmployee.id,
+    });
+
+    if (error) {
+      setToast({ type: "error", message: error.message });
+      setActionLoading(null);
+      return;
+    }
+
+    setToast({ type: "success", message: "Attendance override cleared." });
+    await loadAttendanceSummary(monthMeta);
+    setActionLoading(null);
+    closeOverride();
   }
 
   async function handleFreezeToggle() {
@@ -483,6 +641,20 @@ export default function HrAttendancePage() {
     setEditorRow(null);
   }
 
+  function closeOverride() {
+    setOverrideOpen(false);
+    setOverrideEmployee(null);
+    setOverrideExists(false);
+    setOverrideForm({
+      presentDays: "",
+      absentDays: "",
+      paidLeaveDays: "",
+      otHours: "",
+      useOverride: true,
+      notes: "",
+    });
+  }
+
   if (loading) {
     return (
       <ErpShell activeModule="hr">
@@ -637,10 +809,30 @@ export default function HrAttendancePage() {
                 employees.map((employee) => (
                   <tr key={employee.id}>
                     <td style={stickyCellStyle}>
-                      <strong>{employee.full_name || "Employee"}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <strong>{employee.full_name || "Employee"}</strong>
+                        {summaryMap[employee.id]?.use_override ? (
+                          <span style={overrideBadgeStyle}>OVR</span>
+                        ) : null}
+                      </div>
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || employee.id}
                       </div>
+                      {summaryMap[employee.id] ? (
+                        <div style={summaryLineStyle}>
+                          Eff: P {formatDays(summaryMap[employee.id]?.present_days_effective)} | A{" "}
+                          {formatDays(summaryMap[employee.id]?.absent_days_effective)} | L{" "}
+                          {formatDays(summaryMap[employee.id]?.paid_leave_days_effective)} | OT{" "}
+                          {formatOtHours(summaryMap[employee.id]?.ot_minutes_effective)}
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenOverride(employee)}
+                        style={inlineButtonStyle}
+                      >
+                        Override Totals
+                      </button>
                     </td>
                     {monthMeta?.days.map((day) => {
                       const row = attendanceMap[`${employee.id}-${day}`];
@@ -836,6 +1028,181 @@ export default function HrAttendancePage() {
           </div>
         </div>
       ) : null}
+
+      {overrideOpen ? (
+        <div style={modalOverlayStyle} role="dialog" aria-modal="true">
+          <div style={{ ...modalCardStyle, maxWidth: 760 }}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <h2 style={{ margin: 0 }}>Override Month Totals</h2>
+                <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+                  {overrideEmployee?.full_name || "Employee"} · {monthMeta?.label}
+                </p>
+              </div>
+              <button type="button" onClick={closeOverride} style={ghostButtonStyle}>
+                Close
+              </button>
+            </div>
+
+            {overrideLoading ? (
+              <div style={{ padding: "16px 0" }}>Loading override…</div>
+            ) : (
+              <div style={modalBodyStyle}>
+                <div style={modalFormStyle}>
+                  <label style={modalLabelStyle}>
+                    Present days
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={overrideForm.presentDays}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, presentDays: e.target.value }))
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Absent days
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={overrideForm.absentDays}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, absentDays: e.target.value }))
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Paid leave days
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={overrideForm.paidLeaveDays}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, paidLeaveDays: e.target.value }))
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={modalLabelStyle}>
+                    OT hours
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={overrideForm.otHours}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, otHours: e.target.value }))
+                      }
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={checkboxLabelStyle}>
+                    <input
+                      type="checkbox"
+                      checked={overrideForm.useOverride}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, useOverride: e.target.checked }))
+                      }
+                    />
+                    Use override for payroll
+                  </label>
+                  <label style={modalLabelStyle}>
+                    Notes
+                    <textarea
+                      value={overrideForm.notes}
+                      onChange={(e) =>
+                        setOverrideForm((prev) => ({ ...prev, notes: e.target.value }))
+                      }
+                      style={textareaStyle}
+                      rows={3}
+                    />
+                  </label>
+                </div>
+
+                <div style={metricsCardStyle}>
+                  <h3 style={{ marginTop: 0 }}>Computed & Effective Totals</h3>
+                  <div style={metricsGridStyle}>
+                    <div>
+                      <div style={metricsLabelStyle}>Present (computed)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.present_days_computed)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Absent (computed)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.absent_days_computed)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Paid leave (computed)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.paid_leave_days_computed)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>OT hours (computed)</div>
+                      <div style={metricsValueStyle}>
+                        {formatOtHours(overrideSummary?.ot_minutes_computed)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Present (effective)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.present_days_effective)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Absent (effective)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.absent_days_effective)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>Paid leave (effective)</div>
+                      <div style={metricsValueStyle}>
+                        {formatDays(overrideSummary?.paid_leave_days_effective)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={metricsLabelStyle}>OT hours (effective)</div>
+                      <div style={metricsValueStyle}>
+                        {formatOtHours(overrideSummary?.ot_minutes_effective)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={modalFooterStyle}>
+              {overrideExists ? (
+                <button
+                  type="button"
+                  onClick={handleClearOverride}
+                  style={secondaryButtonStyle}
+                  disabled={actionLoading === "clear-override"}
+                >
+                  {actionLoading === "clear-override" ? "Clearing..." : "Clear Override"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleSaveOverride}
+                style={primaryButtonStyle}
+                disabled={actionLoading === "save-override"}
+              >
+                {actionLoading === "save-override" ? "Saving..." : "Save Override"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       </div>
     </ErpShell>
   );
@@ -898,6 +1265,38 @@ function formatShift(row: AttendanceDayDetail | null) {
     return `${shift?.code || "Shift"}${shift?.name ? ` · ${shift?.name}` : ""}`;
   }
   return row.shift_id || "—";
+}
+
+function formatDays(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  const fixed = Number(value).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function formatOtHours(minutes: number | null | undefined) {
+  if (minutes === null || minutes === undefined) return "—";
+  const fixed = (Number(minutes) / 60).toFixed(2);
+  return `${fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}h`;
+}
+
+function formatNumberInput(value: number | null | undefined) {
+  if (value === null || value === undefined) return "";
+  const fixed = Number(value).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function formatHoursInput(minutes: number | null | undefined) {
+  if (minutes === null || minutes === undefined) return "";
+  const fixed = (Number(minutes) / 60).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function parseOptionalNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
 }
 
 const headerStyle: CSSProperties = {
@@ -993,6 +1392,33 @@ const stickyCellStyle: CSSProperties = {
   left: 0,
   zIndex: 1,
   minWidth: 200,
+};
+
+const overrideBadgeStyle: CSSProperties = {
+  backgroundColor: "#1d4ed8",
+  color: "#fff",
+  fontSize: 10,
+  fontWeight: 700,
+  padding: "2px 6px",
+  borderRadius: 999,
+  letterSpacing: 0.4,
+};
+
+const summaryLineStyle: CSSProperties = {
+  marginTop: 6,
+  color: "#4b5563",
+  fontSize: 12,
+};
+
+const inlineButtonStyle: CSSProperties = {
+  marginTop: 8,
+  border: "none",
+  background: "transparent",
+  color: "#2563eb",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+  padding: 0,
 };
 
 const gridCellStyle: CSSProperties = {
@@ -1151,6 +1577,14 @@ const modalLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 6,
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const checkboxLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
   fontWeight: 600,
   color: "#111827",
 };
