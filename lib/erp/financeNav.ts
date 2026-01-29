@@ -113,6 +113,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     href: "/erp/finance/journals",
     description: "Review payroll-posted finance journals and void if needed.",
     group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "JR",
     cardIcon: "📒",
     showInSidebar: true,
