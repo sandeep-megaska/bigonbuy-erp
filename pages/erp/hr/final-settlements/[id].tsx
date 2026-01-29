@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/router";
 
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -37,6 +37,19 @@ type SettlementClearance = {
   sort_order: number;
 };
 
+type SettlementEmployee = {
+  id: string;
+  employee_code: string;
+  full_name: string;
+};
+
+type SettlementExit = {
+  id: string;
+  employee_id: string;
+  status: string;
+  last_working_day: string | null;
+};
+
 type SettlementPayload = {
   settlement: {
     id: string;
@@ -44,16 +57,10 @@ type SettlementPayload = {
     status: string;
     notes?: string | null;
   } | null;
-  items: SettlementItem[];
+  lines: SettlementItem[];
   clearances: SettlementClearance[];
-};
-
-type ExitDetail = {
-  exit: any;
-  employee: any;
-  manager: any;
-  exit_type: any;
-  exit_reason: any;
+  employee: SettlementEmployee | null;
+  exit: SettlementExit | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
@@ -93,7 +100,8 @@ function createTempId() {
 }
 
 function renderStatusLabel(status: string) {
-  if (status === "submitted") return "Finalized";
+  if (status === "finalized") return "Finalized";
+  if (status === "submitted") return "Submitted";
   if (status === "approved") return "Approved";
   if (status === "paid") return "Paid";
   return status || "Draft";
@@ -101,7 +109,7 @@ function renderStatusLabel(status: string) {
 
 export default function FinalSettlementDetailPage() {
   const router = useRouter();
-  const exitId = useMemo(() => {
+  const settlementId = useMemo(() => {
     const param = router.query.id;
     return Array.isArray(param) ? param[0] : param;
   }, [router.query.id]);
@@ -113,13 +121,13 @@ export default function FinalSettlementDetailPage() {
     roleKey: undefined,
   });
   const [loading, setLoading] = useState(true);
-  const [exitData, setExitData] = useState<ExitDetail | null>(null);
   const [settlementData, setSettlementData] = useState<SettlementPayload | null>(null);
   const [notes, setNotes] = useState<string>("");
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [deletedLineIds, setDeletedLineIds] = useState<string[]>([]);
   const [toast, setToast] = useState<ToastState>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [finalizeModalOpen, setFinalizeModalOpen] = useState(false);
 
   const canManage = useMemo(
     () => access.isManager || isHr(ctx?.roleKey),
@@ -160,34 +168,26 @@ export default function FinalSettlementDetailPage() {
     return () => {
       active = false;
     };
-  }, [router, exitId]);
+  }, [router, settlementId]);
 
   async function loadData() {
-    if (!exitId) return;
+    if (!settlementId) return;
     setToast(null);
 
-    const [exitResponse, settlementResponse] = await Promise.all([
-      supabase.rpc("erp_hr_exit_get", { p_exit_id: exitId }),
-      supabase.rpc("erp_hr_final_settlement_get", { p_exit_id: exitId }),
-    ]);
+    const { data, error } = await supabase.rpc("erp_hr_final_settlement_get", {
+      p_settlement_id: settlementId,
+    });
 
-    if (exitResponse.error) {
-      setToast({ type: "error", message: exitResponse.error.message || "Unable to load exit details." });
+    if (error) {
+      setToast({ type: "error", message: error.message || "Unable to load settlement." });
       return;
     }
 
-    setExitData(exitResponse.data as ExitDetail);
-
-    if (settlementResponse.error) {
-      setToast({ type: "error", message: settlementResponse.error.message || "Unable to load settlement." });
-      return;
-    }
-
-    const payload = settlementResponse.data as SettlementPayload;
+    const payload = data as SettlementPayload;
     setSettlementData(payload);
     setNotes(payload?.settlement?.notes || "");
 
-    const mappedLines: EditableLine[] = (payload?.items ?? []).map((item) => ({
+    const mappedLines: EditableLine[] = (payload?.lines ?? []).map((item) => ({
       id: item.id,
       kind: item.kind,
       title: item.name,
@@ -232,7 +232,7 @@ export default function FinalSettlementDetailPage() {
   }
 
   async function handleSave() {
-    if (!exitId) return;
+    if (!settlement?.exit_id) return;
     if (!canManage) {
       showToast("You do not have permission to update settlements.", "error");
       return;
@@ -249,9 +249,10 @@ export default function FinalSettlementDetailPage() {
     setActionLoading(true);
 
     const { data: settlementId, error: headerError } = await supabase.rpc(
-      "erp_hr_final_settlement_upsert",
+      "erp_hr_final_settlement_upsert_header",
       {
-        p_exit_id: exitId,
+        p_settlement_id: settlement?.id ?? null,
+        p_exit_id: settlement.exit_id,
         p_notes: notes || null,
       }
     );
@@ -329,8 +330,8 @@ export default function FinalSettlementDetailPage() {
     );
   }
 
-  const exitRecord = exitData?.exit;
-  const employee = exitData?.employee;
+  const exitRecord = settlementData?.exit;
+  const employee = settlementData?.employee;
 
   return (
     <ErpShell activeModule="hr">
@@ -374,7 +375,7 @@ export default function FinalSettlementDetailPage() {
                 </div>
                 <div style={{ color: "#6b7280" }}>{employee?.employee_code || "—"}</div>
                 <div style={{ marginTop: 8, fontSize: 14 }}>
-                  <strong>Exit reference:</strong> {exitId}
+                  <strong>Exit reference:</strong> {settlement.exit_id}
                 </div>
                 <div style={{ marginTop: 4, fontSize: 14 }}>
                   <strong>Last working day:</strong> {formatDate(exitRecord?.last_working_day)}
@@ -386,7 +387,7 @@ export default function FinalSettlementDetailPage() {
             </div>
             {isLocked ? (
               <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280" }}>
-                Settlement is finalized and cannot be edited.
+                Settlement is locked and cannot be edited.
               </div>
             ) : null}
           </section>
@@ -561,7 +562,7 @@ export default function FinalSettlementDetailPage() {
               type="button"
               style={primaryButtonStyle}
               disabled={actionLoading || !canManage || isLocked || !settlement?.id}
-              onClick={handleFinalize}
+              onClick={() => setFinalizeModalOpen(true)}
             >
               {actionLoading ? "Finalizing…" : "Finalize Settlement"}
             </button>
@@ -573,6 +574,58 @@ export default function FinalSettlementDetailPage() {
           ) : null}
         </section>
       </div>
+
+      {finalizeModalOpen ? (
+        <div style={modalOverlayStyle} role="dialog" aria-modal="true">
+          <div style={modalCardStyle}>
+            <h3 style={{ marginTop: 0 }}>Finalize Settlement</h3>
+            <p style={{ color: "#6b7280", marginTop: 4 }}>
+              This will lock the settlement and prevent further edits. Continue?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                disabled={actionLoading}
+                onClick={() => setFinalizeModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                disabled={actionLoading}
+                onClick={async () => {
+                  setFinalizeModalOpen(false);
+                  await handleFinalize();
+                }}
+              >
+                {actionLoading ? "Finalizing…" : "Finalize"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </ErpShell>
   );
 }
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.6)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 40,
+  padding: 16,
+};
+
+const modalCardStyle: CSSProperties = {
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  padding: 20,
+  width: "100%",
+  maxWidth: 420,
+  boxShadow: "0 10px 25px rgba(15, 23, 42, 0.2)",
+};
