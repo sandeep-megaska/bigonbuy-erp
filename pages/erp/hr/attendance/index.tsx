@@ -84,6 +84,7 @@ type AttendancePayrollInputRow = {
   paid_leave_days: number | null;
   ot_hours: number | null;
   source: string | null;
+  use_override?: boolean | null;
   notes: string | null;
   updated_at: string | null;
 };
@@ -865,16 +866,14 @@ export default function HrAttendancePage() {
                   const leave = effective?.paid_leave_days ?? null;
                   const ot = effective?.ot_hours ?? null;
 
+                  const isOverrideMode = isOverridePayrollMode(effective);
+
                   return (
                   <tr key={employee.id}>
                     <td style={stickyCellStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <strong>{employee.full_name || "Employee"}</strong>
-                        {hasEffectiveOverride(effective) ? (
-                          <span style={overrideBadgeStyle} title="Manual override active">
-                            OVR
-                          </span>
-                        ) : null}
+                        {renderModeBadge(isOverrideMode)}
                       </div>
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || "No code"}
@@ -1108,7 +1107,10 @@ export default function HrAttendancePage() {
           <div style={{ ...modalCardStyle, maxWidth: 760 }}>
             <div style={modalHeaderStyle}>
               <div>
-                <h2 style={{ margin: 0 }}>Override Month Totals</h2>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <h2 style={{ margin: 0 }}>Override Month Totals</h2>
+                  {renderModeBadge(overrideForm.useOverride)}
+                </div>
                 <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
                   {overrideEmployee?.full_name || "Employee"} · {monthMeta?.label}
                 </p>
@@ -1199,7 +1201,10 @@ export default function HrAttendancePage() {
                 </div>
 
                 <div style={metricsCardStyle}>
-                  <h3 style={{ marginTop: 0 }}>Computed & Effective Totals</h3>
+                  <div style={metricsHeaderStyle}>
+                    <h3 style={{ marginTop: 0 }}>Computed & Effective Totals</h3>
+                    {renderModeBadge(overrideForm.useOverride)}
+                  </div>
                   <div style={metricsGridStyle}>
                     <div>
                       <div style={metricsLabelStyle}>Present (grid)</div>
@@ -1381,8 +1386,32 @@ function parseOptionalNumber(value: string) {
   return parsed;
 }
 
-function hasEffectiveOverride(effective: AttendancePayrollInputRow | undefined) {
+function isOverridePayrollMode(effective: AttendancePayrollInputRow | undefined) {
+  if (typeof effective?.use_override === "boolean") {
+    return effective.use_override;
+  }
   return effective?.source === "override";
+}
+
+function renderModeBadge(isOverride: boolean) {
+  const label = isOverride ? "Override" : "Grid-based";
+  const code = isOverride ? "OVR" : "GRID";
+  const title = isOverride
+    ? "Payroll uses manual override totals"
+    : "Payroll uses grid counts";
+
+  return (
+    <span
+      style={{
+        ...modeBadgeStyle,
+        ...(isOverride ? overrideModeBadgeStyle : gridModeBadgeStyle),
+      }}
+      title={title}
+    >
+      <span style={modeBadgeCodeStyle}>{code}</span>
+      <span style={modeBadgeLabelStyle}>{label}</span>
+    </span>
+  );
 }
 
 function renderEffectiveMetric({
@@ -1495,14 +1524,38 @@ const stickyCellStyle: CSSProperties = {
   minWidth: 200,
 };
 
-const overrideBadgeStyle: CSSProperties = {
-  backgroundColor: "#1d4ed8",
-  color: "#fff",
-  fontSize: 10,
-  fontWeight: 700,
-  padding: "2px 6px",
+const modeBadgeStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "2px 8px",
   borderRadius: 999,
-  letterSpacing: 0.4,
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: 0.2,
+  border: "1px solid transparent",
+};
+
+const overrideModeBadgeStyle: CSSProperties = {
+  backgroundColor: "#e0e7ff",
+  color: "#1e3a8a",
+  borderColor: "#c7d2fe",
+};
+
+const gridModeBadgeStyle: CSSProperties = {
+  backgroundColor: "#f3f4f6",
+  color: "#374151",
+  borderColor: "#e5e7eb",
+};
+
+const modeBadgeCodeStyle: CSSProperties = {
+  fontWeight: 700,
+  fontSize: 9,
+  letterSpacing: 0.6,
+};
+
+const modeBadgeLabelStyle: CSSProperties = {
+  fontSize: 10,
 };
 
 const summaryMetricsRowStyle: CSSProperties = {
@@ -1531,6 +1584,13 @@ const summaryMetricValueStyle: CSSProperties = {
   alignItems: "center",
   gap: 6,
   color: "#111827",
+};
+
+const metricsHeaderStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
 };
 
 const inlineButtonStyle: CSSProperties = {
