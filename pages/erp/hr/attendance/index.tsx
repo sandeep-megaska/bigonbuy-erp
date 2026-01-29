@@ -819,7 +819,7 @@ export default function HrAttendancePage() {
                         ) : null}
                       </div>
                       <div style={{ color: "#6b7280" }}>
-                        {employee.employee_code || employee.id}
+                        {employee.employee_code || "No code"}
                       </div>
                       {summaryMap[employee.id] ? (
                         <div style={summaryMetricsRowStyle}>
