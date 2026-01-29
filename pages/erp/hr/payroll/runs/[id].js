@@ -208,11 +208,10 @@ export default function PayrollRunDetailPage() {
         if (active) setAttendanceSummaryRows([]);
         return;
       }
-      const { data, error } = await supabase
-        .from("erp_attendance_month_effective")
-        .select("employee_id, present_days, absent_days, paid_leave_days, ot_minutes, source")
-        .eq("month", monthStart)
-        .in("employee_id", employeeIds);
+      const { data, error } = await supabase.rpc("erp_attendance_month_payroll_inputs_get", {
+        p_month: monthStart,
+        p_employee_ids: employeeIds,
+      });
       if (!active) return;
       if (error) {
         setToast({ type: "error", message: error.message });
@@ -793,7 +792,7 @@ export default function PayrollRunDetailPage() {
                             Present: {formatDays(attendanceSummary.present_days)} · Absent:{" "}
                             {formatDays(attendanceSummary.absent_days)} · Leave:{" "}
                             {formatDays(attendanceSummary.paid_leave_days)} · OT:{" "}
-                            {formatOtHours(attendanceSummary.ot_minutes)}
+                            {formatOtHours(attendanceSummary.ot_hours)}
                           </div>
                         ) : null}
                       </td>
@@ -1094,9 +1093,10 @@ function formatDays(value) {
   return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
-function formatOtHours(minutes) {
-  if (minutes === null || minutes === undefined) return "—";
-  return (Number(minutes) / 60).toFixed(2);
+function formatOtHours(hours) {
+  if (hours === null || hours === undefined) return "—";
+  const fixed = Number(hours).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
 }
 
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };
