@@ -208,7 +208,7 @@ export default function PayrollRunDetailPage() {
         if (active) setAttendanceSummaryRows([]);
         return;
       }
-      const { data, error } = await supabase.rpc("erp_attendance_month_employee_summary", {
+      const { data, error } = await supabase.rpc("erp_attendance_month_rollups_list", {
         p_month: monthStart,
         p_employee_ids: employeeIds,
       });

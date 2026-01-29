@@ -72,22 +72,21 @@ type AttendancePeriod = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
-type AttendanceSummaryRow = {
+type AttendanceComputedRow = {
   employee_id: string;
   present_days_computed: number | null;
   absent_days_computed: number | null;
   paid_leave_days_computed: number | null;
   ot_minutes_computed: number | null;
-  present_days_override: number | null;
-  absent_days_override: number | null;
-  paid_leave_days_override: number | null;
-  ot_minutes_override: number | null;
-  use_override: boolean;
+};
+
+type AttendanceRollupRow = {
+  employee_id: string;
   present_days_effective: number | null;
   absent_days_effective: number | null;
   paid_leave_days_effective: number | null;
   ot_minutes_effective: number | null;
-  override_notes: string | null;
+  source: string | null;
 };
 
 type MonthMeta = {
@@ -124,7 +123,8 @@ export default function HrAttendancePage() {
     notes: "",
     statusOverride: "unmarked",
   });
-  const [summaryRows, setSummaryRows] = useState<AttendanceSummaryRow[]>([]);
+  const [computedRows, setComputedRows] = useState<AttendanceComputedRow[]>([]);
+  const [rollupRows, setRollupRows] = useState<AttendanceRollupRow[]>([]);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideLoading, setOverrideLoading] = useState(false);
   const [overrideEmployee, setOverrideEmployee] = useState<EmployeeRow | null>(null);
@@ -152,15 +152,22 @@ export default function HrAttendancePage() {
     }, {});
   }, [attendanceRows]);
 
-  const summaryByEmployeeId = useMemo(() => {
-    return summaryRows.reduce<Record<string, AttendanceSummaryRow>>((acc, row) => {
+  const rollupByEmployeeId = useMemo(() => {
+    return rollupRows.reduce<Record<string, AttendanceRollupRow>>((acc, row) => {
       acc[row.employee_id] = row;
       return acc;
     }, {});
-  }, [summaryRows]);
+  }, [rollupRows]);
+
+  const computedByEmployeeId = useMemo(() => {
+    return computedRows.reduce<Record<string, AttendanceComputedRow>>((acc, row) => {
+      acc[row.employee_id] = row;
+      return acc;
+    }, {});
+  }, [computedRows]);
 
   const summaryTotals = useMemo(() => {
-    return summaryRows.reduce(
+    return rollupRows.reduce(
       (acc, row) => {
         return {
           present: acc.present + (row.present_days_effective ?? 0),
@@ -171,9 +178,10 @@ export default function HrAttendancePage() {
       },
       { present: 0, absent: 0, leave: 0, otMinutes: 0 }
     );
-  }, [summaryRows]);
+  }, [rollupRows]);
 
-  const overrideSummary = overrideEmployee ? summaryByEmployeeId[overrideEmployee.id] : undefined;
+  const overrideComputed = overrideEmployee ? computedByEmployeeId[overrideEmployee.id] : undefined;
+  const overrideRollup = overrideEmployee ? rollupByEmployeeId[overrideEmployee.id] : undefined;
 
   useEffect(() => {
     let active = true;
@@ -223,7 +231,8 @@ export default function HrAttendancePage() {
   useEffect(() => {
     if (!ctx?.companyId || !monthMeta || !canManage) return;
     if (employees.length === 0) {
-      setSummaryRows([]);
+      setComputedRows([]);
+      setRollupRows([]);
       return;
     }
     loadAttendanceSummary(monthMeta);
@@ -264,21 +273,35 @@ export default function HrAttendancePage() {
   async function loadAttendanceSummary(meta: MonthMeta) {
     const employeeIds = employees.map((employee) => employee.id);
     if (employeeIds.length === 0) {
-      setSummaryRows([]);
+      setComputedRows([]);
+      setRollupRows([]);
       return;
     }
 
-    const { data, error } = await supabase.rpc("erp_attendance_month_employee_summary", {
-      p_month: meta.monthStart,
-      p_employee_ids: employeeIds,
-    });
+    const [{ data: computedData, error: computedError }, { data: rollupData, error: rollupError }] =
+      await Promise.all([
+        supabase.rpc("erp_attendance_month_employee_summary", {
+          p_month: meta.monthStart,
+          p_employee_ids: employeeIds,
+        }),
+        supabase.rpc("erp_attendance_month_rollups_list", {
+          p_month: meta.monthStart,
+          p_employee_ids: employeeIds,
+        }),
+      ]);
 
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    if (computedError) {
+      setToast({ type: "error", message: computedError.message });
       return;
     }
 
-    setSummaryRows((data as AttendanceSummaryRow[]) || []);
+    if (rollupError) {
+      setToast({ type: "error", message: rollupError.message });
+      return;
+    }
+
+    setComputedRows((computedData as AttendanceComputedRow[]) || []);
+    setRollupRows((rollupData as AttendanceRollupRow[]) || []);
   }
 
   async function loadPeriodStatus(monthStart: string) {
@@ -625,9 +648,9 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance metrics recomputed." });
       await loadAttendanceMonth(monthMeta);
-      await loadAttendanceSummary(monthMeta);
-      if (editorDay) {
-        await loadAttendanceDetail(editorEmployee.id, editorDay);
+    await loadAttendanceSummary(monthMeta);
+    if (editorDay) {
+      await loadAttendanceDetail(editorEmployee.id, editorDay);
       }
     }
     setActionLoading(null);
@@ -816,18 +839,19 @@ export default function HrAttendancePage() {
                 </tr>
               ) : (
                 employees.map((employee) => {
-                  const summary = summaryByEmployeeId[employee.id];
-                  const present = summary?.present_days_effective ?? null;
-                  const absent = summary?.absent_days_effective ?? null;
-                  const leave = summary?.paid_leave_days_effective ?? null;
-                  const ot = summary?.ot_minutes_effective ?? null;
+                  const rollup = rollupByEmployeeId[employee.id];
+                  const computed = computedByEmployeeId[employee.id];
+                  const present = rollup?.present_days_effective ?? null;
+                  const absent = rollup?.absent_days_effective ?? null;
+                  const leave = rollup?.paid_leave_days_effective ?? null;
+                  const ot = rollup?.ot_minutes_effective ?? null;
 
                   return (
                   <tr key={employee.id}>
                     <td style={stickyCellStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <strong>{employee.full_name || "Employee"}</strong>
-                        {hasSummaryOverride(summary) ? (
+                        {hasSummaryOverride(rollup) ? (
                           <span style={overrideBadgeStyle} title="Manual override active">
                             OVR
                           </span>
@@ -836,31 +860,31 @@ export default function HrAttendancePage() {
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || "No code"}
                       </div>
-                      {summary ? (
+                      {rollup ? (
                         <div style={summaryMetricsRowStyle}>
                           {renderSummaryMetric({
                             label: "Present",
                             effective: formatDays(present),
-                            computed: formatDays(summary.present_days_computed),
-                            showOverride: hasSummaryOverride(summary),
+                            computed: formatDays(computed?.present_days_computed),
+                            showOverride: hasSummaryOverride(rollup),
                           })}
                           {renderSummaryMetric({
                             label: "Absent",
                             effective: formatDays(absent),
-                            computed: formatDays(summary.absent_days_computed),
-                            showOverride: hasSummaryOverride(summary),
+                            computed: formatDays(computed?.absent_days_computed),
+                            showOverride: hasSummaryOverride(rollup),
                           })}
                           {renderSummaryMetric({
                             label: "Leave",
                             effective: formatDays(leave),
-                            computed: formatDays(summary.paid_leave_days_computed),
-                            showOverride: hasSummaryOverride(summary),
+                            computed: formatDays(computed?.paid_leave_days_computed),
+                            showOverride: hasSummaryOverride(rollup),
                           })}
                           {renderSummaryMetric({
                             label: "OT",
                             effective: ot === null ? "—" : (ot / 60).toFixed(2),
-                            computed: formatOtHours(summary.ot_minutes_computed),
-                            showOverride: hasSummaryOverride(summary),
+                            computed: formatOtHours(computed?.ot_minutes_computed),
+                            showOverride: hasSummaryOverride(rollup),
                           })}
                         </div>
                       ) : null}
@@ -1169,49 +1193,49 @@ export default function HrAttendancePage() {
                     <div>
                       <div style={metricsLabelStyle}>Present (computed)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.present_days_computed)}
+                        {formatDays(overrideComputed?.present_days_computed)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>Absent (computed)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.absent_days_computed)}
+                        {formatDays(overrideComputed?.absent_days_computed)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>Paid leave (computed)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.paid_leave_days_computed)}
+                        {formatDays(overrideComputed?.paid_leave_days_computed)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>OT hours (computed)</div>
                       <div style={metricsValueStyle}>
-                        {formatOtHours(overrideSummary?.ot_minutes_computed)}
+                        {formatOtHours(overrideComputed?.ot_minutes_computed)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>Present (effective)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.present_days_effective)}
+                        {formatDays(overrideRollup?.present_days_effective)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>Absent (effective)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.absent_days_effective)}
+                        {formatDays(overrideRollup?.absent_days_effective)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>Paid leave (effective)</div>
                       <div style={metricsValueStyle}>
-                        {formatDays(overrideSummary?.paid_leave_days_effective)}
+                        {formatDays(overrideRollup?.paid_leave_days_effective)}
                       </div>
                     </div>
                     <div>
                       <div style={metricsLabelStyle}>OT hours (effective)</div>
                       <div style={metricsValueStyle}>
-                        {formatOtHours(overrideSummary?.ot_minutes_effective)}
+                        {formatOtHours(overrideRollup?.ot_minutes_effective)}
                       </div>
                     </div>
                   </div>
@@ -1337,8 +1361,8 @@ function parseOptionalNumber(value: string) {
   return parsed;
 }
 
-function hasSummaryOverride(summary: AttendanceSummaryRow | undefined) {
-  return Boolean(summary?.use_override);
+function hasSummaryOverride(rollup: AttendanceRollupRow | undefined) {
+  return rollup?.source === "override" || rollup?.source === "mixed";
 }
 
 function renderSummaryMetric({
