@@ -815,12 +815,19 @@ export default function HrAttendancePage() {
                   </td>
                 </tr>
               ) : (
-                employees.map((employee) => (
+                employees.map((employee) => {
+                  const summary = summaryByEmployeeId[employee.id];
+                  const present = summary?.present_days_effective ?? null;
+                  const absent = summary?.absent_days_effective ?? null;
+                  const leave = summary?.paid_leave_days_effective ?? null;
+                  const ot = summary?.ot_minutes_effective ?? null;
+
+                  return (
                   <tr key={employee.id}>
                     <td style={stickyCellStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <strong>{employee.full_name || "Employee"}</strong>
-                        {hasSummaryOverride(summaryByEmployeeId[employee.id]) ? (
+                        {hasSummaryOverride(summary) ? (
                           <span style={overrideBadgeStyle} title="Manual override active">
                             OVR
                           </span>
@@ -829,47 +836,31 @@ export default function HrAttendancePage() {
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || "No code"}
                       </div>
-                      {summaryByEmployeeId[employee.id] ? (
+                      {summary ? (
                         <div style={summaryMetricsRowStyle}>
                           {renderSummaryMetric({
                             label: "Present",
-                            effective: formatDays(
-                              summaryByEmployeeId[employee.id]?.present_days_effective
-                            ),
-                            computed: formatDays(
-                              summaryByEmployeeId[employee.id]?.present_days_computed
-                            ),
-                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
+                            effective: formatDays(present),
+                            computed: formatDays(summary.present_days_computed),
+                            showOverride: hasSummaryOverride(summary),
                           })}
                           {renderSummaryMetric({
                             label: "Absent",
-                            effective: formatDays(
-                              summaryByEmployeeId[employee.id]?.absent_days_effective
-                            ),
-                            computed: formatDays(
-                              summaryByEmployeeId[employee.id]?.absent_days_computed
-                            ),
-                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
+                            effective: formatDays(absent),
+                            computed: formatDays(summary.absent_days_computed),
+                            showOverride: hasSummaryOverride(summary),
                           })}
                           {renderSummaryMetric({
                             label: "Leave",
-                            effective: formatDays(
-                              summaryByEmployeeId[employee.id]?.paid_leave_days_effective
-                            ),
-                            computed: formatDays(
-                              summaryByEmployeeId[employee.id]?.paid_leave_days_computed
-                            ),
-                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
+                            effective: formatDays(leave),
+                            computed: formatDays(summary.paid_leave_days_computed),
+                            showOverride: hasSummaryOverride(summary),
                           })}
                           {renderSummaryMetric({
                             label: "OT",
-                            effective: formatOtHours(
-                              summaryByEmployeeId[employee.id]?.ot_minutes_effective
-                            ),
-                            computed: formatOtHours(
-                              summaryByEmployeeId[employee.id]?.ot_minutes_computed
-                            ),
-                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
+                            effective: ot === null ? "—" : (ot / 60).toFixed(2),
+                            computed: formatOtHours(summary.ot_minutes_computed),
+                            showOverride: hasSummaryOverride(summary),
                           })}
                         </div>
                       ) : null}
@@ -917,7 +908,8 @@ export default function HrAttendancePage() {
                       );
                     })}
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
