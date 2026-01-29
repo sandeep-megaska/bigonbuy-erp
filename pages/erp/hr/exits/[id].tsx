@@ -183,15 +183,19 @@ export default function EmployeeExitDetailPage() {
   async function handleSettlementCTA() {
     if (!exitRecord?.id) return;
     if (settlementId) {
-      router.push(`/erp/hr/final-settlements/${exitRecord.id}`);
+      router.push(`/erp/hr/final-settlements/${settlementId}`);
       return;
     }
 
     setActionLoading(true);
-    const { data, error: createError } = await supabase.rpc("erp_hr_final_settlement_upsert", {
-      p_exit_id: exitRecord.id,
-      p_notes: null,
-    });
+    const { data, error: createError } = await supabase.rpc(
+      "erp_hr_final_settlement_upsert_header",
+      {
+        p_settlement_id: null,
+        p_exit_id: exitRecord.id,
+        p_notes: null,
+      }
+    );
 
     if (createError) {
       showToast(createError.message || "Unable to create settlement draft.", "error");
@@ -200,8 +204,13 @@ export default function EmployeeExitDetailPage() {
     }
 
     setActionLoading(false);
-    await loadSettlementId();
-    router.push(`/erp/hr/final-settlements/${exitRecord.id}`);
+    const newSettlementId = (data as string | null) ?? null;
+    setSettlementId(newSettlementId);
+    if (newSettlementId) {
+      router.push(`/erp/hr/final-settlements/${newSettlementId}`);
+    } else {
+      await loadSettlementId();
+    }
   }
 
   if (loading) {
