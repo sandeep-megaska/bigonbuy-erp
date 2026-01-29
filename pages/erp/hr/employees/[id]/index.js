@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ContactsTab from "../../../../../components/erp/hr/employee-tabs/ContactsTab";
 import AddressTab from "../../../../../components/erp/hr/employee-tabs/AddressTab";
+import StatutoryTab from "../../../../../components/erp/hr/employee-tabs/StatutoryTab";
+import BankTab from "../../../../../components/erp/hr/employee-tabs/BankTab";
+import EmergencyTab from "../../../../../components/erp/hr/employee-tabs/EmergencyTab";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../../../lib/erp/nav";
 import { supabase } from "../../../../../lib/supabaseClient";
@@ -125,7 +128,18 @@ export default function EmployeeProfilePage() {
   useEffect(() => {
     if (!router.isReady) return;
     const tabParam = Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab;
-    const allowedTabs = ["overview", "job", "contacts", "addresses", "documents", "exit", "salary"];
+    const allowedTabs = [
+      "overview",
+      "job",
+      "contacts",
+      "addresses",
+      "statutory",
+      "bank",
+      "emergency",
+      "documents",
+      "exit",
+      "salary",
+    ];
     if (tabParam && allowedTabs.includes(tabParam)) {
       setTab(tabParam);
     }
@@ -917,6 +931,9 @@ export default function EmployeeProfilePage() {
           ["job", "Job"],
           ["contacts", "Contacts"],
           ["addresses", "Addresses"],
+          ["statutory", "Statutory"],
+          ["bank", "Bank"],
+          ["emergency", "Emergency"],
           ["documents", "Documents"],
           ["exit", "Exit"],
           ["salary", "Salary"],
@@ -1133,6 +1150,24 @@ export default function EmployeeProfilePage() {
       {tab === "addresses" ? (
         <div style={panelStyle}>
           <AddressTab employeeId={employeeId} accessToken={accessToken} canManage={canManage} />
+        </div>
+      ) : null}
+
+      {tab === "statutory" ? (
+        <div style={panelStyle}>
+          <StatutoryTab employeeId={employeeId} accessToken={accessToken} canManage={canManage} />
+        </div>
+      ) : null}
+
+      {tab === "bank" ? (
+        <div style={panelStyle}>
+          <BankTab employeeId={employeeId} accessToken={accessToken} canManage={canManage} />
+        </div>
+      ) : null}
+
+      {tab === "emergency" ? (
+        <div style={panelStyle}>
+          <EmergencyTab employeeId={employeeId} accessToken={accessToken} canManage={canManage} />
         </div>
       ) : null}
 
