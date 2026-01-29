@@ -13,6 +13,8 @@ type PayrollItem = {
   lop_days?: number | null;
   payable_days_override?: number | null;
   lop_days_override?: number | null;
+  payable_days_suggested?: number | null;
+  lop_days_suggested?: number | null;
   salary_basic?: number | null;
   salary_hra?: number | null;
   salary_allowances?: number | null;
@@ -61,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const { data, error } = await userClient
       .from("erp_payroll_items")
       .select(
-        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, payable_days, lop_days, payable_days_override, lop_days_override, salary_basic, salary_hra, salary_allowances, basic, hra, allowances"
+        "id, employee_id, gross, deductions, net_pay, notes, payslip_no, payable_days_override, lop_days_override, payable_days_suggested, lop_days_suggested, salary_basic, salary_hra, salary_allowances, basic, hra, allowances"
       )
       .eq("payroll_run_id", payrollRunId)
       .order("created_at", { ascending: false });
@@ -74,7 +76,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    return res.status(200).json({ ok: true, items: (data as PayrollItem[]) || [] });
+    const items = ((data as PayrollItem[]) || []).map((item) => ({
+      ...item,
+      payable_days: item.payable_days_override ?? item.payable_days_suggested ?? null,
+      lop_days: item.lop_days_override ?? item.lop_days_suggested ?? null,
+    }));
+
+    return res.status(200).json({ ok: true, items });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
