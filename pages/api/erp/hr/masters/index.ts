@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { listDesignations } from "../../../../../lib/erp/hr/designationsService";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
 type MasterType =
@@ -210,9 +211,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     if (req.method === "GET") {
       if (masterType === "designations") {
-        const { data, error } = await userClient.rpc("erp_hr_designations_list", {
-          p_include_inactive: true,
-        });
+        const { rows, error } = await listDesignations(userClient, true);
         if (error) {
           return res.status(400).json({
             ok: false,
@@ -220,7 +219,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             details: error.details || error.hint || error.code,
           });
         }
-        return res.status(200).json({ ok: true, rows: Array.isArray(data) ? data : [] });
+        return res.status(200).json({ ok: true, rows });
       }
       let query = userClient.from(config.table).select(config.select);
       if (config.order?.length) {

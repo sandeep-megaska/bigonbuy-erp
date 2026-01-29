@@ -1,19 +1,18 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { listDesignations, type DesignationRow } from "../../../lib/erp/hr/designationsService";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../lib/serverSupabase";
-
-type DesignationRow = {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  is_active: boolean;
-};
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; rows: DesignationRow[]; designations?: DesignationRow[] };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(
+      "[DEPRECATED API] /api/hr/designations called; use /api/erp/hr/masters?type=designations"
+    );
+  }
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -40,9 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_hr_designations_list", {
-      p_include_inactive: false,
-    });
+    const { rows, error } = await listDesignations(userClient, false);
     if (error) {
       return res.status(500).json({
         ok: false,
@@ -51,7 +48,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const rows = (data as DesignationRow[]) || [];
     return res.status(200).json({ ok: true, rows, designations: rows });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
