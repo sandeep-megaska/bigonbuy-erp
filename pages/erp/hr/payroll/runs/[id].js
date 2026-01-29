@@ -28,6 +28,7 @@ export default function PayrollRunDetailPage() {
   const [financeError, setFinanceError] = useState("");
   const [overrideDrafts, setOverrideDrafts] = useState({});
   const [overrideSaving, setOverrideSaving] = useState({});
+  const [attendanceSummaryRows, setAttendanceSummaryRows] = useState([]);
 
   const [otOpen, setOtOpen] = useState(false);
   const [otLoading, setOtLoading] = useState(false);
@@ -64,6 +65,13 @@ export default function PayrollRunDetailPage() {
     });
     return map;
   }, [payslips]);
+
+  const attendanceSummaryByEmployeeId = useMemo(() => {
+    return (attendanceSummaryRows || []).reduce((acc, row) => {
+      if (row?.employee_id) acc[row.employee_id] = row;
+      return acc;
+    }, {});
+  }, [attendanceSummaryRows]);
 
   const isRunFinalized = run?.status === "finalized";
   const attendanceStatus = run?.attendance_period_status || "not_generated";
@@ -182,6 +190,39 @@ export default function PayrollRunDetailPage() {
       active = false;
     };
   }, [ctx, runId]);
+
+  useEffect(() => {
+    if (!run?.year || !run?.month) return;
+    if (!items?.length) {
+      setAttendanceSummaryRows([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const monthStart = getMonthStart(run);
+      if (!monthStart) return;
+      const employeeIds = Array.from(
+        new Set(items.map((item) => item.employee_id).filter(Boolean))
+      );
+      if (employeeIds.length === 0) {
+        if (active) setAttendanceSummaryRows([]);
+        return;
+      }
+      const { data, error } = await supabase.rpc("erp_attendance_month_employee_summary", {
+        p_month: monthStart,
+        p_employee_ids: employeeIds,
+      });
+      if (!active) return;
+      if (error) {
+        setToast({ type: "error", message: error.message });
+        return;
+      }
+      setAttendanceSummaryRows(data || []);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [run?.year, run?.month, items]);
 
   useEffect(() => {
     if (!ctx?.companyId) return;
@@ -721,6 +762,7 @@ export default function PayrollRunDetailPage() {
                   const hra = item.salary_hra ?? item.hra;
                   const allowances = item.salary_allowances ?? item.allowances;
                   const status = statusMap.get(item.id);
+                  const attendanceSummary = attendanceSummaryByEmployeeId[item.employee_id];
                   const hasSalaryAssignment = status?.has_salary_assignment !== false;
                   const salaryStatusCopy = getSalaryStatusCopy(status);
                   const assignLink = `/erp/hr/employees/${item.employee_id}?tab=salary`;
@@ -743,6 +785,14 @@ export default function PayrollRunDetailPage() {
                         {salaryStatusCopy ? (
                           <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
                             {salaryStatusCopy}
+                          </div>
+                        ) : null}
+                        {attendanceSummary ? (
+                          <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+                            Present: {formatDays(attendanceSummary.present_days_effective)} · Absent:{" "}
+                            {formatDays(attendanceSummary.absent_days_effective)} · Leave:{" "}
+                            {formatDays(attendanceSummary.paid_leave_days_effective)} · OT:{" "}
+                            {formatOtHours(attendanceSummary.ot_minutes_effective)}
                           </div>
                         ) : null}
                       </td>
@@ -1028,6 +1078,24 @@ export default function PayrollRunDetailPage() {
       ) : null}
     </div>
   );
+}
+
+function getMonthStart(run) {
+  if (!run?.year || !run?.month) return null;
+  const year = String(run.year);
+  const month = String(run.month).padStart(2, "0");
+  return `${year}-${month}-01`;
+}
+
+function formatDays(value) {
+  if (value === null || value === undefined) return "—";
+  const fixed = Number(value).toFixed(2);
+  return fixed.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function formatOtHours(minutes) {
+  if (minutes === null || minutes === undefined) return "—";
+  return (Number(minutes) / 60).toFixed(2);
 }
 
 const inputStyle = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%" };

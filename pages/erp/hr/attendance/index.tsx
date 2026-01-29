@@ -315,6 +315,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance month generated." });
       await loadAttendanceMonth(monthMeta);
+      await loadAttendanceSummary(monthMeta);
       await loadPeriodStatus(monthMeta.monthStart);
     }
     setActionLoading(null);
@@ -340,6 +341,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Weekdays marked present for selected month." });
       await loadAttendanceMonth(monthMeta);
+      await loadAttendanceSummary(monthMeta);
     }
     setActionLoading(null);
   }
@@ -587,6 +589,7 @@ export default function HrAttendancePage() {
 
     setToast({ type: "success", message: "Attendance updated." });
     await loadAttendanceMonth(monthMeta);
+    await loadAttendanceSummary(monthMeta);
     await loadAttendanceDetail(editorEmployee.id, editorDay);
     setActionLoading(null);
   }
@@ -604,6 +607,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance metrics recomputed for the month." });
       await loadAttendanceMonth(monthMeta);
+      await loadAttendanceSummary(monthMeta);
     }
     setActionLoading(null);
   }
@@ -621,6 +625,7 @@ export default function HrAttendancePage() {
     } else {
       setToast({ type: "success", message: "Attendance metrics recomputed." });
       await loadAttendanceMonth(monthMeta);
+      await loadAttendanceSummary(monthMeta);
       if (editorDay) {
         await loadAttendanceDetail(editorEmployee.id, editorDay);
       }
