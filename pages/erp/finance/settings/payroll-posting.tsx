@@ -115,7 +115,8 @@ export default function PayrollPostingSettingsPage() {
       if (saveError) throw saveError;
       setNotice("Payroll posting config updated.");
     } catch (e) {
-      setError(e.message || "Unable to save payroll posting config.");
+      const message = e instanceof Error ? e.message : "Unable to save payroll posting config.";
+      setError(message || "Unable to save payroll posting config.");
     } finally {
       setSaving(false);
     }
