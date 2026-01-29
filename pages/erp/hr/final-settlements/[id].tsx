@@ -127,7 +127,7 @@ export default function FinalSettlementDetailPage() {
   );
 
   const settlement = settlementData?.settlement ?? null;
-  const isLocked = settlement?.status && settlement.status !== "draft";
+  const isLocked = settlement?.status ? settlement.status !== "draft" : false;
 
   useEffect(() => {
     let active = true;
