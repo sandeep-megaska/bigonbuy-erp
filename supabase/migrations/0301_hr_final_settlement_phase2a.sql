@@ -1,5 +1,8 @@
 begin;
 
+-- 0301_hr_final_settlement_phase2a.sql
+-- Final Settlement Phase 2A: status + finalize columns + canonical RPCs (jsonb get, upsert header, finalize)
+
 alter table public.erp_hr_final_settlements
   add column if not exists finalized_at timestamptz null,
   add column if not exists finalized_by_user_id uuid null;
@@ -11,7 +14,35 @@ alter table public.erp_hr_final_settlements
   add constraint erp_hr_final_settlements_status_check
   check (status in ('draft', 'submitted', 'approved', 'paid', 'finalized'));
 
-create or replace function public.erp_hr_final_settlement_get(
+-- ---------------------------------------------------------------------
+-- IMPORTANT: Drop any existing variants of these functions regardless of signature
+-- This avoids:
+--  - cannot change return type of existing function
+--  - signature drift / overload ambiguity
+-- ---------------------------------------------------------------------
+do $$
+declare
+  r record;
+begin
+  for r in
+    select n.nspname, p.proname, p.oid::regprocedure as regproc
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'erp_hr_final_settlement_get',
+        'erp_hr_final_settlement_upsert_header',
+        'erp_hr_final_settlement_finalize'
+      )
+  loop
+    execute format('drop function if exists %s;', r.regproc);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- GET (canonical) - returns jsonb
+-- ---------------------------------------------------------------------
+create function public.erp_hr_final_settlement_get(
   p_settlement_id uuid
 ) returns jsonb
 language plpgsql
@@ -118,9 +149,12 @@ $$;
 revoke all on function public.erp_hr_final_settlement_get from public;
 grant execute on function public.erp_hr_final_settlement_get to authenticated;
 
-create or replace function public.erp_hr_final_settlement_upsert_header(
-  p_settlement_id uuid default null,
+-- ---------------------------------------------------------------------
+-- UPSERT HEADER (canonical) - FIXED PARAM ORDER: required first, defaults last
+-- ---------------------------------------------------------------------
+create function public.erp_hr_final_settlement_upsert_header(
   p_exit_id uuid,
+  p_settlement_id uuid default null,
   p_notes text default null
 ) returns uuid
 language plpgsql
@@ -206,7 +240,10 @@ $$;
 revoke all on function public.erp_hr_final_settlement_upsert_header from public;
 grant execute on function public.erp_hr_final_settlement_upsert_header to authenticated;
 
-create or replace function public.erp_hr_final_settlement_finalize(
+-- ---------------------------------------------------------------------
+-- FINALIZE (canonical)
+-- ---------------------------------------------------------------------
+create function public.erp_hr_final_settlement_finalize(
   p_settlement_id uuid
 ) returns void
 language plpgsql
