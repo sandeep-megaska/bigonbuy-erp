@@ -27,21 +27,23 @@ import { supabase } from "../../../../lib/supabaseClient";
 const statusOptions = [
   { value: "", label: "All statuses" },
   { value: "draft", label: "Draft" },
+  { value: "submitted", label: "Submitted" },
+  { value: "approved", label: "Approved" },
+  { value: "paid", label: "Paid" },
   { value: "finalized", label: "Finalized" },
 ];
 
 type SettlementRow = {
-  settlement_id: string;
+  id: string;
   exit_id: string;
   employee_id: string;
   employee_code: string | null;
   employee_name: string | null;
   last_working_day: string | null;
   status: string;
+  net_amount: number | string | null;
   updated_at: string | null;
-  earnings_total: number | null;
-  deductions_total: number | null;
-  net_amount: number | null;
+  created_at: string | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
@@ -53,46 +55,37 @@ function formatDate(value: string | null) {
   return date.toLocaleDateString();
 }
 
-function formatCurrency(amount: number | null | undefined) {
+function formatCurrency(amount: number | string | null | undefined) {
   if (amount === null || amount === undefined || Number.isNaN(amount)) return "—";
+  const value = typeof amount === "string" ? Number(amount) : amount;
+  if (Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(value);
 }
 
-function buildMonthOptions() {
-  const options: { value: string; label: string }[] = [];
-  const now = new Date();
-  for (let i = 0; i < 12; i += 1) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const label = date.toLocaleString("default", { month: "long", year: "numeric" });
-    options.push({ value, label });
-  }
-  return options;
-}
-
-function monthToRange(value: string) {
-  if (!value) return { from: null, to: null } as { from: string | null; to: string | null };
+function formatMonthLabel(value: string) {
   const [yearRaw, monthRaw] = value.split("-");
   const year = Number(yearRaw);
   const month = Number(monthRaw);
-  if (!year || !month) return { from: null, to: null } as { from: string | null; to: string | null };
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0);
-  return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
-  };
+  if (!year || !month) return value;
+  const date = new Date(year, month - 1, 1);
+  return date.toLocaleString("default", { month: "short", year: "numeric" });
+}
+
+function getRowMonthValue(row: SettlementRow) {
+  const dateValue = row.last_working_day ?? row.created_at;
+  if (!dateValue) return null;
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function normalizeStatusLabel(status: string) {
-  if (status === "submitted") return "Finalized";
-  if (status === "approved") return "Approved";
-  if (status === "paid") return "Paid";
-  return status || "Draft";
+  if (!status) return "Draft";
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 const bannerStyle: CSSProperties = {
@@ -117,10 +110,13 @@ export default function FinalSettlementsIndexPage() {
   const [rows, setRows] = useState<SettlementRow[]>([]);
   const [toast, setToast] = useState<ToastState>(null);
 
-  const monthOptions = useMemo(() => buildMonthOptions(), []);
-  const [monthFilter, setMonthFilter] = useState<string>(monthOptions[0]?.value ?? "");
+  const [monthOptions, setMonthOptions] = useState<{ value: string; label: string }[]>([
+    { value: "", label: "All months" },
+  ]);
+  const [monthFilter, setMonthFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [query, setQuery] = useState<string>("");
+  const [appliedQuery, setAppliedQuery] = useState<string>("");
 
   const canManage = useMemo(() => access.isManager || isHr(ctx?.roleKey), [access.isManager, ctx?.roleKey]);
 
@@ -165,13 +161,14 @@ export default function FinalSettlementsIndexPage() {
     };
   }, [ctx, monthFilter, statusFilter]);
 
-  async function loadSettlements() {
-    const { from, to } = monthToRange(monthFilter);
+  async function loadSettlements(nextValues?: { month?: string; status?: string; query?: string }) {
+    const monthValue = nextValues?.month ?? monthFilter;
+    const statusValue = nextValues?.status ?? statusFilter;
+    const queryValue = nextValues?.query ?? appliedQuery;
     const { data, error } = await supabase.rpc("erp_hr_final_settlements_list", {
-      p_from: from,
-      p_to: to,
-      p_status: statusFilter || null,
-      p_query: query || null,
+      p_month: monthValue || null,
+      p_status: statusValue || null,
+      p_query: queryValue || null,
     });
 
     if (error) {
@@ -180,18 +177,42 @@ export default function FinalSettlementsIndexPage() {
       return;
     }
 
-    setRows((data ?? []) as SettlementRow[]);
+    const nextRows = (data ?? []) as SettlementRow[];
+    setRows(nextRows);
+    if (!monthValue) {
+      const monthValues = nextRows
+        .map((row) => getRowMonthValue(row))
+        .filter((value): value is string => Boolean(value));
+      const uniqueMonths = Array.from(new Set(monthValues)).sort((a, b) => b.localeCompare(a));
+      const nextOptions = [{ value: "", label: "All months" }].concat(
+        uniqueMonths.map((value) => ({ value, label: formatMonthLabel(value) }))
+      );
+      setMonthOptions(nextOptions);
+    }
   }
 
-  function handleRowClick(exitId: string) {
-    router.push(`/erp/hr/final-settlements/${exitId}`);
+  function handleRowClick(settlementId: string) {
+    router.push(`/erp/hr/final-settlements/${settlementId}`);
   }
 
   async function handleSearch() {
+    setAppliedQuery(query);
     setLoading(true);
-    await loadSettlements();
+    await loadSettlements({ query });
     setLoading(false);
   }
+
+  async function handleClearFilters() {
+    setMonthFilter("");
+    setStatusFilter("");
+    setQuery("");
+    setAppliedQuery("");
+    setLoading(true);
+    await loadSettlements({ month: "", status: "", query: "" });
+    setLoading(false);
+  }
+
+  const filtersActive = Boolean(monthFilter || statusFilter || appliedQuery);
 
   return (
     <ErpShell activeModule="hr">
@@ -221,7 +242,7 @@ export default function FinalSettlementsIndexPage() {
         )}
 
         <div style={{ ...cardStyle, display: "grid", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "200px 160px 1fr 120px", gap: 12, alignItems: "end" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "200px 160px 1fr 120px 140px", gap: 12, alignItems: "end" }}>
             <div>
               <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Month</div>
               <select
@@ -262,6 +283,9 @@ export default function FinalSettlementsIndexPage() {
             <button type="button" onClick={handleSearch} style={secondaryButtonStyle}>
               Search
             </button>
+            <button type="button" onClick={handleClearFilters} style={secondaryButtonStyle}>
+              Clear filters
+            </button>
           </div>
 
           <div style={{ overflowX: "auto" }}>
@@ -271,39 +295,54 @@ export default function FinalSettlementsIndexPage() {
                   <th style={tableHeaderCellStyle}>Employee Code</th>
                   <th style={tableHeaderCellStyle}>Name</th>
                   <th style={tableHeaderCellStyle}>Exit LWD</th>
-                  <th style={tableHeaderCellStyle}>Net Settlement</th>
                   <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Net Amount</th>
                   <th style={tableHeaderCellStyle}>Updated</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={6}>
+                    <td style={tableCellStyle} colSpan={7}>
                       Loading…
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td style={tableCellStyle} colSpan={6}>
-                      No settlements found for the selected filters.
+                    <td style={tableCellStyle} colSpan={7}>
+                      {filtersActive
+                        ? "No settlements match current filters. Clear filters to see all."
+                        : "No final settlements yet."}
                     </td>
                   </tr>
                 ) : (
                   rows.map((row) => (
                     <tr
-                      key={row.settlement_id}
+                      key={row.id}
                       style={{ cursor: "pointer" }}
-                      onClick={() => handleRowClick(row.exit_id)}
+                      onClick={() => handleRowClick(row.id)}
                     >
                       <td style={tableCellStyle}>{row.employee_code || "—"}</td>
                       <td style={tableCellStyle}>{row.employee_name || "—"}</td>
                       <td style={tableCellStyle}>{formatDate(row.last_working_day)}</td>
-                      <td style={tableCellStyle}>{formatCurrency(row.net_amount)}</td>
                       <td style={tableCellStyle}>
                         <span style={badgeStyle}>{normalizeStatusLabel(row.status)}</span>
                       </td>
+                      <td style={tableCellStyle}>{formatCurrency(row.net_amount)}</td>
                       <td style={tableCellStyle}>{formatDate(row.updated_at)}</td>
+                      <td style={tableCellStyle}>
+                        <button
+                          type="button"
+                          style={{ ...secondaryButtonStyle, padding: "6px 10px", fontSize: 12 }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRowClick(row.id);
+                          }}
+                        >
+                          Open
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
