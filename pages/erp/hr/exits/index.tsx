@@ -27,6 +27,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 const statusOptions = [
   { value: "", label: "All statuses" },
   { value: "draft", label: "Draft" },
+  { value: "submitted", label: "Submitted" },
   { value: "approved", label: "Approved" },
   { value: "completed", label: "Completed" },
   { value: "rejected", label: "Rejected" },
@@ -35,15 +36,15 @@ const statusOptions = [
 type EmployeeEmbed = { id: string; full_name: string | null; employee_code: string | null };
 type ExitMetaEmbed = { id: string; name: string | null };
 
-type ExitRowBase = {
+type ExitListRow = {
   id: string;
+  employee_id: string | null;
+  employee_code: string | null;
+  employee_name: string | null;
   status: string;
-  initiated_on: string | null;
   last_working_day: string;
-  notice_period_days: number | null;
-  notice_waived: boolean;
-  notes: string | null;
   created_at: string | null;
+  updated_at: string | null;
 };
 
 type ExitRow = {
@@ -65,16 +66,10 @@ type ExitRow = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
-type EmbeddedValue<T> = T | T[] | null;
-
 function normalizeSearchTerm(value: string | null | undefined) {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function normalizeEmbed<T>(value: EmbeddedValue<T>) {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
 
 function getMonthValue(value: string | null) {
   if (!value) return "";
@@ -238,6 +233,7 @@ export default function EmployeeExitsPage() {
       setLoading(true);
       await loadExits({
         statusFilter,
+        monthFilter,
         searchText: employeeFilter,
       });
       if (active) setLoading(false);
@@ -246,10 +242,10 @@ export default function EmployeeExitsPage() {
     return () => {
       active = false;
     };
-  }, [ctx, statusFilter]);
+  }, [ctx, statusFilter, monthFilter, employeeFilter]);
 
-  async function loadExits(options: { statusFilter: string; searchText: string }) {
-    const { statusFilter: statusValue, searchText } = options;
+  async function loadExits(options: { statusFilter: string; monthFilter: string; searchText: string }) {
+    const { statusFilter: statusValue, monthFilter: monthValue, searchText } = options;
     if (process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
       console.log("[exits] ctx", {
@@ -265,45 +261,14 @@ export default function EmployeeExitsPage() {
     }
 
     try {
-      let query = supabase
-        .from("erp_hr_employee_exits")
-        .select(
-          `
-          id,
-          status,
-          initiated_on,
-          last_working_day,
-          notice_period_days,
-          notice_waived,
-          notes,
-          created_at,
-          employee:erp_employees!erp_hr_employee_exits_employee_id_fkey!left(
-            id,
-            full_name,
-            employee_code
-          ),
-          manager:erp_employees!erp_hr_employee_exits_manager_employee_id_fkey!left(
-            id,
-            full_name,
-            employee_code
-          ),
-          exit_type:erp_hr_employee_exit_types!left(
-            id,
-            name
-          ),
-          exit_reason:erp_hr_employee_exit_reasons!left(
-            id,
-            name
-          )
-        `
-        )
-        .order("created_at", { ascending: false });
-
-      if (statusValue) {
-        query = query.eq("status", statusValue);
-      }
-
-      const { data, error } = await query;
+      const normalizedStatus = statusValue.trim() ? statusValue.trim() : null;
+      const normalizedMonth = monthValue.trim() ? monthValue.trim() : null;
+      const normalizedQuery = searchText.trim() ? searchText.trim() : null;
+      const { data, error } = await supabase.rpc("erp_hr_employee_exits_list", {
+        p_status: normalizedStatus,
+        p_month: normalizedMonth,
+        p_query: normalizedQuery,
+      });
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
         console.log("[exits] rowsError", error);
@@ -316,12 +281,7 @@ export default function EmployeeExitsPage() {
       }
 
       setRlsWarning("");
-      const raw = (data ?? []) as unknown as (ExitRowBase & {
-        employee?: EmbeddedValue<EmployeeEmbed>;
-        manager?: EmbeddedValue<EmployeeEmbed>;
-        exit_type?: EmbeddedValue<ExitMetaEmbed>;
-        exit_reason?: EmbeddedValue<ExitMetaEmbed>;
-      })[];
+      const raw = (data ?? []) as ExitListRow[];
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
         console.log("[exits] rows before normalize", raw.length);
@@ -329,16 +289,22 @@ export default function EmployeeExitsPage() {
       const normalized: ExitRow[] = raw.map((r) => ({
         id: r.id,
         status: r.status,
-        initiated_on: r.initiated_on,
+        initiated_on: r.created_at,
         last_working_day: r.last_working_day,
-        notice_period_days: r.notice_period_days,
-        notice_waived: r.notice_waived,
-        notes: r.notes,
+        notice_period_days: null,
+        notice_waived: false,
+        notes: null,
         created_at: r.created_at,
-        employee: normalizeEmbed(r.employee),
-        manager: normalizeEmbed(r.manager),
-        exit_type: normalizeEmbed(r.exit_type),
-        exit_reason: normalizeEmbed(r.exit_reason),
+        employee: r.employee_id
+          ? {
+              id: r.employee_id,
+              full_name: r.employee_name,
+              employee_code: r.employee_code,
+            }
+          : null,
+        manager: null,
+        exit_type: null,
+        exit_reason: null,
       }));
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
@@ -383,6 +349,7 @@ export default function EmployeeExitsPage() {
     setActionLoading(null);
     await loadExits({
       statusFilter,
+      monthFilter,
       searchText: employeeFilter,
     });
   }
@@ -417,6 +384,7 @@ export default function EmployeeExitsPage() {
     setActionLoading(null);
     await loadExits({
       statusFilter,
+      monthFilter,
       searchText: employeeFilter,
     });
   }
