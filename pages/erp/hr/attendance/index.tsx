@@ -423,8 +423,8 @@ export default function HrAttendancePage() {
 
     setToast({ type: "success", message: "Attendance override saved." });
     await loadAttendanceSummary(monthMeta);
+    setOverrideExists(true);
     setActionLoading(null);
-    closeOverride();
   }
 
   async function handleClearOverride() {
@@ -444,8 +444,16 @@ export default function HrAttendancePage() {
 
     setToast({ type: "success", message: "Attendance override cleared." });
     await loadAttendanceSummary(monthMeta);
+    setOverrideExists(false);
+    setOverrideForm({
+      presentDays: "",
+      absentDays: "",
+      paidLeaveDays: "",
+      otHours: "",
+      useOverride: true,
+      notes: "",
+    });
     setActionLoading(null);
-    closeOverride();
   }
 
   async function handleFreezeToggle() {
