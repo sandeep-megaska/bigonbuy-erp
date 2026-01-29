@@ -108,6 +108,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-journals",
+    label: "Journals",
+    href: "/erp/finance/journals",
+    description: "Review payroll-posted finance journals and void if needed.",
+    group: "Finance",
+    sidebarIcon: "JR",
+    cardIcon: "📒",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-expense-reports",
     label: "Expense Reports",
     href: "/erp/finance/expenses/reports",
