@@ -76,6 +76,21 @@ function normalizeEmbed<T>(value: EmbeddedValue<T>) {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function getMonthValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(value: string) {
+  if (!value) return "All months";
+  const [year, month] = value.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, { month: "short", year: "numeric" });
+}
+
 function formatDate(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -117,6 +132,7 @@ export default function EmployeeExitsPage() {
   const [rows, setRows] = useState<ExitRow[]>([]);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [monthFilter, setMonthFilter] = useState<string>("");
   const [employeeFilter, setEmployeeFilter] = useState<string>("");
 
   const [toast, setToast] = useState<ToastState>(null);
@@ -136,19 +152,34 @@ export default function EmployeeExitsPage() {
     return rows.filter((row) => {
       const matchesStatus = statusFilter ? row.status === statusFilter : true;
       if (!matchesStatus) return false;
+      const matchesMonth = monthFilter
+        ? getMonthValue(row.last_working_day) === monthFilter
+        : true;
+      if (!matchesMonth) return false;
       if (!q) return true;
       const name = normalizeSearchTerm(row.employee?.full_name);
       const code = normalizeSearchTerm(row.employee?.employee_code);
       return name.includes(q) || code.includes(q);
     });
-  }, [rows, employeeFilter, statusFilter]);
+  }, [rows, employeeFilter, statusFilter, monthFilter]);
+
+  const monthOptions = useMemo(() => {
+    const months = new Set<string>();
+    rows.forEach((row) => {
+      const value = getMonthValue(row.last_working_day);
+      if (value) months.add(value);
+    });
+    if (monthFilter) months.add(monthFilter);
+    return ["", ...Array.from(months).sort((a, b) => b.localeCompare(a))];
+  }, [rows, monthFilter]);
 
   const showHelperBanner = useMemo(() => {
     const hasStatus = !!normalizeSearchTerm(statusFilter);
+    const hasMonth = !!normalizeSearchTerm(monthFilter);
     const hasEmployee = !!normalizeSearchTerm(employeeFilter);
-    const hasActiveFilters = hasStatus || hasEmployee;
+    const hasActiveFilters = hasStatus || hasMonth || hasEmployee;
     return hasActiveFilters && !loading && filteredRows.length === 0;
-  }, [statusFilter, employeeFilter, loading, filteredRows.length]);
+  }, [statusFilter, monthFilter, employeeFilter, loading, filteredRows.length]);
 
   const showEmptyState = !loading && filteredRows.length === 0;
 
@@ -157,13 +188,17 @@ export default function EmployeeExitsPage() {
     const statusParam = Array.isArray(router.query.status)
       ? router.query.status[0]
       : router.query.status;
+    const monthParam = Array.isArray(router.query.month)
+      ? router.query.month[0]
+      : router.query.month;
     const employeeParam = Array.isArray(router.query.employee)
       ? router.query.employee[0]
       : router.query.employee;
 
     setStatusFilter(typeof statusParam === "string" ? statusParam : "");
+    setMonthFilter(typeof monthParam === "string" ? monthParam : "");
     setEmployeeFilter(typeof employeeParam === "string" ? employeeParam : "");
-  }, [router.isReady, router.query.employee, router.query.status]);
+  }, [router.isReady, router.query.employee, router.query.month, router.query.status]);
 
   useEffect(() => {
     let active = true;
@@ -319,6 +354,7 @@ export default function EmployeeExitsPage() {
 
   function clearFilters() {
     setStatusFilter("");
+    setMonthFilter("");
     setEmployeeFilter("");
     router.replace("/erp/hr/exits", undefined, { shallow: true });
   }
@@ -410,7 +446,7 @@ export default function EmployeeExitsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "220px 1fr 160px",
+              gridTemplateColumns: "220px 200px 1fr 160px",
               gap: 12,
               alignItems: "end",
             }}
@@ -425,6 +461,21 @@ export default function EmployeeExitsPage() {
                 {statusOptions.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 6, color: "#374151" }}>Month</div>
+              <select
+                value={monthFilter}
+                onChange={(e) => setMonthFilter(e.target.value)}
+                style={inputStyle}
+              >
+                {monthOptions.map((value) => (
+                  <option key={value || "all"} value={value}>
+                    {formatMonthLabel(value)}
                   </option>
                 ))}
               </select>
@@ -446,7 +497,7 @@ export default function EmployeeExitsPage() {
           </div>
 
           {showHelperBanner && (
-            <div style={bannerStyle}>No exits match the current filters. Try clearing filters.</div>
+            <div style={bannerStyle}>No exits match filters. Try clearing filters.</div>
           )}
 
           <div style={{ marginTop: 14 }}>
@@ -461,7 +512,7 @@ export default function EmployeeExitsPage() {
                 }}
               >
                 <div style={{ fontWeight: 600, color: "#111827" }}>
-                  {showHelperBanner ? "No exits match the current filters." : "No exit requests found."}
+                  {showHelperBanner ? "No exits match filters." : "No exit requests found."}
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13 }}>
                   {showHelperBanner

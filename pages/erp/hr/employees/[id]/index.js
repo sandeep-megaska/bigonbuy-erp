@@ -381,18 +381,40 @@ export default function EmployeeProfilePage() {
     setExitError("");
 
     try {
-      const payload = {
+      const ensurePayload = {
         p_employee_id: employeeId,
-        p_exit_type_id: exitForm.exit_type_id,
-        p_exit_reason_id: exitForm.exit_reason_id,
-        p_last_working_day: exitForm.last_working_day,
+        p_last_working_day: exitForm.last_working_day || null,
+        p_reason_id: exitForm.exit_reason_id || null,
         p_notes: (exitForm.notes || "").trim() || null,
       };
 
-      const { data: exitId, error } = await supabase.rpc("erp_hr_employee_exit_finalize", payload);
+      const { data: exitId, error } = await supabase.rpc(
+        "erp_hr_employee_exit_ensure",
+        ensurePayload
+      );
       if (error) throw error;
 
-      showToast("Employee exited successfully.");
+      if (!exitId) {
+        throw new Error("Unable to create exit request.");
+      }
+
+      const { error: updateError } = await supabase.rpc(
+        "erp_hr_employee_exit_update_details",
+        {
+          p_exit_id: exitId,
+          p_exit_type_id: exitForm.exit_type_id,
+          p_exit_reason_id: exitForm.exit_reason_id || null,
+          p_last_working_day: exitForm.last_working_day || null,
+          p_notes: (exitForm.notes || "").trim() || null,
+        }
+      );
+      if (updateError) throw updateError;
+
+      const monthValue = exitForm.last_working_day
+        ? exitForm.last_working_day.slice(0, 7)
+        : new Date().toISOString().slice(0, 7);
+
+      showToast("Exit request created.");
       setExitModalOpen(false);
       setExitForm({
         exit_type_id: "",
@@ -402,8 +424,11 @@ export default function EmployeeProfilePage() {
       });
 
       await Promise.all([loadEmployee(), loadExitData()]);
+      router.push(
+        `/erp/hr/exits?status=draft&month=${encodeURIComponent(monthValue)}&exit_id=${exitId}`
+      );
     } catch (err) {
-      setExitError(err?.message || "Unable to exit employee.");
+      setExitError(err?.message || "Unable to create exit request.");
     } finally {
       setExitSaving(false);
     }
@@ -850,7 +875,7 @@ export default function EmployeeProfilePage() {
               </button>
             </div>
             <p style={{ margin: "8px 0 0", color: "#6b7280", fontSize: 13 }}>
-              Complete the exit and mark this employee inactive.
+              Create a draft exit request. The employee will be marked exited after approval and completion.
             </p>
             {exitError ? <div style={errorBoxStyle}>{exitError}</div> : null}
             <form onSubmit={handleExitFinalize} style={{ display: "grid", gap: 12, marginTop: 12 }}>
@@ -917,7 +942,7 @@ export default function EmployeeProfilePage() {
                   Cancel
                 </button>
                 <button type="submit" style={dangerButtonStyle} disabled={exitSaving}>
-                  {exitSaving ? "Exiting…" : "Exit Employee"}
+                  {exitSaving ? "Saving…" : "Create Exit Request"}
                 </button>
               </div>
             </form>
