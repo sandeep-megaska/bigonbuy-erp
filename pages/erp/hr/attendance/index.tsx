@@ -152,43 +152,28 @@ export default function HrAttendancePage() {
     }, {});
   }, [attendanceRows]);
 
-  const summaryMap = useMemo(() => {
+  const summaryByEmployeeId = useMemo(() => {
     return summaryRows.reduce<Record<string, AttendanceSummaryRow>>((acc, row) => {
       acc[row.employee_id] = row;
       return acc;
     }, {});
   }, [summaryRows]);
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      present: 0,
-      absent: 0,
-      leave: 0,
-      holiday: 0,
-      weekly_off: 0,
-      unmarked: 0,
-    };
+  const summaryTotals = useMemo(() => {
+    return summaryRows.reduce(
+      (acc, row) => {
+        return {
+          present: acc.present + (row.present_days_effective ?? 0),
+          absent: acc.absent + (row.absent_days_effective ?? 0),
+          leave: acc.leave + (row.paid_leave_days_effective ?? 0),
+          otMinutes: acc.otMinutes + (row.ot_minutes_effective ?? 0),
+        };
+      },
+      { present: 0, absent: 0, leave: 0, otMinutes: 0 }
+    );
+  }, [summaryRows]);
 
-    const totalCells = monthMeta ? employees.length * monthMeta.daysInMonth : 0;
-
-    attendanceRows.forEach((row) => {
-      if (counts[row.status] !== undefined) {
-        counts[row.status] += 1;
-      }
-    });
-
-    const recordedTotal = Object.keys(counts).reduce((sum, key) => {
-      return sum + counts[key];
-    }, 0);
-
-    if (totalCells > recordedTotal) {
-      counts.unmarked += totalCells - recordedTotal;
-    }
-
-    return counts;
-  }, [attendanceRows, employees.length, monthMeta]);
-
-  const overrideSummary = overrideEmployee ? summaryMap[overrideEmployee.id] : undefined;
+  const overrideSummary = overrideEmployee ? summaryByEmployeeId[overrideEmployee.id] : undefined;
 
   useEffect(() => {
     let active = true;
@@ -786,13 +771,23 @@ export default function HrAttendancePage() {
         </div>
 
         <div style={legendStyle}>
-          {Object.keys(STATUS_CODES).map((key) => (
-            <div key={key} style={legendItemStyle}>
-              <span style={legendBadgeStyle}>{STATUS_CODES[key]}</span>
-              <span>{STATUS_LABELS[key]}</span>
-              <span style={legendCountStyle}>{statusCounts[key] ?? 0}</span>
-            </div>
-          ))}
+          {Object.keys(STATUS_CODES).map((key) => {
+            const summaryCount =
+              key === "present"
+                ? formatDays(summaryTotals.present)
+                : key === "absent"
+                ? formatDays(summaryTotals.absent)
+                : key === "leave"
+                ? formatDays(summaryTotals.leave)
+                : "—";
+            return (
+              <div key={key} style={legendItemStyle}>
+                <span style={legendBadgeStyle}>{STATUS_CODES[key]}</span>
+                <span>{STATUS_LABELS[key]}</span>
+                <span style={legendCountStyle}>{summaryCount}</span>
+              </div>
+            );
+          })}
         </div>
 
         <div style={tableWrapStyle}>
@@ -820,7 +815,7 @@ export default function HrAttendancePage() {
                     <td style={stickyCellStyle}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <strong>{employee.full_name || "Employee"}</strong>
-                        {hasSummaryOverride(summaryMap[employee.id]) ? (
+                        {hasSummaryOverride(summaryByEmployeeId[employee.id]) ? (
                           <span style={overrideBadgeStyle} title="Manual override active">
                             OVR
                           </span>
@@ -829,31 +824,47 @@ export default function HrAttendancePage() {
                       <div style={{ color: "#6b7280" }}>
                         {employee.employee_code || "No code"}
                       </div>
-                      {summaryMap[employee.id] ? (
+                      {summaryByEmployeeId[employee.id] ? (
                         <div style={summaryMetricsRowStyle}>
                           {renderSummaryMetric({
                             label: "Present",
-                            effective: formatDays(summaryMap[employee.id]?.present_days_effective),
-                            computed: formatDays(summaryMap[employee.id]?.present_days_computed),
-                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                            effective: formatDays(
+                              summaryByEmployeeId[employee.id]?.present_days_effective
+                            ),
+                            computed: formatDays(
+                              summaryByEmployeeId[employee.id]?.present_days_computed
+                            ),
+                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
                           })}
                           {renderSummaryMetric({
                             label: "Absent",
-                            effective: formatDays(summaryMap[employee.id]?.absent_days_effective),
-                            computed: formatDays(summaryMap[employee.id]?.absent_days_computed),
-                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                            effective: formatDays(
+                              summaryByEmployeeId[employee.id]?.absent_days_effective
+                            ),
+                            computed: formatDays(
+                              summaryByEmployeeId[employee.id]?.absent_days_computed
+                            ),
+                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
                           })}
                           {renderSummaryMetric({
                             label: "Leave",
-                            effective: formatDays(summaryMap[employee.id]?.paid_leave_days_effective),
-                            computed: formatDays(summaryMap[employee.id]?.paid_leave_days_computed),
-                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                            effective: formatDays(
+                              summaryByEmployeeId[employee.id]?.paid_leave_days_effective
+                            ),
+                            computed: formatDays(
+                              summaryByEmployeeId[employee.id]?.paid_leave_days_computed
+                            ),
+                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
                           })}
                           {renderSummaryMetric({
                             label: "OT",
-                            effective: formatOtHours(summaryMap[employee.id]?.ot_minutes_effective),
-                            computed: formatOtHours(summaryMap[employee.id]?.ot_minutes_computed),
-                            showOverride: hasSummaryOverride(summaryMap[employee.id]),
+                            effective: formatOtHours(
+                              summaryByEmployeeId[employee.id]?.ot_minutes_effective
+                            ),
+                            computed: formatOtHours(
+                              summaryByEmployeeId[employee.id]?.ot_minutes_computed
+                            ),
+                            showOverride: hasSummaryOverride(summaryByEmployeeId[employee.id]),
                           })}
                         </div>
                       ) : null}
@@ -1306,8 +1317,7 @@ function formatDays(value: number | null | undefined) {
 
 function formatOtHours(minutes: number | null | undefined) {
   if (minutes === null || minutes === undefined) return "—";
-  const fixed = (Number(minutes) / 60).toFixed(2);
-  return `${fixed}h`;
+  return (Number(minutes) / 60).toFixed(2);
 }
 
 function formatNumberInput(value: number | null | undefined) {
