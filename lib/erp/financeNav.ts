@@ -247,6 +247,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-sales-posting-settings",
+    label: "Sales Posting",
+    href: "/erp/finance/settings/sales-posting",
+    description: "Configure accounts for Shopify sales revenue posting.",
+    group: "Settings",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "SP",
+    cardIcon: "🧾",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-gl-accounts",
     label: "Chart of Accounts",
     href: "/erp/finance/masters/gl-accounts",
