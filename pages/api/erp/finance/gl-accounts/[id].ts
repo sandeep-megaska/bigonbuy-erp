@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
-type SuccessResponse = { ok: true; account: unknown | null };
+type SuccessResponse = { ok: true; data: unknown | null };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -47,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    return res.status(200).json({ ok: true, account: data ?? null });
+    return res.status(200).json({ ok: true, data: data ?? null });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });

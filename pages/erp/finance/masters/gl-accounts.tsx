@@ -134,7 +134,7 @@ export default function GlAccountsPage() {
       return;
     }
 
-    setAccounts((payload?.accounts || []) as GlAccount[]);
+    setAccounts((payload?.data || []) as GlAccount[]);
     setIsLoadingData(false);
   };
 
@@ -284,7 +284,7 @@ export default function GlAccountsPage() {
     if (!canWrite) return;
     setToast(null);
 
-    const response = await fetch("/api/erp/finance/gl-accounts/seed", {
+    const response = await fetch("/api/erp/finance/gl-accounts/seed-minimal", {
       method: "POST",
       headers: getAuthHeaders(),
     });
@@ -295,7 +295,7 @@ export default function GlAccountsPage() {
       return;
     }
 
-    const inserted = data?.result?.inserted ?? 0;
+    const inserted = data?.data?.inserted ?? 0;
     setToast({ type: "success", message: `Seeded ${inserted} account(s).` });
     await loadAccounts();
   };
