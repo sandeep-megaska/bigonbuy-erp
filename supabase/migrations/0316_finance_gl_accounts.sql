@@ -1,12 +1,12 @@
 -- Finance GL accounts (Chart of Accounts v1)
 
 create table if not exists public.erp_gl_accounts (
-  id uuid primary key default gen_random_uuid(),
-  company_id uuid not null default public.erp_current_company_id(),
   code text not null,
   name text not null,
   account_type text not null,
   normal_balance text not null,
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null default public.erp_current_company_id(),  
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   created_by_user_id uuid null,
@@ -169,82 +169,6 @@ $$;
 revoke all on function public.erp_gl_account_get(uuid) from public;
 grant execute on function public.erp_gl_account_get(uuid) to authenticated;
 
-create or replace function public.erp_gl_account_upsert(
-  p_id uuid default null,
-  p_code text,
-  p_name text,
-  p_account_type text,
-  p_is_active boolean default true
-) returns public.erp_gl_accounts
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_actor uuid := auth.uid();
-  v_company_id uuid := public.erp_current_company_id();
-  v_row public.erp_gl_accounts;
-  v_normal_balance text;
-  v_account_type text := lower(p_account_type);
-begin
-  perform public.erp_require_finance_writer();
-
-  v_normal_balance := case
-    when v_account_type in ('asset', 'expense') then 'debit'
-    when v_account_type in ('liability', 'income', 'equity') then 'credit'
-    else null
-  end;
-
-  if v_normal_balance is null then
-    raise exception 'Invalid account_type';
-  end if;
-
-  if p_id is null then
-    insert into public.erp_gl_accounts (
-      company_id,
-      code,
-      name,
-      account_type,
-      normal_balance,
-      is_active,
-      created_by_user_id,
-      updated_by_user_id
-    ) values (
-      v_company_id,
-      trim(p_code),
-      trim(p_name),
-      v_account_type,
-      v_normal_balance,
-      coalesce(p_is_active, true),
-      v_actor,
-      v_actor
-    )
-    returning * into v_row;
-  else
-    update public.erp_gl_accounts
-       set code = trim(p_code),
-           name = trim(p_name),
-           account_type = v_account_type,
-           normal_balance = v_normal_balance,
-           is_active = coalesce(p_is_active, true),
-           updated_at = now(),
-           updated_by_user_id = v_actor
-     where company_id = v_company_id
-       and id = p_id
-     returning * into v_row;
-
-    if not found then
-      raise exception 'GL account not found';
-    end if;
-  end if;
-
-  return v_row;
-end;
-$$;
-
-revoke all on function public.erp_gl_account_upsert(uuid, text, text, text, boolean) from public;
-grant execute on function public.erp_gl_account_upsert(uuid, text, text, text, boolean) to authenticated;
-
 create or replace function public.erp_gl_account_deactivate(
   p_id uuid
 ) returns public.erp_gl_accounts
@@ -253,22 +177,47 @@ security definer
 set search_path = public
 as $$
 declare
-  v_actor uuid := auth.uid();
-  v_company_id uuid := public.erp_current_company_id();
   v_row public.erp_gl_accounts;
 begin
   perform public.erp_require_finance_writer();
 
   update public.erp_gl_accounts
-     set is_active = false,
-         updated_at = now(),
-         updated_by_user_id = v_actor
-   where company_id = v_company_id
-     and id = p_id
-   returning * into v_row;
+  set is_active = false,
+      updated_at = now(),
+      updated_by_user_id = auth.uid()
+  where company_id = public.erp_current_company_id()
+    and id = p_id
+  returning * into v_row;
 
   if not found then
-    raise exception 'GL account not found';
+    raise exception 'account not found';
+  end if;
+
+  return v_row;
+end;
+$$;
+create or replace function public.erp_gl_account_deactivate(
+  p_id uuid
+) returns public.erp_gl_accounts
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row public.erp_gl_accounts;
+begin
+  perform public.erp_require_finance_writer();
+
+  update public.erp_gl_accounts
+  set is_active = false,
+      updated_at = now(),
+      updated_by_user_id = auth.uid()
+  where company_id = public.erp_current_company_id()
+    and id = p_id
+  returning * into v_row;
+
+  if not found then
+    raise exception 'account not found';
   end if;
 
   return v_row;
@@ -277,7 +226,6 @@ $$;
 
 revoke all on function public.erp_gl_account_deactivate(uuid) from public;
 grant execute on function public.erp_gl_account_deactivate(uuid) to authenticated;
-
 create or replace function public.erp_gl_accounts_seed_minimal()
 returns jsonb
 language plpgsql
