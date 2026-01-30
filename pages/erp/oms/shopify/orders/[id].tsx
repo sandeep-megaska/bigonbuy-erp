@@ -53,6 +53,30 @@ type FinancePostingPreview = {
   posted?: { journal_id?: string | null; doc_no?: string | null } | null;
 };
 
+type CogsPostingLine = {
+  sku: string;
+  qty: number;
+  unit_cost: number | null;
+  line_cost: number | null;
+};
+
+type CogsPostingPreview = {
+  source?: {
+    id?: string | null;
+    order_no?: string | null;
+    order_id?: number | null;
+    date?: string | null;
+    channel?: string | null;
+    currency?: string | null;
+  } | null;
+  total_cogs?: number | null;
+  lines?: CogsPostingLine[] | null;
+  journal_lines?: FinancePostingLine[] | null;
+  errors?: string[] | null;
+  can_post?: boolean | null;
+  posted?: { journal_id?: string | null; doc_no?: string | null; cogs_status?: string | null } | null;
+};
+
 export default function ShopifyOrderDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -73,6 +97,12 @@ export default function ShopifyOrderDetailPage() {
   const [financeError, setFinanceError] = useState<string | null>(null);
   const [financeNotice, setFinanceNotice] = useState<string | null>(null);
   const [postedJournal, setPostedJournal] = useState<{ id: string; doc_no: string | null } | null>(null);
+  const [cogsPreview, setCogsPreview] = useState<CogsPostingPreview | null>(null);
+  const [cogsLoading, setCogsLoading] = useState(false);
+  const [cogsPosting, setCogsPosting] = useState(false);
+  const [cogsError, setCogsError] = useState<string | null>(null);
+  const [cogsNotice, setCogsNotice] = useState<string | null>(null);
+  const [cogsPostedJournal, setCogsPostedJournal] = useState<{ id: string; doc_no: string | null } | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!ctx?.companyId || !orderId) return;
@@ -193,6 +223,71 @@ export default function ShopifyOrderDetailPage() {
       setFinanceError(message);
     } finally {
       setFinancePosting(false);
+    }
+  };
+
+  const loadCogsPreview = useCallback(async () => {
+    if (!ctx?.session?.access_token || !orderId) return;
+    setCogsLoading(true);
+    setCogsError(null);
+    setCogsNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-cogs-preview`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ orderId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load COGS preview.");
+      }
+      const preview = payload?.data as CogsPostingPreview;
+      setCogsPreview(preview ?? null);
+      const posted = preview?.posted?.journal_id
+        ? { id: preview.posted.journal_id, doc_no: preview.posted.doc_no ?? null }
+        : null;
+      setCogsPostedJournal(posted);
+      if (posted) {
+        setCogsNotice(null);
+      }
+      if (preview?.errors && preview.errors.length > 0) {
+        setCogsError(preview.errors.join(", "));
+      }
+    } catch (previewError) {
+      const message = previewError instanceof Error ? previewError.message : "Failed to load COGS preview.";
+      setCogsError(message);
+    } finally {
+      setCogsLoading(false);
+    }
+  }, [ctx?.session?.access_token, orderId]);
+
+  const handleCogsPost = async () => {
+    if (!ctx?.session?.access_token || !orderId) return;
+    setCogsPosting(true);
+    setCogsError(null);
+    setCogsNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-cogs-post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ orderId, idempotencyKey: orderId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to post COGS journal.");
+      }
+      if (payload?.journal?.id) {
+        setCogsPostedJournal({ id: payload.journal.id, doc_no: payload.journal.doc_no ?? null });
+        setCogsNotice(`Posted COGS journal ${payload.journal.doc_no || ""}`.trim());
+      } else {
+        setCogsNotice("Posted COGS journal.");
+      }
+      await loadCogsPreview();
+    } catch (postError) {
+      const message = postError instanceof Error ? postError.message : "Failed to post COGS journal.";
+      setCogsError(message);
+    } finally {
+      setCogsPosting(false);
     }
   };
 
@@ -434,6 +529,109 @@ export default function ShopifyOrderDetailPage() {
               </thead>
               <tbody>
                 {financePreview.lines.map((line, index) => (
+                  <tr key={`${line.account_id}-${index}`}>
+                    <td style={tableCellStyle}>
+                      {line.account_code ? `${line.account_code} · ${line.account_name}` : line.account_name || "—"}
+                    </td>
+                    <td style={tableCellStyle}>{line.memo || "—"}</td>
+                    <td style={tableCellStyle}>
+                      {line.side === "debit" ? formatMoney(order.currency, line.amount ?? null) : "—"}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {line.side === "credit" ? formatMoney(order.currency, line.amount ?? null) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={{ ...h2Style, marginBottom: 4 }}>COGS Posting</h2>
+              <p style={subtitleStyle}>Preview and post the cost of goods sold journal for this order.</p>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={loadCogsPreview}
+                style={secondaryButtonStyle}
+                disabled={cogsLoading}
+              >
+                {cogsLoading ? "Loading…" : "Preview COGS"}
+              </button>
+              <button
+                type="button"
+                onClick={handleCogsPost}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: cogsPosting ? 0.7 : 1,
+                }}
+                disabled={cogsPosting || cogsLoading || !cogsPreview?.can_post || Boolean(cogsPostedJournal?.id)}
+              >
+                {cogsPosting ? "Posting…" : cogsPostedJournal?.id ? "COGS Posted" : "Post COGS"}
+              </button>
+            </div>
+          </div>
+
+          {cogsPostedJournal?.id ? (
+            <div style={{ marginTop: 10, fontSize: 14 }}>
+              Posted:{" "}
+              <Link href={`/erp/finance/journals/${cogsPostedJournal.id}`} style={linkStyle}>
+                {cogsPostedJournal.doc_no || cogsPostedJournal.id}
+              </Link>
+            </div>
+          ) : null}
+
+          {cogsNotice ? <div style={{ marginTop: 10, color: "#047857" }}>{cogsNotice}</div> : null}
+          {cogsError ? <div style={{ marginTop: 10, color: "#b91c1c" }}>{cogsError}</div> : null}
+
+          {cogsPreview?.total_cogs != null ? (
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              <div style={summaryRowStyle}>
+                <span style={summaryLabelStyle}>Total COGS</span>
+                <span>{formatMoney(order.currency, cogsPreview.total_cogs ?? null)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          {cogsPreview?.lines && cogsPreview.lines.length > 0 ? (
+            <table style={{ ...tableStyle, marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>SKU</th>
+                  <th style={tableHeaderCellStyle}>Qty</th>
+                  <th style={tableHeaderCellStyle}>Unit Cost</th>
+                  <th style={tableHeaderCellStyle}>Line Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cogsPreview.lines.map((line, index) => (
+                  <tr key={`${line.sku}-${index}`}>
+                    <td style={tableCellStyle}>{line.sku || "—"}</td>
+                    <td style={tableCellStyle}>{line.qty ?? "—"}</td>
+                    <td style={tableCellStyle}>{formatMoney(order.currency, line.unit_cost ?? null)}</td>
+                    <td style={tableCellStyle}>{formatMoney(order.currency, line.line_cost ?? null)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+
+          {cogsPreview?.journal_lines && cogsPreview.journal_lines.length > 0 ? (
+            <table style={{ ...tableStyle, marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Account</th>
+                  <th style={tableHeaderCellStyle}>Memo</th>
+                  <th style={tableHeaderCellStyle}>Debit</th>
+                  <th style={tableHeaderCellStyle}>Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cogsPreview.journal_lines.map((line, index) => (
                   <tr key={`${line.account_id}-${index}`}>
                     <td style={tableCellStyle}>
                       {line.account_code ? `${line.account_code} · ${line.account_name}` : line.account_name || "—"}
