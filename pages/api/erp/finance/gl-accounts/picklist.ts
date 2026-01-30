@@ -8,6 +8,12 @@ const parseOptionalString = (value: string | string[] | undefined): string | nul
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const parseBoolean = (value: string | string[] | undefined): boolean => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return false;
+  return ["true", "1", "yes"].includes(raw.toLowerCase());
+};
+
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown[] };
 type ApiResponse = ErrorResponse | SuccessResponse;
@@ -33,6 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const search = parseOptionalString(req.query.q);
+  const includeInactive = parseBoolean(req.query.include_inactive);
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
@@ -43,6 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data, error } = await userClient.rpc("erp_gl_accounts_picklist", {
       p_q: search,
+      p_include_inactive: includeInactive,
     });
 
     if (error) {

@@ -42,6 +42,7 @@ type AccountOption = {
   code: string;
   name: string;
   account_type: string;
+  normal_balance: string;
   is_active: boolean;
 };
 
@@ -49,7 +50,7 @@ type LedgerRow = {
   journal_id: string;
   doc_no: string | null;
   journal_date: string;
-  status: string;
+  journal_status: string;
   reference_type: string | null;
   reference_id: string | null;
   line_id: string;
@@ -57,7 +58,7 @@ type LedgerRow = {
   debit: number;
   credit: number;
   net: number;
-  created_at: string;
+  line_created_at: string;
 };
 
 export default function AccountLedgerPage() {
