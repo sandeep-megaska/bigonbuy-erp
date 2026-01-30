@@ -84,6 +84,7 @@ export default function PayrollRunDetailPage() {
   const financeJournal = financePosting?.journal || null;
   const financeJournalLink =
     financePosting?.link || (financeJournal?.id ? `/erp/finance/journals/${financeJournal.id}` : null);
+  const financeDocNo = financeJournal?.doc_no || financePosting?.doc_no || null;
 
   useEffect(() => {
     if (!items?.length) {
@@ -380,8 +381,10 @@ export default function PayrollRunDetailPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to post payroll to finance.");
       }
-      setFinancePosting(payload?.post || null);
-      showToast("Posted to finance");
+      const nextPosting = payload?.post || null;
+      setFinancePosting(nextPosting);
+      const postedDocNo = nextPosting?.journal?.doc_no || nextPosting?.doc_no;
+      showToast(postedDocNo ? `Posted to Finance: ${postedDocNo}` : "Posted to Finance");
     } catch (e) {
       setFinancePostError(e.message || "Failed to post payroll to finance.");
       showToast(e.message || "Failed to post payroll to finance.", "error");
@@ -687,6 +690,18 @@ export default function PayrollRunDetailPage() {
               {run.finalized_by ? ` · By ${run.finalized_by}` : ""}
             </p>
           ) : null}
+          {financePosted ? (
+            <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ ...badgeStyle, background: "#16a34a", color: "#fff" }}>
+                Finance: Posted{financeDocNo ? ` — ${financeDocNo}` : ""}
+              </span>
+              {financeJournalLink ? (
+                <a href={financeJournalLink} style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}>
+                  View journal →
+                </a>
+              ) : null}
+            </div>
+          ) : null}
           <p style={{ marginTop: 0, color: "#777", fontSize: 13 }}>
             Signed in as <b>{ctx?.email}</b> · Role: <b>{ctx?.roleKey}</b>
           </p>
@@ -723,14 +738,25 @@ export default function PayrollRunDetailPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <h3 style={{ margin: 0 }}>Payroll Items ({items.length})</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ ...badgeStyle, ...attendanceBadgeStyles[attendanceStatus] || attendanceBadgeStyles.not_generated }}>
-                Attendance: {attendanceLabel}
-              </span>
-              {!isAttendanceFrozen ? (
-                <span style={{ fontSize: 12, color: "#b45309" }}>
-                  Attendance not frozen; figures may change.
-                </span>
-              ) : null}
+              {isRunFinalized ? (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>Payroll is finalized.</span>
+              ) : (
+                <>
+                  <span
+                    style={{
+                      ...badgeStyle,
+                      ...attendanceBadgeStyles[attendanceStatus] || attendanceBadgeStyles.not_generated,
+                    }}
+                  >
+                    Attendance: {attendanceLabel}
+                  </span>
+                  {!isAttendanceFrozen ? (
+                    <span style={{ fontSize: 12, color: "#b45309" }}>
+                      Attendance not frozen; figures may change.
+                    </span>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -949,29 +975,20 @@ export default function PayrollRunDetailPage() {
                 {financePostLoading ? "Posting…" : "Post to Finance"}
               </button>
             ) : null}
+            {financePosted && financeJournalLink ? (
+              <a href={financeJournalLink} style={{ ...smallButtonStyle, textDecoration: "none" }}>
+                Open Journal
+              </a>
+            ) : null}
           </div>
         </div>
-
-        <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
-          <span style={{ marginLeft: 10 }}>
-            <a href="/erp/finance/settings/payroll-posting" style={{ color: "#2563eb", textDecoration: "none" }}>
-              {canFinanceWrite ? "Edit config" : "View config"}
-            </a>
-          </span>
-        </div>
-
-        {financePostError ? (
-          <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
-            {financePostError}
-          </div>
-        ) : null}
 
         {financePosted ? (
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ ...badgeStyle, background: "#16a34a", color: "#fff" }}>Posted</span>
               <span style={{ fontSize: 13, color: "#065f46" }}>
-                Journal: {financeJournal?.doc_no || "Posted"}
+                Journal: {financeDocNo || "Posted"}
               </span>
               {financeJournalLink ? (
                 <a href={financeJournalLink} style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}>
@@ -982,19 +999,33 @@ export default function PayrollRunDetailPage() {
           </div>
         ) : null}
 
-        {!isRunFinalized ? (
+        <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+          <span style={{ marginLeft: 10 }}>
+            <a href="/erp/finance/settings/payroll-posting" style={{ color: "#2563eb", textDecoration: "none" }}>
+              {canFinanceWrite ? "Edit config" : "View config"}
+            </a>
+          </span>
+        </div>
+
+        {financePostError && !financePosted ? (
+          <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+            {financePostError}
+          </div>
+        ) : null}
+
+        {!isRunFinalized && !financePosted ? (
           <div style={{ marginTop: 12, fontSize: 13, color: "#b45309" }}>
             Finalize payroll to enable posting previews.
           </div>
         ) : null}
 
-        {financeError ? (
+        {financeError && !financePosted ? (
           <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
             {financeError}
           </div>
         ) : null}
 
-        {hasFinancePreviewErrors ? (
+        {hasFinancePreviewErrors && !financePosted ? (
           <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
             <div style={{ fontWeight: 600, fontSize: 12, color: "#b91c1c" }}>Errors</div>
             <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "#b91c1c" }}>
