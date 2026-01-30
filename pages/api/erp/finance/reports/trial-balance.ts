@@ -47,6 +47,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const from = parseDate(parseOptionalString(req.query.from));
   const to = parseDate(parseOptionalString(req.query.to));
   const includeVoid = parseBoolean(req.query.include_void);
+  const includeInactive = parseBoolean(req.query.include_inactive);
+  const query = parseOptionalString(req.query.q);
 
   if (!from) {
     return res.status(400).json({ ok: false, error: "Invalid from date. Use YYYY-MM-DD." });
@@ -66,6 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       p_from: from,
       p_to: to,
       p_include_void: includeVoid,
+      p_include_inactive: includeInactive,
+      p_q: query,
     });
 
     if (error) {
