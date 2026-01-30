@@ -77,13 +77,9 @@ export default function PayrollRunDetailPage() {
   const attendanceStatus = run?.attendance_period_status || "not_generated";
   const attendanceLabel = attendanceStatus === "not_generated" ? "not generated" : attendanceStatus;
   const isAttendanceFrozen = attendanceStatus === "frozen";
-  const financePreviewReady = Boolean(financePreview?.can_post);
   const financePreviewErrors = financePreview?.errors || [];
   const hasFinancePreviewErrors = financePreviewErrors.length > 0;
-  const canPostFinance =
-    financePreviewReady &&
-    !hasFinancePreviewErrors &&
-    canFinanceWrite;
+  const canPostFinance = Boolean(financePreview?.can_post);
   const financePosted = Boolean(financePosting?.posted);
   const financeJournal = financePosting?.journal || null;
   const financeJournalLink =
@@ -945,10 +941,10 @@ export default function PayrollRunDetailPage() {
                   borderColor: "#16a34a",
                   background: "#16a34a",
                   color: "#fff",
-                  opacity: financePostLoading ? 0.7 : 1,
+                  opacity: financePostLoading || !canFinanceWrite ? 0.7 : 1,
                 }}
                 onClick={postFinance}
-                disabled={financePostLoading}
+                disabled={financePostLoading || !canFinanceWrite}
               >
                 {financePostLoading ? "Posting…" : "Post to Finance"}
               </button>
@@ -965,8 +961,8 @@ export default function PayrollRunDetailPage() {
         </div>
 
         {financePostError ? (
-          <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
-            <span style={{ color: "#b91c1c", fontSize: 13 }}>{financePostError}</span>
+          <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+            {financePostError}
           </div>
         ) : null}
 
@@ -993,8 +989,8 @@ export default function PayrollRunDetailPage() {
         ) : null}
 
         {financeError ? (
-          <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
-            <span style={{ color: "#b91c1c", fontSize: 13 }}>{financeError}</span>
+          <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+            {financeError}
           </div>
         ) : null}
 
