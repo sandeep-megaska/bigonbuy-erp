@@ -168,7 +168,7 @@ export default function FinanceJournalDetailPage() {
       return;
     }
 
-    setToast({ type: "success", message: "Journal voided." });
+    setToast({ type: "success", message: "Journal voided" });
     setShowVoidModal(false);
     setVoidReason("");
     await loadJournal();
