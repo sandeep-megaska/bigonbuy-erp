@@ -23,9 +23,12 @@ declare
   v_total_cogs numeric(14,2) := 0;
   v_can_post boolean := false;
   v_missing_sku_count int := 0;
+  v_missing_cost boolean := false;
   v_line record;
   v_unit_cost numeric;
   v_line_cost numeric;
+  v_variant_id uuid;
+  v_oms_order_id uuid;
 begin
   perform public.erp_require_finance_reader();
 
@@ -99,6 +102,14 @@ begin
     v_errors := array_append(v_errors, 'Missing SKU for one or more order lines');
   end if;
 
+  select o.id
+    into v_oms_order_id
+    from public.erp_oms_orders o
+    where o.company_id = v_company_id
+      and o.source_order_id = v_order.id
+    order by o.order_created_at desc nulls last
+    limit 1;
+
   for v_line in
     select l.sku, sum(l.quantity)::numeric as qty
       from public.erp_shopify_order_lines l
@@ -117,8 +128,55 @@ begin
       order by c.on_hand_qty desc nulls last
       limit 1;
 
+    v_variant_id := null;
+
+    if v_unit_cost is null and v_oms_order_id is not null then
+      select ol.variant_id
+        into v_variant_id
+        from public.erp_oms_order_lines ol
+        where ol.company_id = v_company_id
+          and ol.order_id = v_oms_order_id
+          and ol.sku = v_line.sku
+          and ol.variant_id is not null
+        order by ol.updated_at desc nulls last
+        limit 1;
+    end if;
+
+    if v_unit_cost is null and v_variant_id is not null then
+      select l.unit_cost
+        into v_unit_cost
+        from public.erp_inventory_ledger l
+        where l.company_id = v_company_id
+          and l.variant_id = v_variant_id
+          and coalesce(l.qty_in, 0) > 0
+          and l.unit_cost is not null
+          and coalesce(l.is_void, false) = false
+        order by l.created_at desc nulls last
+        limit 1;
+    end if;
+
+    if v_unit_cost is null then
+      select o.unit_cost
+        into v_unit_cost
+        from public.erp_sku_cost_overrides o
+        where o.company_id = v_company_id
+          and o.sku = v_line.sku
+          and o.effective_from <= current_date
+          and (o.effective_to is null or o.effective_to >= current_date)
+        order by o.effective_from desc
+        limit 1;
+    end if;
+
+    if v_unit_cost is null and v_variant_id is not null then
+      select v.cost_price
+        into v_unit_cost
+        from public.erp_variants v
+        where v.id = v_variant_id;
+    end if;
+
     if v_unit_cost is null then
       v_errors := array_append(v_errors, format('Missing cost for SKU %s', v_line.sku));
+      v_missing_cost := true;
       continue;
     end if;
 
@@ -137,7 +195,7 @@ begin
 
   v_total_cogs := round(v_total_cogs, 2);
 
-  if v_total_cogs <= 0 then
+  if v_total_cogs <= 0 and not v_missing_cost then
     v_errors := array_append(v_errors, 'Invalid COGS total');
   end if;
 
@@ -215,6 +273,8 @@ declare
   v_total_debit numeric(14,2);
   v_total_credit numeric(14,2);
   v_missing_sku_count int := 0;
+  v_variant_id uuid;
+  v_oms_order_id uuid;
 begin
   if auth.role() <> 'service_role' then
     perform public.erp_require_finance_writer();
@@ -283,6 +343,14 @@ begin
     raise exception 'Missing SKU for one or more order lines';
   end if;
 
+  select o.id
+    into v_oms_order_id
+    from public.erp_oms_orders o
+    where o.company_id = v_company_id
+      and o.source_order_id = v_order.id
+    order by o.order_created_at desc nulls last
+    limit 1;
+
   for v_line in
     select l.sku, sum(l.quantity)::numeric as qty
       from public.erp_shopify_order_lines l
@@ -300,6 +368,52 @@ begin
         and c.sku = v_line.sku
       order by c.on_hand_qty desc nulls last
       limit 1;
+
+    v_variant_id := null;
+
+    if v_unit_cost is null and v_oms_order_id is not null then
+      select ol.variant_id
+        into v_variant_id
+        from public.erp_oms_order_lines ol
+        where ol.company_id = v_company_id
+          and ol.order_id = v_oms_order_id
+          and ol.sku = v_line.sku
+          and ol.variant_id is not null
+        order by ol.updated_at desc nulls last
+        limit 1;
+    end if;
+
+    if v_unit_cost is null and v_variant_id is not null then
+      select l.unit_cost
+        into v_unit_cost
+        from public.erp_inventory_ledger l
+        where l.company_id = v_company_id
+          and l.variant_id = v_variant_id
+          and coalesce(l.qty_in, 0) > 0
+          and l.unit_cost is not null
+          and coalesce(l.is_void, false) = false
+        order by l.created_at desc nulls last
+        limit 1;
+    end if;
+
+    if v_unit_cost is null then
+      select o.unit_cost
+        into v_unit_cost
+        from public.erp_sku_cost_overrides o
+        where o.company_id = v_company_id
+          and o.sku = v_line.sku
+          and o.effective_from <= current_date
+          and (o.effective_to is null or o.effective_to >= current_date)
+        order by o.effective_from desc
+        limit 1;
+    end if;
+
+    if v_unit_cost is null and v_variant_id is not null then
+      select v.cost_price
+        into v_unit_cost
+        from public.erp_variants v
+        where v.id = v_variant_id;
+    end if;
 
     if v_unit_cost is null then
       raise exception 'Missing cost for SKU %', v_line.sku;
