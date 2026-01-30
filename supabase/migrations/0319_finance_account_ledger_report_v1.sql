@@ -1,7 +1,7 @@
 -- Finance account ledger report v1 (updates to picklist + ledger RPCs)
 
 -- Drop older signature to avoid ambiguity
- drop function if exists public.erp_gl_accounts_picklist(text);
+drop function if exists public.erp_gl_accounts_picklist(text);
 
 create or replace function public.erp_gl_accounts_picklist(
   p_q text default null,
@@ -45,6 +45,11 @@ $$;
 revoke all on function public.erp_gl_accounts_picklist(text, boolean) from public;
 grant execute on function public.erp_gl_accounts_picklist(text, boolean) to authenticated;
 
+
+-- =========================================================
+-- Account Ledger Statement
+-- =========================================================
+
 create or replace function public.erp_fin_account_ledger(
   p_account_id uuid,
   p_from date,
@@ -55,7 +60,7 @@ returns table(
   journal_id uuid,
   doc_no text,
   journal_date date,
-  journal_status text,
+  status text,
   reference_type text,
   reference_id uuid,
   line_id uuid,
@@ -63,7 +68,7 @@ returns table(
   debit numeric,
   credit numeric,
   net numeric,
-  line_created_at timestamptz
+  created_at timestamptz
 )
 language plpgsql
 security definer
@@ -77,7 +82,7 @@ begin
     j.id as journal_id,
     j.doc_no,
     j.journal_date,
-    j.status as journal_status,
+    j.status as status,
     j.reference_type,
     j.reference_id,
     l.id as line_id,
@@ -85,7 +90,7 @@ begin
     l.debit,
     l.credit,
     (l.debit - l.credit) as net,
-    l.created_at as line_created_at
+    l.created_at as created_at
   from public.erp_fin_journal_lines l
   join public.erp_fin_journals j
     on j.id = l.journal_id
