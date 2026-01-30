@@ -12,6 +12,7 @@ type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; journal: JournalSummary; post: PostSummary };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
+
 const getRunIdParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
