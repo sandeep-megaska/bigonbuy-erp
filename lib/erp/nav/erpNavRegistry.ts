@@ -18,6 +18,7 @@ export type ErpNavGroupId =
   | "procurement"
   | "finance"
   | "hr"
+  | "self-service"
   | "admin"
   | "integrations"
   | "reports"
@@ -79,6 +80,7 @@ const groupOrder: ErpNavGroupId[] = [
   "procurement",
   "finance",
   "hr",
+  "self-service",
   "reports",
   "integrations",
   "admin",
@@ -92,6 +94,7 @@ export const ERP_NAV_GROUPS: ErpNavGroup[] = [
   { id: "procurement", label: "Procurement" },
   { id: "finance", label: "Finance" },
   { id: "hr", label: "HR" },
+  { id: "self-service", label: "Self Service" },
   { id: "reports", label: "Reports" },
   { id: "integrations", label: "Integrations" },
   { id: "admin", label: "Admin" },
@@ -659,6 +662,17 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     requiredGuard: "hr_reader",
     status: "active",
     moduleKeys: ["hr"],
+  },
+  {
+    id: "hr-self-service-payslips",
+    label: "Payslips",
+    href: "/erp/hr/self-service/payslips",
+    icon: "PS",
+    groupId: "self-service",
+    requiredGuard: "authenticated",
+    status: "active",
+    moduleKeys: ["hr"],
+    description: "Review your personal payslips and downloads.",
   },
   {
     id: "hr-report-attendance-summary",

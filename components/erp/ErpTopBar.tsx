@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
@@ -16,16 +16,16 @@ type ModuleLink = {
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
   { key: "hr", label: "HR", href: "/erp/hr" },
-  { key: "employee", label: "Employee", href: "/erp/my/payslips" },
   { key: "finance", label: "Finance", href: "/erp/finance" },
   { key: "oms", label: "OMS", href: "/erp/oms/channels" },
-  { key: "admin", label: "Admin", href: "/erp/admin/company-users" },
 ];
 
 export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey }) {
   const router = useRouter();
   const branding = useCompanyBranding();
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
+  const companyMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -36,6 +36,24 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!companyMenuRef.current) return;
+      if (event.target instanceof Node && !companyMenuRef.current.contains(event.target)) {
+        setCompanyMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, []);
+
+  useEffect(() => {
+    setCompanyMenuOpen(false);
+  }, [router.asPath]);
 
   const companyName = branding?.companyName || "Company";
 
@@ -83,6 +101,28 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       <nav style={navStyle}>{navLinks}</nav>
 
       <div style={rightBlockStyle}>
+        <div style={companyMenuWrapperStyle} ref={companyMenuRef}>
+          <button
+            type="button"
+            onClick={() => setCompanyMenuOpen((prev) => !prev)}
+            style={companyMenuButtonStyle}
+            aria-expanded={companyMenuOpen}
+            aria-haspopup="menu"
+          >
+            Company
+            <span style={companyMenuCaretStyle}>{companyMenuOpen ? "▲" : "▼"}</span>
+          </button>
+          {companyMenuOpen ? (
+            <div style={companyMenuStyle} role="menu">
+              <Link href="/erp/admin/company-settings" style={companyMenuLinkStyle} role="menuitem">
+                Company Settings
+              </Link>
+              <Link href="/erp/admin/company-users" style={companyMenuLinkStyle} role="menuitem">
+                Users &amp; Access
+              </Link>
+            </div>
+          ) : null}
+        </div>
         {userEmail ? <span style={userStyle}>{userEmail}</span> : null}
         <button type="button" onClick={handleSignOut} style={signOutStyle}>
           Sign Out
@@ -181,6 +221,55 @@ const rightBlockStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 12,
+};
+
+const companyMenuWrapperStyle: CSSProperties = {
+  position: "relative",
+};
+
+const companyMenuButtonStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 12px",
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  backgroundColor: "#fff",
+  color: "#111827",
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 13,
+};
+
+const companyMenuCaretStyle: CSSProperties = {
+  fontSize: 10,
+  opacity: 0.7,
+};
+
+const companyMenuStyle: CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 8px)",
+  right: 0,
+  minWidth: 200,
+  borderRadius: 10,
+  backgroundColor: "#fff",
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.12)",
+  padding: 6,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  zIndex: 40,
+};
+
+const companyMenuLinkStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  textDecoration: "none",
+  color: "#111827",
+  fontSize: 13,
+  fontWeight: 600,
+  backgroundColor: "rgba(15, 23, 42, 0.02)",
 };
 
 const userStyle: CSSProperties = {
