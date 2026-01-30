@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
@@ -176,6 +177,11 @@ export default function PayrollPostingSettingsPage() {
             Enter the ledger account UUIDs to use for payroll finance previews. Posting is not enabled in
             Phase 1.
           </p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+            <Link href="/erp/finance/masters/gl-accounts" style={{ ...secondaryButtonStyle, textDecoration: "none" }}>
+              Open Chart of Accounts
+            </Link>
+          </div>
 
           <div style={{ display: "grid", gap: 14 }}>
             <label style={labelStyle}>

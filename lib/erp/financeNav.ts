@@ -223,6 +223,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-gl-accounts",
+    label: "Chart of Accounts",
+    href: "/erp/finance/masters/gl-accounts",
+    description: "Maintain ledger accounts for payroll and finance workflows.",
+    group: "Masters",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "CO",
+    cardIcon: "📚",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-bank-import",
     label: "Bank Import",
     href: "/erp/finance/bank/import",
