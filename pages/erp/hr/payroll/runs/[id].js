@@ -405,7 +405,7 @@ export default function PayrollRunDetailPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           idempotencyKey: runId,
-          notes: `Payroll run ${run?.year}-${String(run?.month || \"\").padStart(2, \"0\")}`,
+          notes: `Payroll run ${run?.year}-${String(run?.month || "").padStart(2, "0")}`,
         }),
       });
       const payload = await response.json();
