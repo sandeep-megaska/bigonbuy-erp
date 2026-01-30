@@ -51,11 +51,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const { data, error } = await userClient.rpc("erp_gl_account_upsert", {
-      p_id: parsed.data.id ?? null,
       p_code: parsed.data.code,
       p_name: parsed.data.name,
       p_account_type: parsed.data.account_type,
       p_is_active: parsed.data.is_active ?? true,
+      p_id: parsed.data.id ?? null,
     });
 
     if (error) {
