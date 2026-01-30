@@ -258,80 +258,63 @@ $$;
 revoke all on function public.erp_payroll_finance_post(uuid, date, text, uuid) from public;
 grant execute on function public.erp_payroll_finance_post(uuid, date, text, uuid) to authenticated;
 
-create or replace function public.erp_fin_journal_void(
+create function public.erp_fin_journal_void_v2(
   p_journal_id uuid,
   p_reason text
 ) returns public.erp_fin_journals
 language plpgsql
 security definer
-set search_path = public
 as $$
 declare
-  v_company_id uuid := public.erp_current_company_id();
-  v_actor uuid := auth.uid();
-  v_status text;
-  v_reference_type text;
-  v_reference_id uuid;
+  v_j public.erp_fin_journals;
 begin
-  if v_actor is null then
-    raise exception 'Not authenticated';
-  end if;
+  perform public.erp_require_finance_writer();
 
-  if auth.role() <> 'service_role' then
-    perform public.erp_require_finance_writer();
-  end if;
-
-  if p_reason is null or length(btrim(p_reason)) = 0 then
-    raise exception 'Void reason is required';
-  end if;
-
-  select j.status, j.reference_type, j.reference_id
-    into v_status, v_reference_type, v_reference_id
-    from public.erp_fin_journals j
-    where j.id = p_journal_id
-      and j.company_id = v_company_id
-    for update;
+  -- lock + validate
+  select * into v_j
+  from public.erp_fin_journals
+  where company_id = public.erp_current_company_id()
+    and id = p_journal_id
+  for update;
 
   if not found then
     raise exception 'Journal not found';
   end if;
 
-  if v_status <> 'posted' then
+  if v_j.status <> 'posted' then
     raise exception 'Only posted journals can be voided';
   end if;
 
   update public.erp_fin_journals
   set status = 'void',
       voided_at = now(),
-      voided_by_user_id = v_actor,
+      voided_by_user_id = auth.uid(),
       void_reason = p_reason
   where id = p_journal_id
-    and company_id = v_company_id;
+    and company_id = public.erp_current_company_id();
 
+  -- if this is payroll-linked, flip related status (adjust to your schema)
   update public.erp_payroll_finance_posts
-  set status = 'void'
-  where company_id = v_company_id
-    and finance_doc_type = 'journal'
+  set status = 'void',
+      voided_at = now(),
+      voided_by_user_id = auth.uid(),
+      void_reason = p_reason
+  where company_id = public.erp_current_company_id()
+    and finance_doc_type = 'JRN'
     and finance_doc_id = p_journal_id;
 
-  if v_reference_type = 'payroll_run' and v_reference_id is not null then
-    update public.erp_payroll_runs
-    set finance_post_status = 'voided'
-    where id = v_reference_id
-      and company_id = v_company_id;
-  end if;
+  select * into v_j
+  from public.erp_fin_journals
+  where company_id = public.erp_current_company_id()
+    and id = p_journal_id;
 
-  return (
-    select j
-    from public.erp_fin_journals j
-    where j.id = p_journal_id
-      and j.company_id = v_company_id
-  );
+  return v_j;
 end;
 $$;
 
-revoke all on function public.erp_fin_journal_void(uuid, text) from public;
-grant execute on function public.erp_fin_journal_void(uuid, text) to authenticated;
+revoke all on function public.erp_fin_journal_void_v2(uuid,text) from public;
+grant execute on function public.erp_fin_journal_void_v2(uuid,text) to authenticated;
+
 
 create or replace function public.erp_fin_journals_list(
   p_from date,
