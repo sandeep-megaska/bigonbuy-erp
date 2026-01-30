@@ -47,8 +47,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_shopify_sales_finance_posting_preview", {
-      p_source_id: orderId,
+    const { data, error } = await userClient.rpc("erp_sales_finance_posting_preview", {
+      p_order_id: orderId,
     });
 
     if (error) {

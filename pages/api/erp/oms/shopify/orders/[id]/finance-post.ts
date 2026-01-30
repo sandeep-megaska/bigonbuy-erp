@@ -49,10 +49,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const payload = (req.body ?? {}) as { idempotencyKey?: string | null; notes?: string | null };
 
-    const { data: journalId, error: postError } = await userClient.rpc("erp_shopify_sales_finance_post", {
-      p_source_id: orderId,
+    const { data: journalId, error: postError } = await userClient.rpc("erp_sales_finance_post", {
+      p_order_id: orderId,
       p_idempotency_key: payload.idempotencyKey ?? orderId,
-      p_notes: payload.notes ?? null,
     });
 
     if (postError) {
