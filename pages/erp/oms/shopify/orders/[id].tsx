@@ -103,6 +103,10 @@ export default function ShopifyOrderDetailPage() {
   const [cogsError, setCogsError] = useState<string | null>(null);
   const [cogsNotice, setCogsNotice] = useState<string | null>(null);
   const [cogsPostedJournal, setCogsPostedJournal] = useState<{ id: string; doc_no: string | null } | null>(null);
+  const hasMissingCogsCost = useMemo(
+    () => Boolean(cogsPreview?.errors?.some((message) => message.toLowerCase().includes("missing cost"))),
+    [cogsPreview?.errors]
+  );
 
   const loadOrder = useCallback(async () => {
     if (!ctx?.companyId || !orderId) return;
@@ -587,6 +591,15 @@ export default function ShopifyOrderDetailPage() {
 
           {cogsNotice ? <div style={{ marginTop: 10, color: "#047857" }}>{cogsNotice}</div> : null}
           {cogsError ? <div style={{ marginTop: 10, color: "#b91c1c" }}>{cogsError}</div> : null}
+          {hasMissingCogsCost ? (
+            <div style={{ marginTop: 8, color: "#6b7280", fontSize: 13 }}>
+              Missing a cost seed?{" "}
+              <Link href="/erp/inventory/cost-seeds" style={linkStyle}>
+                Open cost seeds
+              </Link>
+              .
+            </div>
+          ) : null}
 
           {cogsPreview?.total_cogs != null ? (
             <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
