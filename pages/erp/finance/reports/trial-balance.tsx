@@ -49,7 +49,9 @@ export default function TrialBalancePage() {
   const [error, setError] = useState<string | null>(null);
   const [dateStart, setDateStart] = useState(start);
   const [dateEnd, setDateEnd] = useState(end);
+  const [searchQuery, setSearchQuery] = useState("");
   const [includeVoid, setIncludeVoid] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
   const [rows, setRows] = useState<TrialBalanceRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
@@ -96,6 +98,8 @@ export default function TrialBalancePage() {
     if (dateStart) params.set("from", dateStart);
     if (dateEnd) params.set("to", dateEnd);
     if (includeVoid) params.set("include_void", "true");
+    if (includeInactive) params.set("include_inactive", "true");
+    if (searchQuery.trim()) params.set("q", searchQuery.trim());
 
     const response = await fetch(`/api/erp/finance/reports/trial-balance?${params.toString()}`, {
       headers: getAuthHeaders(),
@@ -127,6 +131,7 @@ export default function TrialBalancePage() {
       { debit: 0, credit: 0 }
     );
   }, [rows]);
+  const difference = totals.debit - totals.credit;
 
   return (
     <ErpShell activeModule="finance">
@@ -172,6 +177,16 @@ export default function TrialBalancePage() {
               style={inputStyle}
             />
           </label>
+          <label style={filterLabelStyle}>
+            Search
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Account code or name"
+              style={inputStyle}
+            />
+          </label>
           <label style={{ ...filterLabelStyle, flexDirection: "row", gap: 8, alignItems: "center" }}>
             <input
               type="checkbox"
@@ -180,6 +195,15 @@ export default function TrialBalancePage() {
               style={{ transform: "scale(1.1)" }}
             />
             Include void journals
+          </label>
+          <label style={{ ...filterLabelStyle, flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(event) => setIncludeInactive(event.target.checked)}
+              style={{ transform: "scale(1.1)" }}
+            />
+            Include inactive accounts
           </label>
           <button type="submit" style={{ ...primaryButtonStyle, minWidth: 160 }} disabled={isLoadingData || loading}>
             {isLoadingData ? "Loading…" : "Apply Filters"}
@@ -202,7 +226,7 @@ export default function TrialBalancePage() {
               {rows.length === 0 ? (
                 <tr>
                   <td style={{ ...tableCellStyle, textAlign: "center" }} colSpan={6}>
-                    {isLoadingData ? "Loading trial balance…" : "No entries for this period."}
+                    {isLoadingData ? "Loading trial balance…" : "No accounts found."}
                   </td>
                 </tr>
               ) : (
@@ -226,7 +250,7 @@ export default function TrialBalancePage() {
                   </td>
                   <td style={tableCellStyle}>{formatAmount(totals.debit)}</td>
                   <td style={tableCellStyle}>{formatAmount(totals.credit)}</td>
-                  <td style={tableCellStyle} />
+                  <td style={tableCellStyle}>{formatAmount(difference)}</td>
                 </tr>
               </tfoot>
             ) : null}
