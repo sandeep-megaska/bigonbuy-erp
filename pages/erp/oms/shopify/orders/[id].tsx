@@ -24,6 +24,35 @@ import {
   ShopifyOrderRow,
 } from "../../../../../lib/erp/omsShopify";
 
+type FinancePostingLine = {
+  memo: string | null;
+  side: "debit" | "credit";
+  amount: number | null;
+  account_id: string | null;
+  account_code?: string | null;
+  account_name?: string | null;
+};
+
+type FinancePostingPreview = {
+  source?: {
+    id?: string | null;
+    order_no?: string | null;
+    order_id?: number | null;
+    date?: string | null;
+    channel?: string | null;
+    currency?: string | null;
+  } | null;
+  totals?: {
+    net_sales?: number | null;
+    gst?: number | null;
+    gross_total?: number | null;
+  } | null;
+  lines?: FinancePostingLine[] | null;
+  errors?: string[] | null;
+  can_post?: boolean | null;
+  posted?: { journal_id?: string | null; doc_no?: string | null } | null;
+};
+
 export default function ShopifyOrderDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -38,6 +67,12 @@ export default function ShopifyOrderDetailPage() {
   const [gstStatus, setGstStatus] = useState<"actual" | "preview">("preview");
   const [gstNotice, setGstNotice] = useState<string | null>(null);
   const [gstLoading, setGstLoading] = useState(false);
+  const [financePreview, setFinancePreview] = useState<FinancePostingPreview | null>(null);
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financePosting, setFinancePosting] = useState(false);
+  const [financeError, setFinanceError] = useState<string | null>(null);
+  const [financeNotice, setFinanceNotice] = useState<string | null>(null);
+  const [postedJournal, setPostedJournal] = useState<{ id: string; doc_no: string | null } | null>(null);
 
   const loadOrder = useCallback(async () => {
     if (!ctx?.companyId || !orderId) return;
@@ -88,6 +123,78 @@ export default function ShopifyOrderDetailPage() {
     setGstNotice(gstDetail.notice);
     setGstLoading(false);
   }, [ctx?.companyId, orderId]);
+
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
+
+  const loadFinancePreview = useCallback(async () => {
+    if (!ctx?.session?.access_token || !orderId) return;
+    setFinanceLoading(true);
+    setFinanceError(null);
+    setFinanceNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-preview`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ orderId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load finance preview.");
+      }
+      const preview = payload?.data as FinancePostingPreview;
+      setFinancePreview(preview ?? null);
+      const posted = preview?.posted?.journal_id
+        ? { id: preview.posted.journal_id, doc_no: preview.posted.doc_no ?? null }
+        : null;
+      setPostedJournal(posted);
+      if (posted) {
+        setFinanceNotice(null);
+      }
+      if (preview?.errors && preview.errors.length > 0) {
+        setFinanceError(preview.errors.join(", "));
+      }
+    } catch (previewError) {
+      const message = previewError instanceof Error ? previewError.message : "Failed to load finance preview.";
+      setFinanceError(message);
+    } finally {
+      setFinanceLoading(false);
+    }
+  }, [ctx?.session?.access_token, orderId]);
+
+  const handleFinancePost = async () => {
+    if (!ctx?.session?.access_token || !orderId) return;
+    setFinancePosting(true);
+    setFinanceError(null);
+    setFinanceNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ orderId, idempotencyKey: orderId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to post finance journal.");
+      }
+      if (payload?.journal?.id) {
+        setPostedJournal({ id: payload.journal.id, doc_no: payload.journal.doc_no ?? null });
+        setFinanceNotice(`Posted finance journal ${payload.journal.doc_no || ""}`.trim());
+      } else {
+        setFinanceNotice("Posted finance journal.");
+      }
+      await loadFinancePreview();
+    } catch (postError) {
+      const message = postError instanceof Error ? postError.message : "Failed to post finance journal.";
+      setFinanceError(message);
+    } finally {
+      setFinancePosting(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -253,6 +360,96 @@ export default function ShopifyOrderDetailPage() {
               )}
             </tbody>
           </table>
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={{ ...h2Style, marginBottom: 4 }}>Finance Posting</h2>
+              <p style={subtitleStyle}>Preview and post the sales revenue journal for this order.</p>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={loadFinancePreview}
+                style={secondaryButtonStyle}
+                disabled={financeLoading}
+              >
+                {financeLoading ? "Loading…" : "Preview Finance Posting"}
+              </button>
+              <button
+                type="button"
+                onClick={handleFinancePost}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: financePosting ? 0.7 : 1,
+                }}
+                disabled={
+                  financePosting || financeLoading || !financePreview?.can_post || Boolean(postedJournal?.id)
+                }
+              >
+                {financePosting ? "Posting…" : postedJournal?.id ? "Posted to Finance" : "Post to Finance"}
+              </button>
+            </div>
+          </div>
+
+          {postedJournal?.id ? (
+            <div style={{ marginTop: 10, fontSize: 14 }}>
+              Posted:{" "}
+              <Link href={`/erp/finance/journals/${postedJournal.id}`} style={linkStyle}>
+                {postedJournal.doc_no || postedJournal.id}
+              </Link>
+            </div>
+          ) : null}
+
+          {financeNotice ? <div style={{ marginTop: 10, color: "#047857" }}>{financeNotice}</div> : null}
+          {financeError ? <div style={{ marginTop: 10, color: "#b91c1c" }}>{financeError}</div> : null}
+
+          {financePreview?.totals ? (
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              <div style={summaryRowStyle}>
+                <span style={summaryLabelStyle}>Net Sales</span>
+                <span>{formatMoney(order.currency, financePreview.totals.net_sales ?? null)}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span style={summaryLabelStyle}>GST Output</span>
+                <span>{formatMoney(order.currency, financePreview.totals.gst ?? null)}</span>
+              </div>
+              <div style={summaryRowStyle}>
+                <span style={summaryLabelStyle}>Gross Total</span>
+                <span>{formatMoney(order.currency, financePreview.totals.gross_total ?? null)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          {financePreview?.lines && financePreview.lines.length > 0 ? (
+            <table style={{ ...tableStyle, marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Account</th>
+                  <th style={tableHeaderCellStyle}>Memo</th>
+                  <th style={tableHeaderCellStyle}>Debit</th>
+                  <th style={tableHeaderCellStyle}>Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {financePreview.lines.map((line, index) => (
+                  <tr key={`${line.account_id}-${index}`}>
+                    <td style={tableCellStyle}>
+                      {line.account_code ? `${line.account_code} · ${line.account_name}` : line.account_name || "—"}
+                    </td>
+                    <td style={tableCellStyle}>{line.memo || "—"}</td>
+                    <td style={tableCellStyle}>
+                      {line.side === "debit" ? formatMoney(order.currency, line.amount ?? null) : "—"}
+                    </td>
+                    <td style={tableCellStyle}>
+                      {line.side === "credit" ? formatMoney(order.currency, line.amount ?? null) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
         </section>
 
         <section style={cardStyle}>
@@ -432,6 +629,25 @@ const secondaryButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
+};
+
+const primaryButtonStyle: CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: 10,
+  border: "1px solid #111827",
+  background: "#111827",
+  color: "#fff",
+  fontWeight: 600,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  cursor: "pointer",
+};
+
+const linkStyle: CSSProperties = {
+  color: "#2563eb",
+  textDecoration: "none",
+  fontWeight: 600,
 };
 
 const summaryGridStyle: CSSProperties = {
