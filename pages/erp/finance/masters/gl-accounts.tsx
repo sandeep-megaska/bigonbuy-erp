@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { getCompanyContext, getSessionOrNull, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   asset: "Asset",
@@ -105,9 +105,9 @@ export default function GlAccountsPage() {
     };
   }, [router]);
 
-  const getAuthHeaders = () => {
+  const getAuthHeaders = async () => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const token = ctx?.session?.access_token;
+    const token = ctx?.session?.access_token ?? (await getSessionOrNull())?.access_token;
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
@@ -115,21 +115,31 @@ export default function GlAccountsPage() {
   };
 
   const loadAccounts = async () => {
-    if (!ctx?.companyId || !ctx?.session?.access_token) return;
+    if (!ctx?.companyId) return;
     setIsLoadingData(true);
     setError(null);
     setToast(null);
+    const headers = await getAuthHeaders();
+    if (!headers.Authorization) {
+      setError("Please sign in again.");
+      setIsLoadingData(false);
+      return;
+    }
     const params = new URLSearchParams();
     if (search.trim()) params.set("q", search.trim());
     if (includeInactive) params.set("include_inactive", "true");
 
     const response = await fetch(`/api/erp/finance/gl-accounts?${params.toString()}`, {
-      headers: getAuthHeaders(),
+      headers,
     });
     const payload = await response.json();
 
     if (!response.ok) {
-      setError(payload?.error || "Failed to load GL accounts.");
+      if (response.status === 401) {
+        setError("Please sign in again.");
+      } else {
+        setError(payload?.error || "Failed to load GL accounts.");
+      }
       setIsLoadingData(false);
       return;
     }
@@ -199,15 +209,24 @@ export default function GlAccountsPage() {
     setToast(null);
 
     try {
+      const headers = await getAuthHeaders();
+      if (!headers.Authorization) {
+        setToast({ type: "error", message: "Please sign in again." });
+        return;
+      }
       const response = await fetch("/api/erp/finance/gl-accounts/upsert", {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers,
         body: JSON.stringify(payload),
       });
       const data = await response.json();
 
       if (!response.ok) {
-        setToast({ type: "error", message: data?.error || "Failed to save account." });
+        if (response.status === 401) {
+          setToast({ type: "error", message: "Please sign in again." });
+        } else {
+          setToast({ type: "error", message: data?.error || "Failed to save account." });
+        }
         return;
       }
 
@@ -231,14 +250,23 @@ export default function GlAccountsPage() {
       return;
     }
 
+    const headers = await getAuthHeaders();
+    if (!headers.Authorization) {
+      setToast({ type: "error", message: "Please sign in again." });
+      return;
+    }
     const response = await fetch(`/api/erp/finance/gl-accounts/${account.id}/deactivate`, {
       method: "POST",
-      headers: getAuthHeaders(),
+      headers,
     });
     const data = await response.json();
 
     if (!response.ok) {
-      setToast({ type: "error", message: data?.error || "Failed to deactivate account." });
+      if (response.status === 401) {
+        setToast({ type: "error", message: "Please sign in again." });
+      } else {
+        setToast({ type: "error", message: data?.error || "Failed to deactivate account." });
+      }
       return;
     }
 
@@ -247,9 +275,14 @@ export default function GlAccountsPage() {
   };
 
   const handleReactivate = async (account: GlAccount) => {
+    const headers = await getAuthHeaders();
+    if (!headers.Authorization) {
+      setToast({ type: "error", message: "Please sign in again." });
+      return;
+    }
     const response = await fetch("/api/erp/finance/gl-accounts/upsert", {
       method: "POST",
-      headers: getAuthHeaders(),
+      headers,
       body: JSON.stringify({
         id: account.id,
         code: account.code,
@@ -261,7 +294,11 @@ export default function GlAccountsPage() {
     const data = await response.json();
 
     if (!response.ok) {
-      setToast({ type: "error", message: data?.error || "Failed to reactivate account." });
+      if (response.status === 401) {
+        setToast({ type: "error", message: "Please sign in again." });
+      } else {
+        setToast({ type: "error", message: data?.error || "Failed to reactivate account." });
+      }
       return;
     }
 
@@ -284,14 +321,23 @@ export default function GlAccountsPage() {
     if (!canWrite) return;
     setToast(null);
 
+    const headers = await getAuthHeaders();
+    if (!headers.Authorization) {
+      setToast({ type: "error", message: "Please sign in again." });
+      return;
+    }
     const response = await fetch("/api/erp/finance/gl-accounts/seed-minimal", {
       method: "POST",
-      headers: getAuthHeaders(),
+      headers,
     });
     const data = await response.json();
 
     if (!response.ok) {
-      setToast({ type: "error", message: data?.error || "Failed to seed accounts." });
+      if (response.status === 401) {
+        setToast({ type: "error", message: "Please sign in again." });
+      } else {
+        setToast({ type: "error", message: data?.error || "Failed to seed accounts." });
+      }
       return;
     }
 
