@@ -64,6 +64,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
+    const { error: permissionError } = await userClient.rpc("erp_require_finance_reader");
+    if (permissionError) {
+      return res.status(403).json({ ok: false, error: "Not authorized" });
+    }
+
     const { data, error } = await userClient.rpc("erp_fin_trial_balance", {
       p_from: from,
       p_to: to,
