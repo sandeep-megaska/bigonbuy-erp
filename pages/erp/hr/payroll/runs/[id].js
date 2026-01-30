@@ -26,6 +26,9 @@ export default function PayrollRunDetailPage() {
   const [financeConfigLoading, setFinanceConfigLoading] = useState(false);
   const [financeConfigError, setFinanceConfigError] = useState("");
   const [financeError, setFinanceError] = useState("");
+  const [financePosting, setFinancePosting] = useState(null);
+  const [financePostError, setFinancePostError] = useState("");
+  const [financePostLoading, setFinancePostLoading] = useState(false);
   const [overrideDrafts, setOverrideDrafts] = useState({});
   const [overrideSaving, setOverrideSaving] = useState({});
   const [attendanceSummaryRows, setAttendanceSummaryRows] = useState([]);
@@ -80,6 +83,18 @@ export default function PayrollRunDetailPage() {
   const hasFinanceConfig = Boolean(
     financeConfig?.salary_expense_account_id && financeConfig?.payroll_payable_account_id
   );
+  const financePreviewReady = Boolean(financePreview?.can_post);
+  const financeTotalsNet = Number(financePreview?.totals?.net_pay ?? 0);
+  const canPostFinance =
+    financePreviewReady &&
+    isRunFinalized &&
+    hasFinanceConfig &&
+    financeTotalsNet > 0 &&
+    canFinanceWrite;
+  const financePosted = Boolean(financePosting?.posted);
+  const financeJournal = financePosting?.journal || null;
+  const financeJournalLink =
+    financePosting?.link || (financeJournal?.id ? `/erp/finance/journals/${financeJournal.id}` : null);
 
   useEffect(() => {
     if (!items?.length) {
@@ -163,6 +178,9 @@ export default function PayrollRunDetailPage() {
       }
 
       setRun(runPayload?.run || null);
+      if (runPayload?.run) {
+        await loadFinancePostingStatus(runPayload.run.id);
+      }
       setItems(itemsPayload?.items || []);
       const eligibleEmployees = (employeesData || []).map((row) => ({
         ...row,
@@ -244,6 +262,24 @@ export default function PayrollRunDetailPage() {
       active = false;
     };
   }, [ctx]);
+
+  async function loadFinancePostingStatus(currentRunId = runId) {
+    if (!currentRunId || !ctx?.session?.access_token) return;
+    setFinancePostError("");
+    try {
+      const response = await fetch(`/api/erp/payroll/runs/${currentRunId}/finance-post`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Unable to load finance posting status.");
+      }
+      setFinancePosting(payload?.post || null);
+    } catch (e) {
+      setFinancePostError(e.message || "Unable to load finance posting status.");
+    }
+  }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -356,6 +392,33 @@ export default function PayrollRunDetailPage() {
       setFinanceError(e.message || "Unable to load finance preview.");
     } finally {
       setFinanceLoading(false);
+    }
+  }
+
+  async function postFinance() {
+    if (!runId) return;
+    setFinancePostLoading(true);
+    setFinancePostError("");
+    try {
+      const response = await fetch(`/api/erp/payroll/runs/${runId}/finance-post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          idempotencyKey: runId,
+          notes: `Payroll run ${run?.year}-${String(run?.month || \"\").padStart(2, \"0\")}`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to post payroll to finance.");
+      }
+      setFinancePosting(payload?.post || null);
+      showToast("Posted to finance");
+    } catch (e) {
+      setFinancePostError(e.message || "Failed to post payroll to finance.");
+      showToast(e.message || "Failed to post payroll to finance.", "error");
+    } finally {
+      setFinancePostLoading(false);
     }
   }
 
@@ -892,7 +955,7 @@ export default function PayrollRunDetailPage() {
           <div>
             <h3 style={{ margin: 0 }}>Finance Posting</h3>
             <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: 13 }}>
-              Preview-only payroll journal lines for Finance.
+              Preview payroll journal lines for Finance.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -903,6 +966,21 @@ export default function PayrollRunDetailPage() {
             >
               {financeLoading ? "Loading…" : "Preview Finance Posting"}
             </button>
+            {!financePosted && canPostFinance ? (
+              <button
+                style={{
+                  ...buttonStyle,
+                  borderColor: "#16a34a",
+                  background: "#16a34a",
+                  color: "#fff",
+                  opacity: financePostLoading ? 0.7 : 1,
+                }}
+                onClick={postFinance}
+                disabled={financePostLoading}
+              >
+                {financePostLoading ? "Posting…" : "Post to Finance"}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -924,6 +1002,28 @@ export default function PayrollRunDetailPage() {
 
         {financeConfigError ? (
           <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c" }}>{financeConfigError}</div>
+        ) : null}
+
+        {financePostError ? (
+          <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
+            <span style={{ color: "#b91c1c", fontSize: 13 }}>{financePostError}</span>
+          </div>
+        ) : null}
+
+        {financePosted ? (
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ ...badgeStyle, background: "#16a34a", color: "#fff" }}>Posted</span>
+              <span style={{ fontSize: 13, color: "#065f46" }}>
+                Journal: {financeJournal?.doc_no || "Posted"}
+              </span>
+              {financeJournalLink ? (
+                <a href={financeJournalLink} style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}>
+                  View journal →
+                </a>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
         {!isRunFinalized ? (
@@ -958,7 +1058,7 @@ export default function PayrollRunDetailPage() {
                 </div>
               ) : null}
               <div style={{ marginTop: 8, fontSize: 12, color: financePreview?.can_post ? "#047857" : "#6b7280" }}>
-                {financePreview?.can_post ? "Ready for posting in Phase 2." : "Not ready to post."}
+                {financePreview?.can_post ? "Ready to post." : "Not ready to post."}
               </div>
             </div>
             <div style={{ overflowX: "auto" }}>
@@ -987,7 +1087,7 @@ export default function PayrollRunDetailPage() {
               </table>
             </div>
             <div style={{ padding: 12, borderTop: "1px solid #eee", background: "#f9fafb", fontSize: 12, color: "#6b7280" }}>
-              Preview totals reflect net pay; actual posting will be handled in Phase 2.
+              Preview totals reflect net pay. Posting will create a finance journal for this payroll run.
             </div>
           </div>
         ) : null}
