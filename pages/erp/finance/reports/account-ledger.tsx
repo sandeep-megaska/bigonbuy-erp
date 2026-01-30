@@ -360,10 +360,10 @@ export default function AccountLedgerPage() {
   );
 }
 
-const filterLabelStyle: CSSProperties = {
+const filterLabelStyle = {
   display: "flex",
   flexDirection: "column",
   gap: 6,
   fontSize: 13,
   color: "#4b5563",
-};
+} as const satisfies CSSProperties;
