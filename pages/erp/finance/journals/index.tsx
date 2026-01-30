@@ -15,14 +15,13 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
-import { supabase } from "../../../../lib/supabaseClient";
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
 
-const last30Days = () => {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - 30);
+const currentMonthRange = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { start: formatDateInput(start), end: formatDateInput(end) };
 };
 
@@ -53,7 +52,7 @@ type StatusFilter = "all" | "posted" | "void";
 
 export default function FinanceJournalsListPage() {
   const router = useRouter();
-  const { start, end } = useMemo(() => last30Days(), []);
+  const { start, end } = useMemo(() => currentMonthRange(), []);
   const [loading, setLoading] = useState(true);
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof getCompanyContext>> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +60,9 @@ export default function FinanceJournalsListPage() {
   const [dateStart, setDateStart] = useState(start);
   const [dateEnd, setDateEnd] = useState(end);
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
   const [journals, setJournals] = useState<JournalRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -90,56 +89,38 @@ export default function FinanceJournalsListPage() {
     };
   }, [router]);
 
-  useEffect(() => {
-    let active = true;
-
-    (async () => {
-      if (!ctx?.companyId) return;
-
-      const { error: accessError } = await supabase.rpc("erp_require_finance_reader");
-      if (!active) return;
-
-      if (accessError) {
-        setError(accessError.message || "You do not have finance access.");
-        setAccessChecked(true);
-        return;
-      }
-
-      setAccessChecked(true);
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [ctx?.companyId]);
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const loadJournals = async () => {
-    if (!ctx?.companyId) return;
+    if (!ctx?.companyId || !ctx?.session?.access_token) return;
     setIsLoadingData(true);
     setError(null);
     setToast(null);
+    const params = new URLSearchParams();
+    if (dateStart) params.set("from", dateStart);
+    if (dateEnd) params.set("to", dateEnd);
+    if (status !== "all") params.set("status", status);
+    if (search.trim()) params.set("q", search.trim());
 
-    let query = supabase
-      .from("erp_fin_journals")
-      .select(
-        "id, doc_no, journal_date, status, total_debit, total_credit, reference_type, reference_id"
-      )
-      .order("journal_date", { ascending: false })
-      .order("doc_no", { ascending: false });
+    const response = await fetch(`/api/erp/finance/journals?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
 
-    if (dateStart) query = query.gte("journal_date", dateStart);
-    if (dateEnd) query = query.lte("journal_date", dateEnd);
-    if (status !== "all") query = query.eq("status", status);
-
-    const { data, error: loadError } = await query;
-
-    if (loadError) {
-      setError(loadError.message || "Failed to load journals.");
+    if (!response.ok) {
+      setError(payload?.error || "Failed to load journals.");
       setIsLoadingData(false);
       return;
     }
 
-    setJournals((data || []) as JournalRow[]);
+    setJournals((payload?.journals || []) as JournalRow[]);
     setIsLoadingData(false);
   };
 
@@ -147,14 +128,14 @@ export default function FinanceJournalsListPage() {
     let active = true;
 
     (async () => {
-      if (!active || !ctx?.companyId || !accessChecked) return;
+      if (!active || !ctx?.companyId) return;
       await loadJournals();
     })();
 
     return () => {
       active = false;
     };
-  }, [ctx?.companyId, dateStart, dateEnd, status, accessChecked]);
+  }, [ctx?.companyId, dateStart, dateEnd, status]);
 
   const handleSearch = async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -225,6 +206,16 @@ export default function FinanceJournalsListPage() {
               <option value="posted">Posted</option>
               <option value="void">Void</option>
             </select>
+          </label>
+          <label style={{ ...filterLabelStyle, minWidth: 220 }}>
+            Search
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Doc no or reference"
+              style={inputStyle}
+            />
           </label>
           <button type="submit" style={{ ...primaryButtonStyle, minWidth: 140 }} disabled={isLoadingData || loading}>
             {isLoadingData ? "Loading…" : "Apply Filters"}

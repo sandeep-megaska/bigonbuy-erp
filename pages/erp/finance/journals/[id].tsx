@@ -14,7 +14,6 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
-import { supabase } from "../../../../lib/supabaseClient";
 
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleDateString("en-GB") : "—";
@@ -47,6 +46,7 @@ type JournalLine = {
   line_no: number;
   account_code: string | null;
   account_name: string | null;
+  description?: string | null;
   debit: number;
   credit: number;
 };
@@ -67,7 +67,8 @@ export default function FinanceJournalDetailPage() {
   const [lines, setLines] = useState<JournalLine[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
-  const [accessChecked, setAccessChecked] = useState(false);
+  const [showVoidModal, setShowVoidModal] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -95,64 +96,37 @@ export default function FinanceJournalDetailPage() {
     };
   }, [router]);
 
-  useEffect(() => {
-    let active = true;
-
-    (async () => {
-      if (!ctx?.companyId) return;
-
-      const { error: accessError } = await supabase.rpc("erp_require_finance_reader");
-      if (!active) return;
-
-      if (accessError) {
-        setError(accessError.message || "You do not have finance access.");
-        setAccessChecked(true);
-        return;
-      }
-
-      setAccessChecked(true);
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [ctx?.companyId]);
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const loadJournal = async () => {
-    if (!journalId) return;
+    if (!journalId || !ctx?.session?.access_token) return;
     setIsLoadingData(true);
     setError(null);
     setToast(null);
 
-    const [headerResponse, linesResponse] = await Promise.all([
-      supabase
-        .from("erp_fin_journals")
-        .select(
-          "id, doc_no, journal_date, status, reference_type, reference_id, total_debit, total_credit, created_at, created_by"
-        )
-        .eq("id", journalId)
-        .single(),
-      supabase
-        .from("erp_fin_journal_lines")
-        .select("id, line_no, account_code, account_name, debit, credit")
-        .eq("journal_id", journalId)
-        .order("line_no", { ascending: true }),
-    ]);
+    const response = await fetch(`/api/erp/finance/journals/${journalId}`, {
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
 
-    if (headerResponse.error) {
-      setError(headerResponse.error.message || "Failed to load journal header.");
+    if (!response.ok) {
+      setError(payload?.error || "Failed to load journal.");
       setIsLoadingData(false);
       return;
     }
 
-    if (linesResponse.error) {
-      setError(linesResponse.error.message || "Failed to load journal lines.");
-      setIsLoadingData(false);
-      return;
-    }
+    const header = payload?.journal?.header ?? null;
+    const lineItems = payload?.journal?.lines ?? [];
 
-    setJournal((headerResponse.data || null) as JournalHeader | null);
-    setLines((linesResponse.data || []) as JournalLine[]);
+    setJournal(header as JournalHeader | null);
+    setLines(lineItems as JournalLine[]);
     setIsLoadingData(false);
   };
 
@@ -160,14 +134,14 @@ export default function FinanceJournalDetailPage() {
     let active = true;
 
     (async () => {
-      if (!active || !ctx?.companyId || !accessChecked) return;
+      if (!active || !ctx?.companyId) return;
       await loadJournal();
     })();
 
     return () => {
       active = false;
     };
-  }, [ctx?.companyId, journalId, accessChecked]);
+  }, [ctx?.companyId, journalId]);
 
   const totals = useMemo(() => {
     const debitTotal = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
@@ -177,36 +151,26 @@ export default function FinanceJournalDetailPage() {
 
   const handleVoid = async () => {
     if (!journal || journal.status !== "posted" || isVoiding) return;
-
-    const reason = window.prompt("Please enter a reason for voiding this journal.");
-    if (!reason || !reason.trim()) {
-      setError("Void reason is required.");
-      return;
-    }
-
     setIsVoiding(true);
     setError(null);
     setToast(null);
 
-    const { error: accessError } = await supabase.rpc("erp_require_finance_writer");
-    if (accessError) {
-      setError(accessError.message || "You do not have finance write access.");
-      setIsVoiding(false);
-      return;
-    }
-
-    const { error: voidError } = await supabase.rpc("erp_fin_journal_void", {
-      p_journal_id: journal.id,
-      p_reason: reason.trim(),
+    const response = await fetch(`/api/erp/finance/journals/${journal.id}/void`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ reason: voidReason.trim() }),
     });
+    const payload = await response.json();
 
-    if (voidError) {
-      setError(voidError.message || "Failed to void journal.");
+    if (!response.ok) {
+      setError(payload?.error || "Failed to void journal.");
       setIsVoiding(false);
       return;
     }
 
     setToast({ type: "success", message: "Journal voided." });
+    setShowVoidModal(false);
+    setVoidReason("");
     await loadJournal();
     setIsVoiding(false);
   };
@@ -235,7 +199,15 @@ export default function FinanceJournalDetailPage() {
                 </button>
               ) : null}
               {journal?.status === "posted" && canWrite ? (
-                <button type="button" style={primaryButtonStyle} onClick={handleVoid} disabled={isVoiding}>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={() => {
+                    setVoidReason("");
+                    setShowVoidModal(true);
+                  }}
+                  disabled={isVoiding}
+                >
                   {isVoiding ? "Voiding…" : "Void Journal"}
                 </button>
               ) : null}
@@ -315,6 +287,7 @@ export default function FinanceJournalDetailPage() {
               <tr>
                 <th style={tableHeaderCellStyle}>Account Code</th>
                 <th style={tableHeaderCellStyle}>Account Name</th>
+                <th style={tableHeaderCellStyle}>Description</th>
                 <th style={tableHeaderCellStyle}>Debit</th>
                 <th style={tableHeaderCellStyle}>Credit</th>
               </tr>
@@ -322,7 +295,7 @@ export default function FinanceJournalDetailPage() {
             <tbody>
               {lines.length === 0 ? (
                 <tr>
-                  <td style={tableCellStyle} colSpan={4}>
+                  <td style={tableCellStyle} colSpan={5}>
                     {isLoadingData ? "Loading lines…" : "No lines found for this journal."}
                   </td>
                 </tr>
@@ -331,6 +304,7 @@ export default function FinanceJournalDetailPage() {
                   <tr key={line.id}>
                     <td style={tableCellStyle}>{line.account_code || "—"}</td>
                     <td style={tableCellStyle}>{line.account_name || "—"}</td>
+                    <td style={tableCellStyle}>{line.description || "—"}</td>
                     <td style={tableCellStyle}>{formatAmount(line.debit)}</td>
                     <td style={tableCellStyle}>{formatAmount(line.credit)}</td>
                   </tr>
@@ -339,7 +313,7 @@ export default function FinanceJournalDetailPage() {
             </tbody>
             <tfoot>
               <tr>
-                <td style={{ ...tableCellStyle, fontWeight: 600 }} colSpan={2}>
+                <td style={{ ...tableCellStyle, fontWeight: 600 }} colSpan={3}>
                   Totals
                 </td>
                 <td style={{ ...tableCellStyle, fontWeight: 600 }}>{formatAmount(totals.debitTotal)}</td>
@@ -348,6 +322,46 @@ export default function FinanceJournalDetailPage() {
             </tfoot>
           </table>
         </section>
+        {showVoidModal ? (
+          <div style={modalBackdropStyle}>
+            <div style={modalCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Void journal</h3>
+              <p style={{ marginTop: 0, color: "#4b5563" }}>
+                Provide a reason for voiding this journal. This action cannot be undone.
+              </p>
+              <label style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+                Reason
+                <textarea
+                  value={voidReason}
+                  onChange={(event) => setVoidReason(event.target.value)}
+                  rows={3}
+                  style={{ ...textAreaStyle }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 16 }}>
+                <button
+                  type="button"
+                  style={secondaryButtonStyle}
+                  onClick={() => {
+                    setShowVoidModal(false);
+                    setVoidReason("");
+                  }}
+                  disabled={isVoiding}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleVoid}
+                  disabled={isVoiding || !voidReason.trim()}
+                >
+                  {isVoiding ? "Voiding…" : "Confirm Void"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </ErpShell>
   );
@@ -377,4 +391,31 @@ const metaValueStyle = {
 const metaSubValueStyle = {
   margin: "6px 0 0",
   fontSize: 13,
+};
+
+const modalBackdropStyle = {
+  position: "fixed" as const,
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  zIndex: 50,
+};
+
+const modalCardStyle = {
+  ...cardStyle,
+  maxWidth: 420,
+  width: "100%",
+};
+
+const textAreaStyle = {
+  width: "100%",
+  minHeight: 90,
+  resize: "vertical" as const,
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  padding: "8px 10px",
+  fontSize: 14,
 };
