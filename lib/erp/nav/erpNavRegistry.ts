@@ -499,6 +499,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["finance"],
   },
   {
+    id: "finance-gl-accounts",
+    label: "Chart of Accounts",
+    href: "/erp/finance/masters/gl-accounts",
+    icon: "CO",
+    groupId: "finance",
+    requiredGuard: "finance_reader",
+    status: "active",
+    moduleKeys: ["finance"],
+  },
+  {
     id: "hr-home",
     label: "HR Home",
     href: "/erp/hr",
