@@ -22,9 +22,6 @@ export default function PayrollRunDetailPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [financePreview, setFinancePreview] = useState(null);
   const [financeLoading, setFinanceLoading] = useState(false);
-  const [financeConfig, setFinanceConfig] = useState(null);
-  const [financeConfigLoading, setFinanceConfigLoading] = useState(false);
-  const [financeConfigError, setFinanceConfigError] = useState("");
   const [financeError, setFinanceError] = useState("");
   const [financePosting, setFinancePosting] = useState(null);
   const [financePostError, setFinancePostError] = useState("");
@@ -80,16 +77,12 @@ export default function PayrollRunDetailPage() {
   const attendanceStatus = run?.attendance_period_status || "not_generated";
   const attendanceLabel = attendanceStatus === "not_generated" ? "not generated" : attendanceStatus;
   const isAttendanceFrozen = attendanceStatus === "frozen";
-  const hasFinanceConfig = Boolean(
-    financeConfig?.salary_expense_account_id && financeConfig?.payroll_payable_account_id
-  );
   const financePreviewReady = Boolean(financePreview?.can_post);
-  const financeTotalsNet = Number(financePreview?.totals?.net_pay ?? 0);
+  const financePreviewErrors = financePreview?.errors || [];
+  const hasFinancePreviewErrors = financePreviewErrors.length > 0;
   const canPostFinance =
     financePreviewReady &&
-    isRunFinalized &&
-    hasFinanceConfig &&
-    financeTotalsNet > 0 &&
+    !hasFinancePreviewErrors &&
     canFinanceWrite;
   const financePosted = Boolean(financePosting?.posted);
   const financeJournal = financePosting?.journal || null;
@@ -241,27 +234,6 @@ export default function PayrollRunDetailPage() {
       active = false;
     };
   }, [run?.year, run?.month, items]);
-
-  useEffect(() => {
-    if (!ctx?.companyId) return;
-    let active = true;
-    (async () => {
-      setFinanceConfigLoading(true);
-      setFinanceConfigError("");
-      const { data, error } = await supabase.rpc("erp_payroll_finance_posting_config_get");
-      if (!active) return;
-      if (error) {
-        setFinanceConfigError(error.message || "Unable to load finance posting config.");
-        setFinanceConfig(null);
-      } else {
-        setFinanceConfig(data || null);
-      }
-      setFinanceConfigLoading(false);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [ctx]);
 
   async function loadFinancePostingStatus(currentRunId = runId) {
     if (!currentRunId || !ctx?.session?.access_token) return;
@@ -985,24 +957,12 @@ export default function PayrollRunDetailPage() {
         </div>
 
         <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
-          {financeConfigLoading ? "Loading posting config…" : null}
-          {!financeConfigLoading ? (
-            hasFinanceConfig ? (
-              <span style={{ color: "#047857" }}>Posting config: accounts set.</span>
-            ) : (
-              <span style={{ color: "#b45309" }}>Posting config: missing required accounts.</span>
-            )
-          ) : null}
           <span style={{ marginLeft: 10 }}>
             <a href="/erp/finance/settings/payroll-posting" style={{ color: "#2563eb", textDecoration: "none" }}>
               {canFinanceWrite ? "Edit config" : "View config"}
             </a>
           </span>
         </div>
-
-        {financeConfigError ? (
-          <div style={{ marginTop: 10, fontSize: 12, color: "#b91c1c" }}>{financeConfigError}</div>
-        ) : null}
 
         {financePostError ? (
           <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
@@ -1038,6 +998,17 @@ export default function PayrollRunDetailPage() {
           </div>
         ) : null}
 
+        {hasFinancePreviewErrors ? (
+          <div style={{ marginTop: 12, padding: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, color: "#b91c1c" }}>Errors</div>
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "#b91c1c" }}>
+              {financePreviewErrors.map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {financePreview ? (
           <div style={{ marginTop: 14, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
             <div style={{ padding: 12, borderBottom: "1px solid #eee", background: "#f9fafb" }}>
@@ -1047,16 +1018,6 @@ export default function PayrollRunDetailPage() {
                 {formatAmount(financePreview?.totals?.earnings)} · Deductions:{" "}
                 {formatAmount(financePreview?.totals?.deductions)}
               </div>
-              {financePreview?.errors?.length ? (
-                <div style={{ marginTop: 8, padding: 10, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8 }}>
-                  <div style={{ fontWeight: 600, fontSize: 12, color: "#9a3412" }}>Errors</div>
-                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: "#9a3412" }}>
-                    {financePreview.errors.map((item, index) => (
-                      <li key={`${item}-${index}`}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
               <div style={{ marginTop: 8, fontSize: 12, color: financePreview?.can_post ? "#047857" : "#6b7280" }}>
                 {financePreview?.can_post ? "Ready to post." : "Not ready to post."}
               </div>
