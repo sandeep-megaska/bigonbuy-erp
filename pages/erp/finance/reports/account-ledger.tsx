@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -360,7 +360,7 @@ export default function AccountLedgerPage() {
   );
 }
 
-const filterLabelStyle = {
+const filterLabelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 6,
