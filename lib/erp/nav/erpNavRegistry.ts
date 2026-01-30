@@ -227,6 +227,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "inventory-cost-seeds",
+    label: "Cost Seeds",
+    href: "/erp/inventory/cost-seeds",
+    icon: "CS",
+    groupId: "inventory",
+    requiredGuard: "inventory_reader",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "inventory-warehouses",
     label: "Warehouses",
     href: "/erp/inventory/warehouses",
