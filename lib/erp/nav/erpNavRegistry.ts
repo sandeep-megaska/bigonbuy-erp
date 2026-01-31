@@ -412,6 +412,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["finance"],
   },
   {
+    id: "finance-ap-vendor-advances",
+    label: "Vendor Advances",
+    href: "/erp/finance/ap/vendor-advances",
+    icon: "VA",
+    groupId: "finance",
+    requiredGuard: "finance_reader",
+    status: "active",
+    moduleKeys: ["finance"],
+  },
+  {
     id: "finance-recon",
     label: "Recon Dashboard",
     href: "/erp/finance/recon",
