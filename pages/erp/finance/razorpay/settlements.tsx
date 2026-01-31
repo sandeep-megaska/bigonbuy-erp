@@ -516,7 +516,7 @@ export default function RazorpaySettlementsPage() {
 
       const response = await fetch("/api/erp/finance/razorpay/settlements/import-csv", {
         method: "POST",
-        headers: getAuthHeader(),
+        headers: getAuthHeaders(),
         body: formData,
       });
 
