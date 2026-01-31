@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import Papa from "papaparse";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
@@ -44,6 +45,24 @@ type SettlementRow = {
   post_status: string | null;
 };
 
+type CsvPreviewRow = {
+  settlement_id: string | null;
+  settlement_utr: string | null;
+  amount: number | null;
+  status: string | null;
+  currency: string | null;
+  settled_at: string | null;
+};
+
+type CsvMapping = {
+  settlementId: string | null;
+  utr: string | null;
+  amount: string | null;
+  status: string | null;
+  currency: string | null;
+  settledAt: string | null;
+};
+
 const inputStyle = {
   width: "100%",
   padding: "10px 12px",
@@ -80,6 +99,52 @@ const formatAmount = (value: number | null) => {
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
 
+const csvHeaderAliases = {
+  settlementId: ["settlement_id", "settlementid", "id", "settlement"],
+  utr: ["utr", "bank_utr", "utr_number", "bankutr"],
+  amount: ["amount", "settled_amount", "net_amount", "netamount"],
+  status: ["status", "settlement_status"],
+  currency: ["currency", "curr", "settlement_currency"],
+  settledAt: ["settled_at", "settlement_date", "created_at", "createdat", "settleddate", "date"],
+};
+
+const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const findHeader = (headers: string[], aliases: string[]) => {
+  const normalized = headers.map(normalizeHeader);
+  for (const alias of aliases) {
+    const aliasKey = normalizeHeader(alias);
+    const index = normalized.indexOf(aliasKey);
+    if (index >= 0) return headers[index];
+  }
+  return null;
+};
+
+const parseCsvAmount = (value: unknown) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^0-9.-]/g, "");
+  const parsed = Number.parseFloat(cleaned);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+};
+
+const parseCsvDate = (value: unknown) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    const millis = raw.length >= 13 ? numeric : numeric * 1000;
+    const asDate = new Date(millis);
+    if (!Number.isNaN(asDate.getTime())) return asDate.toISOString();
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+};
+
 export default function RazorpaySettlementsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
@@ -114,6 +179,18 @@ export default function RazorpaySettlementsPage() {
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<CsvPreviewRow[]>([]);
+  const [csvRowCount, setCsvRowCount] = useState(0);
+  const [csvMapping, setCsvMapping] = useState<CsvMapping | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportSummary, setCsvImportSummary] = useState<{
+    inserted: number;
+    updated: number;
+    skipped: number;
+    errors: unknown[];
+  } | null>(null);
+  const [csvError, setCsvError] = useState("");
 
   const [startDate, setStartDate] = useState(() => {
     const now = new Date();
@@ -126,14 +203,15 @@ export default function RazorpaySettlementsPage() {
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
 
-  const getAuthHeaders = (tokenOverride?: string | null) => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const getAuthHeader = (tokenOverride?: string | null) => {
     const token = tokenOverride ?? ctx?.session?.access_token;
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    return headers;
+    return token ? { Authorization: `Bearer ${token}` } : {};
   };
+
+  const getAuthHeaders = (tokenOverride?: string | null) => ({
+    "Content-Type": "application/json",
+    ...getAuthHeader(tokenOverride),
+  });
 
   const loadSettlements = async (token?: string | null) => {
     const response = await fetch("/api/erp/finance/razorpay/settlements", {
@@ -356,6 +434,109 @@ export default function RazorpaySettlementsPage() {
       setError(message || "Sync failed.");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleCsvFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setCsvFile(file);
+    setCsvPreviewRows([]);
+    setCsvRowCount(0);
+    setCsvMapping(null);
+    setCsvImportSummary(null);
+    setCsvError("");
+
+    if (!file) return;
+
+    const csvText = await file.text();
+    const parsed = Papa.parse<Record<string, string>>(csvText, {
+      header: true,
+      skipEmptyLines: true,
+    });
+
+    if (parsed.errors?.length) {
+      setCsvError("Unable to parse CSV. Please check the file format.");
+      return;
+    }
+
+    const rows = parsed.data || [];
+    if (!rows.length) {
+      setCsvError("CSV is empty.");
+      return;
+    }
+
+    const headers = Object.keys(rows[0] || {});
+    const settlementIdHeader = findHeader(headers, csvHeaderAliases.settlementId);
+    if (!settlementIdHeader) {
+      setCsvError("CSV is missing a settlement id column.");
+      return;
+    }
+
+    const mapping: CsvMapping = {
+      settlementId: settlementIdHeader,
+      utr: findHeader(headers, csvHeaderAliases.utr),
+      amount: findHeader(headers, csvHeaderAliases.amount),
+      status: findHeader(headers, csvHeaderAliases.status),
+      currency: findHeader(headers, csvHeaderAliases.currency),
+      settledAt: findHeader(headers, csvHeaderAliases.settledAt),
+    };
+
+    const mappedRows: CsvPreviewRow[] = rows.map((row) => ({
+      settlement_id: String(row[settlementIdHeader] ?? "").trim() || null,
+      settlement_utr: mapping.utr ? String(row[mapping.utr] ?? "").trim() || null : null,
+      amount: mapping.amount ? parseCsvAmount(row[mapping.amount]) : null,
+      status: mapping.status ? String(row[mapping.status] ?? "").trim() || null : null,
+      currency: mapping.currency ? String(row[mapping.currency] ?? "").trim() || null : null,
+      settled_at: mapping.settledAt ? parseCsvDate(row[mapping.settledAt]) : null,
+    }));
+
+    setCsvRowCount(mappedRows.length);
+    setCsvPreviewRows(mappedRows.slice(0, 10));
+    setCsvMapping(mapping);
+  };
+
+  const handleCsvImport = async () => {
+    if (!csvFile) {
+      setCsvError("Please select a CSV file to import.");
+      return;
+    }
+    if (!canWrite) {
+      setCsvError("Only finance admins can import settlements.");
+      return;
+    }
+
+    setCsvImporting(true);
+    setCsvError("");
+    setCsvImportSummary(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", csvFile);
+
+      const response = await fetch("/api/erp/finance/razorpay/settlements/import-csv", {
+        method: "POST",
+        headers: getAuthHeader(),
+        body: formData,
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "CSV import failed.");
+      }
+
+      setCsvImportSummary({
+        inserted: payload.data?.inserted_count ?? 0,
+        updated: payload.data?.updated_count ?? 0,
+        skipped: payload.data?.skipped_count ?? 0,
+        errors: payload.data?.errors ?? [],
+      });
+
+      await loadSettlements();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "CSV import failed.";
+      setCsvError(message || "CSV import failed.");
+    } finally {
+      setCsvImporting(false);
     }
   };
 
@@ -640,6 +821,85 @@ export default function RazorpaySettlementsPage() {
             </button>
             {syncNotice ? <span style={{ fontSize: 13, color: "#047857" }}>{syncNotice}</span> : null}
           </div>
+        </div>
+
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Import CSV</h3>
+          <p style={{ marginTop: 0, color: "#6b7280", fontSize: 13 }}>
+            Upload a Razorpay settlements CSV export to backfill payouts without API access.
+          </p>
+          <label style={labelStyle}>
+            Settlement CSV
+            <input type="file" accept=".csv" onChange={handleCsvFileChange} style={inputStyle} />
+          </label>
+          <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={handleCsvImport}
+              style={{
+                ...primaryButtonStyle,
+                backgroundColor: csvImporting || !canWrite ? "#9ca3af" : "#111827",
+              }}
+              disabled={csvImporting || !canWrite || !csvFile}
+            >
+              {csvImporting ? "Importing…" : "Import CSV"}
+            </button>
+            <span style={{ fontSize: 13, color: "#6b7280" }}>
+              {csvRowCount ? `${csvRowCount} rows detected` : "Select a CSV to preview rows"}
+            </span>
+            {!canWrite ? <span style={{ fontSize: 13, color: "#b45309" }}>Finance role required</span> : null}
+          </div>
+          {csvMapping ? (
+            <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+              <strong>Mapped columns:</strong>
+              <ul style={{ margin: "6px 0 0 18px" }}>
+                <li>Settlement ID → {csvMapping.settlementId || "Not found"}</li>
+                <li>UTR → {csvMapping.utr || "Not found"}</li>
+                <li>Amount → {csvMapping.amount || "Not found"}</li>
+                <li>Status → {csvMapping.status || "Not found"}</li>
+                <li>Currency → {csvMapping.currency || "Not found"}</li>
+                <li>Settled At → {csvMapping.settledAt || "Not found"}</li>
+              </ul>
+            </div>
+          ) : null}
+          {csvImportSummary ? (
+            <div style={{ marginTop: 12, fontSize: 13, color: "#047857" }}>
+              Imported {csvImportSummary.inserted} new, updated {csvImportSummary.updated}, skipped {csvImportSummary.skipped}.
+              {csvImportSummary.errors.length
+                ? ` ${csvImportSummary.errors.length} rows had errors.`
+                : null}
+            </div>
+          ) : null}
+          {csvError ? <div style={{ marginTop: 12, color: "#b91c1c", fontSize: 13 }}>{csvError}</div> : null}
+          {csvPreviewRows.length ? (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>Preview (first 10 rows)</div>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Settlement ID</th>
+                    <th style={tableHeaderCellStyle}>UTR</th>
+                    <th style={tableHeaderCellStyle}>Amount</th>
+                    <th style={tableHeaderCellStyle}>Status</th>
+                    <th style={tableHeaderCellStyle}>Currency</th>
+                    <th style={tableHeaderCellStyle}>Settled At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvPreviewRows.map((row, index) => (
+                    <tr key={`${row.settlement_id ?? "row"}-${index}`}>
+                      <td style={tableCellStyle}>{row.settlement_id || "—"}</td>
+                      <td style={tableCellStyle}>{row.settlement_utr || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.amount)}</td>
+                      <td style={tableCellStyle}>{row.status || "—"}</td>
+                      <td style={tableCellStyle}>{row.currency || "—"}</td>
+                      <td style={tableCellStyle}>{row.settled_at ? formatDate(row.settled_at) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
 
         <div style={{ ...cardStyle, padding: 0 }}>
