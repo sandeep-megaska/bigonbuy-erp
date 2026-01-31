@@ -178,6 +178,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-razorpay-settlements-ledger",
+    label: "Settlements Ledger",
+    href: "/erp/finance/razorpay/settlements-ledger",
+    description: "Review Razorpay settlements and finance posting status.",
+    group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "SL",
+    cardIcon: "📒",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-shopify-sync",
     label: "Shopify Sync (Moved to OMS)",
     href: "/erp/finance/shopify-sync",
