@@ -614,9 +614,10 @@ export default function BankImportPage() {
   };
 
   useEffect(() => {
-    if (!matchModal.open || !matchModal.txn) return;
+    const txn = matchModal.txn;
+    if (!matchModal.open || !txn) return;
     const handle = setTimeout(() => {
-      void loadMatchSuggestions(matchModal.txn, matchFilter);
+      void loadMatchSuggestions(txn, matchFilter);
     }, 300);
     return () => clearTimeout(handle);
   }, [matchFilter, matchModal.open, matchModal.txn]);
