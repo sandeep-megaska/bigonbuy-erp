@@ -1,14 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { IncomingForm } from "formidable";
-import { promises as fs } from "fs";
 import Papa from "papaparse";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 
 type ErrorResponse = { ok: false; error: string; details?: unknown };
 type SuccessResponse = {
@@ -141,45 +133,6 @@ function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
   return Array.from(grouped.values());
 }
 
-function parseForm(req: NextApiRequest) {
-  const form = new IncomingForm({ multiples: false });
-  return new Promise<{ fields: Record<string, string>; files: Record<string, any> }>((resolve, reject) => {
-    form.parse(req, (err, fields, files) => {
-      if (err) reject(err);
-      else {
-        const normalizedFields = Object.fromEntries(
-          Object.entries(fields).map(([key, value]) => [
-            key,
-            Array.isArray(value) ? value[0] ?? "" : value ?? "",
-          ]),
-        );
-        resolve({ fields: normalizedFields, files });
-      }
-    });
-  });
-}
-
-function getFileFromForm(files: Record<string, any>) {
-  const fileEntries = Object.values(files);
-  if (!fileEntries.length) return null;
-  const file = Array.isArray(fileEntries[0]) ? fileEntries[0][0] : fileEntries[0];
-  return file || null;
-}
-
-async function readJsonBody(req: NextApiRequest) {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const rawBody = Buffer.concat(chunks).toString("utf8");
-  if (!rawBody) return null;
-  try {
-    return JSON.parse(rawBody) as Record<string, unknown>;
-  } catch (error) {
-    return null;
-  }
-}
-
 function mapRows(rows: ParsedRow[]) {
   const headers = Object.keys(rows[0] || {});
   const settlementIdHeader = findHeader(headers, headerAliases.settlementId);
@@ -237,30 +190,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  let csvText = "";
-
-  if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    try {
-      const formData = await parseForm(req);
-      const uploadFile = getFileFromForm(formData.files);
-      if (!uploadFile) {
-        return res.status(400).json({ ok: false, error: "CSV file is required" });
-      }
-      const buffer = await fs.readFile(uploadFile.filepath);
-      csvText = buffer.toString("utf8");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Invalid upload";
-      return res.status(400).json({ ok: false, error: message });
-    }
-  } else {
-    const body = await readJsonBody(req);
-    const csvBase64 = body?.csv_base64 ? String(body.csv_base64) : "";
-    const csvRaw = body?.csv_text ? String(body.csv_text) : "";
-    if (!csvBase64 && !csvRaw) {
-      return res.status(400).json({ ok: false, error: "CSV content is required" });
-    }
-    csvText = csvBase64 ? Buffer.from(csvBase64, "base64").toString("utf8") : csvRaw;
+  const csvContent = req.body?.csvContent ? String(req.body.csvContent) : "";
+  if (!csvContent) {
+    return res.status(400).json({ ok: false, error: "CSV content is required" });
   }
+  const csvText = csvContent;
 
   const parsed = Papa.parse<ParsedRow>(csvText, {
     header: true,

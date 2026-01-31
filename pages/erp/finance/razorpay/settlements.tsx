@@ -511,13 +511,12 @@ export default function RazorpaySettlementsPage() {
     setCsvImportSummary(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", csvFile);
+      const csvContent = await csvFile.text();
 
       const response = await fetch("/api/erp/finance/razorpay/settlements/import-csv", {
         method: "POST",
-        headers: getAuthHeaders(),
-        body: formData,
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ csvContent }),
       });
 
       const payload = await response.json();
