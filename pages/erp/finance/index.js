@@ -112,6 +112,21 @@ export default function FinanceHomePage() {
             </Link>
           ))}
         </section>
+
+        <section style={reportsCardStyle}>
+          <div style={reportsHeaderStyle}>
+            <h2 style={reportsTitleStyle}>Reports</h2>
+            <p style={reportsSubtitleStyle}>Quick links to core finance reports.</p>
+          </div>
+          <div style={reportsLinkRowStyle}>
+            <Link href="/erp/finance/reports/trial-balance" style={reportsLinkStyle}>
+              Trial Balance
+            </Link>
+            <Link href="/erp/finance/reports/account-ledger" style={reportsLinkStyle}>
+              Account Ledger
+            </Link>
+          </div>
+        </section>
       </div>
     </ErpShell>
   );
@@ -154,6 +169,42 @@ const cardDescriptionStyle = {
   margin: 0,
   color: "#4b5563",
   fontSize: 14,
+};
+
+const reportsCardStyle = {
+  ...cardStyle,
+  display: "grid",
+  gap: 12,
+};
+
+const reportsHeaderStyle = {
+  display: "grid",
+  gap: 4,
+};
+
+const reportsTitleStyle = {
+  margin: 0,
+  fontSize: 18,
+  color: "#111827",
+};
+
+const reportsSubtitleStyle = {
+  margin: 0,
+  color: "#4b5563",
+  fontSize: 14,
+};
+
+const reportsLinkRowStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+};
+
+const reportsLinkStyle = {
+  ...secondaryButtonStyle,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
 };
 
 const dangerButtonStyle = {

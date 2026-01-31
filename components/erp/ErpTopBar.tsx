@@ -114,8 +114,8 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           </button>
           {companyMenuOpen ? (
             <div style={companyMenuStyle} role="menu">
-              <Link href="/erp/admin/company-settings" style={companyMenuLinkStyle} role="menuitem">
-                Company Settings
+              <Link href="/erp/company" style={companyMenuLinkStyle} role="menuitem">
+                Company Settings Hub
               </Link>
               <Link href="/erp/admin/company-users" style={companyMenuLinkStyle} role="menuitem">
                 Users &amp; Access
