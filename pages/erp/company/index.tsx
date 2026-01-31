@@ -106,6 +106,11 @@ const sectionData = [
         description: "Post Shopify sales into finance.",
       },
       {
+        label: "COA Control Roles",
+        href: "/erp/finance/settings/coa-roles",
+        description: "Map chart of accounts control roles.",
+      },
+      {
         label: "Cost Seeds",
         href: "/erp/inventory/cost-seeds",
         description: "Seed cost prices for SKU valuations.",

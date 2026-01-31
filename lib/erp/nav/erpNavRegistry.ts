@@ -544,6 +544,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["finance"],
   },
   {
+    id: "finance-coa-control-roles",
+    label: "COA Control Roles",
+    href: "/erp/finance/settings/coa-roles",
+    icon: "CR",
+    groupId: "finance",
+    requiredGuard: "finance_reader",
+    status: "active",
+    moduleKeys: ["finance"],
+  },
+  {
     id: "hr-home",
     label: "HR Home",
     href: "/erp/hr",
