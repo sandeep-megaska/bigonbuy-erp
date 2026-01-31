@@ -21,6 +21,7 @@ type CompanyContext = {
   roleKey: string | null;
   membershipError: string | null;
   email: string | null;
+  session?: { access_token: string } | null;
 };
 
 type BankImportRow = {
@@ -66,6 +67,28 @@ type BankTxnRow = {
   match_confidence: string | null;
   match_notes: string | null;
   created_at: string;
+};
+
+type RazorpaySuggestion = {
+  settlement_db_id: string;
+  settlement_id: string;
+  settled_at: string;
+  amount: number;
+  utr?: string | null;
+  posted_journal_doc_no?: string | null;
+  score: number;
+  reason: string;
+};
+
+type RazorpaySuggestPayload = {
+  bank_txn?: BankTxnRow;
+  suggestions?: RazorpaySuggestion[];
+  current_match?: {
+    entity_type?: string | null;
+    entity_id?: string | null;
+    confidence?: string | null;
+    notes?: string | null;
+  };
 };
 
 type IciciDebugRow = {
@@ -372,11 +395,15 @@ export default function BankImportPage() {
   const [isLoadingTxns, setIsLoadingTxns] = useState(false);
   const [matchModal, setMatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
   const [unmatchModal, setUnmatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
-  const [matchVendorPaymentId, setMatchVendorPaymentId] = useState("");
   const [matchNotes, setMatchNotes] = useState("");
   const [unmatchReason, setUnmatchReason] = useState("");
   const [isMatching, setIsMatching] = useState(false);
   const [isUnmatching, setIsUnmatching] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [matchSuggestions, setMatchSuggestions] = useState<RazorpaySuggestion[]>([]);
+  const [matchSuggestError, setMatchSuggestError] = useState<string | null>(null);
+  const [matchFilter, setMatchFilter] = useState("");
+  const [matchedSettlementMap, setMatchedSettlementMap] = useState<Record<string, string>>({});
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -393,7 +420,7 @@ export default function BankImportPage() {
       const context = await getCompanyContext(session);
       if (!active) return;
 
-      setCtx(context);
+      setCtx(context as CompanyContext);
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found.");
         setLoading(false);
@@ -438,6 +465,58 @@ export default function BankImportPage() {
       void loadTransactions();
     }
   }, [loading, ctx?.companyId]);
+
+  useEffect(() => {
+    let active = true;
+    const loadMatchedSettlements = async () => {
+      const settlementIds = transactions
+        .filter((txn) => txn.is_matched && txn.matched_entity_type === "razorpay_settlement" && txn.matched_entity_id)
+        .map((txn) => txn.matched_entity_id as string);
+
+      if (!settlementIds.length) {
+        setMatchedSettlementMap({});
+        return;
+      }
+
+      const { data, error: settlementsError } = await supabase
+        .from("erp_razorpay_settlements")
+        .select("id, razorpay_settlement_id")
+        .in("id", settlementIds);
+
+      if (!active) return;
+
+      if (settlementsError) {
+        setMatchedSettlementMap({});
+        return;
+      }
+
+      const mapping = (data || []).reduce<Record<string, string>>((acc, row) => {
+        if (row?.id && row?.razorpay_settlement_id) {
+          acc[row.id] = row.razorpay_settlement_id;
+        }
+        return acc;
+      }, {});
+
+      setMatchedSettlementMap(mapping);
+    };
+
+    void loadMatchedSettlements();
+
+    return () => {
+      active = false;
+    };
+  }, [transactions]);
+
+  const getAuthHeaders = (): HeadersInit => {
+    const token = ctx?.session?.access_token;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const handleFile = async (file: File) => {
     setParseError(null);
@@ -498,8 +577,11 @@ export default function BankImportPage() {
 
   const openMatchModal = (txn: BankTxnRow) => {
     setMatchModal({ open: true, txn });
-    setMatchVendorPaymentId("");
     setMatchNotes("");
+    setMatchFilter("");
+    setMatchSuggestions([]);
+    setMatchSuggestError(null);
+    void loadMatchSuggestions(txn);
   };
 
   const openUnmatchModal = (txn: BankTxnRow) => {
@@ -510,57 +592,95 @@ export default function BankImportPage() {
   const closeMatchModal = () => setMatchModal({ open: false });
   const closeUnmatchModal = () => setUnmatchModal({ open: false });
 
-  const handleMatch = async () => {
-    if (!matchModal.txn) return;
-    const vendorPaymentId = matchVendorPaymentId.trim();
-    if (!vendorPaymentId) {
-      setError("Vendor payment ID is required.");
-      return;
+  const loadMatchSuggestions = async (txn: BankTxnRow) => {
+    setIsSuggesting(true);
+    setMatchSuggestError(null);
+    try {
+      const response = await fetch(`/api/erp/finance/bank/txns/${txn.id}/match-suggest-razorpay`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ dateWindowDays: 3 }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load Razorpay suggestions.");
+      }
+      const data = (payload?.data || {}) as RazorpaySuggestPayload;
+      setMatchSuggestions(data.suggestions || []);
+    } catch (suggestErr) {
+      const message = suggestErr instanceof Error ? suggestErr.message : "Failed to load Razorpay suggestions.";
+      setMatchSuggestError(message);
+      setMatchSuggestions([]);
+    } finally {
+      setIsSuggesting(false);
     }
+  };
+
+  const handleMatch = async (suggestion: RazorpaySuggestion) => {
+    if (!matchModal.txn) return;
     setError(null);
     setIsMatching(true);
-    const { error: matchError } = await supabase.rpc("erp_bank_match_vendor_payment", {
-      p_bank_txn_id: matchModal.txn.id,
-      p_vendor_payment_id: vendorPaymentId,
-      p_confidence: "manual",
-      p_notes: matchNotes.trim() || null,
-    });
 
-    if (matchError) {
-      setError(matchError.message);
+    try {
+      const response = await fetch(`/api/erp/finance/bank/txns/${matchModal.txn.id}/match-confirm-razorpay`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          settlementDbId: suggestion.settlement_db_id,
+          confidence: "manual",
+          notes: matchNotes.trim() || null,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to match Razorpay settlement.");
+      }
+      closeMatchModal();
+      await loadTransactions();
+    } catch (matchErr) {
+      const message = matchErr instanceof Error ? matchErr.message : "Failed to match Razorpay settlement.";
+      setError(message);
+    } finally {
       setIsMatching(false);
-      return;
     }
-
-    setIsMatching(false);
-    closeMatchModal();
-    await loadTransactions();
   };
 
   const handleUnmatch = async () => {
     if (!unmatchModal.txn) return;
     const reason = unmatchReason.trim();
-    if (!reason) {
-      setError("Unmatch reason is required.");
-      return;
-    }
     setError(null);
     setIsUnmatching(true);
-    const { error: unmatchError } = await supabase.rpc("erp_bank_unmatch", {
-      p_bank_txn_id: unmatchModal.txn.id,
-      p_reason: reason,
-    });
-
-    if (unmatchError) {
-      setError(unmatchError.message);
+    try {
+      const response = await fetch(`/api/erp/finance/bank/txns/${unmatchModal.txn.id}/match-unmatch`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ reason: reason || null }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to unmatch bank transaction.");
+      }
+      closeUnmatchModal();
+      await loadTransactions();
+    } catch (unmatchErr) {
+      const message = unmatchErr instanceof Error ? unmatchErr.message : "Failed to unmatch bank transaction.";
+      setError(message);
+    } finally {
       setIsUnmatching(false);
-      return;
     }
-
-    setIsUnmatching(false);
-    closeUnmatchModal();
-    await loadTransactions();
   };
+
+  const filteredSuggestions = useMemo(() => {
+    const trimmed = matchFilter.trim().toLowerCase();
+    if (!trimmed) return matchSuggestions;
+    return matchSuggestions.filter((suggestion) => {
+      return (
+        suggestion.settlement_id?.toLowerCase().includes(trimmed) ||
+        suggestion.utr?.toLowerCase().includes(trimmed) ||
+        suggestion.posted_journal_doc_no?.toLowerCase().includes(trimmed)
+      );
+    });
+  }, [matchFilter, matchSuggestions]);
 
   if (loading) {
     return (
@@ -798,7 +918,18 @@ export default function BankImportPage() {
                       <td style={tableCellStyle}>{formatCurrency(txn.credit)}</td>
                       <td style={tableCellStyle}>{formatCurrency(txn.amount)}</td>
                       <td style={tableCellStyle}>{formatCurrency(txn.balance)}</td>
-                      <td style={tableCellStyle}>{txn.is_matched ? "Matched" : "Unmatched"}</td>
+                      <td style={tableCellStyle}>
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <span>{txn.is_matched ? "Matched" : "Unmatched"}</span>
+                          {txn.is_matched &&
+                            txn.matched_entity_type === "razorpay_settlement" &&
+                            txn.matched_entity_id && (
+                              <span style={{ fontSize: 12, color: "#64748b" }}>
+                                Razorpay: {matchedSettlementMap[txn.matched_entity_id] || txn.matched_entity_id}
+                              </span>
+                            )}
+                        </div>
+                      </td>
                       <td style={tableCellStyle}>
                         {txn.is_matched ? (
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -845,22 +976,99 @@ export default function BankImportPage() {
             zIndex: 60,
           }}
         >
-          <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(520px, 92vw)" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(720px, 94vw)" }}>
             <h3 style={{ marginTop: 0 }}>Match bank transaction</h3>
             <p style={{ color: "#64748b", marginTop: 6 }}>
               Match the bank transaction on {matchModal.txn.txn_date} for{" "}
-              <strong>₹ {formatCurrency(matchModal.txn.amount)}</strong> to a vendor payment.
+              <strong>₹ {formatCurrency(matchModal.txn.amount)}</strong> to a Razorpay settlement.
             </p>
             <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  padding: 12,
+                  background: "#f8fafc",
+                }}
+              >
+                <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+                  <div>
+                    <strong>Reference:</strong> {matchModal.txn.reference_no || "—"}
+                  </div>
+                  <div>
+                    <strong>Description:</strong> {matchModal.txn.description}
+                  </div>
+                  <div>
+                    <strong>Credit:</strong> ₹ {formatCurrency(matchModal.txn.credit)}
+                  </div>
+                </div>
+              </div>
+
               <label style={{ display: "grid", gap: 6 }}>
-                <span>Vendor payment ID</span>
+                <span>Filter suggestions</span>
                 <input
-                  value={matchVendorPaymentId}
-                  onChange={(event) => setMatchVendorPaymentId(event.target.value)}
+                  value={matchFilter}
+                  onChange={(event) => setMatchFilter(event.target.value)}
                   style={inputStyle}
-                  placeholder="UUID of vendor payment"
+                  placeholder="Search settlement id, UTR, or journal doc no"
                 />
               </label>
+
+              <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Suggested Razorpay settlements</div>
+                {isSuggesting ? (
+                  <p style={{ margin: 0 }}>Loading suggestions…</p>
+                ) : matchSuggestError ? (
+                  <p style={{ margin: 0, color: "#b91c1c" }}>{matchSuggestError}</p>
+                ) : filteredSuggestions.length === 0 ? (
+                  <p style={{ margin: 0, color: "#64748b" }}>No matching settlements found.</p>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    {filteredSuggestions.map((suggestion) => (
+                      <div
+                        key={suggestion.settlement_db_id}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 10,
+                          padding: 12,
+                          display: "grid",
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <strong>{suggestion.settlement_id}</strong>
+                            <span style={{ color: "#64748b", fontSize: 12 }}>
+                              Settled {suggestion.settled_at} • UTR {suggestion.utr || "—"}
+                            </span>
+                            {suggestion.posted_journal_doc_no && (
+                              <span style={{ color: "#64748b", fontSize: 12 }}>
+                                Journal {suggestion.posted_journal_doc_no}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 600 }}>₹ {formatCurrency(suggestion.amount)}</div>
+                            <div style={{ fontSize: 12, color: "#64748b" }}>Score {suggestion.score}</div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#64748b" }}>{suggestion.reason}</div>
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            style={primaryButtonStyle}
+                            onClick={() => handleMatch(suggestion)}
+                            disabled={isMatching}
+                          >
+                            {isMatching ? "Matching…" : "Confirm match"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <label style={{ display: "grid", gap: 6 }}>
                 <span>Notes (optional)</span>
                 <textarea
@@ -879,14 +1087,6 @@ export default function BankImportPage() {
                 disabled={isMatching}
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                style={primaryButtonStyle}
-                onClick={handleMatch}
-                disabled={!matchVendorPaymentId.trim() || isMatching}
-              >
-                {isMatching ? "Matching…" : "Confirm match"}
               </button>
             </div>
           </div>
@@ -913,7 +1113,7 @@ export default function BankImportPage() {
               <strong>₹ {formatCurrency(unmatchModal.txn.amount)}</strong>.
             </p>
             <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
-              <span>Reason</span>
+              <span>Reason (optional)</span>
               <textarea
                 rows={3}
                 value={unmatchReason}
@@ -934,7 +1134,7 @@ export default function BankImportPage() {
                 type="button"
                 style={primaryButtonStyle}
                 onClick={handleUnmatch}
-                disabled={!unmatchReason.trim() || isUnmatching}
+                disabled={isUnmatching}
               >
                 {isUnmatching ? "Unmatching…" : "Confirm unmatch"}
               </button>
