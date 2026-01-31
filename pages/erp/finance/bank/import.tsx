@@ -396,7 +396,6 @@ export default function BankImportPage() {
   const [matchModal, setMatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
   const [unmatchModal, setUnmatchModal] = useState<{ open: boolean; txn?: BankTxnRow }>({ open: false });
   const [matchNotes, setMatchNotes] = useState("");
-  const [unmatchReason, setUnmatchReason] = useState("");
   const [isMatching, setIsMatching] = useState(false);
   const [isUnmatching, setIsUnmatching] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
@@ -586,7 +585,6 @@ export default function BankImportPage() {
 
   const openUnmatchModal = (txn: BankTxnRow) => {
     setUnmatchModal({ open: true, txn });
-    setUnmatchReason("");
   };
 
   const closeMatchModal = () => setMatchModal({ open: false });
@@ -596,10 +594,9 @@ export default function BankImportPage() {
     setIsSuggesting(true);
     setMatchSuggestError(null);
     try {
-      const response = await fetch(`/api/erp/finance/bank/txns/${txn.id}/match-suggest-razorpay`, {
+      const response = await fetch(`/api/erp/finance/bank/txns/${txn.id}/recon-suggest-razorpay`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ dateWindowDays: 3 }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -622,11 +619,12 @@ export default function BankImportPage() {
     setIsMatching(true);
 
     try {
-      const response = await fetch(`/api/erp/finance/bank/txns/${matchModal.txn.id}/match-confirm-razorpay`, {
+      const response = await fetch(`/api/erp/finance/bank/txns/${matchModal.txn.id}/recon-match`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          settlementDbId: suggestion.settlement_db_id,
+          entityType: "razorpay_settlement",
+          entityId: suggestion.settlement_db_id,
           confidence: "manual",
           notes: matchNotes.trim() || null,
         }),
@@ -647,14 +645,12 @@ export default function BankImportPage() {
 
   const handleUnmatch = async () => {
     if (!unmatchModal.txn) return;
-    const reason = unmatchReason.trim();
     setError(null);
     setIsUnmatching(true);
     try {
-      const response = await fetch(`/api/erp/finance/bank/txns/${unmatchModal.txn.id}/match-unmatch`, {
+      const response = await fetch(`/api/erp/finance/bank/txns/${unmatchModal.txn.id}/recon-unmatch`, {
         method: "POST",
         headers: getAuthHeaders(),
-        body: JSON.stringify({ reason: reason || null }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -1109,18 +1105,9 @@ export default function BankImportPage() {
           <div style={{ background: "white", borderRadius: 12, padding: 20, width: "min(520px, 92vw)" }}>
             <h3 style={{ marginTop: 0 }}>Unmatch bank transaction</h3>
             <p style={{ color: "#64748b", marginTop: 6 }}>
-              Provide a reason to unmatch the transaction on {unmatchModal.txn.txn_date} for{" "}
+              Unmatch the transaction on {unmatchModal.txn.txn_date} for{" "}
               <strong>₹ {formatCurrency(unmatchModal.txn.amount)}</strong>.
             </p>
-            <label style={{ display: "grid", gap: 6, marginTop: 12 }}>
-              <span>Reason (optional)</span>
-              <textarea
-                rows={3}
-                value={unmatchReason}
-                onChange={(event) => setUnmatchReason(event.target.value)}
-                style={{ ...inputStyle, minHeight: 80 }}
-              />
-            </label>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button
                 type="button"
