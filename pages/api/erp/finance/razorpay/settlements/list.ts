@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
 
 const parseOptionalString = (value: string | string[] | undefined): string | null => {
   if (Array.isArray(value)) return value[0] ?? null;
