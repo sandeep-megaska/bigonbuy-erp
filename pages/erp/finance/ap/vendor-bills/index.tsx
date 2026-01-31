@@ -132,8 +132,8 @@ export default function VendorBillsListPage() {
         <ErpPageHeader
           eyebrow="Finance"
           title="Vendor Bills"
-          subtitle="Capture vendor GST bills, match with PO/GRN, and post to the ledger."
-          actions={
+          description="Capture vendor GST bills, match with PO/GRN, and post to the ledger."
+          rightActions={
             <Link href="/erp/finance/ap/vendor-bills/new" style={primaryButtonStyle}>
               New Vendor Bill
             </Link>
