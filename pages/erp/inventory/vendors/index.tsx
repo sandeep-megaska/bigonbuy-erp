@@ -40,6 +40,17 @@ type Vendor = {
   created_at: string;
 };
 
+type TdsProfile = {
+  profile_id: string;
+  vendor_id: string;
+  tds_section: string;
+  tds_rate: number;
+  threshold_amount: number | null;
+  effective_from: string;
+  effective_to: string | null;
+  is_void: boolean;
+};
+
 export default function InventoryVendorsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -64,6 +75,12 @@ export default function InventoryVendorsPage() {
   const [paymentTermsDays, setPaymentTermsDays] = useState("0");
   const [notes, setNotes] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [tdsProfiles, setTdsProfiles] = useState<TdsProfile[]>([]);
+  const [tdsSection, setTdsSection] = useState("194C");
+  const [tdsRate, setTdsRate] = useState("");
+  const [tdsThreshold, setTdsThreshold] = useState("");
+  const [tdsEffectiveFrom, setTdsEffectiveFrom] = useState("");
+  const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -108,6 +125,19 @@ export default function InventoryVendorsPage() {
       return;
     }
     if (isActiveFetch) setVendors((data || []) as Vendor[]);
+  }
+
+  async function loadTdsProfiles(vendorId: string) {
+    const { data, error: loadError } = await supabase.rpc("erp_vendor_tds_profiles_list", {
+      p_vendor_id: vendorId,
+    });
+
+    if (loadError) {
+      setError(loadError.message || "Failed to load TDS profiles.");
+      return;
+    }
+
+    setTdsProfiles((data || []) as TdsProfile[]);
   }
 
   function resetForm() {
@@ -200,6 +230,67 @@ export default function InventoryVendorsPage() {
     setPaymentTermsDays(String(vendor.payment_terms_days ?? 0));
     setNotes(vendor.notes || "");
     setIsActive(vendor.is_active);
+    setTdsSection("194C");
+    setTdsRate("");
+    setTdsThreshold("");
+    setTdsEffectiveFrom("");
+    setTdsEffectiveTo("");
+    loadTdsProfiles(vendor.id);
+  }
+
+  async function handleTdsProfileSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingId) {
+      setError("Select a vendor before adding TDS profile.");
+      return;
+    }
+
+    if (!tdsRate.trim()) {
+      setError("TDS rate is required.");
+      return;
+    }
+
+    const payload = {
+      vendor_id: editingId,
+      tds_section: tdsSection.trim(),
+      tds_rate: Number(tdsRate) || 0,
+      threshold_amount: tdsThreshold.trim() ? Number(tdsThreshold) : null,
+      effective_from: tdsEffectiveFrom || new Date().toISOString().slice(0, 10),
+      effective_to: tdsEffectiveTo || null,
+    };
+
+    const { error: upsertError } = await supabase.rpc("erp_vendor_tds_profile_upsert", {
+      p_profile: payload,
+    });
+
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
+    }
+
+    setTdsSection("194C");
+    setTdsRate("");
+    setTdsThreshold("");
+    setTdsEffectiveFrom("");
+    setTdsEffectiveTo("");
+    await loadTdsProfiles(editingId);
+  }
+
+  async function handleTdsVoid(profileId: string) {
+    if (!profileId) return;
+    const { error: voidError } = await supabase.rpc("erp_vendor_tds_profile_void", {
+      p_profile_id: profileId,
+      p_reason: "Voided from vendor master",
+    });
+
+    if (voidError) {
+      setError(voidError.message);
+      return;
+    }
+
+    if (editingId) {
+      await loadTdsProfiles(editingId);
+    }
   }
 
   return (
@@ -308,6 +399,102 @@ export default function InventoryVendorsPage() {
               ) : null}
             </div>
           </form>
+        </section>
+
+        <section style={cardStyle}>
+          <h2 style={{ marginTop: 0 }}>Vendor TDS Profile</h2>
+          {editingId ? (
+            <form onSubmit={handleTdsProfileSubmit} style={{ display: "grid", gap: 12 }}>
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                <label style={{ display: "grid", gap: 6 }}>
+                  Section
+                  <select style={inputStyle} value={tdsSection} onChange={(e) => setTdsSection(e.target.value)}>
+                    {["194C", "194I", "194A", "194J", "194JB"].map((section) => (
+                      <option key={section} value={section}>
+                        {section}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  Rate (%)
+                  <input style={inputStyle} value={tdsRate} onChange={(e) => setTdsRate(e.target.value)} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  Threshold
+                  <input style={inputStyle} value={tdsThreshold} onChange={(e) => setTdsThreshold(e.target.value)} />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  Effective From
+                  <input
+                    style={inputStyle}
+                    type="date"
+                    value={tdsEffectiveFrom}
+                    onChange={(e) => setTdsEffectiveFrom(e.target.value)}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 6 }}>
+                  Effective To
+                  <input
+                    style={inputStyle}
+                    type="date"
+                    value={tdsEffectiveTo}
+                    onChange={(e) => setTdsEffectiveTo(e.target.value)}
+                  />
+                </label>
+              </div>
+              <div>
+                <button type="submit" style={primaryButtonStyle}>
+                  Save TDS Profile
+                </button>
+              </div>
+            </form>
+          ) : (
+            <p style={{ marginTop: 0 }}>Select a vendor to manage TDS profiles.</p>
+          )}
+
+          <div style={{ marginTop: 16, overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Section</th>
+                  <th style={tableHeaderCellStyle}>Rate (%)</th>
+                  <th style={tableHeaderCellStyle}>Threshold</th>
+                  <th style={tableHeaderCellStyle}>Effective From</th>
+                  <th style={tableHeaderCellStyle}>Effective To</th>
+                  <th style={tableHeaderCellStyle}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tdsProfiles.length === 0 ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={6}>
+                      No TDS profiles yet.
+                    </td>
+                  </tr>
+                ) : (
+                  tdsProfiles.map((profile) => (
+                    <tr key={profile.profile_id}>
+                      <td style={tableCellStyle}>{profile.tds_section}</td>
+                      <td style={tableCellStyle}>{profile.tds_rate}</td>
+                      <td style={tableCellStyle}>{profile.threshold_amount ?? "—"}</td>
+                      <td style={tableCellStyle}>{profile.effective_from}</td>
+                      <td style={tableCellStyle}>{profile.effective_to ?? "—"}</td>
+                      <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={() => handleTdsVoid(profile.profile_id)}
+                        >
+                          Void
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section>
