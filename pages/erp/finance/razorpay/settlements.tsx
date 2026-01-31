@@ -63,6 +63,8 @@ type CsvMapping = {
   settledAt: string | null;
 };
 
+type CsvParsedRow = Record<string, string>;
+
 const inputStyle = {
   width: "100%",
   padding: "10px 12px",
@@ -181,6 +183,7 @@ export default function RazorpaySettlementsPage() {
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvPreviewRows, setCsvPreviewRows] = useState<CsvPreviewRow[]>([]);
+  const [csvParsedRows, setCsvParsedRows] = useState<CsvParsedRow[]>([]);
   const [csvRowCount, setCsvRowCount] = useState(0);
   const [csvMapping, setCsvMapping] = useState<CsvMapping | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
@@ -442,6 +445,7 @@ export default function RazorpaySettlementsPage() {
     const file = event.target.files?.[0] ?? null;
     setCsvFile(file);
     setCsvPreviewRows([]);
+    setCsvParsedRows([]);
     setCsvRowCount(0);
     setCsvMapping(null);
     setCsvImportSummary(null);
@@ -460,7 +464,7 @@ export default function RazorpaySettlementsPage() {
       return;
     }
 
-    const rows = parsed.data || [];
+    const rows = (parsed.data || []) as CsvParsedRow[];
     if (!rows.length) {
       setCsvError("CSV is empty.");
       return;
@@ -491,6 +495,7 @@ export default function RazorpaySettlementsPage() {
       settled_at: mapping.settledAt ? parseCsvDate(row[mapping.settledAt]) : null,
     }));
 
+    setCsvParsedRows(rows);
     setCsvRowCount(mappedRows.length);
     setCsvPreviewRows(mappedRows.slice(0, 10));
     setCsvMapping(mapping);
@@ -505,18 +510,20 @@ export default function RazorpaySettlementsPage() {
       setCsvError("Only finance admins can import settlements.");
       return;
     }
+    if (!csvParsedRows.length) {
+      setCsvError("Please select a CSV file to import.");
+      return;
+    }
 
     setCsvImporting(true);
     setCsvError("");
     setCsvImportSummary(null);
 
     try {
-      const csvContent = await csvFile.text();
-
       const response = await fetch("/api/erp/finance/razorpay/settlements/import-csv", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ csvContent }),
+        body: JSON.stringify({ rows: csvParsedRows }),
       });
 
       const payload = await response.json();
@@ -595,6 +602,8 @@ export default function RazorpaySettlementsPage() {
   const selectedBank = bankOptions.find((option) => option.id === form.bankAccountId) || null;
   const selectedFees = feesOptions.find((option) => option.id === form.gatewayFeesAccountId) || null;
   const selectedGst = gstOptions.find((option) => option.id === form.gstInputOnFeesAccountId) || null;
+  const csvRowsToImport = csvParsedRows.length;
+  const csvRowsImported = csvImportSummary ? csvImportSummary.inserted + csvImportSummary.updated : 0;
 
   if (loading) {
     return (
@@ -848,6 +857,11 @@ export default function RazorpaySettlementsPage() {
               {csvRowCount ? `${csvRowCount} rows detected` : "Select a CSV to preview rows"}
             </span>
             {!canWrite ? <span style={{ fontSize: 13, color: "#b45309" }}>Finance role required</span> : null}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
+            <div>Rows parsed: {csvRowCount}</div>
+            <div>Rows to import: {csvRowsToImport}</div>
+            <div>Rows imported: {csvRowsImported}</div>
           </div>
           {csvMapping ? (
             <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>

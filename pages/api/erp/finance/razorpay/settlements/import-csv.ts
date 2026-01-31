@@ -15,7 +15,7 @@ type SuccessResponse = {
 
 type ApiResponse = ErrorResponse | SuccessResponse;
 
-type ParsedRow = Record<string, string>;
+type ParsedRow = Record<string, unknown>;
 
 type MappedRow = {
   settlement_id: string | null;
@@ -206,24 +206,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  const csvContent = req.body?.csvContent ? String(req.body.csvContent) : "";
-  if (!csvContent) {
-    return res.status(400).json({ ok: false, error: "CSV content is required" });
-  }
-  const csvText = csvContent;
+  const providedRows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  let rows: ParsedRow[] = [];
 
-  const parsed = Papa.parse<ParsedRow>(csvText, {
-    header: true,
-    skipEmptyLines: true,
-  });
+  if (providedRows?.length) {
+    rows = providedRows.filter((row): row is ParsedRow => !!row && typeof row === "object");
+    if (!rows.length) {
+      return res.status(400).json({ ok: false, error: "Rows payload is empty" });
+    }
+  } else {
+    const csvContent = req.body?.csvContent ? String(req.body.csvContent) : "";
+    if (!csvContent) {
+      return res.status(400).json({ ok: false, error: "CSV content is required" });
+    }
 
-  if (parsed.errors?.length) {
-    return res.status(400).json({ ok: false, error: "Unable to parse CSV", details: parsed.errors });
-  }
+    const parsed = Papa.parse<ParsedRow>(csvContent, {
+      header: true,
+      skipEmptyLines: true,
+    });
 
-  const rows = parsed.data || [];
-  if (!rows.length) {
-    return res.status(400).json({ ok: false, error: "CSV is empty" });
+    if (parsed.errors?.length) {
+      return res.status(400).json({ ok: false, error: "Unable to parse CSV", details: parsed.errors });
+    }
+
+    rows = parsed.data || [];
+    if (!rows.length) {
+      return res.status(400).json({ ok: false, error: "CSV is empty" });
+    }
   }
 
   const { error: mappingError, mappedRows } = mapRows(rows);
