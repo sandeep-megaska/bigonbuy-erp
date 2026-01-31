@@ -97,6 +97,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-ap-vendor-advances",
+    label: "Vendor Advances",
+    href: "/erp/finance/ap/vendor-advances",
+    description: "Record vendor advances and post AP prepayments.",
+    group: "Finance",
+    sidebarIcon: "VA",
+    cardIcon: "💸",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-recon",
     label: "Recon Dashboard",
     href: "/erp/finance/recon",
