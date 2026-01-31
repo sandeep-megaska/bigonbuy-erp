@@ -5,8 +5,8 @@ import {
   listRazorpaySettlements,
   summarizeRecon,
   toUnixSeconds,
-} from "../../../../../lib/razorpay";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
+} from "lib/razorpay";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = {
