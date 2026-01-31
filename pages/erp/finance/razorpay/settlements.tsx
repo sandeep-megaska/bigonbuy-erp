@@ -203,15 +203,16 @@ export default function RazorpaySettlementsPage() {
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
 
-  const getAuthHeader = (tokenOverride?: string | null) => {
+  const getAuthHeaders = (tokenOverride?: string | null): HeadersInit => {
     const token = tokenOverride ?? ctx?.session?.access_token;
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
   };
-
-  const getAuthHeaders = (tokenOverride?: string | null) => ({
-    "Content-Type": "application/json",
-    ...getAuthHeader(tokenOverride),
-  });
 
   const loadSettlements = async (token?: string | null) => {
     const response = await fetch("/api/erp/finance/razorpay/settlements", {
