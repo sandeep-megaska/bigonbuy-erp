@@ -156,7 +156,7 @@ export default function ErpHomePage() {
   if (canAdmin) {
     quickActions.push({
       label: "Company Settings",
-      href: "/erp/admin/company-settings",
+      href: "/erp/company",
       variant: "secondary",
     });
   }
@@ -208,7 +208,7 @@ export default function ErpHomePage() {
                 <span>
                   Company setup is incomplete. Add your legal or brand name to finish onboarding.
                 </span>
-                <Link href="/erp/admin/company-settings" style={alertLinkStyle}>
+                <Link href="/erp/company" style={alertLinkStyle}>
                   Go to Company Settings
                 </Link>
               </div>

@@ -210,7 +210,7 @@ export default function HrHomePage() {
             {setupIncomplete ? (
               <div style={alertStyle}>
                 <span>Company setup is incomplete. Add brand and legal details to proceed.</span>
-                <Link href="/erp/admin/company-settings" style={alertLinkStyle}>
+                <Link href="/erp/company" style={alertLinkStyle}>
                   Go to Company Settings
                 </Link>
               </div>

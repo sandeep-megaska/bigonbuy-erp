@@ -737,8 +737,8 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
   },
   {
     id: "settings-company",
-    label: "Company Settings",
-    href: "/erp/admin/company-settings",
+    label: "Company Settings Hub",
+    href: "/erp/company",
     icon: "CS",
     groupId: "settings",
     requiredGuard: "admin",

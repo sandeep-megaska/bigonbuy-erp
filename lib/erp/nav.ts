@@ -222,10 +222,10 @@ export const ERP_NAV: NavItem[] = [
   },
   {
     id: "company-settings",
-    label: "Company Settings",
-    href: "/erp/admin/company-settings",
+    label: "Company Settings Hub",
+    href: "/erp/company",
     section: "Company",
-    description: "Branding, organization details, and setup checklist.",
+    description: "Company profile, access, and module settings.",
     access: "adminHR",
   },
 ];
