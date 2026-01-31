@@ -86,6 +86,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-ap-vendor-bills",
+    label: "Vendor Bills",
+    href: "/erp/finance/ap/vendor-bills",
+    description: "Capture vendor bills, apply advances, and post AP journals.",
+    group: "Finance",
+    sidebarIcon: "VB",
+    cardIcon: "🧾",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-recon",
     label: "Recon Dashboard",
     href: "/erp/finance/recon",
