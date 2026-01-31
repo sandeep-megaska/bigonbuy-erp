@@ -6,9 +6,12 @@ type ErrorResponse = { ok: false; error: string; details?: unknown };
 type SuccessResponse = {
   ok: true;
   data: {
+    parsed_count: number;
+    attempted_count: number;
     inserted_count: number;
     updated_count: number;
     skipped_count: number;
+    failed_count: number;
     errors: unknown[];
   };
 };
@@ -38,6 +41,12 @@ type AggregatedRow = {
   raw: ParsedRow[];
 };
 
+type RowError = {
+  line: number;
+  settlement_id: string | null;
+  reason: string;
+};
+
 const headerAliases = {
   settlementId: ["settlement_id", "settlementid", "id", "settlement"],
   utr: ["utr", "bank_utr", "utr_number", "bankutr", "payout_utr", "bank_reference", "rrn"],
@@ -62,23 +71,47 @@ function findHeader(headers: string[], aliases: string[]) {
   return null;
 }
 
-function parseDateValue(value: unknown) {
-  if (!value) return null;
+function parseDateValue(value: unknown): { value: string | null; error: string | null } {
+  if (!value) return { value: null, error: null };
   const raw = String(value).trim();
-  if (!raw) return null;
+  if (!raw) return { value: null, error: null };
 
   if (/^\d+$/.test(raw)) {
     const numeric = Number(raw);
     if (!Number.isNaN(numeric)) {
       const millis = raw.length >= 13 ? numeric : numeric * 1000;
       const date = new Date(millis);
-      if (!Number.isNaN(date.getTime())) return date.toISOString();
+      if (!Number.isNaN(date.getTime())) return { value: date.toISOString(), error: null };
+    }
+  }
+
+  const dayFirstMatch = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?$/
+  );
+  if (dayFirstMatch) {
+    const [, dayRaw, monthRaw, yearRaw, hourRaw, minuteRaw, secondRaw] = dayFirstMatch;
+    const day = Number(dayRaw);
+    const month = Number(monthRaw);
+    const year = Number(yearRaw);
+    const hour = Number(hourRaw ?? 0);
+    const minute = Number(minuteRaw ?? 0);
+    const second = Number(secondRaw ?? 0);
+    const parsedDayFirst = new Date(year, month - 1, day, hour, minute, second);
+    if (
+      !Number.isNaN(parsedDayFirst.getTime()) &&
+      parsedDayFirst.getFullYear() === year &&
+      parsedDayFirst.getMonth() === month - 1 &&
+      parsedDayFirst.getDate() === day
+    ) {
+      return { value: parsedDayFirst.toISOString(), error: null };
     }
   }
 
   const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: null, error: `Unable to parse date "${raw}"` };
+  }
+  return { value: parsed.toISOString(), error: null };
 }
 
 function parseAmount(value: string | null) {
@@ -151,7 +184,7 @@ function mapRows(rows: ParsedRow[]) {
   const headers = Object.keys(rows[0] || {});
   const settlementIdHeader = findHeader(headers, headerAliases.settlementId);
   if (!settlementIdHeader) {
-    return { error: "CSV missing settlement id column", mappedRows: [] as MappedRow[] };
+    return { error: "CSV missing settlement id column", mappedRows: [] as MappedRow[], rowErrors: [] as RowError[] };
   }
 
   const utrHeader = findHeader(headers, headerAliases.utr);
@@ -161,9 +194,19 @@ function mapRows(rows: ParsedRow[]) {
   const currencyHeader = findHeader(headers, headerAliases.currency);
   const settledAtHeader = findHeader(headers, headerAliases.settledAt);
 
-  const mappedRows = rows.map((row) => {
+  const rowErrors: RowError[] = [];
+  const mappedRows = rows.map((row, index) => {
     const settledRaw = settledAtHeader ? row[settledAtHeader] : "";
-    const settledAt = parseDateValue(settledRaw) ?? (settledRaw ? String(settledRaw).trim() : null);
+    const parsedSettledAt = parseDateValue(settledRaw);
+    if (parsedSettledAt.error && settledRaw) {
+      rowErrors.push({
+        line: index + 1,
+        settlement_id: settlementIdHeader ? String(row[settlementIdHeader] ?? "").trim() || null : null,
+        reason: parsedSettledAt.error,
+      });
+    }
+    const currencyRaw = currencyHeader ? String(row[currencyHeader] ?? "").trim() : "";
+    const currency = currencyRaw || "INR";
 
     return {
       settlement_id: settlementIdHeader ? String(row[settlementIdHeader] ?? "").trim() || null : null,
@@ -171,13 +214,13 @@ function mapRows(rows: ParsedRow[]) {
       settlement_utr: settlementUtrHeader ? String(row[settlementUtrHeader] ?? "").trim() || null : null,
       amount: amountHeader ? String(row[amountHeader] ?? "").trim() || null : null,
       status: statusHeader ? String(row[statusHeader] ?? "").trim() || null : null,
-      currency: currencyHeader ? String(row[currencyHeader] ?? "").trim() || null : null,
-      settled_at: settledAt,
+      currency,
+      settled_at: parsedSettledAt.value,
       raw: row,
     };
   });
 
-  return { error: null, mappedRows };
+  return { error: null, mappedRows, rowErrors };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -235,7 +278,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
   }
 
-  const { error: mappingError, mappedRows } = mapRows(rows);
+  const { error: mappingError, mappedRows, rowErrors } = mapRows(rows);
   if (mappingError) {
     return res.status(400).json({ ok: false, error: mappingError });
   }
@@ -254,13 +297,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
+  const rpcErrors = (data?.errors ?? []) as RowError[];
+  const combinedErrors = [...rowErrors, ...rpcErrors];
+
   return res.status(200).json({
     ok: true,
     data: {
+      parsed_count: rows.length,
+      attempted_count: aggregatedRows.length,
       inserted_count: data?.inserted_count ?? 0,
       updated_count: data?.updated_count ?? 0,
       skipped_count: data?.skipped_count ?? 0,
-      errors: data?.errors ?? [],
+      failed_count: combinedErrors.length,
+      errors: combinedErrors,
     },
   });
 }
