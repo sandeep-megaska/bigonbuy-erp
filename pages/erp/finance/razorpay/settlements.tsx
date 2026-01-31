@@ -142,6 +142,27 @@ const parseCsvDate = (value: unknown) => {
     const asDate = new Date(millis);
     if (!Number.isNaN(asDate.getTime())) return asDate.toISOString();
   }
+  const dayFirstMatch = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?$/
+  );
+  if (dayFirstMatch) {
+    const [, dayRaw, monthRaw, yearRaw, hourRaw, minuteRaw, secondRaw] = dayFirstMatch;
+    const day = Number(dayRaw);
+    const month = Number(monthRaw);
+    const year = Number(yearRaw);
+    const hour = Number(hourRaw ?? 0);
+    const minute = Number(minuteRaw ?? 0);
+    const second = Number(secondRaw ?? 0);
+    const parsedDayFirst = new Date(year, month - 1, day, hour, minute, second);
+    if (
+      !Number.isNaN(parsedDayFirst.getTime()) &&
+      parsedDayFirst.getFullYear() === year &&
+      parsedDayFirst.getMonth() === month - 1 &&
+      parsedDayFirst.getDate() === day
+    ) {
+      return parsedDayFirst.toISOString();
+    }
+  }
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
@@ -188,9 +209,12 @@ export default function RazorpaySettlementsPage() {
   const [csvMapping, setCsvMapping] = useState<CsvMapping | null>(null);
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvImportSummary, setCsvImportSummary] = useState<{
+    parsed: number;
+    attempted: number;
     inserted: number;
     updated: number;
     skipped: number;
+    failed: number;
     errors: unknown[];
   } | null>(null);
   const [csvError, setCsvError] = useState("");
@@ -532,9 +556,12 @@ export default function RazorpaySettlementsPage() {
       }
 
       setCsvImportSummary({
+        parsed: payload.data?.parsed_count ?? csvParsedRows.length,
+        attempted: payload.data?.attempted_count ?? csvParsedRows.length,
         inserted: payload.data?.inserted_count ?? 0,
         updated: payload.data?.updated_count ?? 0,
         skipped: payload.data?.skipped_count ?? 0,
+        failed: payload.data?.failed_count ?? 0,
         errors: payload.data?.errors ?? [],
       });
 
@@ -603,7 +630,10 @@ export default function RazorpaySettlementsPage() {
   const selectedFees = feesOptions.find((option) => option.id === form.gatewayFeesAccountId) || null;
   const selectedGst = gstOptions.find((option) => option.id === form.gstInputOnFeesAccountId) || null;
   const csvRowsToImport = csvParsedRows.length;
+  const csvRowsParsed = csvImportSummary?.parsed ?? csvRowCount;
+  const csvRowsAttempted = csvImportSummary?.attempted ?? csvRowsToImport;
   const csvRowsImported = csvImportSummary ? csvImportSummary.inserted + csvImportSummary.updated : 0;
+  const csvRowsFailed = csvImportSummary?.failed ?? 0;
 
   if (loading) {
     return (
@@ -859,9 +889,11 @@ export default function RazorpaySettlementsPage() {
             {!canWrite ? <span style={{ fontSize: 13, color: "#b45309" }}>Finance role required</span> : null}
           </div>
           <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
-            <div>Rows parsed: {csvRowCount}</div>
-            <div>Rows to import: {csvRowsToImport}</div>
-            <div>Rows imported: {csvRowsImported}</div>
+            <div>Rows parsed: {csvRowsParsed}</div>
+            <div>Rows attempted: {csvRowsAttempted}</div>
+            <div>Inserted: {csvImportSummary?.inserted ?? 0}</div>
+            <div>Updated: {csvImportSummary?.updated ?? 0}</div>
+            <div>Failed: {csvRowsFailed}</div>
           </div>
           {csvMapping ? (
             <div style={{ marginTop: 12, fontSize: 13, color: "#374151" }}>
@@ -882,6 +914,29 @@ export default function RazorpaySettlementsPage() {
               {csvImportSummary.errors.length
                 ? ` ${csvImportSummary.errors.length} rows had errors.`
                 : null}
+            </div>
+          ) : null}
+          {csvImportSummary?.errors.length ? (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 13, color: "#b91c1c", marginBottom: 8 }}>Row errors (first 20)</div>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Row</th>
+                    <th style={tableHeaderCellStyle}>Settlement ID</th>
+                    <th style={tableHeaderCellStyle}>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvImportSummary.errors.slice(0, 20).map((err: any, index: number) => (
+                    <tr key={`csv-error-${index}`}>
+                      <td style={tableCellStyle}>{err?.line ?? "—"}</td>
+                      <td style={tableCellStyle}>{err?.settlement_id ?? "—"}</td>
+                      <td style={tableCellStyle}>{err?.reason ?? "Unknown error"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
           {csvError ? <div style={{ marginTop: 12, color: "#b91c1c", fontSize: 13 }}>{csvError}</div> : null}
