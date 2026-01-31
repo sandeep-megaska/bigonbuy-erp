@@ -19,7 +19,7 @@ type ParsedRow = Record<string, string>;
 
 type MappedRow = {
   settlement_id: string | null;
-  settlement_utr: string | null;
+  utr: string | null;
   amount: string | null;
   status: string | null;
   currency: string | null;
@@ -29,6 +29,7 @@ type MappedRow = {
 
 type AggregatedRow = {
   settlement_id: string | null;
+  utr: string | null;
   amount: string | null;
   currency: string | null;
   settled_at: string | null;
@@ -37,7 +38,7 @@ type AggregatedRow = {
 
 const headerAliases = {
   settlementId: ["settlement_id", "settlementid", "id", "settlement"],
-  utr: ["utr", "bank_utr", "utr_number", "bankutr"],
+  utr: ["utr", "bank_utr", "utr_number", "bankutr", "payout_utr", "bank_reference", "rrn"],
   amount: ["amount", "settled_amount", "net_amount", "netamount"],
   status: ["status", "settlement_status"],
   currency: ["currency", "curr", "settlement_currency"],
@@ -96,6 +97,7 @@ function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
     if (!existing) {
       grouped.set(key, {
         settlement_id: row.settlement_id,
+        utr: row.utr,
         amount: row.amount,
         currency: row.currency,
         settled_at: row.settled_at,
@@ -113,6 +115,10 @@ function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
 
     if (!existing.currency && row.currency) {
       existing.currency = row.currency;
+    }
+
+    if (!existing.utr && row.utr) {
+      existing.utr = row.utr;
     }
 
     if (row.settled_at) {
@@ -152,7 +158,7 @@ function mapRows(rows: ParsedRow[]) {
 
     return {
       settlement_id: settlementIdHeader ? String(row[settlementIdHeader] ?? "").trim() || null : null,
-      settlement_utr: utrHeader ? String(row[utrHeader] ?? "").trim() || null : null,
+      utr: utrHeader ? String(row[utrHeader] ?? "").trim() || null : null,
       amount: amountHeader ? String(row[amountHeader] ?? "").trim() || null : null,
       status: statusHeader ? String(row[statusHeader] ?? "").trim() || null : null,
       currency: currencyHeader ? String(row[currencyHeader] ?? "").trim() || null : null,

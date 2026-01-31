@@ -30,6 +30,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: "Bank transaction id is required" });
   }
 
+  const payload = (req.body ?? {}) as { query?: string | null };
+
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
     const { data: userData, error: sessionError } = await userClient.auth.getUser();
@@ -37,8 +39,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_bank_recon_suggest_razorpay_settlements", {
+    const { data, error } = await userClient.rpc("erp_razorpay_settlements_suggest_for_bank_txn", {
       p_bank_txn_id: bankTxnId,
+      p_query: payload.query ?? null,
     });
 
     if (error) {
@@ -49,7 +52,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    return res.status(200).json({ ok: true, data: (data as Record<string, unknown>) ?? null });
+    return res.status(200).json({
+      ok: true,
+      data: {
+        suggestions: (data as Record<string, unknown>[]) ?? [],
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
