@@ -77,6 +77,35 @@ type CogsPostingPreview = {
   posted?: { journal_id?: string | null; doc_no?: string | null; cogs_status?: string | null } | null;
 };
 
+type RefundPostingLine = FinancePostingLine;
+
+type RefundPostingItem = {
+  refund_source_id?: string | null;
+  refunded_at?: string | null;
+  net?: number | null;
+  gst?: number | null;
+  gross?: number | null;
+  errors?: string[] | null;
+  can_post?: boolean | null;
+  journal_preview?: RefundPostingLine[] | null;
+  posted?: { journal_id?: string | null; doc_no?: string | null } | null;
+};
+
+type RefundPostingPreview = {
+  source?: {
+    id?: string | null;
+    order_no?: string | null;
+    order_id?: number | null;
+    date?: string | null;
+    channel?: string | null;
+    currency?: string | null;
+  } | null;
+  refunds?: RefundPostingItem[] | null;
+  errors?: string[] | null;
+  can_post?: boolean | null;
+  existing_posts?: Array<{ refund_source_id?: string | null; journal_id?: string | null; doc_no?: string | null }> | null;
+};
+
 export default function ShopifyOrderDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -103,6 +132,11 @@ export default function ShopifyOrderDetailPage() {
   const [cogsError, setCogsError] = useState<string | null>(null);
   const [cogsNotice, setCogsNotice] = useState<string | null>(null);
   const [cogsPostedJournal, setCogsPostedJournal] = useState<{ id: string; doc_no: string | null } | null>(null);
+  const [refundPreview, setRefundPreview] = useState<RefundPostingPreview | null>(null);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundPosting, setRefundPosting] = useState<Record<string, boolean>>({});
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
   const hasMissingCogsCost = useMemo(
     () => Boolean(cogsPreview?.errors?.some((message) => message.toLowerCase().includes("missing cost"))),
     [cogsPreview?.errors]
@@ -292,6 +326,63 @@ export default function ShopifyOrderDetailPage() {
       setCogsError(message);
     } finally {
       setCogsPosting(false);
+    }
+  };
+
+  const loadRefundPreview = useCallback(async () => {
+    if (!ctx?.session?.access_token || !orderId) return;
+    setRefundLoading(true);
+    setRefundError(null);
+    setRefundNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-refund-preview`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ orderId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load refund preview.");
+      }
+      const preview = payload?.data as RefundPostingPreview;
+      setRefundPreview(preview ?? null);
+      if (preview?.errors && preview.errors.length > 0) {
+        setRefundError(preview.errors.join(", "));
+      }
+    } catch (previewError) {
+      const message = previewError instanceof Error ? previewError.message : "Failed to load refund preview.";
+      setRefundError(message);
+    } finally {
+      setRefundLoading(false);
+    }
+  }, [ctx?.session?.access_token, orderId]);
+
+  const handleRefundPost = async (refundSourceId: string | null | undefined) => {
+    if (!ctx?.session?.access_token || !orderId || !refundSourceId) return;
+    setRefundPosting((prev) => ({ ...prev, [refundSourceId]: true }));
+    setRefundError(null);
+    setRefundNotice(null);
+    try {
+      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-refund-post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ refund_source_id: refundSourceId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to post refund journal.");
+      }
+      if (payload?.journal?.id) {
+        setRefundNotice(`Posted refund journal ${payload.journal.doc_no || ""}`.trim());
+      } else {
+        setRefundNotice("Posted refund journal.");
+      }
+      await loadRefundPreview();
+    } catch (postError) {
+      const message = postError instanceof Error ? postError.message : "Failed to post refund journal.";
+      setRefundError(message);
+    } finally {
+      setRefundPosting((prev) => ({ ...prev, [refundSourceId]: false }));
     }
   };
 
@@ -549,6 +640,86 @@ export default function ShopifyOrderDetailPage() {
               </tbody>
             </table>
           ) : null}
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={{ ...h2Style, marginBottom: 4 }}>Refund Posting</h2>
+              <p style={subtitleStyle}>Preview and post finance reversals for Shopify refunds.</p>
+            </div>
+            <button
+              type="button"
+              onClick={loadRefundPreview}
+              style={secondaryButtonStyle}
+              disabled={refundLoading}
+            >
+              {refundLoading ? "Loading…" : "Preview Refunds"}
+            </button>
+          </div>
+
+          {refundNotice ? <div style={{ marginTop: 10, color: "#047857" }}>{refundNotice}</div> : null}
+          {refundError ? <div style={{ marginTop: 10, color: "#b91c1c" }}>{refundError}</div> : null}
+
+          {refundPreview?.refunds && refundPreview.refunds.length > 0 ? (
+            <table style={{ ...tableStyle, marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Refunded At</th>
+                  <th style={tableHeaderCellStyle}>Net</th>
+                  <th style={tableHeaderCellStyle}>GST</th>
+                  <th style={tableHeaderCellStyle}>Gross</th>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {refundPreview.refunds.map((refund, index) => {
+                  const refundSourceId = refund.refund_source_id ?? null;
+                  const isPosting = refundSourceId ? refundPosting[refundSourceId] : false;
+                  const isPosted = Boolean(refund.posted?.journal_id);
+                  const rowError =
+                    refund.errors && refund.errors.length > 0 ? refund.errors.join(", ") : refundError;
+                  return (
+                    <tr key={refundSourceId ?? refund.refunded_at ?? `refund-${index}`}>
+                      <td style={tableCellStyle}>
+                        {refund.refunded_at ? new Date(refund.refunded_at).toLocaleString() : "—"}
+                      </td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, refund.net ?? null)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, refund.gst ?? null)}</td>
+                      <td style={tableCellStyle}>{formatMoney(order.currency, refund.gross ?? null)}</td>
+                      <td style={tableCellStyle}>
+                        {isPosted ? (
+                          <Link href={`/erp/finance/journals/${refund.posted?.journal_id}`} style={linkStyle}>
+                            {refund.posted?.doc_no || refund.posted?.journal_id}
+                          </Link>
+                        ) : rowError ? (
+                          <span style={{ color: "#b91c1c" }}>{rowError}</span>
+                        ) : (
+                          "Not posted"
+                        )}
+                      </td>
+                      <td style={tableCellStyle}>
+                        <button
+                          type="button"
+                          onClick={() => handleRefundPost(refundSourceId)}
+                          style={{
+                            ...primaryButtonStyle,
+                            opacity: isPosting ? 0.7 : 1,
+                          }}
+                          disabled={isPosting || isPosted || !refund.can_post}
+                        >
+                          {isPosting ? "Posting…" : isPosted ? "Posted" : "Post Refund"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ marginTop: 12, color: "#6b7280", fontSize: 13 }}>No refunds detected.</div>
+          )}
         </section>
 
         <section style={cardStyle}>
