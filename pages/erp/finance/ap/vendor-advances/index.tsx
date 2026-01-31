@@ -59,8 +59,8 @@ type VendorAdvanceRecord = {
   payment_instrument_id: string | null;
   finance_journal_id: string | null;
   is_void: boolean;
-  vendor?: { legal_name: string } | null;
-  journal?: { doc_no: string | null } | null;
+  vendor?: { legal_name: string }[] | null;
+  journal?: { doc_no: string | null }[] | null;
 };
 
 export default function VendorAdvancesPage() {
@@ -186,13 +186,13 @@ export default function VendorAdvancesPage() {
     const mapped = rows.map((row) => ({
       advance_id: row.id,
       vendor_id: row.vendor_id,
-      vendor_name: row.vendor?.legal_name || vendorMap.get(row.vendor_id) || "",
+      vendor_name: row.vendor?.[0]?.legal_name || vendorMap.get(row.vendor_id) || "",
       advance_date: row.advance_date,
       amount: Number(row.amount || 0),
       status: row.status,
       reference: row.reference,
       payment_instrument_id: row.payment_instrument_id,
-      posted_doc_no: row.journal?.doc_no ?? null,
+      posted_doc_no: row.journal?.[0]?.doc_no ?? null,
       is_void: row.is_void,
     }));
 
