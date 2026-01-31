@@ -35,6 +35,14 @@ type MappedRow = {
   raw: ParsedRow;
 };
 
+type AggregatedRow = {
+  settlement_id: string | null;
+  amount: string | null;
+  currency: string | null;
+  settled_at: string | null;
+  raw: ParsedRow[];
+};
+
 const headerAliases = {
   settlementId: ["settlement_id", "settlementid", "id", "settlement"],
   utr: ["utr", "bank_utr", "utr_number", "bankutr"],
@@ -75,6 +83,62 @@ function parseDateValue(value: unknown) {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function parseAmount(value: string | null) {
+  if (!value) return null;
+  const normalized = String(value).replace(/,/g, "").trim();
+  if (!normalized) return null;
+  const numeric = Number(normalized);
+  if (Number.isNaN(numeric)) return null;
+  return numeric;
+}
+
+function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
+  const grouped = new Map<string, AggregatedRow>();
+
+  for (const row of rows) {
+    const key = row.settlement_id ?? "";
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        settlement_id: row.settlement_id,
+        amount: row.amount,
+        currency: row.currency,
+        settled_at: row.settled_at,
+        raw: [row.raw],
+      });
+      continue;
+    }
+
+    const currentAmount = parseAmount(existing.amount);
+    const rowAmount = parseAmount(row.amount);
+    if (rowAmount !== null || currentAmount !== null) {
+      const total = (currentAmount ?? 0) + (rowAmount ?? 0);
+      existing.amount = total.toString();
+    }
+
+    if (!existing.currency && row.currency) {
+      existing.currency = row.currency;
+    }
+
+    if (row.settled_at) {
+      if (!existing.settled_at) {
+        existing.settled_at = row.settled_at;
+      } else {
+        const existingTime = new Date(existing.settled_at).getTime();
+        const rowTime = new Date(row.settled_at).getTime();
+        if (!Number.isNaN(rowTime) && (Number.isNaN(existingTime) || rowTime > existingTime)) {
+          existing.settled_at = row.settled_at;
+        }
+      }
+    }
+
+    existing.raw.push(row.raw);
+  }
+
+  return Array.from(grouped.values());
 }
 
 function parseForm(req: NextApiRequest) {
@@ -217,8 +281,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, error: mappingError });
   }
 
+  const aggregatedRows = aggregateRows(mappedRows);
+
   const { data, error } = await userClient.rpc("erp_razorpay_settlement_upsert_from_csv", {
-    p_rows: mappedRows,
+    p_rows: aggregatedRows,
   });
 
   if (error) {
