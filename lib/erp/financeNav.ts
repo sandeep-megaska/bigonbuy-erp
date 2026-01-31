@@ -294,6 +294,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-coa-control-roles",
+    label: "COA Control Roles",
+    href: "/erp/finance/settings/coa-roles",
+    description: "Map chart of accounts control roles for finance posting.",
+    group: "Settings",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "CR",
+    cardIcon: "🧩",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-gl-accounts",
     label: "Chart of Accounts",
     href: "/erp/finance/masters/gl-accounts",
