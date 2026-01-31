@@ -206,11 +206,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
 
-  const providedRows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+  const providedRows: unknown[] | null = Array.isArray(req.body?.rows) ? req.body.rows : null;
   let rows: ParsedRow[] = [];
 
   if (providedRows?.length) {
-    rows = providedRows.filter((row): row is ParsedRow => !!row && typeof row === "object");
+    rows = providedRows.filter((row: unknown): row is ParsedRow => !!row && typeof row === "object");
     if (!rows.length) {
       return res.status(400).json({ ok: false, error: "Rows payload is empty" });
     }
