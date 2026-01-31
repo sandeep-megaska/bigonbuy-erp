@@ -571,8 +571,8 @@ export default function VendorBillDetailPage() {
         <ErpPageHeader
           eyebrow="Finance"
           title="Vendor Bill"
-          subtitle="Link PO/GRN, capture GST, TDS, and post AP journals."
-          actions={
+          description="Link PO/GRN, capture GST, TDS, and post AP journals."
+          rightActions={
             <button type="button" style={primaryButtonStyle} onClick={handleSave}>
               Save Bill
             </button>
