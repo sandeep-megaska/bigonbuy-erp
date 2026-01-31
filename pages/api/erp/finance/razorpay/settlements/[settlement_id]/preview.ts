@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
