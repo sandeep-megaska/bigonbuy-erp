@@ -75,9 +75,9 @@ type RazorpaySuggestion = {
   settled_at: string;
   amount: number;
   utr?: string | null;
-  posted_journal_doc_no?: string | null;
-  score: number;
-  reason: string;
+  status?: string | null;
+  journal_id?: string | null;
+  journal_doc_no?: string | null;
 };
 
 type RazorpaySuggestPayload = {
@@ -580,7 +580,6 @@ export default function BankImportPage() {
     setMatchFilter("");
     setMatchSuggestions([]);
     setMatchSuggestError(null);
-    void loadMatchSuggestions(txn);
   };
 
   const openUnmatchModal = (txn: BankTxnRow) => {
@@ -590,13 +589,14 @@ export default function BankImportPage() {
   const closeMatchModal = () => setMatchModal({ open: false });
   const closeUnmatchModal = () => setUnmatchModal({ open: false });
 
-  const loadMatchSuggestions = async (txn: BankTxnRow) => {
+  const loadMatchSuggestions = async (txn: BankTxnRow, query?: string) => {
     setIsSuggesting(true);
     setMatchSuggestError(null);
     try {
       const response = await fetch(`/api/erp/finance/bank/txns/${txn.id}/recon-suggest-razorpay`, {
         method: "POST",
         headers: getAuthHeaders(),
+        body: JSON.stringify({ query: query?.trim() || null }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -612,6 +612,14 @@ export default function BankImportPage() {
       setIsSuggesting(false);
     }
   };
+
+  useEffect(() => {
+    if (!matchModal.open || !matchModal.txn) return;
+    const handle = setTimeout(() => {
+      void loadMatchSuggestions(matchModal.txn, matchFilter);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [matchFilter, matchModal.open, matchModal.txn]);
 
   const handleMatch = async (suggestion: RazorpaySuggestion) => {
     if (!matchModal.txn) return;
@@ -665,18 +673,6 @@ export default function BankImportPage() {
       setIsUnmatching(false);
     }
   };
-
-  const filteredSuggestions = useMemo(() => {
-    const trimmed = matchFilter.trim().toLowerCase();
-    if (!trimmed) return matchSuggestions;
-    return matchSuggestions.filter((suggestion) => {
-      return (
-        suggestion.settlement_id?.toLowerCase().includes(trimmed) ||
-        suggestion.utr?.toLowerCase().includes(trimmed) ||
-        suggestion.posted_journal_doc_no?.toLowerCase().includes(trimmed)
-      );
-    });
-  }, [matchFilter, matchSuggestions]);
 
   if (loading) {
     return (
@@ -1016,11 +1012,11 @@ export default function BankImportPage() {
                   <p style={{ margin: 0 }}>Loading suggestions…</p>
                 ) : matchSuggestError ? (
                   <p style={{ margin: 0, color: "#b91c1c" }}>{matchSuggestError}</p>
-                ) : filteredSuggestions.length === 0 ? (
+                ) : matchSuggestions.length === 0 ? (
                   <p style={{ margin: 0, color: "#64748b" }}>No matching settlements found.</p>
                 ) : (
                   <div style={{ display: "grid", gap: 12 }}>
-                    {filteredSuggestions.map((suggestion) => (
+                    {matchSuggestions.map((suggestion) => (
                       <div
                         key={suggestion.settlement_db_id}
                         style={{
@@ -1037,18 +1033,19 @@ export default function BankImportPage() {
                             <span style={{ color: "#64748b", fontSize: 12 }}>
                               Settled {suggestion.settled_at} • UTR {suggestion.utr || "—"}
                             </span>
-                            {suggestion.posted_journal_doc_no && (
+                            {suggestion.journal_doc_no && (
                               <span style={{ color: "#64748b", fontSize: 12 }}>
-                                Journal {suggestion.posted_journal_doc_no}
+                                Journal {suggestion.journal_doc_no}
                               </span>
+                            )}
+                            {suggestion.status && (
+                              <span style={{ color: "#64748b", fontSize: 12 }}>Status {suggestion.status}</span>
                             )}
                           </div>
                           <div style={{ textAlign: "right" }}>
                             <div style={{ fontWeight: 600 }}>₹ {formatCurrency(suggestion.amount)}</div>
-                            <div style={{ fontSize: 12, color: "#64748b" }}>Score {suggestion.score}</div>
                           </div>
                         </div>
-                        <div style={{ fontSize: 12, color: "#64748b" }}>{suggestion.reason}</div>
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <button
                             type="button"
