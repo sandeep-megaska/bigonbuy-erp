@@ -20,6 +20,7 @@ type ParsedRow = Record<string, string>;
 type MappedRow = {
   settlement_id: string | null;
   utr: string | null;
+  settlement_utr: string | null;
   amount: string | null;
   status: string | null;
   currency: string | null;
@@ -30,6 +31,7 @@ type MappedRow = {
 type AggregatedRow = {
   settlement_id: string | null;
   utr: string | null;
+  settlement_utr: string | null;
   amount: string | null;
   currency: string | null;
   settled_at: string | null;
@@ -39,6 +41,7 @@ type AggregatedRow = {
 const headerAliases = {
   settlementId: ["settlement_id", "settlementid", "id", "settlement"],
   utr: ["utr", "bank_utr", "utr_number", "bankutr", "payout_utr", "bank_reference", "rrn"],
+  settlementUtr: ["additional_utr", "additionalutr", "settlement_utr", "settlementutr"],
   amount: ["amount", "settled_amount", "net_amount", "netamount"],
   status: ["status", "settlement_status"],
   currency: ["currency", "curr", "settlement_currency"],
@@ -98,6 +101,7 @@ function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
       grouped.set(key, {
         settlement_id: row.settlement_id,
         utr: row.utr,
+        settlement_utr: row.settlement_utr,
         amount: row.amount,
         currency: row.currency,
         settled_at: row.settled_at,
@@ -119,6 +123,10 @@ function aggregateRows(rows: MappedRow[]): AggregatedRow[] {
 
     if (!existing.utr && row.utr) {
       existing.utr = row.utr;
+    }
+
+    if (!existing.settlement_utr && row.settlement_utr) {
+      existing.settlement_utr = row.settlement_utr;
     }
 
     if (row.settled_at) {
@@ -147,6 +155,7 @@ function mapRows(rows: ParsedRow[]) {
   }
 
   const utrHeader = findHeader(headers, headerAliases.utr);
+  const settlementUtrHeader = findHeader(headers, headerAliases.settlementUtr);
   const amountHeader = findHeader(headers, headerAliases.amount);
   const statusHeader = findHeader(headers, headerAliases.status);
   const currencyHeader = findHeader(headers, headerAliases.currency);
@@ -159,6 +168,7 @@ function mapRows(rows: ParsedRow[]) {
     return {
       settlement_id: settlementIdHeader ? String(row[settlementIdHeader] ?? "").trim() || null : null,
       utr: utrHeader ? String(row[utrHeader] ?? "").trim() || null : null,
+      settlement_utr: settlementUtrHeader ? String(row[settlementUtrHeader] ?? "").trim() || null : null,
       amount: amountHeader ? String(row[amountHeader] ?? "").trim() || null : null,
       status: statusHeader ? String(row[statusHeader] ?? "").trim() || null : null,
       currency: currencyHeader ? String(row[currencyHeader] ?? "").trim() || null : null,
