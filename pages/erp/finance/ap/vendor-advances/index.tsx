@@ -19,6 +19,19 @@ import { supabase } from "../../../../../lib/supabaseClient";
 const formatMoney = (value: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(value || 0);
 
+const statusLabel = (status: string) => {
+  switch (status) {
+    case "draft":
+      return "Draft";
+    case "approved":
+      return "Approved (Posted)";
+    case "void":
+      return "Void";
+    default:
+      return status;
+  }
+};
+
 const today = () => new Date().toISOString().slice(0, 10);
 const startOfMonth = () => {
   const now = new Date();
@@ -264,7 +277,7 @@ export default function VendorAdvancesPage() {
     }
 
     const postedDocNo = (data as { doc_no?: string | null } | null)?.doc_no ?? null;
-    setNotice(postedDocNo ? `Posted journal ${postedDocNo}.` : "Vendor advance posted.");
+    setNotice(postedDocNo ? `Approved journal ${postedDocNo}.` : "Vendor advance approved.");
 
     if (ctx?.companyId) {
       await loadAdvances(ctx.companyId);
@@ -360,7 +373,7 @@ export default function VendorAdvancesPage() {
               <select style={inputStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="">All</option>
                 <option value="draft">Draft</option>
-                <option value="approved">Posted</option>
+                <option value="approved">Approved (Posted)</option>
                 <option value="void">Void</option>
               </select>
             </label>
@@ -398,7 +411,7 @@ export default function VendorAdvancesPage() {
                       <td style={tableCellStyle}>{advance.vendor_name || vendorMap.get(advance.vendor_id) || "—"}</td>
                       <td style={tableCellStyle}>{advance.reference || "—"}</td>
                       <td style={tableCellStyle}>{formatMoney(advance.amount)}</td>
-                      <td style={tableCellStyle}>{advance.status}</td>
+                      <td style={tableCellStyle}>{statusLabel(advance.status)}</td>
                       <td style={tableCellStyle}>{advance.posted_doc_no || "—"}</td>
                       <td style={{ ...tableCellStyle, textAlign: "right" }}>
                         {advance.status === "draft" ? (
