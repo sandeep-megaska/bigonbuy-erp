@@ -166,6 +166,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-razorpay-settlements",
+    label: "Razorpay Settlements",
+    href: "/erp/finance/razorpay/settlements",
+    description: "Sync Razorpay settlements and post bank clearing journals.",
+    group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "RZ",
+    cardIcon: "💳",
+    showInSidebar: true,
+    showInCards: true,
+  },
+  {
     id: "finance-shopify-sync",
     label: "Shopify Sync (Moved to OMS)",
     href: "/erp/finance/shopify-sync",
