@@ -449,7 +449,8 @@ export default function VendorBillDetailPage() {
 
     const savedBillId = (data as unknown as string) || header.id;
 
-    for (const [index, line] of lines.entries()) {
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
       const linePayload = {
         id: line.id,
         bill_id: savedBillId,
