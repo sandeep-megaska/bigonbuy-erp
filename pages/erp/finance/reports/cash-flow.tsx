@@ -136,7 +136,7 @@ export default function CashFlowPage() {
 
   const loadDefaultPeriod = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/default-period?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/default-period?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -154,7 +154,7 @@ export default function CashFlowPage() {
 
   const loadRoleMappings = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -168,7 +168,7 @@ export default function CashFlowPage() {
   const loadPeriodStatus = async (date: string) => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
     const response = await apiFetch(
-      `/api/erp/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
+      `/api/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
       {
         headers: getAuthHeaders(),
       }
@@ -202,7 +202,7 @@ export default function CashFlowPage() {
     if (dateStart) params.set("from", dateStart);
     if (dateEnd) params.set("to", dateEnd);
 
-    const response = await apiFetch(`/api/erp/finance/reports/cash-flow?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/cash-flow?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -288,7 +288,7 @@ export default function CashFlowPage() {
     params.set("cashflow_group", group);
     params.set("cashflow_subgroup", subgroup);
 
-    const response = await apiFetch(`/api/erp/finance/reports/cash-flow-drilldown?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/cash-flow-drilldown?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();

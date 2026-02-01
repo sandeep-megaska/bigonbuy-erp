@@ -594,7 +594,7 @@ export default function BankImportPage() {
     setIsSuggesting(true);
     setMatchSuggestError(null);
     try {
-      const response = await apiFetch(`/api/erp/finance/bank/txns/${txn.id}/recon-suggest-razorpay`, {
+      const response = await apiFetch(`/api/finance/bank/txns/${txn.id}/recon-suggest-razorpay`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ query: query?.trim() || null }),
@@ -629,7 +629,7 @@ export default function BankImportPage() {
     setIsMatching(true);
 
     try {
-      const response = await apiFetch(`/api/erp/finance/bank/txns/${matchModal.txn.id}/recon-match`, {
+      const response = await apiFetch(`/api/finance/bank/txns/${matchModal.txn.id}/recon-match`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -658,7 +658,7 @@ export default function BankImportPage() {
     setError(null);
     setIsUnmatching(true);
     try {
-      const response = await apiFetch(`/api/erp/finance/bank/txns/${unmatchModal.txn.id}/recon-unmatch`, {
+      const response = await apiFetch(`/api/finance/bank/txns/${unmatchModal.txn.id}/recon-unmatch`, {
         method: "POST",
         headers: getAuthHeaders(),
       });

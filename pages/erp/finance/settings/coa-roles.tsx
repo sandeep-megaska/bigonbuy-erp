@@ -200,7 +200,7 @@ export default function CoaControlRolesPage() {
       if (!active) return;
       const params = new URLSearchParams();
       if (accountQuery.trim()) params.set("q", accountQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();

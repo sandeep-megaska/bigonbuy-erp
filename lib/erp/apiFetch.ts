@@ -7,14 +7,7 @@ const normalizeBasePath = (value: string): string => {
   return withLeading.endsWith("/") ? withLeading.slice(0, -1) : withLeading;
 };
 
-const ENV_BASE_PATH = (() => {
-  const value = process.env.NEXT_PUBLIC_BASE_PATH;
-  if (value === undefined) {
-    return normalizeBasePath("/erp");
-  }
-
-  return normalizeBasePath(value);
-})();
+const ENV_BASE_PATH = normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH ?? "");
 
 export const getBasePath = (): string => {
   if (ENV_BASE_PATH) {
@@ -40,8 +33,26 @@ export const buildApiUrl = (path: string): string => {
     throw new Error(`apiFetch must use a relative URL. Received: ${path}`);
   }
 
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const basePath = getBasePath();
+
+  if (normalizedPath.startsWith("/erp/api/")) {
+    normalizedPath = normalizedPath.replace(/^\/erp/, "");
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`apiFetch received an /erp-prefixed path. Use /api/* instead: ${path}`);
+    }
+  }
+
+  if (normalizedPath.startsWith("/api/erp/")) {
+    normalizedPath = normalizedPath.replace(/^\/api\/erp/, "/api");
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`apiFetch received an /api/erp path. Use /api/* instead: ${path}`);
+    }
+  }
+
+  if (!normalizedPath.startsWith("/api/")) {
+    throw new Error(`apiFetch requires paths starting with /api/. Received: ${path}`);
+  }
 
   if (basePath && normalizedPath.startsWith(`${basePath}/`)) {
     return normalizedPath;

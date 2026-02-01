@@ -135,7 +135,7 @@ export default function ProfitLossPage() {
 
   const loadDefaultPeriod = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/default-period?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/default-period?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -153,7 +153,7 @@ export default function ProfitLossPage() {
 
   const loadRoleMappings = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -167,7 +167,7 @@ export default function ProfitLossPage() {
   const loadPeriodStatus = async (date: string) => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
     const response = await apiFetch(
-      `/api/erp/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
+      `/api/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
       {
         headers: getAuthHeaders(),
       }
@@ -201,7 +201,7 @@ export default function ProfitLossPage() {
     if (dateStart) params.set("from", dateStart);
     if (dateEnd) params.set("to", dateEnd);
 
-    const response = await apiFetch(`/api/erp/finance/reports/pnl?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/pnl?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -278,7 +278,7 @@ export default function ProfitLossPage() {
     params.set("statement_group", group);
     if (subgroup) params.set("statement_subgroup", subgroup);
 
-    const response = await apiFetch(`/api/erp/finance/reports/pnl-drilldown?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/pnl-drilldown?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();

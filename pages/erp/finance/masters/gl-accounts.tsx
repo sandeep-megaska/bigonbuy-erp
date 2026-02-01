@@ -131,7 +131,7 @@ export default function GlAccountsPage() {
     if (includeInactive) params.set("include_inactive", "true");
 
     try {
-      const payload = await apiGet<{ data?: GlAccount[] }>(`/api/erp/finance/gl-accounts?${params.toString()}`, {
+      const payload = await apiGet<{ data?: GlAccount[] }>(`/api/finance/gl-accounts?${params.toString()}`, {
         headers,
       });
       setAccounts((payload?.data || []) as GlAccount[]);
@@ -209,7 +209,7 @@ export default function GlAccountsPage() {
         setToast({ type: "error", message: "Please sign in again." });
         return;
       }
-      await apiPost("/api/erp/finance/gl-accounts/upsert", payload, { headers });
+      await apiPost("/api/finance/gl-accounts/upsert", payload, { headers });
       setToast({ type: "success", message: "Account saved." });
       closeModal();
       await loadAccounts();
@@ -246,7 +246,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await apiFetch(`/api/erp/finance/gl-accounts/${account.id}/deactivate`, {
+    const response = await apiFetch(`/api/finance/gl-accounts/${account.id}/deactivate`, {
       method: "POST",
       headers,
     });
@@ -271,7 +271,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await apiFetch("/api/erp/finance/gl-accounts/upsert", {
+    const response = await apiFetch("/api/finance/gl-accounts/upsert", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -317,7 +317,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await apiFetch("/api/erp/finance/gl-accounts/seed-minimal", {
+    const response = await apiFetch("/api/finance/gl-accounts/seed-minimal", {
       method: "POST",
       headers,
     });
