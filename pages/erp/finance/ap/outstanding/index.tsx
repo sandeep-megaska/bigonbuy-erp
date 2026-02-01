@@ -16,6 +16,7 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { downloadCsv, type CsvColumn } from "../../../../../lib/erp/exportCsv";
 import { supabase } from "../../../../../lib/supabaseClient";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -28,6 +29,25 @@ const last90Days = () => {
 };
 
 type VendorOption = { id: string; legal_name: string };
+
+type VendorBalanceRow = {
+  vendor_id: string;
+  vendor_name: string | null;
+  total_bills: number | null;
+  total_payments: number | null;
+  total_advances: number | null;
+  net_payable: number | null;
+};
+
+type VendorAgingRow = {
+  vendor_id: string;
+  vendor_name: string | null;
+  bucket_0_30: number | null;
+  bucket_31_60: number | null;
+  bucket_61_90: number | null;
+  bucket_90_plus: number | null;
+  outstanding_total: number | null;
+};
 
 type InvoiceOutstandingRow = {
   invoice_id: string;
@@ -124,6 +144,13 @@ export default function ApOutstandingPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [asOfDate, setAsOfDate] = useState(today());
+  const [balanceRows, setBalanceRows] = useState<VendorBalanceRow[]>([]);
+  const [agingRows, setAgingRows] = useState<VendorAgingRow[]>([]);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [agingError, setAgingError] = useState<string | null>(null);
+  const [isBalancesLoading, setIsBalancesLoading] = useState(false);
+  const [isAgingLoading, setIsAgingLoading] = useState(false);
   const [fromDate, setFromDate] = useState(start);
   const [toDate, setToDate] = useState(end);
   const [vendorId, setVendorId] = useState("");
@@ -161,6 +188,31 @@ export default function ApOutstandingPage() {
     const paymentUnallocated = selectedPayment.unallocated_amount ?? 0;
     return invoiceOutstanding > 0 && paymentUnallocated > 0;
   }, [selectedInvoice, selectedPayment]);
+
+  const handleBalancesExport = () => {
+    if (balanceRows.length === 0) return;
+    const columns: CsvColumn<VendorBalanceRow>[] = [
+      { header: "Vendor", accessor: (row) => row.vendor_name ?? "" },
+      { header: "Total Bills", accessor: (row) => `${row.total_bills ?? 0}` },
+      { header: "Total Payments", accessor: (row) => `${row.total_payments ?? 0}` },
+      { header: "Total Advances", accessor: (row) => `${row.total_advances ?? 0}` },
+      { header: "Net Payable", accessor: (row) => `${row.net_payable ?? 0}` },
+    ];
+    downloadCsv(`ap-vendor-balances-${asOfDate}.csv`, columns, balanceRows);
+  };
+
+  const handleAgingExport = () => {
+    if (agingRows.length === 0) return;
+    const columns: CsvColumn<VendorAgingRow>[] = [
+      { header: "Vendor", accessor: (row) => row.vendor_name ?? "" },
+      { header: "0-30", accessor: (row) => `${row.bucket_0_30 ?? 0}` },
+      { header: "31-60", accessor: (row) => `${row.bucket_31_60 ?? 0}` },
+      { header: "61-90", accessor: (row) => `${row.bucket_61_90 ?? 0}` },
+      { header: "90+", accessor: (row) => `${row.bucket_90_plus ?? 0}` },
+      { header: "Outstanding Total", accessor: (row) => `${row.outstanding_total ?? 0}` },
+    ];
+    downloadCsv(`ap-vendor-aging-${asOfDate}.csv`, columns, agingRows);
+  };
 
   useEffect(() => {
     let active = true;
@@ -229,6 +281,51 @@ export default function ApOutstandingPage() {
       active = false;
     };
   }, [ctx?.companyId]);
+
+  const loadBalances = async () => {
+    if (!ctx?.session?.access_token) return;
+    setIsBalancesLoading(true);
+    setBalanceError(null);
+    const params = new URLSearchParams();
+    if (vendorId) params.set("vendorId", vendorId);
+    const res = await fetch(`/api/finance/ap/vendor-balances?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${ctx.session.access_token}` },
+    });
+    const payload = (await res.json()) as { ok: boolean; data?: VendorBalanceRow[]; error?: string };
+    if (!res.ok || !payload.ok) {
+      setBalanceError(payload.error || "Failed to load vendor balances.");
+      setIsBalancesLoading(false);
+      return;
+    }
+    setBalanceRows(payload.data || []);
+    setIsBalancesLoading(false);
+  };
+
+  const loadAging = async () => {
+    if (!ctx?.session?.access_token) return;
+    setIsAgingLoading(true);
+    setAgingError(null);
+    const params = new URLSearchParams();
+    if (vendorId) params.set("vendorId", vendorId);
+    if (asOfDate) params.set("asOf", asOfDate);
+    const res = await fetch(`/api/finance/ap/vendor-aging?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${ctx.session.access_token}` },
+    });
+    const payload = (await res.json()) as { ok: boolean; data?: VendorAgingRow[]; error?: string };
+    if (!res.ok || !payload.ok) {
+      setAgingError(payload.error || "Failed to load vendor aging.");
+      setIsAgingLoading(false);
+      return;
+    }
+    setAgingRows(payload.data || []);
+    setIsAgingLoading(false);
+  };
+
+  useEffect(() => {
+    if (!ctx?.session?.access_token) return;
+    void loadBalances();
+    void loadAging();
+  }, [ctx?.session?.access_token, vendorId, asOfDate]);
 
   const loadAllocations = async (invoiceId: string | null) => {
     if (!ctx?.companyId || !invoiceId) {
@@ -443,9 +540,14 @@ export default function ApOutstandingPage() {
           title="AP Outstanding"
           description="Allocate vendor payments to outstanding invoices."
           rightActions={
-            <Link href="/erp/finance" style={secondaryButtonStyle}>
-              Back to Finance
-            </Link>
+            <div style={{ display: "flex", gap: 12 }}>
+              <Link href="/erp/finance/ap/vendor-ledger" style={secondaryButtonStyle}>
+                Vendor Ledger
+              </Link>
+              <Link href="/erp/finance" style={secondaryButtonStyle}>
+                Back to Finance
+              </Link>
+            </div>
           }
         />
 
@@ -454,6 +556,111 @@ export default function ApOutstandingPage() {
             {error}
           </div>
         ) : null}
+
+        <section style={cardStyle}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+            <div>
+              <label style={subtitleStyle}>As of date</label>
+              <input
+                type="date"
+                value={asOfDate}
+                style={inputStyle}
+                onChange={(event) => setAsOfDate(event.target.value)}
+              />
+            </div>
+            <div>
+              <label style={subtitleStyle}>Vendor filter</label>
+              <select value={vendorId} style={inputStyle} onChange={(event) => setVendorId(event.target.value)}>
+                <option value="">All vendors</option>
+                {vendors.map((vendor) => (
+                  <option key={vendor.id} value={vendor.id}>
+                    {vendor.legal_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+              <button type="button" style={secondaryButtonStyle} onClick={handleBalancesExport}>
+                Export balances CSV
+              </button>
+              <button type="button" style={secondaryButtonStyle} onClick={handleAgingExport}>
+                Export aging CSV
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Vendor balances</h3>
+          {balanceError ? <p style={{ color: "#b91c1c" }}>{balanceError}</p> : null}
+          {isBalancesLoading ? <p>Loading balances…</p> : null}
+          {!isBalancesLoading && balanceRows.length === 0 ? (
+            <p style={subtitleStyle}>No vendor balances found.</p>
+          ) : null}
+          {balanceRows.length > 0 ? (
+            <div style={{ overflowX: "auto" }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Vendor</th>
+                    <th style={tableHeaderCellStyle}>Total Bills</th>
+                    <th style={tableHeaderCellStyle}>Total Payments</th>
+                    <th style={tableHeaderCellStyle}>Total Advances</th>
+                    <th style={tableHeaderCellStyle}>Net Payable</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {balanceRows.map((row) => (
+                    <tr key={row.vendor_id}>
+                      <td style={tableCellStyle}>{row.vendor_name || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.total_bills, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.total_payments, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.total_advances, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.net_payable, "INR")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+
+        <section style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Vendor aging</h3>
+          {agingError ? <p style={{ color: "#b91c1c" }}>{agingError}</p> : null}
+          {isAgingLoading ? <p>Loading aging…</p> : null}
+          {!isAgingLoading && agingRows.length === 0 ? (
+            <p style={subtitleStyle}>No aging data available.</p>
+          ) : null}
+          {agingRows.length > 0 ? (
+            <div style={{ overflowX: "auto" }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th style={tableHeaderCellStyle}>Vendor</th>
+                    <th style={tableHeaderCellStyle}>0-30</th>
+                    <th style={tableHeaderCellStyle}>31-60</th>
+                    <th style={tableHeaderCellStyle}>61-90</th>
+                    <th style={tableHeaderCellStyle}>90+</th>
+                    <th style={tableHeaderCellStyle}>Outstanding</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agingRows.map((row) => (
+                    <tr key={row.vendor_id}>
+                      <td style={tableCellStyle}>{row.vendor_name || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.bucket_0_30, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.bucket_31_60, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.bucket_61_90, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.bucket_90_plus, "INR")}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.outstanding_total, "INR")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
 
         <section style={cardStyle}>
           <form onSubmit={handleSearch} style={filterGridStyle}>
