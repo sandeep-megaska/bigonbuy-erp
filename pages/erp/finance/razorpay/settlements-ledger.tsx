@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type SettlementLedgerRow = {
@@ -117,7 +118,7 @@ export default function RazorpaySettlementsLedgerPage() {
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
     if (postedOnly) params.set("posted_only", "true");
 
-    const response = await fetch(`/api/erp/finance/razorpay/settlements/list?${params.toString()}`, {
+    const response = await apiFetch(`/api/erp/finance/razorpay/settlements/list?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -158,7 +159,7 @@ export default function RazorpaySettlementsLedgerPage() {
     setToast(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/razorpay/settlements/${settlementId}/preview`, {
+      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/preview`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -184,7 +185,7 @@ export default function RazorpaySettlementsLedgerPage() {
     setToast(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {
+      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {
         method: "POST",
         headers: getAuthHeaders(),
       });

@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import ErpSidebar from "./ErpSidebar";
 import ErpTopBar, { type ErpModuleKey } from "./ErpTopBar";
 import { pageWrapperStyle } from "./ui/styles";
+import FinanceDiagnosticsBanner from "./FinanceDiagnosticsBanner";
 
 export default function ErpShell({
   activeModule = "workspace",
@@ -29,7 +30,10 @@ export default function ErpShell({
           onToggle={() => setCollapsed((prev) => !prev)}
         />
         <main style={{ ...mainStyle, marginLeft: sidebarWidth }}>
-          <div style={pageWrapperStyle}>{children}</div>
+          <div style={pageWrapperStyle}>
+            {activeModule === "finance" ? <FinanceDiagnosticsBanner /> : null}
+            {children}
+          </div>
         </main>
       </div>
     </ErpShellContext.Provider>

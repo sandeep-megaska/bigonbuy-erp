@@ -13,6 +13,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const formatDate = (value: string | null) =>
@@ -111,7 +112,7 @@ export default function FinanceJournalDetailPage() {
     setError(null);
     setToast(null);
 
-    const response = await fetch(`/api/erp/finance/journals/${journalId}`, {
+    const response = await apiFetch(`/api/erp/finance/journals/${journalId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -155,7 +156,7 @@ export default function FinanceJournalDetailPage() {
     setError(null);
     setToast(null);
 
-    const response = await fetch(`/api/erp/finance/journals/${journal.id}/void`, {
+    const response = await apiFetch(`/api/erp/finance/journals/${journal.id}/void`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ reason: voidReason.trim() }),

@@ -12,6 +12,7 @@ import {
 } from "../../../../components/erp/uiStyles";
 import NoteForm from "../../../../components/finance/NoteForm";
 import { noteGetSchema, type NoteFormPayload, type NoteGetPayload } from "../../../../lib/erp/notes";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -160,7 +161,7 @@ export default function NoteDetailPage() {
       return;
     }
 
-    const response = await fetch("/api/erp/finance/notes/upsert", {
+    const response = await apiFetch("/api/erp/finance/notes/upsert", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

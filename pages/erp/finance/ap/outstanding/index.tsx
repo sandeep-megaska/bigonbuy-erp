@@ -15,6 +15,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { downloadCsv, type CsvColumn } from "../../../../../lib/erp/exportCsv";
 import { supabase } from "../../../../../lib/supabaseClient";
@@ -314,7 +315,7 @@ export default function ApOutstandingPage() {
     const params = new URLSearchParams();
     if (vendorId) params.set("vendorId", vendorId);
     if (asOfDate) params.set("asOf", asOfDate);
-    const res = await fetch(`/api/finance/ap/vendor-balances?${params.toString()}`, {
+    const res = await apiFetch(`/api/finance/ap/vendor-balances?${params.toString()}`, {
       headers: { Authorization: `Bearer ${ctx.session.access_token}` },
     });
     const payload = (await res.json()) as { ok: boolean; data?: VendorBalanceRow[]; error?: string };
@@ -334,7 +335,7 @@ export default function ApOutstandingPage() {
     const params = new URLSearchParams();
     if (vendorId) params.set("vendorId", vendorId);
     if (asOfDate) params.set("asOf", asOfDate);
-    const res = await fetch(`/api/finance/ap/vendor-aging?${params.toString()}`, {
+    const res = await apiFetch(`/api/finance/ap/vendor-aging?${params.toString()}`, {
       headers: { Authorization: `Bearer ${ctx.session.access_token}` },
     });
     const payload = (await res.json()) as { ok: boolean; data?: VendorAgingRow[]; error?: string };

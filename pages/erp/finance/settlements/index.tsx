@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
@@ -560,9 +561,8 @@ export default function FinanceSettlementsPage() {
     console.log("gmail sync token?", { has: Boolean(token), err: sessErr?.message });
 
     const query = new URLSearchParams({ start: fromDate, end: toDate });
-    const response = await fetch(`/api/finance/settlements/gmail-sync-run?${query.toString()}`, {
+    const response = await apiFetch(`/api/finance/settlements/gmail-sync-run?${query.toString()}`, {
       method: "POST",
-      credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
@@ -596,9 +596,8 @@ export default function FinanceSettlementsPage() {
       return;
     }
 
-    const response = await fetch("/api/finance/settlements/gmail-connect", {
+    const response = await apiFetch("/api/finance/settlements/gmail-connect", {
       method: "POST",
-      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },

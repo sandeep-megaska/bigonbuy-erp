@@ -7,6 +7,7 @@ import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { pageContainerStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
 import NoteForm from "../../../../components/finance/NoteForm";
 import { type NoteFormPayload } from "../../../../lib/erp/notes";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -92,7 +93,7 @@ export default function NoteCreatePage() {
       return;
     }
 
-    const response = await fetch("/api/erp/finance/notes/upsert", {
+    const response = await apiFetch("/api/erp/finance/notes/upsert", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
