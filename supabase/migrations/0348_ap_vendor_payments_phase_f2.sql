@@ -1340,40 +1340,109 @@ revoke all on function public.erp_ap_vendor_ledger(uuid, date, date) from public
 grant execute on function public.erp_ap_vendor_ledger(uuid, date, date) to authenticated;
 
 ------------------------------------------------------------
--- RPC: Export helpers (aging/balances)
+-- RPC: Export helpers (aging/outstanding) — FIXED
+-- Notes:
+-- - There is NO erp_ap_vendor_balances() in DB; Codex created erp_ap_vendor_outstanding().
+-- - Export wrappers must return TABLE(...), not "setof <function_name>".
+-- - Function arg order in DB is (p_as_of date, p_vendor_id uuid).
 ------------------------------------------------------------
 
-drop function if exists public.erp_ap_vendor_outstanding_export(date, uuid);
+-- Drop any wrong/old signatures created by earlier attempts
+drop function if exists public.erp_ap_vendor_aging_export(uuid, date);
+drop function if exists public.erp_ap_vendor_outstanding_export(uuid, date);
+drop function if exists public.erp_ap_vendor_balances_export(uuid);
+
+-- OPTIONAL: Create a "balances" wrapper for convenience (balances == outstanding as-of date)
+-- If you don't want this name, you can delete this function entirely.
+drop function if exists public.erp_ap_vendor_balances(date, uuid);
+drop function if exists public.erp_ap_vendor_balances(uuid);
+
+create function public.erp_ap_vendor_balances(
+  p_as_of date default current_date,
+  p_vendor_id uuid default null
+) returns table (
+  vendor_id uuid,
+  vendor_name text,
+  invoice_total numeric,
+  payment_total numeric,
+  outstanding numeric,
+  last_invoice_date date,
+  last_payment_date date
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.erp_ap_vendor_outstanding(p_as_of, p_vendor_id);
+$$;
+
+revoke all on function public.erp_ap_vendor_balances(date, uuid) from public;
+grant execute on function public.erp_ap_vendor_balances(date, uuid) to authenticated;
+
+-- "Balances export" (kept for UI export convenience)
+create function public.erp_ap_vendor_balances_export(
+  p_as_of date default current_date,
+  p_vendor_id uuid default null
+) returns table (
+  vendor_id uuid,
+  vendor_name text,
+  invoice_total numeric,
+  payment_total numeric,
+  outstanding numeric,
+  last_invoice_date date,
+  last_payment_date date
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.erp_ap_vendor_outstanding(p_as_of, p_vendor_id);
+$$;
+
+revoke all on function public.erp_ap_vendor_balances_export(date, uuid) from public;
+grant execute on function public.erp_ap_vendor_balances_export(date, uuid) to authenticated;
+
+-- Aging export (match your existing base aging columns + include vendor_name like your DB already shows)
+drop function if exists public.erp_ap_vendor_aging_export(date, uuid);
 
 drop function if exists public.erp_ap_vendor_aging_export(date, uuid);
 
-drop function if exists public.erp_ap_vendor_aging_export(uuid, date);
-
-drop function if exists public.erp_ap_vendor_balances_export(uuid);
-
-create function public.erp_ap_vendor_balances_export(
-  p_vendor_id uuid default null
-) returns setof public.erp_ap_vendor_balances
-language sql
-security definer
-set search_path = public
-as $$
-  select *
-  from public.erp_ap_vendor_balances(p_vendor_id);
-$$;
-
-grant execute on function public.erp_ap_vendor_balances_export(uuid) to authenticated;
-
 create function public.erp_ap_vendor_aging_export(
-  p_vendor_id uuid default null,
-  p_as_of date default current_date
-) returns setof public.erp_ap_vendor_aging
+  p_as_of date default current_date,
+  p_vendor_id uuid default null
+) returns table (
+  vendor_id uuid,
+  vendor_name text,
+  bucket_0_30 numeric,
+  bucket_31_60 numeric,
+  bucket_61_90 numeric,
+  bucket_90_plus numeric,
+  outstanding_total numeric
+)
 language sql
 security definer
 set search_path = public
 as $$
-  select *
-  from public.erp_ap_vendor_aging(p_vendor_id, p_as_of);
+  select
+    i.vendor_id,
+    v.legal_name as vendor_name,
+    sum(case when p_as_of - i.invoice_date <= 30 then i.computed_invoice_total else 0 end) as bucket_0_30,
+    sum(case when p_as_of - i.invoice_date between 31 and 60 then i.computed_invoice_total else 0 end) as bucket_31_60,
+    sum(case when p_as_of - i.invoice_date between 61 and 90 then i.computed_invoice_total else 0 end) as bucket_61_90,
+    sum(case when p_as_of - i.invoice_date > 90 then i.computed_invoice_total else 0 end) as bucket_90_plus,
+    sum(i.computed_invoice_total) as outstanding_total
+  from public.erp_gst_purchase_invoices i
+  join public.erp_vendors v
+    on v.id = i.vendor_id
+   and v.company_id = i.company_id
+  where i.company_id = public.erp_current_company_id()
+    and i.is_void = false
+    and i.invoice_date <= p_as_of
+    and (p_vendor_id is null or i.vendor_id = p_vendor_id)
+  group by i.vendor_id, v.legal_name;
 $$;
 
-grant execute on function public.erp_ap_vendor_aging_export(uuid, date) to authenticated;
+revoke all on function public.erp_ap_vendor_aging_export(date, uuid) from public;
+grant execute on function public.erp_ap_vendor_aging_export(date, uuid) to authenticated;

@@ -1,6 +1,12 @@
 -- 0347_vendor_advances_list_journal_doc_no.sql
+-- Fix: Postgres cannot change function return row type via CREATE OR REPLACE when OUT/RETURNS TABLE changes.
+-- Solution: DROP the existing function signature first, then CREATE it again.
 
-create or replace function public.erp_ap_vendor_advances_list(
+begin;
+
+drop function if exists public.erp_ap_vendor_advances_list(uuid, text);
+
+create function public.erp_ap_vendor_advances_list(
   p_vendor_id uuid default null,
   p_status text default null
 ) returns table (
@@ -53,3 +59,5 @@ $$;
 
 revoke all on function public.erp_ap_vendor_advances_list(uuid, text) from public;
 grant execute on function public.erp_ap_vendor_advances_list(uuid, text) to authenticated;
+
+commit;
