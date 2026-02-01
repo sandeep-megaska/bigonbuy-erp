@@ -62,6 +62,13 @@ type VendorAdvanceRow = {
   is_void: boolean;
 };
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/ap/vendor-advances -> RPC: erp_ap_vendor_advances_list,
+ *                                        erp_ap_vendor_advance_create,
+ *                                        erp_ap_vendor_advance_approve_and_post
+ * RPC tables: erp_ap_vendor_advances, erp_vendors, erp_fin_journals
+ */
 export default function VendorAdvancesPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);

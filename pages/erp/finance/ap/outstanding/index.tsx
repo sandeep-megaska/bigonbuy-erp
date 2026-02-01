@@ -136,6 +136,31 @@ const formatAmount = (value: number | null, currency: string | null) => {
   }
 };
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/ap/outstanding -> GET /api/finance/ap/vendor-balances
+ * API: vendor-balances -> RPC: erp_ap_vendor_balances
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_payments, erp_ap_vendor_advances, erp_vendors
+ *
+ * UI: /erp/finance/ap/outstanding -> GET /api/finance/ap/vendor-aging
+ * API: vendor-aging -> RPC: erp_ap_vendor_aging
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_payment_allocations, erp_vendors
+ *
+ * UI: /erp/finance/ap/outstanding -> RPC: erp_ap_invoices_outstanding_list
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_payment_allocations, erp_vendors
+ *
+ * UI: /erp/finance/ap/outstanding -> RPC: erp_ap_payments_unallocated_list
+ * RPC tables: erp_ap_vendor_payments, erp_ap_vendor_payment_allocations, erp_vendors, erp_bank_transactions
+ *
+ * UI: /erp/finance/ap/outstanding -> RPC: erp_ap_allocations_for_invoice
+ * RPC tables: erp_ap_vendor_payment_allocations, erp_ap_vendor_payments, erp_bank_transactions
+ *
+ * UI: /erp/finance/ap/outstanding -> RPC: erp_ap_allocate_vendor_payment
+ * RPC tables: erp_ap_vendor_payment_allocations, erp_ap_vendor_payments, erp_gst_purchase_invoices
+ *
+ * UI: /erp/finance/ap/outstanding -> RPC: erp_ap_allocation_void
+ * RPC tables: erp_ap_vendor_payment_allocations
+ */
 export default function ApOutstandingPage() {
   const router = useRouter();
   const { start, end } = useMemo(() => last90Days(), []);
@@ -288,6 +313,7 @@ export default function ApOutstandingPage() {
     setBalanceError(null);
     const params = new URLSearchParams();
     if (vendorId) params.set("vendorId", vendorId);
+    if (asOfDate) params.set("asOf", asOfDate);
     const res = await fetch(`/api/finance/ap/vendor-balances?${params.toString()}`, {
       headers: { Authorization: `Bearer ${ctx.session.access_token}` },
     });

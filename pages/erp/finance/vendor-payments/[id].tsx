@@ -53,6 +53,15 @@ type ToastState = { type: "success" | "error"; message: string } | null;
 const formatCurrency = (amount: number, currency: string) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount);
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/vendor-payments/[id]
+ * RPC: erp_ap_vendor_payment_get, erp_ap_vendor_payment_upsert, erp_ap_vendor_payment_approve,
+ *      erp_ap_vendor_payment_void, erp_ap_vendor_payment_set_allocations, erp_ap_invoices_outstanding_list,
+ *      erp_bank_txns_search, erp_bank_match_vendor_payment, erp_bank_unmatch
+ * Tables: erp_ap_vendor_payments, erp_ap_vendor_payment_allocations, erp_gst_purchase_invoices,
+ *         erp_vendors, erp_fin_journals, erp_bank_transactions
+ */
 export default function VendorPaymentDetailPage() {
   const router = useRouter();
   const paymentId = typeof router.query.id === "string" ? router.query.id : "";
