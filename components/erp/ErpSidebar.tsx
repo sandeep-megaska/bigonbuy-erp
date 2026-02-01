@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { ErpModuleKey } from "./ErpTopBar";
 import { getCompanyContext } from "../../lib/erpContext";
 import { getErpNavGroups } from "../../lib/erp/nav/erpNavRegistry";
+import { getFinanceNavGroups } from "../../lib/erp/financeNav";
 
 export default function ErpSidebar({
   activeModule,
@@ -39,6 +40,9 @@ export default function ErpSidebar({
   }, []);
 
   const groups = useMemo(() => {
+    if (activeModule === "finance") {
+      return getFinanceNavGroups(companyContext.roleKey);
+    }
     return getErpNavGroups({
       roleKey: companyContext.roleKey,
       companyId: companyContext.companyId,

@@ -239,6 +239,9 @@ export default function MonthClosePage() {
             title="Month Close"
             description="Finalize the monthly close checklist."
           />
+          <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#111827" }}>
+            Finance Control → Month Close
+          </h2>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
@@ -262,6 +265,9 @@ export default function MonthClosePage() {
             </Link>
           }
         />
+        <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#111827" }}>
+          Finance Control → Month Close
+        </h2>
 
         <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
