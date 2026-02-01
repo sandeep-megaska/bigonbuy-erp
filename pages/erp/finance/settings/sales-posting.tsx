@@ -8,7 +8,7 @@ import {
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
@@ -107,37 +107,43 @@ export default function SalesPostingSettingsPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const session = await requireAuthRedirectHome(router);
-      if (!session || !active) return;
+      try {
+        const session = await requireAuthRedirectHome(router);
+        if (!session || !active) return;
 
-      const context = await getCompanyContext(session);
-      if (!active) return;
+        const context = await getCompanyContext(session);
+        if (!active) return;
 
-      setCtx(context as CompanyContext);
-      if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
-        setLoading(false);
-        return;
+        setCtx(context as CompanyContext);
+        if (!context.companyId) {
+          setError(context.membershipError || "No active company membership found for this user.");
+          return;
+        }
+
+        const token = (context as CompanyContext)?.session?.access_token ?? null;
+        const payload = await apiGet<{ data?: Record<string, string | null> }>(
+          "/api/erp/finance/sales-posting-config",
+          {
+            headers: getAuthHeaders(token),
+          }
+        );
+        if (!active) return;
+
+        if (payload?.data) {
+          setForm({
+            salesRevenueAccountId: payload.data.sales_revenue_account_id ?? "",
+            gstOutputAccountId: payload.data.gst_output_account_id ?? "",
+            receivableAccountId: payload.data.receivable_account_id ?? "",
+          });
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unable to load sales posting config.";
+        setError(message);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
-
-      const token = (context as CompanyContext)?.session?.access_token ?? null;
-      const response = await apiFetch("/api/erp/finance/sales-posting-config", {
-        headers: getAuthHeaders(token),
-      });
-      const payload = await response.json();
-      if (!active) return;
-
-      if (!response.ok) {
-        setError(payload?.error || "Unable to load sales posting config.");
-      } else if (payload?.data) {
-        setForm({
-          salesRevenueAccountId: payload.data.sales_revenue_account_id ?? "",
-          gstOutputAccountId: payload.data.gst_output_account_id ?? "",
-          receivableAccountId: payload.data.receivable_account_id ?? "",
-        });
-      }
-
-      setLoading(false);
     })();
 
     return () => {
@@ -151,18 +157,22 @@ export default function SalesPostingSettingsPage() {
 
     const timer = setTimeout(async () => {
       if (!active) return;
-      const params = new URLSearchParams();
-      if (salesQuery.trim()) params.set("q", salesQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load sales revenue accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (salesQuery.trim()) params.set("q", salesQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setSalesOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load sales revenue accounts.";
+        setError(message);
       }
-      setSalesOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -177,18 +187,22 @@ export default function SalesPostingSettingsPage() {
 
     const timer = setTimeout(async () => {
       if (!active) return;
-      const params = new URLSearchParams();
-      if (gstQuery.trim()) params.set("q", gstQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load GST output accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (gstQuery.trim()) params.set("q", gstQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setGstOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load GST output accounts.";
+        setError(message);
       }
-      setGstOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -203,18 +217,22 @@ export default function SalesPostingSettingsPage() {
 
     const timer = setTimeout(async () => {
       if (!active) return;
-      const params = new URLSearchParams();
-      if (receivableQuery.trim()) params.set("q", receivableQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load receivable accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (receivableQuery.trim()) params.set("q", receivableQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setReceivableOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load receivable accounts.";
+        setError(message);
       }
-      setReceivableOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -232,25 +250,50 @@ export default function SalesPostingSettingsPage() {
     setError("");
     setNotice("");
     try {
-      const response = await apiFetch("/api/erp/finance/sales-posting-config", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
+      await apiPost(
+        "/api/erp/finance/sales-posting-config",
+        {
           salesRevenueAccountId: form.salesRevenueAccountId || null,
           gstOutputAccountId: form.gstOutputAccountId || null,
           receivableAccountId: form.receivableAccountId || null,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Unable to save sales posting config.");
-      }
+        },
+        { headers: getAuthHeaders() }
+      );
       setNotice("Sales posting config updated.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to save sales posting config.";
       setError(message || "Unable to save sales posting config.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!ctx?.session?.access_token) {
+      setError("Please sign in again.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const payload = await apiGet<{ data?: Record<string, string | null> }>(
+        "/api/erp/finance/sales-posting-config",
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+      if (payload?.data) {
+        setForm({
+          salesRevenueAccountId: payload.data.sales_revenue_account_id ?? "",
+          gstOutputAccountId: payload.data.gst_output_account_id ?? "",
+          receivableAccountId: payload.data.receivable_account_id ?? "",
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to load sales posting config.";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -311,6 +354,25 @@ export default function SalesPostingSettingsPage() {
             </button>
           }
         />
+
+        {error ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              color: "#b91c1c",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <span>{error}</span>
+            <button type="button" style={secondaryButtonStyle} onClick={handleRetry} disabled={loading}>
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         <div style={{ ...cardStyle, marginTop: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -407,7 +469,6 @@ export default function SalesPostingSettingsPage() {
           </div>
 
           {notice ? <div style={{ marginTop: 12, color: "#047857", fontSize: 13 }}>{notice}</div> : null}
-          {error ? <div style={{ marginTop: 12, color: "#b91c1c", fontSize: 13 }}>{error}</div> : null}
         </div>
       </div>
     </ErpShell>

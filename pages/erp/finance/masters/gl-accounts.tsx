@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, getSessionOrNull, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
@@ -130,23 +130,17 @@ export default function GlAccountsPage() {
     if (search.trim()) params.set("q", search.trim());
     if (includeInactive) params.set("include_inactive", "true");
 
-    const response = await apiFetch(`/api/erp/finance/gl-accounts?${params.toString()}`, {
-      headers,
-    });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        setError("Please sign in again.");
-      } else {
-        setError(payload?.error || "Failed to load GL accounts.");
-      }
+    try {
+      const payload = await apiGet<{ data?: GlAccount[] }>(`/api/erp/finance/gl-accounts?${params.toString()}`, {
+        headers,
+      });
+      setAccounts((payload?.data || []) as GlAccount[]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load GL accounts.";
+      setError(message);
+    } finally {
       setIsLoadingData(false);
-      return;
     }
-
-    setAccounts((payload?.data || []) as GlAccount[]);
-    setIsLoadingData(false);
   };
 
   useEffect(() => {
@@ -215,29 +209,25 @@ export default function GlAccountsPage() {
         setToast({ type: "error", message: "Please sign in again." });
         return;
       }
-      const response = await apiFetch("/api/erp/finance/gl-accounts/upsert", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          setToast({ type: "error", message: "Please sign in again." });
-        } else {
-          setToast({ type: "error", message: data?.error || "Failed to save account." });
-        }
-        return;
-      }
-
+      await apiPost("/api/erp/finance/gl-accounts/upsert", payload, { headers });
       setToast({ type: "success", message: "Account saved." });
       closeModal();
       await loadAccounts();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to save account.";
+      setToast({ type: "error", message });
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (loading) {
+    return (
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>Loading chart of accounts…</div>
+      </ErpShell>
+    );
+  }
 
   const handleDeactivate = async (event: MouseEvent, account: GlAccount) => {
     event.stopPropagation();
@@ -400,7 +390,22 @@ export default function GlAccountsPage() {
         />
 
         {error ? (
-          <div style={{ ...cardStyle, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              color: "#b91c1c",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <span>{error}</span>
+            <button type="button" style={secondaryButtonStyle} onClick={loadAccounts} disabled={isLoadingData}>
+              Retry
+            </button>
+          </div>
         ) : null}
         {toast ? (
           <div

@@ -13,7 +13,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
@@ -102,19 +102,20 @@ export default function TrialBalancePage() {
     if (includeInactive) params.set("include_inactive", "true");
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
 
-    const response = await apiFetch(`/api/erp/finance/reports/trial-balance?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      setError(payload?.error || "Failed to load trial balance.");
+    try {
+      const payload = await apiGet<{ data?: TrialBalanceRow[] }>(
+        `/api/erp/finance/reports/trial-balance?${params.toString()}`,
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+      setRows((payload?.data || []) as TrialBalanceRow[]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load trial balance.";
+      setError(message);
+    } finally {
       setIsLoadingData(false);
-      return;
     }
-
-    setRows((payload?.data || []) as TrialBalanceRow[]);
-    setIsLoadingData(false);
   };
 
   const handleSubmit = async (event?: React.FormEvent) => {
@@ -134,6 +135,14 @@ export default function TrialBalancePage() {
   }, [rows]);
   const difference = totals.debit - totals.credit;
 
+  if (loading) {
+    return (
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>Loading trial balance…</div>
+      </ErpShell>
+    );
+  }
+
   return (
     <ErpShell activeModule="finance">
       <div style={pageContainerStyle}>
@@ -148,7 +157,29 @@ export default function TrialBalancePage() {
           }
         />
 
-        {error ? <div style={{ ...cardStyle, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div> : null}
+        {error ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              color: "#b91c1c",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={loadTrialBalance}
+              style={secondaryButtonStyle}
+              disabled={isLoadingData}
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         <form
           onSubmit={handleSubmit}

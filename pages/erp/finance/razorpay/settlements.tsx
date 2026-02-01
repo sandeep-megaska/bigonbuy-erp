@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
@@ -65,6 +65,15 @@ type CsvMapping = {
 };
 
 type CsvParsedRow = Record<string, string>;
+type RazorpayConfig = {
+  razorpay_key_id?: string | null;
+  razorpay_clearing_account_id?: string | null;
+  bank_account_id?: string | null;
+  gateway_fees_account_id?: string | null;
+  gst_input_on_fees_account_id?: string | null;
+  has_key_secret?: boolean | null;
+};
+type PreviewData = Record<string, unknown>;
 
 const inputStyle = {
   width: "100%",
@@ -200,7 +209,7 @@ export default function RazorpaySettlementsPage() {
   const [gstOptions, setGstOptions] = useState<AccountOption[]>([]);
 
   const [settlements, setSettlements] = useState<SettlementRow[]>([]);
-  const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -243,56 +252,63 @@ export default function RazorpaySettlementsPage() {
   };
 
   const loadSettlements = async (token?: string | null) => {
-    const response = await apiFetch("/api/erp/finance/razorpay/settlements", {
+    try {
+      const payload = await apiGet<{ data?: SettlementRow[] }>("/api/erp/finance/razorpay/settlements", {
+        headers: getAuthHeaders(token),
+      });
+      setSettlements((payload?.data || []) as SettlementRow[]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to load settlements.";
+      setError(message);
+    }
+  };
+
+  const loadConfigAndSettlements = async (token?: string | null) => {
+    const payload = await apiGet<{ data?: RazorpayConfig }>("/api/erp/finance/razorpay/settlements/config", {
       headers: getAuthHeaders(token),
     });
-    const payload = await response.json();
-    if (!response.ok) {
-      setError(payload?.error || "Unable to load settlements.");
-      return;
+
+    if (payload?.data) {
+      setForm((prev) => ({
+        ...prev,
+        razorpayKeyId: payload.data.razorpay_key_id ?? "",
+        razorpayClearingAccountId: payload.data.razorpay_clearing_account_id ?? "",
+        bankAccountId: payload.data.bank_account_id ?? "",
+        gatewayFeesAccountId: payload.data.gateway_fees_account_id ?? "",
+        gstInputOnFeesAccountId: payload.data.gst_input_on_fees_account_id ?? "",
+        hasKeySecret: Boolean(payload.data.has_key_secret),
+      }));
     }
-    setSettlements((payload?.data || []) as SettlementRow[]);
+
+    await loadSettlements(token);
   };
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const session = await requireAuthRedirectHome(router);
-      if (!session || !active) return;
+      try {
+        const session = await requireAuthRedirectHome(router);
+        if (!session || !active) return;
 
-      const context = await getCompanyContext(session);
-      if (!active) return;
+        const context = await getCompanyContext(session);
+        if (!active) return;
 
-      setCtx(context as CompanyContext);
-      if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
-        setLoading(false);
-        return;
+        setCtx(context as CompanyContext);
+        if (!context.companyId) {
+          setError(context.membershipError || "No active company membership found for this user.");
+          return;
+        }
+
+        const token = (context as CompanyContext)?.session?.access_token ?? null;
+        await loadConfigAndSettlements(token);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unable to load Razorpay settlement config.";
+        setError(message);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
-
-      const token = (context as CompanyContext)?.session?.access_token ?? null;
-      const response = await apiFetch("/api/erp/finance/razorpay/settlements/config", {
-        headers: getAuthHeaders(token),
-      });
-      const payload = await response.json();
-      if (!active) return;
-
-      if (!response.ok) {
-        setError(payload?.error || "Unable to load Razorpay settlement config.");
-      } else if (payload?.data) {
-        setForm((prev) => ({
-          ...prev,
-          razorpayKeyId: payload.data.razorpay_key_id ?? "",
-          razorpayClearingAccountId: payload.data.razorpay_clearing_account_id ?? "",
-          bankAccountId: payload.data.bank_account_id ?? "",
-          gatewayFeesAccountId: payload.data.gateway_fees_account_id ?? "",
-          gstInputOnFeesAccountId: payload.data.gst_input_on_fees_account_id ?? "",
-          hasKeySecret: Boolean(payload.data.has_key_secret),
-        }));
-      }
-
-      await loadSettlements(token);
-      setLoading(false);
     })();
 
     return () => {
@@ -305,18 +321,22 @@ export default function RazorpaySettlementsPage() {
     if (!ctx?.session?.access_token) return;
 
     const timer = setTimeout(async () => {
-      const params = new URLSearchParams();
-      if (clearingQuery.trim()) params.set("q", clearingQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load clearing accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (clearingQuery.trim()) params.set("q", clearingQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setClearingOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load clearing accounts.";
+        setError(message);
       }
-      setClearingOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -330,18 +350,22 @@ export default function RazorpaySettlementsPage() {
     if (!ctx?.session?.access_token) return;
 
     const timer = setTimeout(async () => {
-      const params = new URLSearchParams();
-      if (bankQuery.trim()) params.set("q", bankQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load bank accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (bankQuery.trim()) params.set("q", bankQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setBankOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load bank accounts.";
+        setError(message);
       }
-      setBankOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -355,18 +379,22 @@ export default function RazorpaySettlementsPage() {
     if (!ctx?.session?.access_token) return;
 
     const timer = setTimeout(async () => {
-      const params = new URLSearchParams();
-      if (feesQuery.trim()) params.set("q", feesQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load fee accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (feesQuery.trim()) params.set("q", feesQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setFeesOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load fee accounts.";
+        setError(message);
       }
-      setFeesOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -380,18 +408,22 @@ export default function RazorpaySettlementsPage() {
     if (!ctx?.session?.access_token) return;
 
     const timer = setTimeout(async () => {
-      const params = new URLSearchParams();
-      if (gstQuery.trim()) params.set("q", gstQuery.trim());
-      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!active) return;
-      if (!response.ok) {
-        setError(payload?.error || "Failed to load GST input accounts.");
-        return;
+      try {
+        const params = new URLSearchParams();
+        if (gstQuery.trim()) params.set("q", gstQuery.trim());
+        const payload = await apiGet<{ data?: AccountOption[] }>(
+          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          {
+            headers: getAuthHeaders(),
+          }
+        );
+        if (!active) return;
+        setGstOptions((payload?.data || []) as AccountOption[]);
+      } catch (e) {
+        if (!active) return;
+        const message = e instanceof Error ? e.message : "Failed to load GST input accounts.";
+        setError(message);
       }
-      setGstOptions((payload?.data || []) as AccountOption[]);
     }, 300);
 
     return () => {
@@ -411,22 +443,18 @@ export default function RazorpaySettlementsPage() {
     setNotice("");
 
     try {
-      const response = await apiFetch("/api/erp/finance/razorpay/settlements/config", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
+      await apiPost(
+        "/api/erp/finance/razorpay/settlements/config",
+        {
           razorpayKeyId: form.razorpayKeyId.trim(),
           razorpayKeySecret: form.razorpayKeySecret.trim() || null,
           razorpayClearingAccountId: form.razorpayClearingAccountId || null,
           bankAccountId: form.bankAccountId || null,
           gatewayFeesAccountId: form.gatewayFeesAccountId || null,
           gstInputOnFeesAccountId: form.gstInputOnFeesAccountId || null,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Unable to save Razorpay settlement config.");
-      }
+        },
+        { headers: getAuthHeaders() }
+      );
       setNotice("Razorpay settlement config updated.");
       setForm((prev) => ({ ...prev, razorpayKeySecret: "", hasKeySecret: true }));
     } catch (e) {
@@ -444,18 +472,14 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await apiFetch("/api/erp/finance/razorpay/settlements/sync", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
+      const payload = await apiPost<{ data?: { ingested?: number } }>(
+        "/api/erp/finance/razorpay/settlements/sync",
+        {
           start_date: formatDateInput(startDate),
           end_date: formatDateInput(endDate),
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Sync failed.");
-      }
+        },
+        { headers: getAuthHeaders() }
+      );
       setSyncNotice(`Synced ${payload.data?.ingested ?? 0} settlements.`);
       await loadSettlements();
     } catch (e) {
@@ -463,6 +487,20 @@ export default function RazorpaySettlementsPage() {
       setError(message || "Sync failed.");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!ctx?.companyId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await loadConfigAndSettlements(ctx?.session?.access_token ?? null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to load Razorpay settlements.";
+      setError(message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -545,16 +583,21 @@ export default function RazorpaySettlementsPage() {
     setCsvImportSummary(null);
 
     try {
-      const response = await apiFetch("/api/erp/finance/razorpay/settlements/import-csv", {
-        method: "POST",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: csvParsedRows }),
-      });
-
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "CSV import failed.");
-      }
+      const payload = await apiPost<{
+        data?: {
+          parsed_count?: number;
+          attempted_count?: number;
+          inserted_count?: number;
+          updated_count?: number;
+          skipped_count?: number;
+          failed_count?: number;
+          errors?: string[];
+        };
+      }>(
+        "/api/erp/finance/razorpay/settlements/import-csv",
+        { rows: csvParsedRows },
+        { headers: getAuthHeaders() }
+      );
 
       setCsvImportSummary({
         parsed: payload.data?.parsed_count ?? csvParsedRows.length,
@@ -582,14 +625,11 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/preview`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load preview.");
-      }
+      const payload = await apiPost<{ data?: PreviewData | null }>(
+        `/api/erp/finance/razorpay/settlements/${settlementId}/preview`,
+        {},
+        { headers: getAuthHeaders() }
+      );
       setPreviewData(payload.data || null);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to load preview.";
@@ -607,15 +647,7 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({}),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to post settlement.");
-      }
+      await apiPost(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {}, { headers: getAuthHeaders() });
       await loadSettlements();
       if (selectedSettlementId === settlementId) {
         await handlePreview(settlementId);
@@ -684,6 +716,25 @@ export default function RazorpaySettlementsPage() {
             </button>
           }
         />
+
+        {error ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              color: "#b91c1c",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <span>{error}</span>
+            <button type="button" style={secondaryButtonStyle} onClick={handleRetry} disabled={loading}>
+              Retry
+            </button>
+          </div>
+        ) : null}
 
         <div style={{ ...cardStyle, marginTop: 0 }}>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
@@ -822,7 +873,6 @@ export default function RazorpaySettlementsPage() {
           </div>
 
           {notice ? <div style={{ marginTop: 12, color: "#047857", fontSize: 13 }}>{notice}</div> : null}
-          {error ? <div style={{ marginTop: 12, color: "#b91c1c", fontSize: 13 }}>{error}</div> : null}
         </div>
 
         <div style={cardStyle}>
