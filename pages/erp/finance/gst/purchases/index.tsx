@@ -31,6 +31,7 @@ type PurchaseInvoiceRow = {
   itc_total: number;
   is_void: boolean;
   validation_status: "ok" | "warn" | "error";
+  status: "draft" | "approved" | "posted" | "void";
 };
 
 type ValidationNotes = {
@@ -55,6 +56,9 @@ type PurchaseInvoiceDetail = {
     source: string;
     source_ref: string | null;
     is_void: boolean;
+    status: "draft" | "approved" | "posted" | "void";
+    finance_journal_id: string | null;
+    journal_doc_no: string | null;
     validation_status: "ok" | "warn" | "error";
     validation_notes: ValidationNotes;
     computed_taxable: number;
@@ -254,6 +258,7 @@ export default function GstPurchasePage() {
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [isVoiding, setIsVoiding] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
   const importSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canWrite = useMemo(
@@ -453,6 +458,30 @@ export default function GstPurchasePage() {
       loadInvoices(fromDate, toDate, selectedVendor, validationFilter),
     ]);
     setIsRevalidating(false);
+  };
+
+  const handlePostInvoice = async () => {
+    if (!detail?.header) return;
+    setError(null);
+    setToast(null);
+    setIsPosting(true);
+
+    const { error: postError } = await supabase.rpc("erp_gst_purchase_invoice_post", {
+      p_invoice_id: detail.header.id,
+    });
+
+    if (postError) {
+      setError(postError.message || "Failed to post invoice.");
+      setIsPosting(false);
+      return;
+    }
+
+    setToast({ type: "success", message: "Invoice posted to finance journals." });
+    await Promise.all([
+      handleShowDetail(detail.header.id),
+      loadInvoices(fromDate, toDate, selectedVendor, validationFilter),
+    ]);
+    setIsPosting(false);
   };
 
   const formatRevalidateCounts = (payload: Record<string, unknown> | null) => {
@@ -909,7 +938,9 @@ export default function GstPurchasePage() {
                             {badge.label}
                           </span>
                         </td>
-                        <td style={tableCellStyle}>{invoice.is_void ? "Void" : "Active"}</td>
+                        <td style={tableCellStyle}>
+                          {invoice.is_void ? "Void" : invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -941,6 +972,23 @@ export default function GstPurchasePage() {
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handlePostInvoice}
+                    disabled={
+                      !canWrite ||
+                      isPosting ||
+                      detail.header.is_void ||
+                      detail.header.status !== "draft"
+                    }
+                  >
+                    {detail.header.status === "posted"
+                      ? "Posted"
+                      : isPosting
+                        ? "Posting…"
+                        : "Post"}
+                  </button>
                   <button
                     type="button"
                     style={secondaryButtonStyle}
@@ -982,6 +1030,8 @@ export default function GstPurchasePage() {
                 <div>POS: {detail.header.place_of_supply_state_code || "—"}</div>
                 <div>Reverse charge: {detail.header.is_reverse_charge ? "Yes" : "No"}</div>
                 <div>Import: {detail.header.is_import ? "Yes" : "No"}</div>
+                <div>Status: {detail.header.status}</div>
+                <div>Journal: {detail.header.journal_doc_no || "—"}</div>
               </div>
               <div style={{ marginTop: 12 }}>
                 {(() => {
