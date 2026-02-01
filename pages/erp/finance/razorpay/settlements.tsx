@@ -268,15 +268,16 @@ export default function RazorpaySettlementsPage() {
       headers: getAuthHeaders(token),
     });
 
-    if (payload?.data) {
+    const config = payload?.data;
+    if (config) {
       setForm((prev) => ({
         ...prev,
-        razorpayKeyId: payload.data.razorpay_key_id ?? "",
-        razorpayClearingAccountId: payload.data.razorpay_clearing_account_id ?? "",
-        bankAccountId: payload.data.bank_account_id ?? "",
-        gatewayFeesAccountId: payload.data.gateway_fees_account_id ?? "",
-        gstInputOnFeesAccountId: payload.data.gst_input_on_fees_account_id ?? "",
-        hasKeySecret: Boolean(payload.data.has_key_secret),
+        razorpayKeyId: config.razorpay_key_id ?? "",
+        razorpayClearingAccountId: config.razorpay_clearing_account_id ?? "",
+        bankAccountId: config.bank_account_id ?? "",
+        gatewayFeesAccountId: config.gateway_fees_account_id ?? "",
+        gstInputOnFeesAccountId: config.gst_input_on_fees_account_id ?? "",
+        hasKeySecret: Boolean(config.has_key_secret),
       }));
     }
 
