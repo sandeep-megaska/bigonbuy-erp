@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
@@ -110,19 +110,17 @@ export default function FinanceJournalsListPage() {
     if (status !== "all") params.set("status", status);
     if (search.trim()) params.set("q", search.trim());
 
-    const response = await apiFetch(`/api/erp/finance/journals?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      setError(payload?.error || "Failed to load journals.");
+    try {
+      const payload = await apiGet<{ journals?: JournalRow[] }>(`/api/erp/finance/journals?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      setJournals((payload?.journals || []) as JournalRow[]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load journals.";
+      setError(message);
+    } finally {
       setIsLoadingData(false);
-      return;
     }
-
-    setJournals((payload?.journals || []) as JournalRow[]);
-    setIsLoadingData(false);
   };
 
   useEffect(() => {
@@ -143,6 +141,14 @@ export default function FinanceJournalsListPage() {
     await loadJournals();
   };
 
+  if (loading) {
+    return (
+      <ErpShell activeModule="finance">
+        <div style={pageContainerStyle}>Loading journals…</div>
+      </ErpShell>
+    );
+  }
+
   return (
     <ErpShell activeModule="finance">
       <div style={pageContainerStyle}>
@@ -158,7 +164,22 @@ export default function FinanceJournalsListPage() {
         />
 
         {error ? (
-          <div style={{ ...cardStyle, borderColor: "#fecaca", color: "#b91c1c" }}>{error}</div>
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              color: "#b91c1c",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <span>{error}</span>
+            <button type="button" style={secondaryButtonStyle} onClick={loadJournals} disabled={isLoadingData}>
+              Retry
+            </button>
+          </div>
         ) : null}
         {toast ? (
           <div
