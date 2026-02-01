@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, getSessionOrNull, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
@@ -129,7 +130,7 @@ export default function GlAccountsPage() {
     if (search.trim()) params.set("q", search.trim());
     if (includeInactive) params.set("include_inactive", "true");
 
-    const response = await fetch(`/api/erp/finance/gl-accounts?${params.toString()}`, {
+    const response = await apiFetch(`/api/erp/finance/gl-accounts?${params.toString()}`, {
       headers,
     });
     const payload = await response.json();
@@ -214,7 +215,7 @@ export default function GlAccountsPage() {
         setToast({ type: "error", message: "Please sign in again." });
         return;
       }
-      const response = await fetch("/api/erp/finance/gl-accounts/upsert", {
+      const response = await apiFetch("/api/erp/finance/gl-accounts/upsert", {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -255,7 +256,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await fetch(`/api/erp/finance/gl-accounts/${account.id}/deactivate`, {
+    const response = await apiFetch(`/api/erp/finance/gl-accounts/${account.id}/deactivate`, {
       method: "POST",
       headers,
     });
@@ -280,7 +281,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await fetch("/api/erp/finance/gl-accounts/upsert", {
+    const response = await apiFetch("/api/erp/finance/gl-accounts/upsert", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -326,7 +327,7 @@ export default function GlAccountsPage() {
       setToast({ type: "error", message: "Please sign in again." });
       return;
     }
-    const response = await fetch("/api/erp/finance/gl-accounts/seed-minimal", {
+    const response = await apiFetch("/api/erp/finance/gl-accounts/seed-minimal", {
       method: "POST",
       headers,
     });

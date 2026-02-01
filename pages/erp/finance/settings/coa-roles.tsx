@@ -8,6 +8,7 @@ import {
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
@@ -199,11 +200,9 @@ export default function CoaControlRolesPage() {
       if (!active) return;
       const params = new URLSearchParams();
       if (accountQuery.trim()) params.set("q", accountQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
-        {
-          headers: getAuthHeaders(),
-        }
-      );
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
       const payload = await response.json();
       if (!active) return;
       if (!response.ok) {

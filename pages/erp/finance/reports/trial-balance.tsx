@@ -13,6 +13,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
@@ -101,7 +102,7 @@ export default function TrialBalancePage() {
     if (includeInactive) params.set("include_inactive", "true");
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
 
-    const response = await fetch(`/api/erp/finance/reports/trial-balance?${params.toString()}`, {
+    const response = await apiFetch(`/api/erp/finance/reports/trial-balance?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();

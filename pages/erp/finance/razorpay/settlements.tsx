@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
@@ -242,7 +243,7 @@ export default function RazorpaySettlementsPage() {
   };
 
   const loadSettlements = async (token?: string | null) => {
-    const response = await fetch("/api/erp/finance/razorpay/settlements", {
+    const response = await apiFetch("/api/erp/finance/razorpay/settlements", {
       headers: getAuthHeaders(token),
     });
     const payload = await response.json();
@@ -270,7 +271,7 @@ export default function RazorpaySettlementsPage() {
       }
 
       const token = (context as CompanyContext)?.session?.access_token ?? null;
-      const response = await fetch("/api/erp/finance/razorpay/settlements/config", {
+      const response = await apiFetch("/api/erp/finance/razorpay/settlements/config", {
         headers: getAuthHeaders(token),
       });
       const payload = await response.json();
@@ -306,7 +307,7 @@ export default function RazorpaySettlementsPage() {
     const timer = setTimeout(async () => {
       const params = new URLSearchParams();
       if (clearingQuery.trim()) params.set("q", clearingQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -331,7 +332,7 @@ export default function RazorpaySettlementsPage() {
     const timer = setTimeout(async () => {
       const params = new URLSearchParams();
       if (bankQuery.trim()) params.set("q", bankQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -356,7 +357,7 @@ export default function RazorpaySettlementsPage() {
     const timer = setTimeout(async () => {
       const params = new URLSearchParams();
       if (feesQuery.trim()) params.set("q", feesQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -381,7 +382,7 @@ export default function RazorpaySettlementsPage() {
     const timer = setTimeout(async () => {
       const params = new URLSearchParams();
       if (gstQuery.trim()) params.set("q", gstQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -410,7 +411,7 @@ export default function RazorpaySettlementsPage() {
     setNotice("");
 
     try {
-      const response = await fetch("/api/erp/finance/razorpay/settlements/config", {
+      const response = await apiFetch("/api/erp/finance/razorpay/settlements/config", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -443,7 +444,7 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await fetch("/api/erp/finance/razorpay/settlements/sync", {
+      const response = await apiFetch("/api/erp/finance/razorpay/settlements/sync", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -544,7 +545,7 @@ export default function RazorpaySettlementsPage() {
     setCsvImportSummary(null);
 
     try {
-      const response = await fetch("/api/erp/finance/razorpay/settlements/import-csv", {
+      const response = await apiFetch("/api/erp/finance/razorpay/settlements/import-csv", {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ rows: csvParsedRows }),
@@ -581,7 +582,7 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await fetch(`/api/erp/finance/razorpay/settlements/${settlementId}/preview`, {
+      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/preview`, {
         method: "POST",
         headers: getAuthHeaders(),
       });
@@ -606,7 +607,7 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      const response = await fetch(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {
+      const response = await apiFetch(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({}),

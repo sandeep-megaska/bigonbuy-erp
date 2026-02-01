@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const formatDateInput = (value: Date) => value.toISOString().slice(0, 10);
@@ -109,7 +110,7 @@ export default function FinanceJournalsListPage() {
     if (status !== "all") params.set("status", status);
     if (search.trim()) params.set("q", search.trim());
 
-    const response = await fetch(`/api/erp/finance/journals?${params.toString()}`, {
+    const response = await apiFetch(`/api/erp/finance/journals?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();

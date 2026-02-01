@@ -8,6 +8,7 @@ import {
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
@@ -120,7 +121,7 @@ export default function SalesPostingSettingsPage() {
       }
 
       const token = (context as CompanyContext)?.session?.access_token ?? null;
-      const response = await fetch("/api/erp/finance/sales-posting-config", {
+      const response = await apiFetch("/api/erp/finance/sales-posting-config", {
         headers: getAuthHeaders(token),
       });
       const payload = await response.json();
@@ -152,7 +153,7 @@ export default function SalesPostingSettingsPage() {
       if (!active) return;
       const params = new URLSearchParams();
       if (salesQuery.trim()) params.set("q", salesQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -178,7 +179,7 @@ export default function SalesPostingSettingsPage() {
       if (!active) return;
       const params = new URLSearchParams();
       if (gstQuery.trim()) params.set("q", gstQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -204,7 +205,7 @@ export default function SalesPostingSettingsPage() {
       if (!active) return;
       const params = new URLSearchParams();
       if (receivableQuery.trim()) params.set("q", receivableQuery.trim());
-      const response = await fetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
+      const response = await apiFetch(`/api/erp/finance/gl-accounts/picklist?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const payload = await response.json();
@@ -231,7 +232,7 @@ export default function SalesPostingSettingsPage() {
     setError("");
     setNotice("");
     try {
-      const response = await fetch("/api/erp/finance/sales-posting-config", {
+      const response = await apiFetch("/api/erp/finance/sales-posting-config", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({

@@ -14,6 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../../lib/erp/apiFetch";
 import { downloadCsv, type CsvColumn } from "../../../../../lib/erp/exportCsv";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { supabase } from "../../../../../lib/supabaseClient";
@@ -129,7 +130,7 @@ export default function VendorLedgerPage() {
     if (fromDate) params.set("from", fromDate);
     if (toDate) params.set("to", toDate);
 
-    const res = await fetch(`/api/finance/ap/vendor-ledger?${params.toString()}`, {
+    const res = await apiFetch(`/api/finance/ap/vendor-ledger?${params.toString()}`, {
       headers: { Authorization: `Bearer ${ctx.session.access_token}` },
     });
     const payload = (await res.json()) as { ok: boolean; data?: LedgerRow[]; error?: string };

@@ -13,6 +13,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { downloadCsv } from "../../../../lib/erp/exportCsv";
 
@@ -670,7 +671,7 @@ export default function AmazonSettlementReportsPage() {
     try {
       const params = new URLSearchParams();
       if (token) params.set("nextToken", token);
-      const response = await fetch(`/api/finance/amazon/settlements?${params.toString()}`);
+      const response = await apiFetch(`/api/finance/amazon/settlements?${params.toString()}`);
       const json = (await response.json()) as {
         ok: boolean;
         reports?: SettlementReportSummary[];
@@ -703,7 +704,7 @@ export default function AmazonSettlementReportsPage() {
     setPreview(null);
 
     try {
-      const response = await fetch(`/api/finance/amazon/settlements/${reportId}`);
+      const response = await apiFetch(`/api/finance/amazon/settlements/${reportId}`);
       const json = (await response.json()) as { ok: boolean; error?: string } & SettlementPreview;
       if (!response.ok || !json.ok) {
         throw new Error(json.error || "Unable to preview report.");
