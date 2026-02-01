@@ -17,8 +17,9 @@ import {
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
+  approveVendorPayment,
+  createVendorPaymentDraft,
   searchVendorPayments,
-  upsertVendorPayment,
   vendorPaymentListSchema,
   type VendorPaymentRow,
 } from "../../../../lib/erp/vendorPayments";
@@ -37,6 +38,12 @@ type VendorOption = {
   legal_name: string;
 };
 
+type PaymentAccountOption = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 type ToastState = { type: "success" | "error"; message: string } | null;
 
 // This is the canonical AP outgoing cash module. Do not create parallel payment UIs elsewhere.
@@ -48,25 +55,25 @@ export default function VendorPaymentsListPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [payments, setPayments] = useState<VendorPaymentRow[]>([]);
   const [dateStart, setDateStart] = useState(start);
   const [dateEnd, setDateEnd] = useState(end);
   const [vendorId, setVendorId] = useState("");
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPosting, setIsPosting] = useState<string | null>(null);
 
   const [formVendorId, setFormVendorId] = useState("");
   const [formPaymentDate, setFormPaymentDate] = useState(today());
   const [formAmount, setFormAmount] = useState("");
-  const [formCurrency, setFormCurrency] = useState("INR");
-  const [formMode, setFormMode] = useState("bank");
+  const [formPaymentAccount, setFormPaymentAccount] = useState("");
   const [formReference, setFormReference] = useState("");
   const [formNote, setFormNote] = useState("");
-  const [formSource, setFormSource] = useState("manual");
-  const [formSourceRef, setFormSourceRef] = useState("");
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -127,6 +134,32 @@ export default function VendorPaymentsListPage() {
     };
   }, [ctx?.companyId]);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadPaymentAccounts() {
+      const { data, error: loadError } = await supabase.rpc("erp_gl_accounts_picklist", {
+        p_q: null,
+        p_include_inactive: false,
+      });
+
+      if (!active) return;
+
+      if (loadError) {
+        setError(loadError.message || "Failed to load payment accounts.");
+        return;
+      }
+
+      setPaymentAccounts((data || []) as PaymentAccountOption[]);
+    }
+
+    loadPaymentAccounts();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const loadPayments = async (targetOffset = offset) => {
     if (!ctx?.companyId) return;
     setIsLoadingData(true);
@@ -183,12 +216,9 @@ export default function VendorPaymentsListPage() {
     setFormVendorId("");
     setFormPaymentDate(today());
     setFormAmount("");
-    setFormCurrency("INR");
-    setFormMode("bank");
+    setFormPaymentAccount("");
     setFormReference("");
     setFormNote("");
-    setFormSource("manual");
-    setFormSourceRef("");
   };
 
   const handleOpenCreate = () => {
@@ -203,17 +233,13 @@ export default function VendorPaymentsListPage() {
     setToast(null);
 
     const amount = Number(formAmount.replace(/,/g, ""));
-    const { data, error: saveError } = await upsertVendorPayment({
-      id: null,
+    const { data, error: saveError } = await createVendorPaymentDraft({
       vendorId: formVendorId,
       paymentDate: formPaymentDate,
       amount: Number.isFinite(amount) ? amount : 0,
-      currency: formCurrency || "INR",
-      mode: formMode || "bank",
-      referenceNo: formReference || null,
-      note: formNote || null,
-      source: formSource || "manual",
-      sourceRef: formSourceRef || null,
+      paymentInstrumentId: formPaymentAccount || null,
+      reference: formReference || null,
+      notes: formNote || null,
     });
 
     if (saveError) {
@@ -224,11 +250,27 @@ export default function VendorPaymentsListPage() {
 
     setIsSaving(false);
     setIsModalOpen(false);
-    setToast({ type: "success", message: "Payment created." });
-    if (data) {
-      router.push(`/erp/finance/vendor-payments/${data}`);
+    const newId = data as string | null;
+    setToast({ type: "success", message: "Vendor payment saved as draft." });
+    await loadPayments(0);
+    if (newId) {
+      void router.push(`/erp/finance/vendor-payments/${newId}`);
+    }
+  };
+
+  const handleApprove = async (paymentId: string) => {
+    setIsPosting(paymentId);
+    setToast(null);
+    const { error: approveError } = await approveVendorPayment(paymentId);
+
+    if (approveError) {
+      setToast({ type: "error", message: approveError.message || "Failed to approve payment." });
+      setIsPosting(null);
       return;
     }
+
+    setToast({ type: "success", message: "Vendor payment approved and posted." });
+    setIsPosting(null);
     await loadPayments(0);
   };
 
@@ -289,6 +331,15 @@ export default function VendorPaymentsListPage() {
                 ))}
               </select>
             </label>
+            <label style={{ display: "grid", gap: 6, minWidth: 180 }}>
+              <span style={subtitleStyle}>Status</span>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="approved">Approved</option>
+                <option value="void">Void</option>
+              </select>
+            </label>
             <label style={{ display: "grid", gap: 6, flex: 1, minWidth: 220 }}>
               <span style={subtitleStyle}>Search</span>
               <input
@@ -311,6 +362,7 @@ export default function VendorPaymentsListPage() {
                 setDateEnd(end);
                 setVendorId("");
                 setQuery("");
+                setStatusFilter("");
                 setOffset(0);
               }}
             >
@@ -333,75 +385,91 @@ export default function VendorPaymentsListPage() {
                   <th style={tableHeaderCellStyle}>Payment Date</th>
                   <th style={tableHeaderCellStyle}>Vendor</th>
                   <th style={tableHeaderCellStyle}>Amount</th>
-                  <th style={tableHeaderCellStyle}>Mode</th>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Accounting</th>
                   <th style={tableHeaderCellStyle}>Reference</th>
-                  <th style={tableHeaderCellStyle}>Source</th>
+                  <th style={tableHeaderCellStyle}>Journal Doc No</th>
+                  <th style={tableHeaderCellStyle}>Allocations</th>
                   <th style={tableHeaderCellStyle}>Matched</th>
-                  <th style={tableHeaderCellStyle}>Void</th>
+                  <th style={tableHeaderCellStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoadingData && (
                   <tr>
-                    <td style={tableCellStyle} colSpan={8}>
+                    <td style={tableCellStyle} colSpan={10}>
                       Loading payments...
                     </td>
                   </tr>
                 )}
                 {!isLoadingData && payments.length === 0 && (
                   <tr>
-                    <td style={tableCellStyle} colSpan={8}>
+                    <td style={tableCellStyle} colSpan={10}>
                       No vendor payments found.
                     </td>
                   </tr>
                 )}
-                {payments.map((payment) => {
-                  const matchedTooltip = payment.matched
-                    ? `Matched: ${payment.matched_bank_txn_date ?? ""} · ${payment.matched_bank_txn_amount ?? ""}`
-                    : "";
-                  return (
-                    <tr
-                      key={payment.id}
-                      style={{
-                        cursor: "pointer",
-                        ...(payment.is_void ? { opacity: 0.6, backgroundColor: "#f9fafb" } : {}),
-                      }}
-                      onClick={() => router.push(`/erp/finance/vendor-payments/${payment.id}`)}
-                    >
-                      <td style={tableCellStyle}>
-                        {payment.payment_date}
-                      </td>
-                      <td style={tableCellStyle}>{payment.vendor_name || "—"}</td>
-                      <td style={tableCellStyle}>
-                        {payment.currency} {payment.amount.toLocaleString("en-IN")}
-                      </td>
-                      <td style={tableCellStyle}>{payment.mode || "—"}</td>
-                      <td style={tableCellStyle}>{payment.reference_no || "—"}</td>
-                      <td style={tableCellStyle}>{payment.source || "—"}</td>
-                      <td style={tableCellStyle}>
-                        {payment.matched ? (
-                          <span
-                            title={matchedTooltip}
-                            style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}
-                          >
-                            Yes
-                          </span>
-                        ) : (
-                          <span style={{ ...badgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" }}>No</span>
-                        )}
-                      </td>
-                      <td style={tableCellStyle}>
-                        {payment.is_void ? (
-                          <span style={{ ...badgeStyle, backgroundColor: "#fee2e2", color: "#b91c1c" }}>
-                            VOID
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {payments
+                  .filter((payment) => (statusFilter ? payment.status === statusFilter : true))
+                  .map((payment) => {
+                    const matchedTooltip = payment.matched
+                      ? `Matched: ${payment.matched_bank_txn_date ?? ""} · ${payment.matched_bank_txn_amount ?? ""}`
+                      : "";
+                    return (
+                      <tr
+                        key={payment.id}
+                        style={{
+                          ...(payment.is_void ? { opacity: 0.6, backgroundColor: "#f9fafb" } : {}),
+                        }}
+                      >
+                        <td style={tableCellStyle}>{payment.payment_date}</td>
+                        <td style={tableCellStyle}>{payment.vendor_name || "—"}</td>
+                        <td style={tableCellStyle}>
+                          {payment.currency} {payment.amount.toLocaleString("en-IN")}
+                        </td>
+                        <td style={tableCellStyle}>
+                          <span style={badgeStyle}>{payment.status}</span>
+                        </td>
+                        <td style={tableCellStyle}>
+                          {payment.finance_journal_id ? "Posted" : payment.status === "draft" ? "Pending" : "—"}
+                        </td>
+                        <td style={tableCellStyle}>{payment.reference_no || "—"}</td>
+                        <td style={tableCellStyle}>{payment.journal_doc_no || "—"}</td>
+                        <td style={tableCellStyle}>{payment.allocation_count || 0}</td>
+                        <td style={tableCellStyle}>
+                          {payment.matched ? (
+                            <span
+                              title={matchedTooltip}
+                              style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}
+                            >
+                              Yes
+                            </span>
+                          ) : (
+                            <span style={{ ...badgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" }}>No</span>
+                          )}
+                        </td>
+                        <td style={tableCellStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              style={secondaryButtonStyle}
+                              onClick={() => router.push(`/erp/finance/vendor-payments/${payment.id}`)}
+                            >
+                              View
+                            </button>
+                            {canWrite && payment.status === "draft" ? (
+                              <button
+                                style={primaryButtonStyle}
+                                onClick={() => handleApprove(payment.id)}
+                                disabled={isPosting === payment.id}
+                              >
+                                {isPosting === payment.id ? "Posting…" : "Approve"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
@@ -475,12 +543,19 @@ export default function VendorPaymentsListPage() {
                 <input value={formAmount} onChange={(e) => setFormAmount(e.target.value)} style={inputStyle} />
               </label>
               <label style={{ display: "grid", gap: 6 }}>
-                <span>Currency</span>
-                <input value={formCurrency} onChange={(e) => setFormCurrency(e.target.value)} style={inputStyle} />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Mode</span>
-                <input value={formMode} onChange={(e) => setFormMode(e.target.value)} style={inputStyle} />
+                <span>Payment account</span>
+                <select
+                  value={formPaymentAccount}
+                  onChange={(e) => setFormPaymentAccount(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">Select payment account</option>
+                  {paymentAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.code} · {account.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label style={{ display: "grid", gap: 6 }}>
                 <span>Reference</span>
@@ -494,14 +569,6 @@ export default function VendorPaymentsListPage() {
                   onChange={(e) => setFormNote(e.target.value)}
                   style={{ ...inputStyle, minHeight: 90 }}
                 />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Source</span>
-                <input value={formSource} onChange={(e) => setFormSource(e.target.value)} style={inputStyle} />
-              </label>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span>Source reference</span>
-                <input value={formSourceRef} onChange={(e) => setFormSourceRef(e.target.value)} style={inputStyle} />
               </label>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>

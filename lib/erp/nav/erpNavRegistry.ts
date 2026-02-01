@@ -442,6 +442,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["finance"],
   },
   {
+    id: "finance-vendor-ledger",
+    label: "Vendor Ledger",
+    href: "/erp/finance/ap/vendor-ledger",
+    icon: "VL",
+    groupId: "finance",
+    requiredGuard: "finance_reader",
+    status: "active",
+    moduleKeys: ["finance"],
+  },
+  {
     id: "finance-report-trial-balance",
     label: "Trial Balance",
     href: "/erp/finance/reports/trial-balance",

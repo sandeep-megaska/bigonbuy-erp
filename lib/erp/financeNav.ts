@@ -86,6 +86,17 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance-ap-vendor-ledger",
+    label: "Vendor Ledger",
+    href: "/erp/finance/ap/vendor-ledger",
+    description: "Review vendor ledger timelines across bills, advances, and payments.",
+    group: "Finance",
+    sidebarIcon: "VL",
+    cardIcon: "📒",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-ap-vendor-bills",
     label: "Vendor Bills",
     href: "/erp/finance/ap/vendor-bills",
