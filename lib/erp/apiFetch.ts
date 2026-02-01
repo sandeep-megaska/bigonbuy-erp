@@ -34,21 +34,19 @@ export const buildApiUrl = (path: string): string => {
   }
 
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const basePath = getBasePath();
+  const apiPath = normalizedPath.startsWith("/erp/api/")
+    ? normalizedPath.replace(/^\/erp/, "")
+    : normalizedPath;
 
-  if (!normalizedPath.startsWith("/api/")) {
+  if (!apiPath.startsWith("/api/")) {
     throw new Error(`apiFetch requires paths starting with /api/. Received: ${path}`);
   }
 
-  if (!normalizedPath.startsWith("/api/finance/") && normalizedPath !== "/api/finance") {
+  if (!apiPath.startsWith("/api/finance/") && apiPath !== "/api/finance") {
     throw new Error(`apiFetch requires finance endpoints under /api/finance. Received: ${path}`);
   }
 
-  if (basePath && normalizedPath.startsWith(`${basePath}/`)) {
-    return normalizedPath;
-  }
-
-  return `${basePath}${normalizedPath}`;
+  return apiPath;
 };
 
 const fetchJson = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
