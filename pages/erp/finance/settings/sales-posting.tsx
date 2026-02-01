@@ -122,7 +122,7 @@ export default function SalesPostingSettingsPage() {
 
         const token = (context as CompanyContext)?.session?.access_token ?? null;
         const payload = await apiGet<{ data?: Record<string, string | null> }>(
-          "/api/erp/finance/sales-posting-config",
+          "/api/finance/sales-posting-config",
           {
             headers: getAuthHeaders(token),
           }
@@ -161,7 +161,7 @@ export default function SalesPostingSettingsPage() {
         const params = new URLSearchParams();
         if (salesQuery.trim()) params.set("q", salesQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -191,7 +191,7 @@ export default function SalesPostingSettingsPage() {
         const params = new URLSearchParams();
         if (gstQuery.trim()) params.set("q", gstQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -221,7 +221,7 @@ export default function SalesPostingSettingsPage() {
         const params = new URLSearchParams();
         if (receivableQuery.trim()) params.set("q", receivableQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -251,7 +251,7 @@ export default function SalesPostingSettingsPage() {
     setNotice("");
     try {
       await apiPost(
-        "/api/erp/finance/sales-posting-config",
+        "/api/finance/sales-posting-config",
         {
           salesRevenueAccountId: form.salesRevenueAccountId || null,
           gstOutputAccountId: form.gstOutputAccountId || null,
@@ -277,7 +277,7 @@ export default function SalesPostingSettingsPage() {
     setError("");
     try {
       const payload = await apiGet<{ data?: Record<string, string | null> }>(
-        "/api/erp/finance/sales-posting-config",
+        "/api/finance/sales-posting-config",
         {
           headers: getAuthHeaders(),
         }

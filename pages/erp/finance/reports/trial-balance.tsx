@@ -104,7 +104,7 @@ export default function TrialBalancePage() {
 
     try {
       const payload = await apiGet<{ data?: TrialBalanceRow[] }>(
-        `/api/erp/finance/reports/trial-balance?${params.toString()}`,
+        `/api/finance/reports/trial-balance?${params.toString()}`,
         {
           headers: getAuthHeaders(),
         }

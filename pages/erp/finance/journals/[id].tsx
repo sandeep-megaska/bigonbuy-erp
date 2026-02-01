@@ -112,7 +112,7 @@ export default function FinanceJournalDetailPage() {
     setError(null);
     setToast(null);
 
-    const response = await apiFetch(`/api/erp/finance/journals/${journalId}`, {
+    const response = await apiFetch(`/api/finance/journals/${journalId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -156,7 +156,7 @@ export default function FinanceJournalDetailPage() {
     setError(null);
     setToast(null);
 
-    const response = await apiFetch(`/api/erp/finance/journals/${journal.id}/void`, {
+    const response = await apiFetch(`/api/finance/journals/${journal.id}/void`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ reason: voidReason.trim() }),

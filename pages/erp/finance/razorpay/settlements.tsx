@@ -253,7 +253,7 @@ export default function RazorpaySettlementsPage() {
 
   const loadSettlements = async (token?: string | null) => {
     try {
-      const payload = await apiGet<{ data?: SettlementRow[] }>("/api/erp/finance/razorpay/settlements", {
+      const payload = await apiGet<{ data?: SettlementRow[] }>("/api/finance/razorpay/settlements", {
         headers: getAuthHeaders(token),
       });
       setSettlements((payload?.data || []) as SettlementRow[]);
@@ -264,7 +264,7 @@ export default function RazorpaySettlementsPage() {
   };
 
   const loadConfigAndSettlements = async (token?: string | null) => {
-    const payload = await apiGet<{ data?: RazorpayConfig }>("/api/erp/finance/razorpay/settlements/config", {
+    const payload = await apiGet<{ data?: RazorpayConfig }>("/api/finance/razorpay/settlements/config", {
       headers: getAuthHeaders(token),
     });
 
@@ -326,7 +326,7 @@ export default function RazorpaySettlementsPage() {
         const params = new URLSearchParams();
         if (clearingQuery.trim()) params.set("q", clearingQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -355,7 +355,7 @@ export default function RazorpaySettlementsPage() {
         const params = new URLSearchParams();
         if (bankQuery.trim()) params.set("q", bankQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -384,7 +384,7 @@ export default function RazorpaySettlementsPage() {
         const params = new URLSearchParams();
         if (feesQuery.trim()) params.set("q", feesQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -413,7 +413,7 @@ export default function RazorpaySettlementsPage() {
         const params = new URLSearchParams();
         if (gstQuery.trim()) params.set("q", gstQuery.trim());
         const payload = await apiGet<{ data?: AccountOption[] }>(
-          `/api/erp/finance/gl-accounts/picklist?${params.toString()}`,
+          `/api/finance/gl-accounts/picklist?${params.toString()}`,
           {
             headers: getAuthHeaders(),
           }
@@ -445,7 +445,7 @@ export default function RazorpaySettlementsPage() {
 
     try {
       await apiPost(
-        "/api/erp/finance/razorpay/settlements/config",
+        "/api/finance/razorpay/settlements/config",
         {
           razorpayKeyId: form.razorpayKeyId.trim(),
           razorpayKeySecret: form.razorpayKeySecret.trim() || null,
@@ -474,7 +474,7 @@ export default function RazorpaySettlementsPage() {
 
     try {
       const payload = await apiPost<{ data?: { ingested?: number } }>(
-        "/api/erp/finance/razorpay/settlements/sync",
+        "/api/finance/razorpay/settlements/sync",
         {
           start_date: formatDateInput(startDate),
           end_date: formatDateInput(endDate),
@@ -595,7 +595,7 @@ export default function RazorpaySettlementsPage() {
           errors?: string[];
         };
       }>(
-        "/api/erp/finance/razorpay/settlements/import-csv",
+        "/api/finance/razorpay/settlements/import-csv",
         { rows: csvParsedRows },
         { headers: getAuthHeaders() }
       );
@@ -627,7 +627,7 @@ export default function RazorpaySettlementsPage() {
 
     try {
       const payload = await apiPost<{ data?: PreviewData | null }>(
-        `/api/erp/finance/razorpay/settlements/${settlementId}/preview`,
+        `/api/finance/razorpay/settlements/${settlementId}/preview`,
         {},
         { headers: getAuthHeaders() }
       );
@@ -648,7 +648,7 @@ export default function RazorpaySettlementsPage() {
     setError("");
 
     try {
-      await apiPost(`/api/erp/finance/razorpay/settlements/${settlementId}/post`, {}, { headers: getAuthHeaders() });
+      await apiPost(`/api/finance/razorpay/settlements/${settlementId}/post`, {}, { headers: getAuthHeaders() });
       await loadSettlements();
       if (selectedSettlementId === settlementId) {
         await handlePreview(settlementId);

@@ -122,7 +122,7 @@ export default function BalanceSheetPage() {
 
   const loadDefaultPeriod = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/default-period?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/default-period?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -139,7 +139,7 @@ export default function BalanceSheetPage() {
 
   const loadRoleMappings = async () => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
-    const response = await apiFetch(`/api/erp/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
+    const response = await apiFetch(`/api/finance/reports/role-taxonomy?company_id=${ctx.companyId}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -153,7 +153,7 @@ export default function BalanceSheetPage() {
   const loadPeriodStatus = async (date: string) => {
     if (!ctx?.companyId || !ctx?.session?.access_token) return;
     const response = await apiFetch(
-      `/api/erp/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
+      `/api/finance/reports/period-status?company_id=${ctx.companyId}&date=${date}`,
       {
         headers: getAuthHeaders(),
       }
@@ -186,7 +186,7 @@ export default function BalanceSheetPage() {
     params.set("company_id", ctx.companyId);
     if (asOfDate) params.set("as_of", asOfDate);
 
-    const response = await apiFetch(`/api/erp/finance/reports/balance-sheet?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/balance-sheet?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
@@ -249,7 +249,7 @@ export default function BalanceSheetPage() {
     params.set("statement_group", group);
     if (subgroup) params.set("statement_subgroup", subgroup);
 
-    const response = await apiFetch(`/api/erp/finance/reports/balance-sheet-drilldown?${params.toString()}`, {
+    const response = await apiFetch(`/api/finance/reports/balance-sheet-drilldown?${params.toString()}`, {
       headers: getAuthHeaders(),
     });
     const payload = await response.json();
