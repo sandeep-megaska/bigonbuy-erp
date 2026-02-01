@@ -207,7 +207,7 @@ export default function EmployeeProfilePage() {
 
   async function loadEmployee(token = accessToken) {
     if (!employeeId || !token) return;
-    const res = await fetch(`/api/erp/hr/employees/${employeeId}`, {
+    const res = await fetch(`/api/hr/employees/${employeeId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -445,7 +445,7 @@ export default function EmployeeProfilePage() {
     ];
     const results = await Promise.all(
       types.map(([stateKey, apiType]) =>
-        fetch(`/api/erp/hr/masters?type=${apiType}`, {
+        fetch(`/api/hr/masters?type=${apiType}`, {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json().then((data) => [stateKey, data, r.ok]))
       )
@@ -464,7 +464,7 @@ export default function EmployeeProfilePage() {
 
   async function loadDocuments(token = accessToken) {
     if (!employeeId || !token) return;
-    const res = await fetch(`/api/erp/hr/employees/documents?employee_id=${employeeId}`, {
+    const res = await fetch(`/api/hr/employees/documents?employee_id=${employeeId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -477,7 +477,7 @@ export default function EmployeeProfilePage() {
 
   async function loadContacts(token = accessToken) {
     if (!employeeId || !token) return;
-    const res = await fetch(`/api/erp/hr/employees/${employeeId}/contacts`, {
+    const res = await fetch(`/api/hr/employees/${employeeId}/contacts`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -490,7 +490,7 @@ export default function EmployeeProfilePage() {
 
   async function loadJobHistory(token = accessToken) {
     if (!employeeId || !token) return;
-    const res = await fetch(`/api/erp/hr/employees/job-history?employee_id=${employeeId}`, {
+    const res = await fetch(`/api/hr/employees/job-history?employee_id=${employeeId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -508,7 +508,7 @@ export default function EmployeeProfilePage() {
   }
 
   async function loadEmployeeDirectory(token = accessToken) {
-    const res = await fetch("/api/erp/hr/employees", {
+    const res = await fetch("/api/hr/employees", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -542,7 +542,7 @@ export default function EmployeeProfilePage() {
       effective_from: effectiveFrom,
     };
 
-    const res = await fetch("/api/erp/hr/employees/job", {
+    const res = await fetch("/api/hr/employees/job", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -572,7 +572,7 @@ export default function EmployeeProfilePage() {
     setError("");
     setUploading(true);
 
-    const uploadRes = await fetch("/api/erp/employees/documents/upload-url", {
+    const uploadRes = await fetch("/api/employees/documents/upload-url", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -602,7 +602,7 @@ export default function EmployeeProfilePage() {
       return;
     }
 
-    const saveRes = await fetch("/api/erp/hr/employees/documents", {
+    const saveRes = await fetch("/api/hr/employees/documents", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -632,7 +632,7 @@ export default function EmployeeProfilePage() {
   async function handleDeleteDocument(docId) {
     if (!canManage) return;
     if (!window.confirm("Delete this document?")) return;
-    const res = await fetch("/api/erp/hr/employees/documents", {
+    const res = await fetch("/api/hr/employees/documents", {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -649,7 +649,7 @@ export default function EmployeeProfilePage() {
   }
 
   async function handleViewDocument(docId) {
-    const res = await fetch(`/api/erp/employees/documents/signed-url?document_id=${docId}`, {
+    const res = await fetch(`/api/employees/documents/signed-url?document_id=${docId}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const data = await res.json();

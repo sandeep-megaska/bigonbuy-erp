@@ -13,7 +13,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiGet } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { downloadCsv } from "../../../../lib/erp/exportCsv";
 
@@ -671,15 +671,14 @@ export default function AmazonSettlementReportsPage() {
     try {
       const params = new URLSearchParams();
       if (token) params.set("nextToken", token);
-      const response = await apiFetch(`/api/finance/amazon/settlements?${params.toString()}`);
-      const json = (await response.json()) as {
+      const json = await apiGet<{
         ok: boolean;
         reports?: SettlementReportSummary[];
         nextToken?: string;
         error?: string;
-      };
+      }>(`/api/finance/amazon/settlements?${params.toString()}`);
 
-      if (!response.ok || !json.ok) {
+      if (!json.ok) {
         throw new Error(json.error || "Failed to load settlement reports.");
       }
 
@@ -704,9 +703,10 @@ export default function AmazonSettlementReportsPage() {
     setPreview(null);
 
     try {
-      const response = await apiFetch(`/api/finance/amazon/settlements/${reportId}`);
-      const json = (await response.json()) as { ok: boolean; error?: string } & SettlementPreview;
-      if (!response.ok || !json.ok) {
+      const json = await apiGet<{ ok: boolean; error?: string } & SettlementPreview>(
+        `/api/finance/amazon/settlements/${reportId}`
+      );
+      if (!json.ok) {
         throw new Error(json.error || "Unable to preview report.");
       }
       setPreview(json);

@@ -111,7 +111,7 @@ export default function FinanceJournalsListPage() {
     if (search.trim()) params.set("q", search.trim());
 
     try {
-      const payload = await apiGet<{ journals?: JournalRow[] }>(`/api/erp/finance/journals?${params.toString()}`, {
+      const payload = await apiGet<{ journals?: JournalRow[] }>(`/api/finance/journals?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       setJournals((payload?.journals || []) as JournalRow[]);

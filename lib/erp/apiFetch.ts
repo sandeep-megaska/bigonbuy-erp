@@ -10,7 +10,7 @@ const normalizeBasePath = (value: string): string => {
 const ENV_BASE_PATH = (() => {
   const value = process.env.NEXT_PUBLIC_BASE_PATH;
   if (value === undefined) {
-    return normalizeBasePath("/erp");
+    return "";
   }
 
   return normalizeBasePath(value);
@@ -40,7 +40,13 @@ export const buildApiUrl = (path: string): string => {
     throw new Error(`apiFetch must use a relative URL. Received: ${path}`);
   }
 
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (normalizedPath.startsWith("/erp/")) {
+    normalizedPath = normalizedPath.slice(4) || "/";
+  }
+  if (normalizedPath.startsWith("/api/erp/")) {
+    normalizedPath = `/api/${normalizedPath.slice("/api/erp/".length)}`;
+  }
   const basePath = getBasePath();
 
   if (basePath && normalizedPath.startsWith(`${basePath}/`)) {
@@ -60,15 +66,17 @@ const fetchJson = async <T>(path: string, init: RequestInit = {}): Promise<T> =>
   if (!response.ok) {
     const bodyText = await response.text();
     const snippet = bodyText.trim().slice(0, 200);
-    throw new Error(`API ${url} failed: ${response.status}${snippet ? ` ${snippet}` : ""}`);
+    throw new Error(`API ${url} failed: ${response.status} ${response.statusText} :: ${snippet}`);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    throw new Error(`Expected JSON but got ${contentType || "unknown"}`);
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as T;
   }
 
-  return (await response.json()) as T;
+  const bodyText = await response.text();
+  const snippet = bodyText.trim().slice(0, 200);
+  throw new Error(`API ${url} expected JSON but got ${contentType || "unknown"} :: ${snippet}`);
 };
 
 export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {

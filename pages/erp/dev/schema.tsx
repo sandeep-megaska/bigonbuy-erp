@@ -86,7 +86,7 @@ export default function ErpSchemaPage() {
   async function loadColumns(token: string, isActive = true) {
     if (!token) return;
     setError("");
-    const res = await fetch("/api/erp/dev/schema", {
+    const res = await fetch("/api/dev/schema", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();

@@ -63,7 +63,7 @@ export default function StatutoryTab({ employeeId, accessToken, canManage }: Pro
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/statutory`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/statutory`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
@@ -95,7 +95,7 @@ export default function StatutoryTab({ employeeId, accessToken, canManage }: Pro
     };
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/statutory`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/statutory`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

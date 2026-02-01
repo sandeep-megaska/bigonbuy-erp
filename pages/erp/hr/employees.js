@@ -356,7 +356,7 @@ useEffect(() => {
         jobPayload.employment_type_id ||
         jobPayload.manager_employee_id
       ) {
-        const res = await fetch("/api/erp/hr/employees/job", {
+        const res = await fetch("/api/hr/employees/job", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,

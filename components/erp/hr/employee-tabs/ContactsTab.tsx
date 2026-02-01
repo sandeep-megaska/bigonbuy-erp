@@ -93,7 +93,7 @@ export default function ContactsTab({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/contacts`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/contacts`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
@@ -127,7 +127,7 @@ export default function ContactsTab({
     };
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/contacts`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/contacts`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

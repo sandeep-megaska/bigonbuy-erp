@@ -161,7 +161,7 @@ export default function NoteDetailPage() {
       return;
     }
 
-    const response = await apiFetch("/api/erp/finance/notes/upsert", {
+    const response = await apiFetch("/api/finance/notes/upsert", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -9,7 +9,7 @@ type ApiResponse = ErrorResponse | SuccessResponse;
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (process.env.NODE_ENV !== "production") {
     console.warn(
-      "[DEPRECATED API] /api/hr/designations called; use /api/erp/hr/masters?type=designations"
+      "[DEPRECATED API] /api/hr/designations called; use /api/hr/masters?type=designations"
     );
   }
 

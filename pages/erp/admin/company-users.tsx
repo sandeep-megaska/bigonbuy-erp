@@ -85,7 +85,7 @@ export default function CompanyUsersPage() {
 
   async function loadRoles(token: string, isActive = true) {
     if (!token) return;
-    const res = await fetch("/api/erp/hr/roles/list", {
+    const res = await fetch("/api/hr/roles/list", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -100,7 +100,7 @@ export default function CompanyUsersPage() {
   async function loadUsers(token: string, isActive = true) {
     if (!token) return;
     setListError("");
-    const res = await fetch("/api/erp/company-users", {
+    const res = await fetch("/api/company-users", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -135,7 +135,7 @@ export default function CompanyUsersPage() {
     setInviteSuccess("");
 
     try {
-      const res = await fetch("/api/erp/company-users/invite", {
+      const res = await fetch("/api/company-users/invite", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

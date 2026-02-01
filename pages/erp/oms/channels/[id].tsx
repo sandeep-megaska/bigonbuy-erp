@@ -607,7 +607,7 @@ export default function OmsChannelDetailPage() {
     }
 
     try {
-      const response = await fetch(`/api/erp/oms/jobs/run?id=${jobId}`, {
+      const response = await fetch(`/api/oms/jobs/run?id=${jobId}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });

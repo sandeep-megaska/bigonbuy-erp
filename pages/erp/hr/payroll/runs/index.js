@@ -40,7 +40,7 @@ export default function PayrollRunsPage() {
   }, [router]);
 
   async function loadRuns(companyId, isActive = true, session = null) {
-    const response = await fetch("/api/erp/payroll/runs/list", {
+    const response = await fetch("/api/payroll/runs/list", {
       method: "GET",
       headers: getAuthHeaders(session),
     });
@@ -67,7 +67,7 @@ export default function PayrollRunsPage() {
       showToast(message, "error");
       return;
     }
-    const response = await fetch("/api/erp/payroll/runs/create", {
+    const response = await fetch("/api/payroll/runs/create", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({

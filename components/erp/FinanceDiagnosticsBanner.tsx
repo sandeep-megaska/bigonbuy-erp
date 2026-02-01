@@ -6,7 +6,7 @@ export default function FinanceDiagnosticsBanner() {
   }
 
   const basePath = getBasePath();
-  const sampleUrl = buildApiUrl("/api/erp/finance/reports/trial-balance");
+  const sampleUrl = buildApiUrl("/api/finance/reports/trial-balance");
 
   return (
     <div

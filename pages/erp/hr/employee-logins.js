@@ -120,7 +120,7 @@ export default function EmployeeLogins() {
 
     // Load employees via RPC-backed API
     const accessToken = session.access_token || "";
-    const res = await fetch("/api/erp/hr/employees", {
+    const res = await fetch("/api/hr/employees", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const body = await res.json();
@@ -203,7 +203,7 @@ export default function EmployeeLogins() {
 
       const accessToken = sessionData.session.access_token;
 
-      const res = await fetch("/api/erp/hr/link-employee-user", {
+      const res = await fetch("/api/hr/link-employee-user", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
