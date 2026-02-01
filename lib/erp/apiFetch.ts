@@ -33,25 +33,15 @@ export const buildApiUrl = (path: string): string => {
     throw new Error(`apiFetch must use a relative URL. Received: ${path}`);
   }
 
-  let normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const basePath = getBasePath();
-
-  if (normalizedPath.startsWith("/erp/api/")) {
-    normalizedPath = normalizedPath.replace(/^\/erp/, "");
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(`apiFetch received an /erp-prefixed path. Use /api/* instead: ${path}`);
-    }
-  }
-
-  if (normalizedPath.startsWith("/api/erp/")) {
-    normalizedPath = normalizedPath.replace(/^\/api\/erp/, "/api");
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(`apiFetch received an /api/erp path. Use /api/* instead: ${path}`);
-    }
-  }
 
   if (!normalizedPath.startsWith("/api/")) {
     throw new Error(`apiFetch requires paths starting with /api/. Received: ${path}`);
+  }
+
+  if (!normalizedPath.startsWith("/api/finance/") && normalizedPath !== "/api/finance") {
+    throw new Error(`apiFetch requires finance endpoints under /api/finance. Received: ${path}`);
   }
 
   if (basePath && normalizedPath.startsWith(`${basePath}/`)) {

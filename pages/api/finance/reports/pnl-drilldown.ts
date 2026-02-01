@@ -1,2 +1,4 @@
 import handler from "../../erp/finance/reports/pnl-drilldown";
-export default handler;
+import { wrap } from "../_wrap";
+
+export default wrap(handler);

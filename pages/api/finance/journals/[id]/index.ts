@@ -1,2 +1,4 @@
 import handler from "../../../erp/finance/journals/[id]/index";
-export default handler;
+import { wrap } from "../../_wrap";
+
+export default wrap(handler);

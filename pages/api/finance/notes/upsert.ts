@@ -1,2 +1,4 @@
 import handler from "../../erp/finance/notes/upsert";
-export default handler;
+import { wrap } from "../_wrap";
+
+export default wrap(handler);
