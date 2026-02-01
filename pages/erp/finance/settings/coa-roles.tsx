@@ -43,6 +43,16 @@ const ROLE_LABELS: Record<string, string> = {
   input_gst_igst: "Input GST (IGST)",
   inventory_asset: "Inventory Asset",
   gateway_clearing: "Gateway Clearing",
+  gst_payable: "GST Payable",
+  sales_revenue: "Sales Revenue",
+  cogs_inventory: "Cost of Goods Sold",
+  operating_expense: "Operating Expense",
+  other_income: "Other Income",
+  interest_income: "Interest Income",
+  depreciation_expense: "Depreciation Expense",
+  fixed_asset: "Fixed Assets",
+  loan_payable: "Loan Payable",
+  equity_capital: "Equity Capital",
 };
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
@@ -55,6 +65,16 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   input_gst_igst: "Input IGST account for GST on purchases.",
   inventory_asset: "Inventory asset account for GRN postings.",
   gateway_clearing: "Payment gateway clearing account (Razorpay).",
+  gst_payable: "Output GST payable account for sales tax liabilities.",
+  sales_revenue: "Primary revenue account for sales postings.",
+  cogs_inventory: "COGS account for inventory expenses.",
+  operating_expense: "Operating expense account for day-to-day costs.",
+  other_income: "Other income account for non-core revenue.",
+  interest_income: "Interest income account for finance gains.",
+  depreciation_expense: "Depreciation expense account for fixed assets.",
+  fixed_asset: "Fixed asset control account for capital assets.",
+  loan_payable: "Loan or debt payable control account.",
+  equity_capital: "Owner capital or equity account.",
 };
 
 const inputStyle = {
