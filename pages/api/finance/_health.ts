@@ -1,4 +1,5 @@
-import handler from "../erp/finance/_health";
-import { wrap } from "./_wrap";
+import type { NextApiRequest, NextApiResponse } from "next";
 
-export default wrap(handler);
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.status(200).json({ ok: true, namespace: "api/finance" });
+}
