@@ -46,6 +46,13 @@ type PaymentAccountOption = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/vendor-payments -> RPC: erp_ap_vendor_payments_search, erp_ap_vendor_payment_create_draft,
+ *                                     erp_ap_vendor_payment_approve
+ * RPC tables: erp_ap_vendor_payments, erp_ap_vendor_payment_allocations, erp_vendors,
+ *             erp_fin_journals, erp_bank_transactions
+ */
 // This is the canonical AP outgoing cash module. Do not create parallel payment UIs elsewhere.
 export default function VendorPaymentsListPage() {
   const router = useRouter();

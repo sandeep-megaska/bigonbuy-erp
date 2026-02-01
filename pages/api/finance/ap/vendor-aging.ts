@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/ap/outstanding -> GET /api/finance/ap/vendor-aging
+ * API: vendor-aging -> RPC: erp_ap_vendor_aging
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_payment_allocations, erp_vendors
+ */
+
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 
 type SuccessResponse = { ok: true; data: unknown };

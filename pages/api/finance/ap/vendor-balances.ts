@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
+/**
+ * Dependency map:
+ * UI: /erp/finance/ap/outstanding -> GET /api/finance/ap/vendor-balances
+ * API: vendor-balances -> RPC: erp_ap_vendor_balances
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_payments, erp_ap_vendor_advances, erp_vendors
+ */
+
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 
 type SuccessResponse = { ok: true; data: unknown };
@@ -28,6 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const vendorId = typeof req.query.vendorId === "string" ? req.query.vendorId : null;
+  const asOf = typeof req.query.asOf === "string" ? req.query.asOf : null;
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
@@ -38,6 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const { data, error } = await userClient.rpc("erp_ap_vendor_balances", {
       p_vendor_id: vendorId ?? null,
+      p_as_of: asOf ?? null,
     });
 
     if (error) {

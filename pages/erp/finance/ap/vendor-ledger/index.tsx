@@ -28,16 +28,32 @@ const last90Days = () => {
 type VendorOption = { id: string; legal_name: string };
 
 type LedgerRow = {
-  event_date: string | null;
-  event_type: string | null;
-  reference: string | null;
+  txn_date: string | null;
+  txn_type: string | null;
+  reference_no: string | null;
+  doc_no: string | null;
   description: string | null;
   debit_amount: number | null;
   credit_amount: number | null;
-  journal_doc_no: string | null;
-  created_at: string | null;
 };
 
+const formatDate = (value: string | null) => (value ? new Date(value).toLocaleDateString("en-GB") : "—");
+
+const formatAmount = (value: number | null) => {
+  if (value == null) return "—";
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(
+    value
+  );
+};
+
+/**
+ * Dependency map:
+ * UI: /erp/finance/ap/vendor-ledger -> GET /api/finance/ap/vendor-ledger
+ * API: vendor-ledger -> RPC: erp_ap_vendor_ledger
+ * RPC tables: erp_gst_purchase_invoices, erp_ap_vendor_advances, erp_ap_vendor_payments,
+ *             erp_ap_vendor_payment_allocations, erp_ap_vendor_bill_advance_allocations,
+ *             erp_fin_journals
+ */
 export default function VendorLedgerPage() {
   const router = useRouter();
   const { start, end } = useMemo(() => last90Days(), []);
@@ -130,13 +146,13 @@ export default function VendorLedgerPage() {
   const handleExport = () => {
     if (ledgerRows.length === 0) return;
     const columns: CsvColumn<LedgerRow>[] = [
-      { header: "Date", accessor: (row) => row.event_date ?? "" },
-      { header: "Type", accessor: (row) => row.event_type ?? "" },
-      { header: "Reference", accessor: (row) => row.reference ?? "" },
+      { header: "Date", accessor: (row) => row.txn_date ?? "" },
+      { header: "Type", accessor: (row) => row.txn_type ?? "" },
+      { header: "Reference", accessor: (row) => row.reference_no ?? "" },
       { header: "Description", accessor: (row) => row.description ?? "" },
       { header: "Debit", accessor: (row) => `${row.debit_amount ?? 0}` },
       { header: "Credit", accessor: (row) => `${row.credit_amount ?? 0}` },
-      { header: "Journal Doc No", accessor: (row) => row.journal_doc_no ?? "" },
+      { header: "Journal Doc No", accessor: (row) => row.doc_no ?? "" },
     ];
     downloadCsv(`vendor-ledger-${vendorId}-${fromDate}-to-${toDate}.csv`, columns, ledgerRows);
   };
@@ -225,14 +241,14 @@ export default function VendorLedgerPage() {
                 </thead>
                 <tbody>
                   {ledgerRows.map((row, idx) => (
-                    <tr key={`${row.event_date}-${row.reference}-${idx}`}>
-                      <td style={tableCellStyle}>{row.event_date || "—"}</td>
-                      <td style={tableCellStyle}>{row.event_type || "—"}</td>
-                      <td style={tableCellStyle}>{row.reference || "—"}</td>
+                    <tr key={`${row.txn_date}-${row.reference_no}-${idx}`}>
+                      <td style={tableCellStyle}>{formatDate(row.txn_date)}</td>
+                      <td style={tableCellStyle}>{row.txn_type || "—"}</td>
+                      <td style={tableCellStyle}>{row.reference_no || "—"}</td>
                       <td style={tableCellStyle}>{row.description || "—"}</td>
-                      <td style={tableCellStyle}>{row.debit_amount ?? "—"}</td>
-                      <td style={tableCellStyle}>{row.credit_amount ?? "—"}</td>
-                      <td style={tableCellStyle}>{row.journal_doc_no || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.debit_amount)}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.credit_amount)}</td>
+                      <td style={tableCellStyle}>{row.doc_no || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
