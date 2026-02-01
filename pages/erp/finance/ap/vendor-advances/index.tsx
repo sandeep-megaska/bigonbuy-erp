@@ -13,7 +13,7 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
-import { vendorAdvanceCreate, vendorAdvancePost } from "../../../../../lib/erp/vendorBills";
+import { vendorAdvanceCreate, vendorAdvanceList, vendorAdvancePost } from "../../../../../lib/erp/vendorBills";
 import { supabase } from "../../../../../lib/supabaseClient";
 
 const formatMoney = (value: number) =>
@@ -58,22 +58,8 @@ type VendorAdvanceRow = {
   status: string;
   reference: string | null;
   payment_instrument_id: string | null;
-  posted_doc_no: string | null;
+  journal_doc_no: string | null;
   is_void: boolean;
-};
-
-type VendorAdvanceRecord = {
-  id: string;
-  vendor_id: string;
-  advance_date: string;
-  amount: number;
-  status: string;
-  reference: string | null;
-  payment_instrument_id: string | null;
-  finance_journal_id: string | null;
-  is_void: boolean;
-  vendor?: { legal_name: string }[] | null;
-  journal?: { doc_no: string | null }[] | null;
 };
 
 export default function VendorAdvancesPage() {
@@ -155,59 +141,27 @@ export default function VendorAdvancesPage() {
     setPaymentAccounts((data || []) as PaymentAccountOption[]);
   };
 
-  const loadAdvances = async (companyId: string) => {
+  const loadAdvances = async (_companyId: string) => {
     setError("");
-    let query = supabase
-      .from("erp_ap_vendor_advances")
-      .select(
-        `
-          id,
-          vendor_id,
-          advance_date,
-          amount,
-          status,
-          reference,
-          payment_instrument_id,
-          finance_journal_id,
-          is_void,
-          vendor:erp_vendors (legal_name),
-          journal:erp_fin_journals (doc_no)
-        `,
-      )
-      .eq("company_id", companyId)
-      .gte("advance_date", fromDate)
-      .lte("advance_date", toDate)
-      .order("advance_date", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (selectedVendor) {
-      query = query.eq("vendor_id", selectedVendor);
-    }
-    if (statusFilter) {
-      query = query.eq("status", statusFilter);
-    }
-
-    const { data, error: loadError } = await query;
+    const { data, error: loadError } = await vendorAdvanceList(
+      selectedVendor || null,
+      statusFilter || null,
+    );
 
     if (loadError) {
       setError(loadError.message || "Failed to load vendor advances.");
       return;
     }
 
-    const rows = (data || []) as VendorAdvanceRecord[];
+    const rows = (data || []) as VendorAdvanceRow[];
 
-    const mapped = rows.map((row) => ({
-      advance_id: row.id,
-      vendor_id: row.vendor_id,
-      vendor_name: row.vendor?.[0]?.legal_name || vendorMap.get(row.vendor_id) || "",
-      advance_date: row.advance_date,
-      amount: Number(row.amount || 0),
-      status: row.status,
-      reference: row.reference,
-      payment_instrument_id: row.payment_instrument_id,
-      posted_doc_no: row.journal?.[0]?.doc_no ?? null,
-      is_void: row.is_void,
-    }));
+    const mapped = rows
+      .filter((row) => row.advance_date >= fromDate && row.advance_date <= toDate)
+      .map((row) => ({
+        ...row,
+        vendor_name: row.vendor_name || vendorMap.get(row.vendor_id) || "",
+        amount: Number(row.amount || 0),
+      }));
 
     setAdvances(mapped);
   };
@@ -412,7 +366,7 @@ export default function VendorAdvancesPage() {
                       <td style={tableCellStyle}>{advance.reference || "—"}</td>
                       <td style={tableCellStyle}>{formatMoney(advance.amount)}</td>
                       <td style={tableCellStyle}>{statusLabel(advance.status)}</td>
-                      <td style={tableCellStyle}>{advance.posted_doc_no || "—"}</td>
+                      <td style={tableCellStyle}>{advance.journal_doc_no || "—"}</td>
                       <td style={{ ...tableCellStyle, textAlign: "right" }}>
                         {advance.status === "draft" ? (
                           <button
