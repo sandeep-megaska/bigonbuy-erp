@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
+import { apiFetch, apiGet, apiPost } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, getSessionOrNull, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
