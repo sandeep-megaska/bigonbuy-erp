@@ -341,7 +341,16 @@ $$;
 revoke all on function public.erp_gst_purchase_invoice_post(uuid) from public;
 grant execute on function public.erp_gst_purchase_invoice_post(uuid) to authenticated;
 
-create or replace function public.erp_gst_purchase_invoices_list(
+------------------------------------------------------------
+-- GST Purchase Invoices: List (adds status column)
+-- IMPORTANT: Return type changed -> must DROP + CREATE
+------------------------------------------------------------
+
+drop function if exists public.erp_gst_purchase_invoices_list(
+  date, date, uuid, text
+);
+
+create function public.erp_gst_purchase_invoices_list(
   p_from date,
   p_to date,
   p_vendor_id uuid default null,
@@ -377,14 +386,24 @@ begin
     i.vendor_id,
     v.legal_name as vendor_name,
     i.vendor_gstin,
-    coalesce(sum(l.taxable_value), 0) as taxable_total,
-    coalesce(sum(l.cgst + l.sgst + l.igst + l.cess), 0) as tax_total,
-    coalesce(sum(case when l.itc_eligible then l.cgst + l.sgst + l.igst + l.cess else 0 end), 0) as itc_total,
+    coalesce(sum(l.taxable_value), 0::numeric) as taxable_total,
+    coalesce(sum(l.cgst + l.sgst + l.igst + l.cess), 0::numeric) as tax_total,
+    coalesce(
+      sum(
+        case
+          when l.itc_eligible then (l.cgst + l.sgst + l.igst + l.cess)
+          else 0::numeric
+        end
+      ),
+      0::numeric
+    ) as itc_total,
     i.is_void,
     i.validation_status,
     i.status
   from public.erp_gst_purchase_invoices i
-  join public.erp_vendors v on v.id = i.vendor_id
+  join public.erp_vendors v
+    on v.id = i.vendor_id
+    and v.company_id = i.company_id
   left join public.erp_gst_purchase_invoice_lines l
     on l.invoice_id = i.id
     and l.company_id = i.company_id
@@ -396,6 +415,10 @@ begin
   group by i.id, v.legal_name;
 end;
 $$;
+
+revoke all on function public.erp_gst_purchase_invoices_list(date, date, uuid, text) from public;
+grant execute on function public.erp_gst_purchase_invoices_list(date, date, uuid, text) to authenticated;
+
 
 create or replace function public.erp_gst_purchase_invoice_detail(
   p_invoice_id uuid
