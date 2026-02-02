@@ -26,7 +26,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const { supabaseUrl, anonKey, serviceKey, missing } = getSupabaseEnv();
 
-  // Normalize to guaranteed strings (prevents `string | undefined` TS errors)
   const supabaseUrlValue = typeof supabaseUrl === "string" ? supabaseUrl.trim() : "";
   const anonKeyValue = typeof anonKey === "string" ? anonKey.trim() : "";
   const serviceKeyValue = typeof serviceKey === "string" ? serviceKey.trim() : "";
@@ -53,22 +52,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     accessToken,
   });
 
-  // Works with BOTH auth return shapes:
-  // - old: {status,error}|{status,companyId...}
-  // - new: {ok:false,error}|{ok:true,companyId...}
-  if ("ok" in authz) {
-    if (!authz.ok) {
-      return res.status(authz.status).json({ ok: false, error: authz.error });
-    }
-  } else {
-    if (authz.status !== 200) {
-      const msg = "error" in authz ? authz.error : "Not authorized";
-      return res.status(authz.status).json({ ok: false, error: msg });
-    }
+  // ✅ Deterministic: authorizeHrAccess MUST return { ok: true/false, ... }
+  if (!authz.ok) {
+    return res.status(authz.status).json({ ok: false, error: authz.error });
   }
-
-  // At this point we are authorized. Extract companyId safely.
-  const companyId = (authz as any).companyId as string;
 
   const adminClient = createServiceClient(supabaseUrlValue, serviceKeyValue);
 
