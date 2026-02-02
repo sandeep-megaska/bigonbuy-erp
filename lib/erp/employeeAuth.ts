@@ -7,7 +7,6 @@ const COOKIE_PATHS = ["/erp/employee", "/api/erp/employee"];
 
 export type EmployeeSessionClaims = {
   companyId: string;
-  sessionId: string;
   token: string;
 };
 
@@ -22,18 +21,26 @@ export type EmployeeSession = {
 
 export function buildEmployeeSessionCookieValue(
   companyId: string,
-  sessionId: string,
   token: string
 ): string {
-  return `${companyId}:${sessionId}:${token}`;
+  return `${companyId}:${token}`;
 }
 
 export function parseEmployeeSessionCookie(req: NextApiRequest): EmployeeSessionClaims | null {
   const cookieValue = req.cookies?.[EMPLOYEE_SESSION_COOKIE] || getCookieValue(req);
   if (!cookieValue) return null;
-  const [companyId, sessionId, token] = cookieValue.split(":");
-  if (!companyId || !sessionId || !token) return null;
-  return { companyId, sessionId, token };
+  const parts = cookieValue.split(":");
+  if (parts.length === 2) {
+    const [companyId, token] = parts;
+    if (!companyId || !token) return null;
+    return { companyId, token };
+  }
+  if (parts.length === 3) {
+    const [companyId, , token] = parts;
+    if (!companyId || !token) return null;
+    return { companyId, token };
+  }
+  return null;
 }
 
 function getCookieValue(req: NextApiRequest): string | null {
@@ -88,7 +95,7 @@ export async function getEmployeeSession(req: NextApiRequest): Promise<EmployeeS
   const adminClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
   const { data, error } = await adminClient.rpc("erp_employee_session_get", {
     p_company_id: claims.companyId,
-    p_token_hash: tokenHash,
+    p_session_token_hash: tokenHash,
   });
 
   if (error || !data) {
