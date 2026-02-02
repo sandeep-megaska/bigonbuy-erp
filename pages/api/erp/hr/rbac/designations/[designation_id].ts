@@ -60,8 +60,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   });
 
   if (authz.status !== 200) {
-    return res.status(authz.status).json({ ok: false, error: authz.error });
-  }
+  const msg = "error" in authz ? authz.error : "Not authorized";
+  return res.status(authz.status).json({ ok: false, error: msg });
+}
+
 
   // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
   const adminClient = createServiceClient(supabaseUrlValue, serviceKeyValue);
