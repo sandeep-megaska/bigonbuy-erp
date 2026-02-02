@@ -4,6 +4,7 @@ import ErpShell from "../components/erp/ErpShell";
 const getErpModuleKey = (pathname) => {
   if (!pathname.startsWith("/erp")) return null;
   if (pathname.startsWith("/erp/hr")) return "hr";
+  if (pathname.startsWith("/erp/ops")) return "ops";
   if (pathname.startsWith("/erp/admin")) return "admin";
   if (pathname.startsWith("/erp/employee") || pathname.startsWith("/erp/my")) return "employee";
   if (pathname.startsWith("/erp/finance")) return "finance";

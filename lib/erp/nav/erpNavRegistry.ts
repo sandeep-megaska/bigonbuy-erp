@@ -16,6 +16,7 @@ export type ErpNavGroupId =
   | "oms"
   | "inventory"
   | "procurement"
+  | "operations"
   | "finance"
   | "hr"
   | "self-service"
@@ -24,7 +25,7 @@ export type ErpNavGroupId =
   | "reports"
   | "settings";
 
-export type ErpModuleKey = "workspace" | "hr" | "employee" | "finance" | "oms" | "admin";
+export type ErpModuleKey = "workspace" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
 
 export type ErpNavItem = {
   id: string;
@@ -78,6 +79,7 @@ const groupOrder: ErpNavGroupId[] = [
   "oms",
   "inventory",
   "procurement",
+  "operations",
   "finance",
   "hr",
   "self-service",
@@ -92,6 +94,7 @@ export const ERP_NAV_GROUPS: ErpNavGroup[] = [
   { id: "oms", label: "OMS / Channels" },
   { id: "inventory", label: "Inventory" },
   { id: "procurement", label: "Procurement" },
+  { id: "operations", label: "Operations" },
   { id: "finance", label: "Finance" },
   { id: "hr", label: "HR" },
   { id: "self-service", label: "Self Service" },
@@ -112,6 +115,17 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     status: "active",
     description: "Overview of your ERP workspace.",
     moduleKeys: ["workspace"],
+  },
+  {
+    id: "ops-dashboard",
+    label: "Ops Dashboard",
+    href: "/erp/ops",
+    icon: "OP",
+    groupId: "operations",
+    requiredGuard: "authenticated",
+    status: "active",
+    description: "Daily operational counts and tasks.",
+    moduleKeys: ["ops"],
   },
   {
     id: "inventory-products",
