@@ -110,12 +110,14 @@ begin
     for select
     using (auth.role() = 'service_role' or auth.uid() is not null);
 
-  drop policy if exists erp_permissions_write_admin on public.erp_permissions;
-  create policy erp_permissions_write_admin
-    on public.erp_permissions
-    for all
-    using (public.erp_is_owner_or_admin())
-    with check (public.erp_is_owner_or_admin());
+  drop policy if exists erp_permissions_write_service_role on public.erp_permissions;
+
+create policy erp_permissions_write_service_role
+on public.erp_permissions
+for all
+using (auth.role() = 'service_role')
+with check (auth.role() = 'service_role');
+
 
   drop policy if exists erp_role_permissions_service_role on public.erp_role_permissions;
   create policy erp_role_permissions_service_role
