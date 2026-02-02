@@ -207,6 +207,7 @@ export default function MonthClosePage() {
         p_company_id: ctx.companyId,
         p_fiscal_year: fiscalYear,
         p_period_month: periodMonth,
+        p_use_maker_checker: false,
       });
       if (finalizeError) throw finalizeError;
       setNotice("Month close finalized and period locked.");
