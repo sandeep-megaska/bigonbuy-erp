@@ -13,14 +13,7 @@ import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
-type CompanyContext = {
-  session: unknown;
-  email: string | null;
-  userId: string | null;
-  companyId: string | null;
-  roleKey: string | null;
-  membershipError: string | null;
-};
+type CompanyContext = Awaited<ReturnType<typeof getCompanyContext>>;
 
 type CloseRecord = {
   id: string;
