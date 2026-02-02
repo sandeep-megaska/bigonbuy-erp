@@ -5,6 +5,7 @@ import AddressTab from "../../../../../components/erp/hr/employee-tabs/AddressTa
 import StatutoryTab from "../../../../../components/erp/hr/employee-tabs/StatutoryTab";
 import BankTab from "../../../../../components/erp/hr/employee-tabs/BankTab";
 import EmergencyTab from "../../../../../components/erp/hr/employee-tabs/EmergencyTab";
+import PortalAccessTab from "../../../../../components/erp/hr/employee-tabs/PortalAccessTab";
 import { getCompanyContext, isHr, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../../../lib/erp/nav";
 import { supabase } from "../../../../../lib/supabaseClient";
@@ -139,6 +140,7 @@ export default function EmployeeProfilePage() {
       "documents",
       "exit",
       "salary",
+      "portal-access",
     ];
     if (tabParam && allowedTabs.includes(tabParam)) {
       setTab(tabParam);
@@ -962,6 +964,7 @@ export default function EmployeeProfilePage() {
           ["documents", "Documents"],
           ["exit", "Exit"],
           ["salary", "Salary"],
+          ["portal-access", "Portal Access"],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -1455,6 +1458,16 @@ export default function EmployeeProfilePage() {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {tab === "portal-access" ? (
+        <div style={panelStyle}>
+          <PortalAccessTab
+            employeeId={employeeId}
+            accessToken={accessToken}
+            canManage={canManage}
+          />
         </div>
       ) : null}
     </div>
