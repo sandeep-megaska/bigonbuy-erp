@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import type { FormEvent } from "react";
+import { fetchEmployeeSession } from "../../../lib/erp/employeeSession";
 
 const cardStyle = {
-  maxWidth: 420,
+  maxWidth: 460,
   margin: "80px auto",
   padding: 24,
   borderRadius: 16,
@@ -27,25 +28,25 @@ const labelStyle = {
   color: "#111827",
 };
 
-export default function EmployeeLoginPage() {
+export default function EmployeeChangePasswordPage() {
   const router = useRouter();
-  const [employeeCode, setEmployeeCode] = useState("");
-  const [password, setPassword] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const res = await fetch("/api/erp/employee/auth/me");
+      const session = await fetchEmployeeSession();
       if (!active) return;
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.session?.must_reset_password) {
-          router.replace("/erp/employee/change-password");
-        } else {
-          router.replace("/erp/employee");
-        }
+      if (!session) {
+        router.replace("/erp/employee/login");
+        return;
+      }
+      if (!session.mustResetPassword) {
+        router.replace("/erp/employee");
       }
     })();
     return () => {
@@ -56,27 +57,37 @@ export default function EmployeeLoginPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
+
+    if (!oldPassword || !newPassword) {
+      setError("Please enter your current and new password.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirmation do not match.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const res = await fetch("/api/erp/employee/auth/login", {
+      const res = await fetch("/api/erp/employee/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee_code: employeeCode, password }),
+        body: JSON.stringify({
+          old_password: oldPassword,
+          new_password: newPassword,
+        }),
       });
       const data = await res.json();
 
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Unable to sign in");
+        throw new Error(data.error || "Unable to change password");
       }
 
-      if (data.session?.must_reset_password) {
-        router.replace("/erp/employee/change-password");
-      } else {
-        router.replace("/erp/employee");
-      }
+      router.replace("/erp/employee");
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Unable to sign in";
+      const message = e instanceof Error ? e.message : "Unable to change password";
       setError(message);
     } finally {
       setLoading(false);
@@ -87,9 +98,9 @@ export default function EmployeeLoginPage() {
     <div style={{ minHeight: "100vh", background: "#f8fafc", padding: "24px" }}>
       <div style={cardStyle}>
         <div style={{ fontSize: 12, letterSpacing: 1, color: "#6b7280" }}>Employee Portal</div>
-        <h1 style={{ margin: "6px 0 16px", fontSize: 28 }}>Sign in</h1>
+        <h1 style={{ margin: "6px 0 12px", fontSize: 26 }}>Reset your password</h1>
         <p style={{ marginBottom: 20, color: "#4b5563" }}>
-          Use your employee code and password to access self-service tools.
+          Please update your temporary password before continuing.
         </p>
 
         {error ? (
@@ -108,28 +119,40 @@ export default function EmployeeLoginPage() {
         ) : null}
 
         <form onSubmit={handleSubmit}>
-          <label style={labelStyle} htmlFor="employeeCode">
-            Employee Code
+          <label style={labelStyle} htmlFor="oldPassword">
+            Current Password
           </label>
           <input
-            id="employeeCode"
-            value={employeeCode}
-            onChange={(e) => setEmployeeCode(e.target.value)}
-            style={inputStyle}
-            autoComplete="username"
-            placeholder="EMP0001"
-          />
-
-          <label style={{ ...labelStyle, marginTop: 14 }} htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
+            id="oldPassword"
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={oldPassword}
+            onChange={(e) => setOldPassword(e.target.value)}
             style={inputStyle}
             autoComplete="current-password"
+          />
+
+          <label style={{ ...labelStyle, marginTop: 14 }} htmlFor="newPassword">
+            New Password
+          </label>
+          <input
+            id="newPassword"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            style={inputStyle}
+            autoComplete="new-password"
+          />
+
+          <label style={{ ...labelStyle, marginTop: 14 }} htmlFor="confirmPassword">
+            Confirm New Password
+          </label>
+          <input
+            id="confirmPassword"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            style={inputStyle}
+            autoComplete="new-password"
           />
 
           <button
@@ -147,7 +170,7 @@ export default function EmployeeLoginPage() {
               cursor: loading ? "not-allowed" : "pointer",
             }}
           >
-            {loading ? "Signing in…" : "Sign in"}
+            {loading ? "Saving…" : "Update password"}
           </button>
         </form>
       </div>

@@ -184,7 +184,11 @@ export default function ErpHomePage() {
               Track core operations and jump into the modules you need.
             </p>
           </div>
-          <div style={{ textAlign: "right" }} />
+          <div style={{ textAlign: "right" }}>
+            <Link href="/erp/employee/login" style={{ ...secondaryButtonStyle, textDecoration: "none" }}>
+              Employee Login
+            </Link>
+          </div>
         </header>
 
         <section style={sectionStackStyle}>

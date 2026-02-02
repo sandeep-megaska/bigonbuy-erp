@@ -54,6 +54,10 @@ export default function EmployeeAttendancePage() {
         router.replace("/erp/employee/login");
         return;
       }
+      if (context.mustResetPassword) {
+        router.replace("/erp/employee/change-password");
+        return;
+      }
       setCtx(context);
       await loadAttendance(monthRange);
       if (active) setLoading(false);

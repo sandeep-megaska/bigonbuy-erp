@@ -109,6 +109,10 @@ export default function EmployeeLeavesPage() {
         router.replace("/erp/employee/login");
         return;
       }
+      if (context.mustResetPassword) {
+        router.replace("/erp/employee/change-password");
+        return;
+      }
 
       setCtx(context);
       await Promise.all([loadLeaveTypes(), loadRequests()]);

@@ -13,11 +13,11 @@
 
 ## Cookie & Session Design
 
-- Cookie: `erp_emp_session` (HTTP-only, SameSite=Lax).
-- Value format: `company_id:session_token`.
+- Cookie: `erp_employee_session` (HTTP-only, SameSite=Lax).
+- Value format: `session_token`.
 - The raw token is stored only in the cookie; the database stores `sha256(token)`.
-- Session expiry defaults to 30 days and is enforced in `erp_employee_session_get`.
-- Revocation occurs via `erp_employee_session_revoke`.
+- Session expiry defaults to 30 days and is enforced in `erp_employee_auth_session_get`.
+- Revocation occurs via `erp_employee_auth_logout`.
 
 ## RPCs
 
@@ -26,8 +26,10 @@ Employee auth + sessions:
 - `erp_employee_auth_user_get(p_employee_code text)`
 - `erp_employee_auth_user_upsert(p_company_id uuid, p_employee_id uuid, p_password_hash text, p_actor_user_id uuid)`
 - `erp_employee_auth_login(p_employee_code text, p_password text, p_user_agent text, p_ip inet)`
-- `erp_employee_session_get(p_company_id uuid, p_session_token_hash text)`
-- `erp_employee_session_revoke(p_company_id uuid, p_session_token_hash text)`
+- `erp_employee_auth_session_get(p_session_token text)`
+- `erp_employee_auth_logout(p_session_token text)`
+- `erp_employee_auth_change_password(p_session_token text, p_old_password text, p_new_password text)`
+- `erp_employee_auth_admin_reset_password(p_company_id uuid, p_employee_id uuid)`
 
 Employee permission guards:
 
@@ -43,7 +45,6 @@ Employee self-service wrappers:
 
 ## HR: Enabling Employee Login
 
-1. Open **HR → Employee Logins**.
-2. Enter a temporary password in the **Portal Access** column.
-3. Click **Enable Portal Login** to hash and store the password using `erp_employee_auth_user_upsert`.
-4. Share the temporary password with the employee and instruct them to reset it after first sign-in.
+1. Open **HR → Employees** and select an employee profile.
+2. In **Portal Access**, click **Reset Password** to generate a temporary password.
+3. Share the temporary password with the employee and instruct them to reset it after first sign-in.

@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
   clearEmployeeSessionCookies,
-  hashEmployeeSessionToken,
   parseEmployeeSessionCookie,
 } from "../../../../../lib/erp/employeeAuth";
 import { createServiceRoleClient, getSupabaseEnv } from "../../../../../lib/serverSupabase";
@@ -31,10 +30,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const adminClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
 
-  const sessionTokenHash = hashEmployeeSessionToken(claims.token);
-  const { error } = await adminClient.rpc("erp_employee_session_revoke", {
-    p_company_id: claims.companyId,
-    p_session_token_hash: sessionTokenHash,
+  const { error } = await adminClient.rpc("erp_employee_auth_logout", {
+    p_session_token: claims.token,
   });
 
   if (error) {

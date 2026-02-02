@@ -31,6 +31,10 @@ export default function EmployeeProfilePage() {
         router.replace("/erp/employee/login");
         return;
       }
+      if (current.mustResetPassword) {
+        router.replace("/erp/employee/change-password");
+        return;
+      }
       setSession(current);
 
       const res = await fetch("/api/erp/employee/profile");

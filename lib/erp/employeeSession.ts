@@ -3,12 +3,12 @@ export type EmployeeSessionContext = {
   companyId: string | null;
   employeeCode: string | null;
   displayName: string | null;
-  roles: string[];
-  permissions: string[];
+  mustResetPassword: boolean;
+  roleKeys: string[];
 };
 
 export async function fetchEmployeeSession(): Promise<EmployeeSessionContext | null> {
-  const res = await fetch("/api/erp/employee/me");
+  const res = await fetch("/api/erp/employee/auth/me");
   if (!res.ok) {
     return null;
   }
@@ -19,8 +19,8 @@ export async function fetchEmployeeSession(): Promise<EmployeeSessionContext | n
       company_id: string;
       employee_code: string;
       display_name: string;
-      roles: string[];
-      permissions: string[];
+      must_reset_password: boolean;
+      role_keys: string[];
     };
   };
   if (!data.ok || !data.session) return null;
@@ -29,7 +29,7 @@ export async function fetchEmployeeSession(): Promise<EmployeeSessionContext | n
     companyId: data.session.company_id,
     employeeCode: data.session.employee_code,
     displayName: data.session.display_name,
-    roles: data.session.roles ?? [],
-    permissions: data.session.permissions ?? [],
+    mustResetPassword: data.session.must_reset_password ?? false,
+    roleKeys: data.session.role_keys ?? [],
   };
 }

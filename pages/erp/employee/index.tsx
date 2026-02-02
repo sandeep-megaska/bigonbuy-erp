@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { fetchEmployeeSession, type EmployeeSessionContext } from "../../../lib/erp/employeeSession";
+import { getEmployeeNavForRoles } from "../../../lib/erp/employeeNav";
 
 const cardStyle = {
   border: "1px solid #e5e7eb",
@@ -25,6 +26,10 @@ export default function EmployeeHomePage() {
         router.replace("/erp/employee/login");
         return;
       }
+      if (current.mustResetPassword) {
+        router.replace("/erp/employee/change-password");
+        return;
+      }
       setSession(current);
       setLoading(false);
     })();
@@ -41,6 +46,8 @@ export default function EmployeeHomePage() {
   if (loading) {
     return <div style={{ padding: 24 }}>Loading employee portal…</div>;
   }
+
+  const navItems = getEmployeeNavForRoles(session?.roleKeys ?? []);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
@@ -76,30 +83,21 @@ export default function EmployeeHomePage() {
           gap: 16,
         }}
       >
-        <Link href="/erp/employee/profile" style={{ ...cardStyle, textDecoration: "none", color: "#111827" }}>
-          <div style={{ fontWeight: 700 }}>My Profile</div>
-          <p style={{ marginTop: 8, color: "#6b7280" }}>
-            View your personal and job details.
-          </p>
-        </Link>
-        <Link href="/erp/employee/leaves" style={{ ...cardStyle, textDecoration: "none", color: "#111827" }}>
-          <div style={{ fontWeight: 700 }}>Leave Requests</div>
-          <p style={{ marginTop: 8, color: "#6b7280" }}>
-            Submit and track leave applications.
-          </p>
-        </Link>
-        <Link href="/erp/employee/attendance" style={{ ...cardStyle, textDecoration: "none", color: "#111827" }}>
-          <div style={{ fontWeight: 700 }}>Attendance</div>
-          <p style={{ marginTop: 8, color: "#6b7280" }}>
-            Review your attendance history.
-          </p>
-        </Link>
-        <Link href="/erp/employee/exit" style={{ ...cardStyle, textDecoration: "none", color: "#111827" }}>
-          <div style={{ fontWeight: 700 }}>Exit / Resignation</div>
-          <p style={{ marginTop: 8, color: "#6b7280" }}>
-            Submit an exit request for HR approval.
-          </p>
-        </Link>
+        {navItems.map((item) => (
+          <Link
+            key={item.id}
+            href={item.href}
+            style={{ ...cardStyle, textDecoration: "none", color: "#111827" }}
+          >
+            <div style={{ fontWeight: 700 }}>{item.label}</div>
+            <p style={{ marginTop: 8, color: "#6b7280" }}>{item.description}</p>
+          </Link>
+        ))}
+        {navItems.length === 0 ? (
+          <div style={{ ...cardStyle, color: "#6b7280" }}>
+            No self-service modules are available for your role yet.
+          </div>
+        ) : null}
       </div>
     </div>
   );

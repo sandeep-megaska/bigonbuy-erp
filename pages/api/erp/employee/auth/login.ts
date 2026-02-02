@@ -6,7 +6,17 @@ import {
 import { createServiceRoleClient, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 
 type LoginResponse =
-  | { ok: true; session: { employee_id: string; company_id: string; employee_code: string } }
+  | {
+      ok: true;
+      session: {
+        employee_id: string;
+        company_id: string;
+        employee_code: string;
+        display_name: string;
+        must_reset_password: boolean;
+        role_keys: string[];
+      };
+    }
   | { ok: false; error: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<LoginResponse>) {
@@ -66,9 +76,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
     : 60 * 60 * 24 * 30;
 
-  const cookieValue = buildEmployeeSessionCookieValue(loginRow.company_id, loginRow.session_token);
+  const cookieValue = buildEmployeeSessionCookieValue(loginRow.session_token);
 
   setEmployeeSessionCookies(res, cookieValue, maxAgeSeconds);
+
+  const { data: sessionRows, error: sessionError } = await adminClient.rpc(
+    "erp_employee_auth_session_get",
+    {
+      p_session_token: loginRow.session_token,
+    }
+  );
+
+  if (sessionError) {
+    return res.status(500).json({ ok: false, error: sessionError.message || "Unable to sign in" });
+  }
+
+  const sessionRow = Array.isArray(sessionRows) ? sessionRows[0] : sessionRows;
 
   return res.status(200).json({
     ok: true,
@@ -76,6 +99,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       employee_id: loginRow.employee_id,
       company_id: loginRow.company_id,
       employee_code: loginRow.employee_code,
+      display_name: sessionRow?.display_name ?? loginRow.employee_code,
+      must_reset_password: Boolean(sessionRow?.must_reset_password),
+      role_keys: sessionRow?.role_keys ?? [],
     },
   });
 }
