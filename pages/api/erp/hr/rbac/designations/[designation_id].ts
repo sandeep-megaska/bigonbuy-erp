@@ -12,12 +12,13 @@ type ApiResponse =
   | { ok: true; permissions: PermissionRow[] }
   | { ok: false; error: string };
 
-function getAccessToken(req: NextApiRequest) {
+function getAccessToken(req: NextApiRequest): string | null {
   const authHeader = req.headers.authorization || "";
-  return authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  return token ? token : null;
 }
 
-function resolveDesignationId(value: string | string[] | undefined) {
+function resolveDesignationId(value: string | string[] | undefined): string | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
 }
@@ -34,34 +35,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { supabaseUrl, anonKey, serviceKey, missing } = getSupabaseEnv();
-  if (missing.length) {
-    return res.status(500).json({ ok: false, error: `Missing Supabase env vars: ${missing.join(", ")}` });
+
+  const supabaseUrlValue = typeof supabaseUrl === "string" ? supabaseUrl.trim() : "";
+  const anonKeyValue = typeof anonKey === "string" ? anonKey.trim() : "";
+  const serviceKeyValue = typeof serviceKey === "string" ? serviceKey.trim() : "";
+
+  if (!supabaseUrlValue || !anonKeyValue || !serviceKeyValue || (missing?.length ?? 0) > 0) {
+    return res.status(500).json({
+      ok: false,
+      error: `Missing Supabase env vars: ${(missing && missing.length ? missing.join(", ") : "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY")}`,
+    });
   }
-const supabaseUrlValue = typeof supabaseUrl === "string" ? supabaseUrl.trim() : "";
-const anonKeyValue = typeof anonKey === "string" ? anonKey.trim() : "";
-const serviceKeyValue = typeof serviceKey === "string" ? serviceKey.trim() : "";
 
-if (!supabaseUrlValue || !anonKeyValue || !serviceKeyValue || missing.length > 0) {
-  return res.status(500).json({
-    ok: false,
-    error:
-      "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+  const accessToken = getAccessToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Authorization token is required" });
+  }
+
+  // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
+  const authz = await authorizeHrAccess({
+    supabaseUrl: supabaseUrlValue,
+    anonKey: anonKeyValue,
+    accessToken,
   });
-}
-  const accessTokenRaw = getAccessToken(req);
-const accessToken = typeof accessTokenRaw === "string" ? accessTokenRaw.trim() : "";
 
-if (!accessToken) {
-  return res.status(401).json({ ok: false, error: "Authorization token is required" });
-}
+  if (authz.status !== 200) {
+    return res.status(authz.status).json({ ok: false, error: authz.error });
+  }
 
-const authz = await authorizeHrAccess({ supabaseUrl, anonKey, accessToken });
-if (authz.status !== 200) {
-  return res.status(authz.status).json({ ok: false, error: authz.error });
-}
-
-
-  const adminClient = createServiceClient(supabaseUrl, serviceKey);
+  // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
+  const adminClient = createServiceClient(supabaseUrlValue, serviceKeyValue);
 
   if (req.method === "GET") {
     const { data, error } = await adminClient.rpc("erp_rbac_designation_permissions_get", {
