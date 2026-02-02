@@ -67,7 +67,8 @@ export default function EmployeeLoginPage() {
 
       router.replace("/erp/employee");
     } catch (e) {
-      setError(e?.message || "Unable to sign in");
+      const message = e instanceof Error ? e.message : "Unable to sign in";
+      setError(message);
     } finally {
       setLoading(false);
     }
