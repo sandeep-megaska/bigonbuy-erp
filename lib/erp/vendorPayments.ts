@@ -111,10 +111,13 @@ export async function createVendorPaymentDraft(payload: VendorPaymentDraftPayloa
   });
 }
 
-export async function approveVendorPayment(paymentId: string) {
+export async function approveVendorPayment(
+  paymentId: string,
+  options?: { useMakerChecker?: boolean }
+) {
   return supabase.rpc("erp_ap_vendor_payment_approve", {
     p_vendor_payment_id: paymentId,
-    p_use_maker_checker: false,
+    p_use_maker_checker: options?.useMakerChecker ?? true,
   });
 }
 

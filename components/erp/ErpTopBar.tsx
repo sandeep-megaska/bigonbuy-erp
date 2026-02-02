@@ -5,7 +5,7 @@ import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
 
-export type ErpModuleKey = "workspace" | "hr" | "employee" | "finance" | "oms" | "admin";
+export type ErpModuleKey = "workspace" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
 
 type ModuleLink = {
   key: ErpModuleKey;
@@ -15,6 +15,7 @@ type ModuleLink = {
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
+  { key: "ops", label: "Ops", href: "/erp/ops" },
   { key: "hr", label: "HR", href: "/erp/hr" },
   { key: "finance", label: "Finance", href: "/erp/finance" },
   { key: "oms", label: "OMS", href: "/erp/oms/channels" },

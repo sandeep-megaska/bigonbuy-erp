@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   badgeStyle,
   cardStyle,
@@ -16,6 +17,7 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
 import { supabase } from "../../../../lib/supabaseClient";
 
 const last30Days = () => {
@@ -134,6 +136,7 @@ export default function FinanceReconDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof getCompanyContext>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [fromDate, setFromDate] = useState(start);
@@ -142,6 +145,17 @@ export default function FinanceReconDashboardPage() {
   const [query, setQuery] = useState("");
   const [summary, setSummary] = useState<ReconSummary>(defaultSummary);
   const [isLoadingData, setIsLoadingData] = useState(false);
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -155,7 +169,10 @@ export default function FinanceReconDashboardPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
+        reportError(
+          context.membershipError || "No active company membership found.",
+          "No active company membership found."
+        );
         setLoading(false);
         return;
       }
@@ -183,7 +200,7 @@ export default function FinanceReconDashboardPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load vendors.");
+        reportError(loadError, "Failed to load vendors.");
         return;
       }
 
@@ -206,6 +223,7 @@ export default function FinanceReconDashboardPage() {
     if (!ctx?.companyId) return;
     setIsLoadingData(true);
     setError(null);
+    setErrorDetails(null);
     setToast(null);
 
     const effectiveFrom = overrides?.fromDate ?? fromDate;
@@ -223,7 +241,7 @@ export default function FinanceReconDashboardPage() {
     });
 
     if (loadError) {
-      setError(loadError.message || "Failed to load reconciliation summary.");
+      reportError(loadError, "Failed to load reconciliation summary.");
       setIsLoadingData(false);
       return;
     }
@@ -303,9 +321,7 @@ export default function FinanceReconDashboardPage() {
         />
 
         {error ? (
-          <div style={{ ...cardStyle, borderColor: "#fecaca", backgroundColor: "#fff1f2", color: "#b91c1c" }}>
-            {error}
-          </div>
+          <ErrorBanner message={error} details={errorDetails} onRetry={loadSummary} />
         ) : null}
 
         <section style={cardStyle}>

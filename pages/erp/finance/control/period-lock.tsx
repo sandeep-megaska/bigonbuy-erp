@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   pageContainerStyle,
   secondaryButtonStyle,
@@ -10,6 +11,8 @@ import {
 } from "../../../../components/erp/uiStyles";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
 
 type CompanyContext = {
   session: unknown;
@@ -29,6 +32,12 @@ type PeriodLockRow = {
   locked_at: string | null;
   locked_by: string | null;
   lock_reason: string | null;
+};
+
+type ApprovalRow = {
+  entity_id: string;
+  state: string;
+  review_comment: string | null;
 };
 
 const cardStyle = {
@@ -88,16 +97,33 @@ export default function PeriodLockPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [fiscalYear, setFiscalYear] = useState(getFiscalYearLabel());
   const [locks, setLocks] = useState<PeriodLockRow[]>([]);
   const [loadingLocks, setLoadingLocks] = useState(false);
+  const [approvalMap, setApprovalMap] = useState<Record<string, { state: string; comment?: string | null }>>({});
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState<string | null>(null);
+  const [isApproving, setIsApproving] = useState<string | null>(null);
 
   const canWrite = useMemo(() => {
     if (!ctx?.roleKey) return false;
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
+
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -110,7 +136,10 @@ export default function PeriodLockPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(
+          context.membershipError || "No active company membership found for this user.",
+          "No active company membership found for this user."
+        );
       }
       setLoading(false);
     })();
@@ -122,7 +151,8 @@ export default function PeriodLockPage() {
 
   const fetchLocks = async (companyId: string, year: string) => {
     setLoadingLocks(true);
-    setError("");
+    setError(null);
+    setErrorDetails(null);
     setNotice("");
     try {
       const { data, error: fetchError } = await supabase.rpc("erp_fin_period_locks_list", {
@@ -131,12 +161,30 @@ export default function PeriodLockPage() {
       });
       if (fetchError) throw fetchError;
       setLocks((data as PeriodLockRow[]) || []);
+      await loadUnlockApprovals(companyId);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load period locks.";
-      setError(message || "Unable to load period locks.");
+      reportError(message || "Unable to load period locks.", "Unable to load period locks.");
     } finally {
       setLoadingLocks(false);
     }
+  };
+
+  const loadUnlockApprovals = async (companyId: string) => {
+    const { data, error: approvalsError } = await supabase.rpc("erp_fin_approvals_list", {
+      p_company_id: companyId,
+      p_state: null,
+      p_entity_type: "period_unlock",
+    });
+    if (approvalsError) {
+      reportError(approvalsError, "Failed to load unlock approvals.");
+      return;
+    }
+    const map: Record<string, { state: string; comment?: string | null }> = {};
+    (data as ApprovalRow[] | null)?.forEach((row) => {
+      map[row.entity_id] = { state: row.state, comment: row.review_comment };
+    });
+    setApprovalMap(map);
   };
 
   useEffect(() => {
@@ -147,11 +195,12 @@ export default function PeriodLockPage() {
   const handleLock = async (month: number) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can lock periods.");
+      reportError("Only finance admins can lock periods.", "Only finance admins can lock periods.");
       return;
     }
     const reason = window.prompt("Reason for locking this period (optional):")?.trim() || null;
-    setError("");
+    setError(null);
+    setErrorDetails(null);
     setNotice("");
     try {
       const { error: lockError } = await supabase.rpc("erp_fin_period_lock", {
@@ -165,35 +214,101 @@ export default function PeriodLockPage() {
       await fetchLocks(ctx.companyId, fiscalYear);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to lock period.";
-      setError(message || "Unable to lock period.");
+      reportError(message || "Unable to lock period.", "Unable to lock period.");
     }
   };
 
-  const handleUnlock = async (month: number) => {
+  const handleRequestUnlock = async (lock: PeriodLockRow) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can unlock periods.");
+      reportError("Only finance admins can unlock periods.", "Only finance admins can unlock periods.");
       return;
     }
-    const confirmed = window.confirm(`Unlock FY ${fiscalYear} month ${month}? This should be rare.`);
+    const confirmed = window.confirm(
+      `Request unlock for FY ${fiscalYear} month ${lock.period_month}? This should be rare.`
+    );
     if (!confirmed) return;
     const reason = window.prompt("Reason for unlocking this period (optional):")?.trim() || null;
-    setError("");
-    setNotice("");
+    setError(null);
+    setErrorDetails(null);
+    setNotice(null);
+    setIsSubmittingApproval(lock.id);
     try {
-      const { error: unlockError } = await supabase.rpc("erp_fin_period_unlock", {
-        p_company_id: ctx.companyId,
-        p_fiscal_year: fiscalYear,
-        p_period_month: month,
-        p_reason: reason,
-        p_use_maker_checker: false,
-      });
-      if (unlockError) throw unlockError;
-      setNotice(`Unlocked FY ${fiscalYear} month ${month}.`);
+      if (canBypass) {
+        const { error: unlockError } = await supabase.rpc("erp_fin_period_unlock", {
+          p_company_id: ctx.companyId,
+          p_fiscal_year: fiscalYear,
+          p_period_month: lock.period_month,
+          p_reason: reason,
+          p_use_maker_checker: false,
+        });
+        if (unlockError) throw unlockError;
+        setNotice(`Unlocked FY ${fiscalYear} month ${lock.period_month}.`);
+      } else {
+        const { error: submitError } = await supabase.rpc("erp_fin_submit_for_approval", {
+          p_company_id: ctx.companyId,
+          p_entity_type: "period_unlock",
+          p_entity_id: lock.id,
+          p_note: reason,
+        });
+        if (submitError) throw submitError;
+        setNotice(`Unlock requested for FY ${fiscalYear} month ${lock.period_month}.`);
+      }
       await fetchLocks(ctx.companyId, fiscalYear);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to unlock period.";
-      setError(message || "Unable to unlock period.");
+      reportError(message || "Unable to unlock period.", "Unable to unlock period.");
+    } finally {
+      setIsSubmittingApproval(null);
+    }
+  };
+
+  const handleApproveUnlock = async (lock: PeriodLockRow) => {
+    if (!ctx?.companyId) return;
+    setIsApproving(lock.id);
+    setError(null);
+    setErrorDetails(null);
+    setNotice(null);
+    try {
+      const { error: approveError } = await supabase.rpc("erp_fin_approve", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "period_unlock",
+        p_entity_id: lock.id,
+        p_comment: null,
+      });
+      if (approveError) throw approveError;
+      setNotice(`Unlock approved for FY ${fiscalYear} month ${lock.period_month}.`);
+      await fetchLocks(ctx.companyId, fiscalYear);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to approve unlock.";
+      reportError(message || "Unable to approve unlock.", "Unable to approve unlock.");
+    } finally {
+      setIsApproving(null);
+    }
+  };
+
+  const handleRejectUnlock = async (lock: PeriodLockRow) => {
+    if (!ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (required):")?.trim();
+    if (!comment) {
+      reportError("Rejection note is required.", "Rejection note is required.");
+      return;
+    }
+    setError(null);
+    setErrorDetails(null);
+    setNotice(null);
+    try {
+      const { error: rejectError } = await supabase.rpc("erp_fin_reject", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "period_unlock",
+        p_entity_id: lock.id,
+        p_comment: comment,
+      });
+      if (rejectError) throw rejectError;
+      await fetchLocks(ctx.companyId, fiscalYear);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to reject unlock.";
+      reportError(message || "Unable to reject unlock.", "Unable to reject unlock.");
     }
   };
 
@@ -263,7 +378,9 @@ export default function PeriodLockPage() {
           </button>
         </div>
 
-        {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={() => ctx?.companyId && fetchLocks(ctx.companyId, fiscalYear)} />
+        ) : null}
         {notice && <p style={{ color: "#16a34a", marginTop: 12 }}>{notice}</p>}
 
         <div style={{ marginTop: 16, ...gridStyle }}>
@@ -271,6 +388,7 @@ export default function PeriodLockPage() {
             const periodMonth = index + 1;
             const lock = lockMap.get(periodMonth);
             const isLocked = lock?.is_locked ?? false;
+            const approval = lock?.id ? approvalMap[lock.id] : null;
             return (
               <div key={periodMonth} style={cardStyle}>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>
@@ -291,6 +409,10 @@ export default function PeriodLockPage() {
                     <span style={labelStyle}>Locked At</span>
                     <div>{lock?.locked_at ? new Date(lock.locked_at).toLocaleString() : "—"}</div>
                   </div>
+                  <div>
+                    <span style={labelStyle}>Unlock Approval</span>
+                    <div>{approval?.state || "—"}</div>
+                  </div>
                 </div>
                 {canWrite && (
                   <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -307,17 +429,42 @@ export default function PeriodLockPage() {
                     >
                       Lock Month
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUnlock(periodMonth)}
-                      style={{
-                        ...secondaryButtonStyle,
-                        backgroundColor: !isLocked ? "#d1d5db" : "#fff",
-                      }}
-                      disabled={!isLocked}
-                    >
-                      Unlock Month
-                    </button>
+                    {isLocked ? (
+                      <button
+                        type="button"
+                        onClick={() => lock && handleRequestUnlock(lock)}
+                        style={{
+                          ...secondaryButtonStyle,
+                          backgroundColor: "#fff",
+                        }}
+                        disabled={Boolean(isSubmittingApproval && lock?.id === isSubmittingApproval) || approval?.state === "submitted"}
+                      >
+                        {canBypass ? "Unlock Month" : approval?.state === "submitted" ? "Unlock Requested" : "Request Unlock"}
+                      </button>
+                    ) : (
+                      <button type="button" style={{ ...secondaryButtonStyle, backgroundColor: "#d1d5db" }} disabled>
+                        Unlock Month
+                      </button>
+                    )}
+                    {canWrite && approval?.state === "submitted" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => lock && handleApproveUnlock(lock)}
+                          style={secondaryButtonStyle}
+                          disabled={isApproving === lock?.id}
+                        >
+                          {isApproving === lock?.id ? "Approving…" : "Approve Unlock"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => lock && handleRejectUnlock(lock)}
+                          style={secondaryButtonStyle}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 )}
               </div>

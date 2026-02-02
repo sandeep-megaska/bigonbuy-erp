@@ -45,10 +45,10 @@ export const vendorBillPreview = (billId: string) =>
     p_bill_id: billId,
   });
 
-export const vendorBillPost = (billId: string) =>
+export const vendorBillPost = (billId: string, options?: { useMakerChecker?: boolean }) =>
   supabase.rpc("erp_ap_vendor_bill_post", {
     p_bill_id: billId,
-    p_use_maker_checker: false,
+    p_use_maker_checker: options?.useMakerChecker ?? true,
   });
 
 export const vendorAdvanceList = (vendorId?: string | null, status?: string | null) =>
@@ -60,10 +60,10 @@ export const vendorAdvanceList = (vendorId?: string | null, status?: string | nu
 export const vendorAdvanceCreate = (payload: Record<string, unknown>) =>
   supabase.rpc("erp_ap_vendor_advance_create", payload);
 
-export const vendorAdvancePost = (advanceId: string) =>
+export const vendorAdvancePost = (advanceId: string, options?: { useMakerChecker?: boolean }) =>
   supabase.rpc("erp_ap_vendor_advance_approve_and_post", {
     p_advance_id: advanceId,
-    p_use_maker_checker: false,
+    p_use_maker_checker: options?.useMakerChecker ?? true,
   });
 
 export const vendorAdvanceAllocations = (billId: string) =>

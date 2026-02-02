@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import BankTxnMatchModal, { type BankTxnRow } from "../../../../components/erp/finance/BankTxnMatchModal";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   badgeStyle,
   cardStyle,
@@ -16,6 +17,8 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
   approveVendorPayment,
@@ -48,6 +51,12 @@ type InvoiceAllocationRow = {
   allocated_amount: number;
 };
 
+type ApprovalRow = {
+  entity_id: string;
+  state: string;
+  review_comment: string | null;
+};
+
 type ToastState = { type: "success" | "error"; message: string } | null;
 
 const formatCurrency = (amount: number, currency: string) =>
@@ -71,12 +80,15 @@ export default function VendorPaymentDetailPage() {
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isVoidOpen, setIsVoidOpen] = useState(false);
   const [isUnmatchOpen, setIsUnmatchOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isVoiding, setIsVoiding] = useState(false);
   const [isUnmatching, setIsUnmatching] = useState(false);
   const [matchModalOpen, setMatchModalOpen] = useState(false);
@@ -88,6 +100,8 @@ export default function VendorPaymentDetailPage() {
   const [invoiceAllocations, setInvoiceAllocations] = useState<InvoiceAllocationRow[]>([]);
   const [isAllocationsLoading, setIsAllocationsLoading] = useState(false);
   const [isAllocationsSaving, setIsAllocationsSaving] = useState(false);
+  const [approvalState, setApprovalState] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState<string | null>(null);
 
   const [formVendorId, setFormVendorId] = useState("");
   const [formPaymentDate, setFormPaymentDate] = useState("");
@@ -100,6 +114,19 @@ export default function VendorPaymentDetailPage() {
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx?.roleKey]
   );
+
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   const totalAllocated = useMemo(
     () => invoiceAllocations.reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0),
@@ -118,7 +145,10 @@ export default function VendorPaymentDetailPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
+        reportError(
+          context.membershipError || "No active company membership found.",
+          "No active company membership found."
+        );
         setLoading(false);
         return;
       }
@@ -146,7 +176,7 @@ export default function VendorPaymentDetailPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load vendors.");
+        reportError(loadError, "Failed to load vendors.");
         return;
       }
 
@@ -172,7 +202,7 @@ export default function VendorPaymentDetailPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load payment accounts.");
+        reportError(loadError, "Failed to load payment accounts.");
         return;
       }
 
@@ -189,20 +219,39 @@ export default function VendorPaymentDetailPage() {
   const loadPayment = async () => {
     if (!paymentId) return;
     setError(null);
+    setErrorDetails(null);
     const { data, error: loadError } = await getVendorPayment(paymentId);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load payment.");
+      reportError(loadError, "Failed to load payment.");
       return;
     }
 
     const parsed = vendorPaymentRowSchema.safeParse((data as VendorPaymentRow[] | null)?.[0]);
     if (!parsed.success) {
-      setError("Failed to parse payment data.");
+      reportError("Failed to parse payment data.", "Failed to parse payment data.");
       return;
     }
 
     setPayment(parsed.data);
+    if (ctx?.companyId) {
+      await loadApprovalStatus(ctx.companyId, parsed.data.id);
+    }
+  };
+
+  const loadApprovalStatus = async (companyId: string, targetId: string) => {
+    const { data, error: approvalError } = await supabase.rpc("erp_fin_approvals_list", {
+      p_company_id: companyId,
+      p_state: null,
+      p_entity_type: "ap_payment",
+    });
+    if (approvalError) {
+      reportError(approvalError, "Failed to load approval status.");
+      return;
+    }
+    const match = (data as ApprovalRow[] | null)?.find((row) => row.entity_id === targetId);
+    setApprovalState(match?.state ?? null);
+    setApprovalComment(match?.review_comment ?? null);
   };
 
   const loadAllocations = async (currentPayment: VendorPaymentRow) => {
@@ -220,7 +269,7 @@ export default function VendorPaymentDetailPage() {
     );
 
     if (outstandingError) {
-      setError(outstandingError.message || "Failed to load outstanding invoices.");
+      reportError(outstandingError, "Failed to load outstanding invoices.");
       setIsAllocationsLoading(false);
       return;
     }
@@ -235,7 +284,7 @@ export default function VendorPaymentDetailPage() {
       .eq("is_void", false);
 
     if (allocationsError) {
-      setError(allocationsError.message || "Failed to load payment allocations.");
+      reportError(allocationsError, "Failed to load payment allocations.");
       setIsAllocationsLoading(false);
       return;
     }
@@ -292,6 +341,11 @@ export default function VendorPaymentDetailPage() {
     void loadAllocations(payment);
   }, [payment?.id, payment?.vendor_id]);
 
+  useEffect(() => {
+    if (!ctx?.companyId || !payment?.id) return;
+    void loadApprovalStatus(ctx.companyId, payment.id);
+  }, [ctx?.companyId, payment?.id]);
+
   const openEdit = () => {
     if (!payment) return;
     setFormVendorId(payment.vendor_id);
@@ -336,15 +390,94 @@ export default function VendorPaymentDetailPage() {
     await loadPayment();
   };
 
+  const handleSubmitForApproval = async () => {
+    if (!payment || !ctx?.companyId) return;
+    setIsSubmittingApproval(true);
+    setToast(null);
+    setError(null);
+    setErrorDetails(null);
+
+    const { error: submitError } = await supabase.rpc("erp_fin_submit_for_approval", {
+      p_company_id: ctx.companyId,
+      p_entity_type: "ap_payment",
+      p_entity_id: payment.id,
+      p_note: payment.note || null,
+    });
+
+    if (submitError) {
+      reportError(submitError, "Failed to submit payment for approval.");
+      setIsSubmittingApproval(false);
+      return;
+    }
+
+    await loadApprovalStatus(ctx.companyId, payment.id);
+    setToast({ type: "success", message: "Payment submitted for approval." });
+    setIsSubmittingApproval(false);
+  };
+
   const handleApprove = async () => {
-    if (!payment) return;
+    if (!payment || !ctx?.companyId) return;
+    setIsApproving(true);
+    setToast(null);
+    setError(null);
+    setErrorDetails(null);
+
+    const { error: approveError } = await supabase.rpc("erp_fin_approve", {
+      p_company_id: ctx.companyId,
+      p_entity_type: "ap_payment",
+      p_entity_id: payment.id,
+      p_comment: null,
+    });
+
+    if (approveError) {
+      reportError(approveError, "Failed to approve payment.");
+      setIsApproving(false);
+      return;
+    }
+
+    setToast({ type: "success", message: "Vendor payment approved and posted." });
+    setIsApproving(false);
+    await loadPayment();
+  };
+
+  const handleReject = async () => {
+    if (!payment || !ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (required):")?.trim();
+    if (!comment) {
+      reportError("Rejection note is required.", "Rejection note is required.");
+      return;
+    }
+    setIsRejecting(true);
+    setToast(null);
+    setError(null);
+    setErrorDetails(null);
+
+    const { error: rejectError } = await supabase.rpc("erp_fin_reject", {
+      p_company_id: ctx.companyId,
+      p_entity_type: "ap_payment",
+      p_entity_id: payment.id,
+      p_comment: comment,
+    });
+
+    if (rejectError) {
+      reportError(rejectError, "Failed to reject payment.");
+      setIsRejecting(false);
+      return;
+    }
+
+    await loadApprovalStatus(ctx.companyId, payment.id);
+    setIsRejecting(false);
+  };
+
+  const handleDirectApprove = async () => {
+    if (!payment || !canBypass) return;
     setIsApproving(true);
     setToast(null);
 
-    const { error: approveError } = await approveVendorPayment(payment.id);
+    const { error: approveError } = await approveVendorPayment(payment.id, { useMakerChecker: false });
 
     if (approveError) {
-      setToast({ type: "error", message: approveError.message || "Failed to approve payment." });
+      reportError(approveError, "Failed to approve payment.");
       setIsApproving(false);
       return;
     }
@@ -498,7 +631,11 @@ export default function VendorPaymentDetailPage() {
       <ErpShell activeModule="finance">
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Vendor Payment" />
-          <div style={cardStyle}>{error || "Payment not found."}</div>
+          <ErrorBanner
+            message={error || "Payment not found."}
+            details={errorDetails}
+            onRetry={loadPayment}
+          />
         </div>
       </ErpShell>
     );
@@ -511,7 +648,7 @@ export default function VendorPaymentDetailPage() {
           title={`Payment ${payment.reference_no || payment.id}`}
           description={`Vendor payment recorded on ${payment.payment_date}.`}
           rightActions={
-            <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <button
                 type="button"
                 style={secondaryButtonStyle}
@@ -523,11 +660,41 @@ export default function VendorPaymentDetailPage() {
               <button
                 type="button"
                 style={primaryButtonStyle}
-                onClick={handleApprove}
-                disabled={!canWrite || payment.status !== "draft" || isApproving}
+                onClick={handleSubmitForApproval}
+                disabled={!canWrite || payment.status !== "draft" || isSubmittingApproval}
               >
-                {isApproving ? "Posting…" : "Approve & Post"}
+                {isSubmittingApproval ? "Submitting…" : "Submit for Approval"}
               </button>
+              {canWrite && approvalState === "submitted" ? (
+                <>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleApprove}
+                    disabled={isApproving}
+                  >
+                    {isApproving ? "Approving…" : "Approve"}
+                  </button>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleReject}
+                    disabled={isRejecting}
+                  >
+                    {isRejecting ? "Rejecting…" : "Reject"}
+                  </button>
+                </>
+              ) : null}
+              {canBypass ? (
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleDirectApprove}
+                  disabled={!canWrite || payment.status !== "draft" || isApproving}
+                >
+                  {isApproving ? "Posting…" : "Approve & Post"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 style={secondaryButtonStyle}
@@ -539,6 +706,10 @@ export default function VendorPaymentDetailPage() {
             </div>
           }
         />
+
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={loadPayment} />
+        ) : null}
 
         {toast && (
           <div style={{ ...cardStyle, borderColor: toast.type === "error" ? "#fecaca" : "#bbf7d0" }}>
@@ -569,6 +740,10 @@ export default function VendorPaymentDetailPage() {
               <span style={badgeStyle}>{payment.status}</span>
             </div>
             <div>
+              <p style={subtitleStyle}>Approval</p>
+              <span style={badgeStyle}>{approvalState || "draft"}</span>
+            </div>
+            <div>
               <p style={subtitleStyle}>Accounting</p>
               <strong>{payment.finance_journal_id ? "Posted" : "Pending"}</strong>
             </div>
@@ -581,6 +756,12 @@ export default function VendorPaymentDetailPage() {
             <p style={subtitleStyle}>Notes</p>
             <p>{payment.note || "—"}</p>
           </div>
+          {approvalComment ? (
+            <div>
+              <p style={subtitleStyle}>Approval note</p>
+              <p>{approvalComment}</p>
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             <div>
               <p style={subtitleStyle}>Created</p>

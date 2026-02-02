@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../../components/erp/ErrorBanner";
 import {
+  badgeStyle,
   cardStyle,
   inputStyle,
   pageContainerStyle,
@@ -13,6 +16,8 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../../lib/erp/errors";
+import { canBypassMakerChecker } from "../../../../../lib/erp/featureFlags";
 import {
   vendorAdvanceAllocate,
   vendorAdvanceAllocations,
@@ -142,7 +147,8 @@ export default function VendorBillDetailPage() {
 
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [header, setHeader] = useState<BillHeader>(emptyHeader);
   const [lines, setLines] = useState<BillLine[]>([newLine(1)]);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
@@ -158,6 +164,23 @@ export default function VendorBillDetailPage() {
   const [advanceDate, setAdvanceDate] = useState(new Date().toISOString().slice(0, 10));
   const [advanceReference, setAdvanceReference] = useState("");
   const [advanceAccountId, setAdvanceAccountId] = useState("");
+  const [approvalState, setApprovalState] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState<string | null>(null);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+
+  const reportError = (err: unknown, fallback: string) => {
+    const message = humanizeApiError(err) || fallback;
+      reportError(message, message || "Unable to load vendor bill.");
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((sum, line) => sum + (line.line_amount || 0), 0);
@@ -168,6 +191,13 @@ export default function VendorBillDetailPage() {
     const netPayable = total - tdsAmount;
     return { subtotal, gstTotal, total, tdsAmount, netPayable };
   }, [lines, header.tds_rate]);
+
+  const canApprove = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
+    [ctx?.roleKey]
+  );
+
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -181,7 +211,10 @@ export default function VendorBillDetailPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(
+          context.membershipError || "No active company membership found for this user.",
+          "No active company membership found for this user."
+        );
         setLoading(false);
         return;
       }
@@ -214,7 +247,7 @@ export default function VendorBillDetailPage() {
       .order("legal_name");
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendors.");
+      reportError(loadError, "Failed to load vendors.");
       return;
     }
 
@@ -230,7 +263,7 @@ export default function VendorBillDetailPage() {
       .limit(200);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load variants.");
+      reportError(loadError, "Failed to load variants.");
       return;
     }
 
@@ -244,7 +277,7 @@ export default function VendorBillDetailPage() {
     });
 
     if (loadError) {
-      setError(loadError.message || "Failed to load payment accounts.");
+      reportError(loadError, "Failed to load payment accounts.");
       return;
     }
 
@@ -264,7 +297,7 @@ export default function VendorBillDetailPage() {
     ]);
 
     if (poRes.error) {
-      setError(poRes.error.message || "Failed to load purchase orders.");
+      reportError(poRes.error, "Failed to load purchase orders.");
     } else {
       setPurchaseOrders((poRes.data || []) as PurchaseOrderOption[]);
     }
@@ -280,7 +313,7 @@ export default function VendorBillDetailPage() {
           .order("received_at", { ascending: false });
 
         if (grnError) {
-          setError(grnError.message || "Failed to load GRNs.");
+          reportError(grnError, "Failed to load GRNs.");
         } else {
           setGrns((data || []) as GrnOption[]);
         }
@@ -290,7 +323,7 @@ export default function VendorBillDetailPage() {
     }
 
     if (advancesRes.error) {
-      setError(advancesRes.error.message || "Failed to load advances.");
+      reportError(advancesRes.error, "Failed to load advances.");
     } else {
       setAdvances((advancesRes.data || []) as AdvanceRow[]);
     }
@@ -304,7 +337,7 @@ export default function VendorBillDetailPage() {
     const { data, error: loadError } = await vendorBillDetail(targetId);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendor bill.");
+      reportError(loadError, "Failed to load vendor bill.");
       return;
     }
 
@@ -352,13 +385,32 @@ export default function VendorBillDetailPage() {
     }));
 
     setLines(loadedLines.length ? loadedLines : [newLine(1)]);
+
+    if (ctx?.companyId) {
+      await loadApprovalStatus(ctx.companyId, targetId);
+    }
+  };
+
+  const loadApprovalStatus = async (companyId: string, billId: string) => {
+    const { data, error: approvalError } = await supabase.rpc("erp_fin_approvals_list", {
+      p_company_id: companyId,
+      p_state: null,
+      p_entity_type: "ap_bill",
+    });
+    if (approvalError) {
+      reportError(approvalError, "Failed to load approval status.");
+      return;
+    }
+    const match = (data as any[])?.find((row) => row.entity_id === billId);
+    setApprovalState(match?.state ?? null);
+    setApprovalComment(match?.review_comment ?? null);
   };
 
   const loadVendorTds = async (vendorId: string, forDate: string) => {
     if (!vendorId) return;
     const { data, error: loadError } = await vendorTdsProfileLatest(vendorId, forDate);
     if (loadError) {
-      setError(loadError.message || "Failed to load TDS profile.");
+      reportError(loadError, "Failed to load TDS profile.");
       return;
     }
 
@@ -374,7 +426,7 @@ export default function VendorBillDetailPage() {
   const loadAllocations = async (targetId: string) => {
     const { data, error: loadError } = await vendorAdvanceAllocations(targetId);
     if (loadError) {
-      setError(loadError.message || "Failed to load advance allocations.");
+      reportError(loadError, "Failed to load advance allocations.");
       return;
     }
 
@@ -408,7 +460,7 @@ export default function VendorBillDetailPage() {
     if (line.id) {
       const { error: voidError } = await vendorBillLineVoid(line.id, "Removed from bill");
       if (voidError) {
-        setError(voidError.message || "Failed to void line.");
+        reportError(voidError, "Failed to void line.");
         return;
       }
     }
@@ -417,15 +469,16 @@ export default function VendorBillDetailPage() {
 
   const handleSave = async () => {
     if (!header.vendor_id) {
-      setError("Vendor is required.");
+      reportError("Vendor is required.", "Vendor is required.");
       return;
     }
     if (!header.bill_no) {
-      setError("Bill number is required.");
+      reportError("Bill number is required.", "Bill number is required.");
       return;
     }
 
-    setError("");
+    setError(null);
+    setErrorDetails(null);
     const payload = {
       id: header.id,
       vendor_id: header.vendor_id,
@@ -443,7 +496,7 @@ export default function VendorBillDetailPage() {
 
     const { data, error: saveError } = await vendorBillUpsert(payload);
     if (saveError) {
-      setError(saveError.message || "Failed to save vendor bill.");
+      reportError(saveError, "Failed to save vendor bill.");
       return;
     }
 
@@ -470,7 +523,7 @@ export default function VendorBillDetailPage() {
 
       const { error: lineError } = await vendorBillLineUpsert(linePayload);
       if (lineError) {
-        setError(lineError.message || "Failed to save line item.");
+        reportError(lineError, "Failed to save line item.");
         return;
       }
     }
@@ -487,17 +540,86 @@ export default function VendorBillDetailPage() {
     if (!header.id) return;
     const { data, error: previewError } = await vendorBillPreview(header.id);
     if (previewError) {
-      setError(previewError.message || "Failed to preview posting.");
+      reportError(previewError, "Failed to preview posting.");
       return;
     }
     setPreview(data);
   };
 
+  const handleSubmitForApproval = async () => {
+    if (!ctx?.companyId || !header.id) return;
+    setIsSubmittingApproval(true);
+    setError(null);
+    setErrorDetails(null);
+    try {
+      const { error: submitError } = await supabase.rpc("erp_fin_submit_for_approval", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "ap_bill",
+        p_entity_id: header.id,
+        p_note: header.note || null,
+      });
+      if (submitError) throw submitError;
+      await loadApprovalStatus(ctx.companyId, header.id);
+    } catch (err) {
+      reportError(err, "Failed to submit vendor bill for approval.");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!ctx?.companyId || !header.id) return;
+    setIsApproving(true);
+    setError(null);
+    setErrorDetails(null);
+    try {
+      const { error: approveError } = await supabase.rpc("erp_fin_approve", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "ap_bill",
+        p_entity_id: header.id,
+        p_comment: null,
+      });
+      if (approveError) throw approveError;
+      await loadBillDetail(header.id);
+      await handlePreview();
+    } catch (err) {
+      reportError(err, "Failed to approve vendor bill.");
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!ctx?.companyId || !header.id) return;
+    const comment = window.prompt("Rejection reason (required):")?.trim();
+    if (!comment) {
+      reportError("Rejection note is required.", "Rejection note is required.");
+      return;
+    }
+    setIsRejecting(true);
+    setError(null);
+    setErrorDetails(null);
+    try {
+      const { error: rejectError } = await supabase.rpc("erp_fin_reject", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "ap_bill",
+        p_entity_id: header.id,
+        p_comment: comment,
+      });
+      if (rejectError) throw rejectError;
+      await loadApprovalStatus(ctx.companyId, header.id);
+    } catch (err) {
+      reportError(err, "Failed to reject vendor bill.");
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
   const handlePost = async () => {
-    if (!header.id) return;
-    const { error: postError } = await vendorBillPost(header.id);
+    if (!header.id || !canBypass) return;
+    const { error: postError } = await vendorBillPost(header.id, { useMakerChecker: false });
     if (postError) {
-      setError(postError.message || "Failed to post vendor bill.");
+      reportError(postError, "Failed to post vendor bill.");
       return;
     }
     await loadBillDetail(header.id);
@@ -510,7 +632,7 @@ export default function VendorBillDetailPage() {
     if (!amount) return;
     const { error: allocateError } = await vendorAdvanceAllocate(header.id, advanceId, amount);
     if (allocateError) {
-      setError(allocateError.message || "Failed to allocate advance.");
+      reportError(allocateError, "Failed to allocate advance.");
       return;
     }
     setAllocationAmounts((prev) => ({ ...prev, [advanceId]: "" }));
@@ -519,11 +641,14 @@ export default function VendorBillDetailPage() {
 
   const handleCreateAdvance = async () => {
     if (!header.vendor_id) {
-      setError("Select vendor before creating advance.");
+      reportError("Select vendor before creating advance.", "Select vendor before creating advance.");
       return;
     }
     if (!advanceAmount || !advanceAccountId) {
-      setError("Advance amount and payment account are required.");
+      reportError(
+        "Advance amount and payment account are required.",
+        "Advance amount and payment account are required."
+      );
       return;
     }
 
@@ -538,14 +663,16 @@ export default function VendorBillDetailPage() {
     });
 
     if (createError) {
-      setError(createError.message || "Failed to create advance.");
+      reportError(createError, "Failed to create advance.");
       return;
     }
 
     const advanceId = data as string;
-    const { error: postError } = await vendorAdvancePost(advanceId);
+    const { error: postError } = await vendorAdvancePost(advanceId, {
+      useMakerChecker: !canBypass,
+    });
     if (postError) {
-      setError(postError.message || "Failed to post advance.");
+      reportError(postError, "Failed to post advance.");
       return;
     }
 
@@ -565,6 +692,8 @@ export default function VendorBillDetailPage() {
     return map;
   }, [advances, allocations]);
 
+  const approvalLabel = approvalState || "draft";
+
   return (
     <ErpShell activeModule="finance">
       <div style={pageContainerStyle}>
@@ -573,13 +702,65 @@ export default function VendorBillDetailPage() {
           title="Vendor Bill"
           description="Link PO/GRN, capture GST, TDS, and post AP journals."
           rightActions={
-            <button type="button" style={primaryButtonStyle} onClick={handleSave}>
-              Save Bill
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" style={secondaryButtonStyle} onClick={handleSave}>
+                Save Bill
+              </button>
+              {header.id ? (
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleSubmitForApproval}
+                  disabled={isSubmittingApproval || approvalState === "submitted"}
+                >
+                  {isSubmittingApproval ? "Submitting…" : "Submit for Approval"}
+                </button>
+              ) : null}
+              {canApprove && approvalState === "submitted" ? (
+                <>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleApprove}
+                    disabled={isApproving}
+                  >
+                    {isApproving ? "Approving…" : "Approve"}
+                  </button>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    onClick={handleReject}
+                    disabled={isRejecting}
+                  >
+                    {isRejecting ? "Rejecting…" : "Reject"}
+                  </button>
+                </>
+              ) : null}
+              {canBypass ? (
+                <button type="button" style={primaryButtonStyle} onClick={handlePost} disabled={!header.id}>
+                  Post Bill
+                </button>
+              ) : null}
+            </div>
           }
         />
 
-        {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={() => header.id && loadBillDetail(header.id)} />
+        ) : null}
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={badgeStyle}>Approval: {approvalLabel}</span>
+          {approvalComment ? <span style={{ color: "#6b7280", fontSize: 13 }}>{approvalComment}</span> : null}
+          {header.finance_journal_id ? (
+            <Link
+              href={`/erp/finance/journals/${header.finance_journal_id}`}
+              style={{ ...secondaryButtonStyle, textDecoration: "none" }}
+            >
+              View Journal
+            </Link>
+          ) : null}
+        </div>
 
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Bill Header</h2>

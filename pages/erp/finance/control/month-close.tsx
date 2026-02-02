@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   pageContainerStyle,
   secondaryButtonStyle,
@@ -10,6 +11,8 @@ import {
 } from "../../../../components/erp/uiStyles";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
 
 type CompanyContext = {
   session: unknown;
@@ -41,6 +44,12 @@ type MonthCloseChecks = {
   ap_reviewed?: CheckResult;
   payroll_posted?: CheckResult;
   all_ok?: boolean;
+};
+
+type ApprovalRow = {
+  entity_id: string;
+  state: string;
+  review_comment: string | null;
 };
 
 const cardStyle = {
@@ -102,19 +111,37 @@ export default function MonthClosePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [fiscalYear, setFiscalYear] = useState(getFiscalYearLabel());
   const [periodMonth, setPeriodMonth] = useState(getFiscalPeriodMonth());
   const [checks, setChecks] = useState<MonthCloseChecks | null>(null);
   const [closeRecord, setCloseRecord] = useState<CloseRecord | null>(null);
   const [isLocked, setIsLocked] = useState<boolean | null>(null);
   const [loadingChecks, setLoadingChecks] = useState(false);
+  const [approvalState, setApprovalState] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState<string | null>(null);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
 
   const canWrite = useMemo(() => {
     if (!ctx?.roleKey) return false;
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
+
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -127,7 +154,10 @@ export default function MonthClosePage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(
+          context.membershipError || "No active company membership found for this user.",
+          "No active company membership found for this user."
+        );
       }
       setLoading(false);
     })();
@@ -147,7 +177,9 @@ export default function MonthClosePage() {
       .maybeSingle();
 
     if (fetchError) throw fetchError;
-    setCloseRecord((data as CloseRecord) || null);
+    const record = (data as CloseRecord) || null;
+    setCloseRecord(record);
+    return record;
   };
 
   const loadLockStatus = async (companyId: string, year: string, month: number) => {
@@ -160,10 +192,23 @@ export default function MonthClosePage() {
     setIsLocked(Boolean(data));
   };
 
+  const loadApprovalStatus = async (companyId: string, closeId: string) => {
+    const { data, error: approvalError } = await supabase.rpc("erp_fin_approvals_list", {
+      p_company_id: companyId,
+      p_state: null,
+      p_entity_type: "month_close",
+    });
+    if (approvalError) throw approvalError;
+    const match = (data as ApprovalRow[] | null)?.find((row) => row.entity_id === closeId);
+    setApprovalState(match?.state ?? null);
+    setApprovalComment(match?.review_comment ?? null);
+  };
+
   const refreshChecks = async () => {
     if (!ctx?.companyId) return;
     setLoadingChecks(true);
-    setError("");
+    setError(null);
+    setErrorDetails(null);
     setNotice("");
     try {
       if (canWrite) {
@@ -184,37 +229,83 @@ export default function MonthClosePage() {
       if (checkError) throw checkError;
       setChecks((data as MonthCloseChecks) || null);
 
-      await loadCloseRecord(ctx.companyId, fiscalYear, periodMonth);
+      const record = await loadCloseRecord(ctx.companyId, fiscalYear, periodMonth);
       await loadLockStatus(ctx.companyId, fiscalYear, periodMonth);
+      if (record?.id) {
+        await loadApprovalStatus(ctx.companyId, record.id);
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to refresh checks.";
-      setError(message || "Unable to refresh checks.");
+      reportError(message || "Unable to refresh checks.", "Unable to refresh checks.");
     } finally {
       setLoadingChecks(false);
     }
   };
 
-  const handleFinalize = async () => {
+  const handleSubmitForApproval = async () => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can finalize month close.");
+      reportError("Only finance admins can submit month close.", "Only finance admins can submit month close.");
       return;
     }
-    setError("");
-    setNotice("");
+    if (!closeRecord?.id) {
+      reportError("Month close record not found.", "Month close record not found.");
+      return;
+    }
+    setError(null);
+    setErrorDetails(null);
+    setNotice(null);
+    setIsSubmittingApproval(true);
     try {
-      const { error: finalizeError } = await supabase.rpc("erp_fin_month_close_finalize", {
-        p_company_id: ctx.companyId,
-        p_fiscal_year: fiscalYear,
-        p_period_month: periodMonth,
-        p_use_maker_checker: false,
-      });
-      if (finalizeError) throw finalizeError;
-      setNotice("Month close finalized and period locked.");
+      if (canBypass) {
+        const { error: finalizeError } = await supabase.rpc("erp_fin_month_close_finalize", {
+          p_company_id: ctx.companyId,
+          p_fiscal_year: fiscalYear,
+          p_period_month: periodMonth,
+          p_use_maker_checker: false,
+        });
+        if (finalizeError) throw finalizeError;
+        setNotice("Month close finalized and period locked.");
+      } else {
+        const { error: submitError } = await supabase.rpc("erp_fin_submit_for_approval", {
+          p_company_id: ctx.companyId,
+          p_entity_type: "month_close",
+          p_entity_id: closeRecord.id,
+          p_note: closeRecord.notes || null,
+        });
+        if (submitError) throw submitError;
+        setNotice("Month close submitted for approval.");
+      }
       await refreshChecks();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Unable to finalize month close.";
-      setError(message || "Unable to finalize month close.");
+      const message = e instanceof Error ? e.message : "Unable to submit month close.";
+      reportError(message || "Unable to submit month close.", "Unable to submit month close.");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!ctx?.companyId || !closeRecord?.id) return;
+    setIsApproving(true);
+    setError(null);
+    setErrorDetails(null);
+    setNotice(null);
+    try {
+      const { error: approveError } = await supabase.rpc("erp_fin_approve", {
+        p_company_id: ctx.companyId,
+        p_entity_type: "month_close",
+        p_entity_id: closeRecord.id,
+        p_comment: null,
+      });
+      if (approveError) throw approveError;
+      setNotice("Month close approved and finalized.");
+      await refreshChecks();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unable to approve month close.";
+      reportError(message || "Unable to approve month close.", "Unable to approve month close.");
+    } finally {
+      setIsApproving(false);
     }
   };
 
@@ -304,20 +395,36 @@ export default function MonthClosePage() {
           </button>
           <button
             type="button"
-            onClick={handleFinalize}
+            onClick={handleSubmitForApproval}
             style={{
               ...secondaryButtonStyle,
               backgroundColor: canWrite && allOk ? "#111827" : "#d1d5db",
               color: canWrite && allOk ? "#fff" : "#6b7280",
               borderColor: "transparent",
             }}
-            disabled={!canWrite || !allOk || status === "closed"}
+            disabled={!canWrite || !allOk || status === "closed" || isSubmittingApproval}
           >
-            Finalize Close
+            {isSubmittingApproval
+              ? "Submitting…"
+              : canBypass
+                ? "Finalize Close"
+                : "Submit for Approval"}
           </button>
+          {canWrite && approvalState === "submitted" ? (
+            <button
+              type="button"
+              onClick={handleApprove}
+              style={secondaryButtonStyle}
+              disabled={isApproving}
+            >
+              {isApproving ? "Approving…" : "Approve"}
+            </button>
+          ) : null}
         </div>
 
-        {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={refreshChecks} />
+        ) : null}
         {notice && <p style={{ color: "#16a34a", marginTop: 12 }}>{notice}</p>}
 
         <div style={{ marginTop: 16, ...cardStyle }}>
@@ -331,6 +438,10 @@ export default function MonthClosePage() {
           <div style={{ color: "#6b7280" }}>
             Period locked: {isLocked === null ? "—" : isLocked ? "Yes" : "No"}
           </div>
+          <div style={{ color: "#6b7280" }}>
+            Approval: {approvalState || "draft"}
+          </div>
+          {approvalComment ? <div style={{ color: "#6b7280" }}>{approvalComment}</div> : null}
         </div>
 
         <div style={{ marginTop: 16, ...cardStyle }}>

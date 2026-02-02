@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   badgeStyle,
   cardStyle,
@@ -15,9 +16,9 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
-  approveVendorPayment,
   createVendorPaymentDraft,
   searchVendorPayments,
   vendorPaymentListSchema,
@@ -60,6 +61,7 @@ export default function VendorPaymentsListPage() {
   const [loading, setLoading] = useState(true);
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof getCompanyContext>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
@@ -82,6 +84,17 @@ export default function VendorPaymentsListPage() {
   const [formReference, setFormReference] = useState("");
   const [formNote, setFormNote] = useState("");
 
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
+
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx?.roleKey]
@@ -99,7 +112,10 @@ export default function VendorPaymentsListPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
+        reportError(
+          context.membershipError || "No active company membership found.",
+          "No active company membership found."
+        );
         setLoading(false);
         return;
       }
@@ -127,7 +143,7 @@ export default function VendorPaymentsListPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load vendors.");
+        reportError(loadError, "Failed to load vendors.");
         return;
       }
 
@@ -153,7 +169,7 @@ export default function VendorPaymentsListPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load payment accounts.");
+        reportError(loadError, "Failed to load payment accounts.");
         return;
       }
 
@@ -171,6 +187,7 @@ export default function VendorPaymentsListPage() {
     if (!ctx?.companyId) return;
     setIsLoadingData(true);
     setError(null);
+    setErrorDetails(null);
     setToast(null);
 
     const { data, error: loadError } = await searchVendorPayments({
@@ -183,14 +200,14 @@ export default function VendorPaymentsListPage() {
     });
 
     if (loadError) {
-      setError(loadError.message || "Failed to load payments.");
+      reportError(loadError, "Failed to load payments.");
       setIsLoadingData(false);
       return;
     }
 
     const parsed = vendorPaymentListSchema.safeParse(data ?? []);
     if (!parsed.success) {
-      setError("Failed to parse vendor payments.");
+      reportError("Failed to parse vendor payments.", "Failed to parse vendor payments.");
       setIsLoadingData(false);
       return;
     }
@@ -265,18 +282,24 @@ export default function VendorPaymentsListPage() {
     }
   };
 
-  const handleApprove = async (paymentId: string) => {
+  const handleSubmitForApproval = async (paymentId: string) => {
+    if (!ctx?.companyId) return;
     setIsPosting(paymentId);
     setToast(null);
-    const { error: approveError } = await approveVendorPayment(paymentId);
+    const { error: submitError } = await supabase.rpc("erp_fin_submit_for_approval", {
+      p_company_id: ctx.companyId,
+      p_entity_type: "ap_payment",
+      p_entity_id: paymentId,
+      p_note: null,
+    });
 
-    if (approveError) {
-      setToast({ type: "error", message: approveError.message || "Failed to approve payment." });
+    if (submitError) {
+      setToast({ type: "error", message: submitError.message || "Failed to submit payment." });
       setIsPosting(null);
       return;
     }
 
-    setToast({ type: "success", message: "Vendor payment approved and posted." });
+    setToast({ type: "success", message: "Vendor payment submitted for approval." });
     setIsPosting(null);
     await loadPayments(0);
   };
@@ -294,7 +317,7 @@ export default function VendorPaymentsListPage() {
       <ErpShell activeModule="finance">
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Vendor Payments" />
-          <div style={cardStyle}>{error}</div>
+          <ErrorBanner message={error} details={errorDetails} onRetry={loadPayments} />
         </div>
       </ErpShell>
     );
@@ -466,10 +489,10 @@ export default function VendorPaymentsListPage() {
                             {canWrite && payment.status === "draft" ? (
                               <button
                                 style={primaryButtonStyle}
-                                onClick={() => handleApprove(payment.id)}
+                                onClick={() => handleSubmitForApproval(payment.id)}
                                 disabled={isPosting === payment.id}
                               >
-                                {isPosting === payment.id ? "Posting…" : "Approve"}
+                                {isPosting === payment.id ? "Submitting…" : "Submit for Approval"}
                               </button>
                             ) : null}
                           </div>

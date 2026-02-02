@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   badgeStyle,
   cardStyle,
@@ -17,6 +18,7 @@ import {
 import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../lib/erp/errors";
 
 const statusColors: Record<string, { backgroundColor: string; color: string }> = {
   Matched: { backgroundColor: "#dcfce7", color: "#166534" },
@@ -207,7 +209,8 @@ export default function FinanceSettlementsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState(null as any);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [rows, setRows] = useState<any[]>([]);
   const [dailyMatrix, setDailyMatrix] = useState<any[]>([]);
@@ -233,6 +236,17 @@ export default function FinanceSettlementsPage() {
   const [matchGroupMessage, setMatchGroupMessage] = useState("");
   const [mismatchFilterDate, setMismatchFilterDate] = useState<string | null>(null);
   const [lagDays, setLagDays] = useState(1);
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   const today = useMemo(() => new Date(), []);
   const defaultFrom = useMemo(() => {
@@ -265,7 +279,10 @@ export default function FinanceSettlementsPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(
+          context.membershipError || "No active company membership found for this user.",
+          "No active company membership found for this user."
+        );
       }
       setLoading(false);
     })();
@@ -277,6 +294,8 @@ export default function FinanceSettlementsPage() {
 
   const fetchSettlementData = async () => {
     setStatusMessage("");
+    setError(null);
+    setErrorDetails(null);
 
     const { data: summaryData, error: summaryError } = await supabase.rpc(
       "erp_settlement_status_summary",
@@ -287,7 +306,7 @@ export default function FinanceSettlementsPage() {
     );
 
     if (summaryError) {
-      setStatusMessage(summaryError.message);
+      reportError(summaryError, "Failed to load settlement summary.");
       return;
     }
 
@@ -299,7 +318,7 @@ export default function FinanceSettlementsPage() {
     });
 
     if (listError) {
-      setStatusMessage(listError.message);
+      reportError(listError, "Failed to load settlement events.");
       return;
     }
 
@@ -315,7 +334,7 @@ export default function FinanceSettlementsPage() {
     });
 
     if (matrixError) {
-      setStatusMessage(matrixError.message);
+      reportError(matrixError, "Failed to load settlement matrix.");
       return;
     }
 
@@ -330,6 +349,7 @@ export default function FinanceSettlementsPage() {
 
     if (groupsError) {
       setMatchGroupMessage(groupsError.message);
+      reportError(groupsError, "Failed to load match groups.");
       return;
     }
 
@@ -358,6 +378,7 @@ export default function FinanceSettlementsPage() {
 
     if (detailError) {
       setMatchGroupMessage(detailError.message);
+      reportError(detailError, "Failed to load match group detail.");
       return;
     }
 
@@ -381,12 +402,20 @@ export default function FinanceSettlementsPage() {
 
     if (unmatchedError) {
       setMatchGroupMessage(unmatchedError.message);
+      reportError(unmatchedError, "Failed to load unmatched events.");
     } else {
       setUnmatchedEvents(data || []);
       setSelectedEvents({});
     }
 
     setUnmatchedLoading(false);
+  };
+
+  const refreshDashboard = async () => {
+    await fetchSettlementData();
+    await fetchDailyMatrix();
+    await fetchMatchGroups();
+    await fetchUnmatchedEvents(matchTab, mismatchFilterDate);
   };
 
   const fetchGmailData = async () => {
@@ -818,7 +847,11 @@ export default function FinanceSettlementsPage() {
               </button>
             }
           />
-          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+          {error ? (
+            <ErrorBanner message={error} details={errorDetails} />
+          ) : (
+            <p style={{ color: "#b91c1c" }}>Unable to load company context.</p>
+          )}
         </div>
       </ErpShell>
     );
@@ -842,6 +875,10 @@ export default function FinanceSettlementsPage() {
             </>
           }
         />
+
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={refreshDashboard} />
+        ) : null}
 
         <section style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>

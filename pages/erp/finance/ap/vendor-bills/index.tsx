@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../../components/erp/ErrorBanner";
 import {
   cardStyle,
   inputStyle,
@@ -14,6 +15,7 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { humanizeApiError } from "../../../../../lib/erp/errors";
 import { vendorBillList } from "../../../../../lib/erp/vendorBills";
 import { supabase } from "../../../../../lib/supabaseClient";
 
@@ -49,7 +51,8 @@ export default function VendorBillsListPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [bills, setBills] = useState<VendorBillRow[]>([]);
 
@@ -58,6 +61,17 @@ export default function VendorBillsListPage() {
   const [selectedVendor, setSelectedVendor] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [query, setQuery] = useState("");
+
+  const reportError = (err: unknown, fallback: string) => {
+    setError(humanizeApiError(err) || fallback);
+    if (err instanceof Error) {
+      setErrorDetails(err.message);
+    } else if (typeof err === "string") {
+      setErrorDetails(err);
+    } else {
+      setErrorDetails(null);
+    }
+  };
 
   const vendorMap = useMemo(() => new Map(vendors.map((v) => [v.id, v.legal_name])), [vendors]);
 
@@ -73,7 +87,10 @@ export default function VendorBillsListPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(
+          context.membershipError || "No active company membership found for this user.",
+          "No active company membership found for this user."
+        );
         setLoading(false);
         return;
       }
@@ -95,7 +112,7 @@ export default function VendorBillsListPage() {
       .order("legal_name");
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendors.");
+      reportError(loadError, "Failed to load vendors.");
       return;
     }
 
@@ -103,7 +120,8 @@ export default function VendorBillsListPage() {
   };
 
   const loadBills = async () => {
-    setError("");
+    setError(null);
+    setErrorDetails(null);
     const { data, error: loadError } = await vendorBillList({
       from: fromDate,
       to: toDate,
@@ -115,7 +133,7 @@ export default function VendorBillsListPage() {
     });
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendor bills.");
+      reportError(loadError, "Failed to load vendor bills.");
       return;
     }
 
@@ -140,7 +158,9 @@ export default function VendorBillsListPage() {
           }
         />
 
-        {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {error ? (
+          <ErrorBanner message={error} details={errorDetails} onRetry={loadBills} />
+        ) : null}
 
         <section style={cardStyle}>
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
