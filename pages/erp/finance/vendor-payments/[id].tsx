@@ -678,7 +678,7 @@ export default function VendorPaymentDetailPage() {
     );
   }
 
-  if (error || !payment) {
+  if (!payment) {
     return (
       <ErpShell activeModule="finance">
         <div style={pageContainerStyle}>
