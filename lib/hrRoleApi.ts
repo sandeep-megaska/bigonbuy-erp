@@ -10,8 +10,9 @@ type SupabaseEnv = {
 type AuthorizeParams = {
   supabaseUrl: string;
   anonKey: string;
-  accessToken: string | null;
+  accessToken: string;
 };
+
 
 export type AuthorizeSuccess = {
   ok: true;
@@ -76,16 +77,17 @@ export async function authorizeHrAccess({
   supabaseUrl,
   anonKey,
   accessToken,
-}: AuthorizeParams): Promise<AuthorizeSuccess | AuthorizeFailure> {
+}: AuthorizeParams): Promise<AuthorizeResult> {
+
   if (!accessToken) {
-    return { status: 401, error: "Missing Authorization Bearer token" };
+    return { ok: false, status: 401, error: "Missing Authorization Bearer token" };
   }
 
   const anonClient = createAnonClient(supabaseUrl, anonKey, accessToken);
 
   const { data: userData, error: userErr } = await anonClient.auth.getUser();
   if (userErr || !userData?.user) {
-    return { status: 401, error: "Invalid session" };
+    return {  ok: false, status: 401, error: "Invalid session" };
   }
 
   const { data: membership, error: memberErr } = await anonClient
