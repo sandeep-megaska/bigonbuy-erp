@@ -53,15 +53,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
-  const authz = await authorizeHrAccess({
-    supabaseUrl: supabaseUrlValue,
-    anonKey: anonKeyValue,
-    accessToken,
-  });
+ const authz = await authorizeHrAccess({
+  supabaseUrl: supabaseUrlValue,
+  anonKey: anonKeyValue,
+  accessToken,
+});
 
-  if (authz.status !== 200) {
-  const msg = "error" in authz ? authz.error : "Not authorized";
-  return res.status(authz.status).json({ ok: false, error: msg });
+if (!authz.ok) {
+  return res.status(authz.status).json({ ok: false, error: authz.error });
 }
 
 
