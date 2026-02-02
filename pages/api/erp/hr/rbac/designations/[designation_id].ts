@@ -39,6 +39,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const accessToken = getAccessToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Authorization token is required" });
+  }
+
   const authz = await authorizeHrAccess({ supabaseUrl, anonKey, accessToken });
   if (authz.status !== 200) {
     return res.status(authz.status).json({ ok: false, error: authz.error });
