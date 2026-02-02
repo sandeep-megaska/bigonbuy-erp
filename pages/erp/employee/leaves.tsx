@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import { getEmployeeContext, requireAuthRedirectHome } from "../../../lib/erpContext";
-import { getCurrentErpAccess, type ErpAccessState } from "../../../lib/erp/nav";
-import { supabase } from "../../../lib/supabaseClient";
+import { useRouter } from "next/router";
+import Link from "next/link";
+import { fetchEmployeeSession, type EmployeeSessionContext } from "../../../lib/erp/employeeSession";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
@@ -64,12 +63,7 @@ type FormState = {
 
 export default function EmployeeLeavesPage() {
   const router = useRouter();
-  const [ctx, setCtx] = useState<any>(null);
-  const [access, setAccess] = useState<ErpAccessState>({
-    isAuthenticated: false,
-    isManager: false,
-    roleKey: undefined,
-  });
+  const [ctx, setCtx] = useState<EmployeeSessionContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -109,27 +103,15 @@ export default function EmployeeLeavesPage() {
     let active = true;
 
     (async () => {
-      const session = await requireAuthRedirectHome(router);
-      if (!session || !active) return;
-
-      const [accessState, context] = await Promise.all([
-        getCurrentErpAccess(session),
-        getEmployeeContext(session),
-      ]);
+      const context = await fetchEmployeeSession();
       if (!active) return;
-
-      setAccess({
-        ...accessState,
-        roleKey: accessState.roleKey ?? undefined,
-      });
-      setCtx(context);
-
-      if (!context.companyId || !context.employeeId) {
-        setLoading(false);
+      if (!context) {
+        router.replace("/erp/employee/login");
         return;
       }
 
-      await Promise.all([loadLeaveTypes(), loadRequests(context.employeeId)]);
+      setCtx(context);
+      await Promise.all([loadLeaveTypes(), loadRequests()]);
       if (active) setLoading(false);
     })();
 
@@ -157,26 +139,30 @@ export default function EmployeeLeavesPage() {
 
     (async () => {
       setPreviewLoading(true);
-      const { data, error } = await supabase.rpc("erp_leave_request_preview", {
-        p_employee_id: ctx.employeeId,
-        p_leave_type_id: form.leave_type_id,
-        p_date_from: form.date_from,
-        p_date_to: form.date_to,
-        p_start_session: form.start_session,
-        p_end_session: form.end_session,
+      const res = await fetch("/api/erp/employee/leaves/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leave_type_id: form.leave_type_id,
+          date_from: form.date_from,
+          date_to: form.date_to,
+          start_session: form.start_session,
+          end_session: form.end_session,
+        }),
       });
+      const payload = await res.json();
 
       if (!active) return;
 
-      if (error) {
-        setPreviewError(error.message);
+      if (!res.ok || !payload.ok) {
+        setPreviewError(payload.error || "Unable to preview leave.");
         setPreviewRows([]);
         setPreviewLoading(false);
         return;
       }
 
       setPreviewError(null);
-      setPreviewRows((data as LeavePreviewRow[]) || []);
+      setPreviewRows((payload.preview as LeavePreviewRow[]) || []);
       setPreviewLoading(false);
     })();
 
@@ -193,71 +179,30 @@ export default function EmployeeLeavesPage() {
   ]);
 
   async function loadLeaveTypes() {
-    const { data, error } = await supabase
-      .from("erp_hr_leave_types")
-      .select("id, key, name, is_paid, is_active, allows_half_day, display_order")
-      .eq("is_active", true)
-      .order("display_order", { ascending: true })
-      .order("name", { ascending: true });
-
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    const res = await fetch("/api/erp/employee/leaves/types");
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to load leave types." });
       return;
     }
 
-    const rows = (data as LeaveType[]) || [];
+    const rows = (data.types as LeaveType[]) || [];
     setLeaveTypes(rows);
     if (!form.leave_type_id && rows.length) {
       setForm((prev) => ({ ...prev, leave_type_id: rows[0].id }));
     }
   }
 
-  async function loadRequests(employeeId: string) {
-    const { data, error } = await supabase
-      .from("erp_hr_leave_requests")
-      .select(
-        "id, leave_type_id, date_from, date_to, reason, status, decision_note, decided_at, start_session, end_session, leave_type:leave_type_id(name)"
-      )
-      .eq("employee_id", employeeId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      setToast({ type: "error", message: error.message });
+  async function loadRequests() {
+    const res = await fetch("/api/erp/employee/leaves/requests");
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to load leave requests." });
       return;
     }
 
-    const rows = (data as LeaveRequest[]) || [];
-    setRequests(rows);
-    await loadRequestDays(rows);
-  }
-
-  async function loadRequestDays(rows: LeaveRequest[]) {
-    if (!rows.length) {
-      setRequestDaysMap({});
-      return;
-    }
-
-    const requestIds = rows.map((row) => row.id);
-    const { data, error } = await supabase
-      .from("erp_hr_leave_request_days")
-      .select("leave_request_id, day_fraction")
-      .in("leave_request_id", requestIds);
-
-    if (error) {
-      setToast({ type: "error", message: error.message });
-      return;
-    }
-
-    const mapped = (data as { leave_request_id: string; day_fraction: number }[] | null)?.reduce(
-      (acc, row) => {
-        const current = acc[row.leave_request_id] ?? 0;
-        acc[row.leave_request_id] = current + Number(row.day_fraction || 0);
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-
-    setRequestDaysMap(mapped || {});
+    setRequests((data.requests as LeaveRequest[]) || []);
+    setRequestDaysMap(data.requestDays || {});
   }
 
   async function saveDraft() {
@@ -267,38 +212,29 @@ export default function EmployeeLeavesPage() {
       return null;
     }
 
-    const payload = {
-      employee_id: ctx.employeeId,
-      leave_type_id: form.leave_type_id,
-      date_from: form.date_from,
-      date_to: form.date_to,
-      reason: form.reason.trim() || null,
-      status: "draft",
-      start_session: form.start_session,
-      end_session: form.end_session,
-      updated_by: ctx?.userId ?? null,
-    };
-
     setSaving(true);
-
-    const { data, error } = await supabase.rpc("erp_hr_leave_request_draft_upsert", {
-      p_id: draftId || null,
-      p_employee_id: payload.employee_id,
-      p_leave_type_id: payload.leave_type_id,
-      p_date_from: payload.date_from,
-      p_date_to: payload.date_to,
-      p_reason: payload.reason,
-      p_start_session: payload.start_session,
-      p_end_session: payload.end_session,
+    const res = await fetch("/api/erp/employee/leaves/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        draft_id: draftId || null,
+        leave_type_id: form.leave_type_id,
+        date_from: form.date_from,
+        date_to: form.date_to,
+        reason: form.reason.trim() || null,
+        start_session: form.start_session,
+        end_session: form.end_session,
+      }),
     });
+    const data = await res.json();
 
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to save draft." });
       setSaving(false);
       return null;
     }
 
-    const requestId = typeof data === "object" && data ? (data as { id?: string }).id : draftId;
+    const requestId = data.id || draftId;
     if (!requestId) {
       setToast({ type: "error", message: "Unable to save draft." });
       setSaving(false);
@@ -308,7 +244,7 @@ export default function EmployeeLeavesPage() {
     setToast({ type: "success", message: draftId ? "Draft updated." : "Draft saved." });
     setSaving(false);
     setDraftId(requestId);
-    await loadRequests(ctx.employeeId);
+    await loadRequests();
     return requestId;
   }
 
@@ -322,12 +258,15 @@ export default function EmployeeLeavesPage() {
     }
 
     setSaving(true);
-    const { error } = await supabase.rpc("erp_leave_request_submit", {
-      p_request_id: requestId,
+    const res = await fetch("/api/erp/employee/leaves/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId }),
     });
+    const data = await res.json();
 
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to submit leave request." });
       setSaving(false);
       return;
     }
@@ -343,47 +282,52 @@ export default function EmployeeLeavesPage() {
       start_session: "full",
       end_session: "full",
     }));
-    await loadRequests(ctx.employeeId);
+    await loadRequests();
   }
 
   async function submitRequest(requestId: string) {
     setSaving(true);
-    const { error } = await supabase.rpc("erp_leave_request_submit", {
-      p_request_id: requestId,
+    const res = await fetch("/api/erp/employee/leaves/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId }),
     });
+    const data = await res.json();
 
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to submit leave request." });
       setSaving(false);
       return;
     }
 
     setToast({ type: "success", message: "Leave request submitted." });
     setSaving(false);
-    await loadRequests(ctx.employeeId);
+    await loadRequests();
   }
 
   async function cancelRequest(requestId: string) {
     const confirmed = window.confirm("Cancel this leave request?");
     if (!confirmed) return;
 
-    const { error } = await supabase.rpc("erp_leave_request_cancel", {
-      p_request_id: requestId,
-      p_note: null,
+    const res = await fetch("/api/erp/employee/leaves/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId }),
     });
+    const data = await res.json();
 
-    if (error) {
-      setToast({ type: "error", message: error.message });
+    if (!res.ok || !data.ok) {
+      setToast({ type: "error", message: data.error || "Unable to cancel leave request." });
       return;
     }
 
     setToast({ type: "success", message: "Leave request cancelled." });
-    await loadRequests(ctx.employeeId);
+    await loadRequests();
   }
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.replace("/");
+    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    router.replace("/erp/employee/login");
   };
 
   if (loading) {
@@ -394,9 +338,7 @@ export default function EmployeeLeavesPage() {
     return (
       <div style={containerStyle}>
         <h1 style={{ marginTop: 0 }}>My Leave</h1>
-        <p style={{ color: "#b91c1c" }}>
-          {ctx?.membershipError || "No employee profile is linked to this account."}
-        </p>
+        <p style={{ color: "#b91c1c" }}>No employee session found.</p>
         <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
       </div>
     );
@@ -412,7 +354,9 @@ export default function EmployeeLeavesPage() {
           <p style={subtitleStyle}>Submit and track leave requests.</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-          <a href="/erp" style={linkStyle}>← Back to ERP Home</a>
+          <Link href="/erp/employee" style={linkStyle}>
+            ← Back to Portal Home
+          </Link>
           <button onClick={handleSignOut} style={buttonStyle}>Sign Out</button>
         </div>
       </header>

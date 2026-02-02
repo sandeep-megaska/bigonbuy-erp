@@ -64,6 +64,9 @@ export default function EmployeeLogins() {
   const [employees, setEmployees] = useState([]);
   const [mappings, setMappings] = useState([]); // { employee_id, user_id, is_active }
   const [emailDrafts, setEmailDrafts] = useState({}); // employeeId -> email text
+  const [portalLogins, setPortalLogins] = useState([]); // { employee_id, last_login_at, is_active }
+  const [portalPasswordDrafts, setPortalPasswordDrafts] = useState({}); // employeeId -> password
+  const [portalBusyEmployeeId, setPortalBusyEmployeeId] = useState(null);
 
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -154,6 +157,18 @@ export default function EmployeeLogins() {
     }
 
     setMappings(maps || []);
+
+    try {
+      const portalRes = await fetch("/api/erp/hr/employee-auth/list", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const portalData = await portalRes.json();
+      if (portalRes.ok && portalData.ok) {
+        setPortalLogins(portalData.users || []);
+      }
+    } catch (_e) {
+      // ignore portal login status fetch errors
+    }
     setLoading(false);
   }
 
@@ -171,6 +186,10 @@ export default function EmployeeLogins() {
 
   function mappingForEmployee(employeeId) {
     return mappings.find((m) => m.employee_id === employeeId && m.is_active);
+  }
+
+  function portalLoginForEmployee(employeeId) {
+    return portalLogins.find((login) => login.employee_id === employeeId);
   }
 
   async function linkLogin(emp) {
@@ -246,6 +265,63 @@ export default function EmployeeLogins() {
     }
   }
 
+  async function enablePortalLogin(emp) {
+    setError("");
+    setSuccessMsg("");
+    setWarningMsg("");
+
+    if (!canManage) {
+      setError("You do not have permission to enable employee portal access.");
+      return;
+    }
+
+    const password = (portalPasswordDrafts[emp.id] || "").trim();
+    if (!password) {
+      setError("Please enter a temporary password for this employee.");
+      return;
+    }
+
+    try {
+      if (portalBusyEmployeeId === emp.id) return;
+      setPortalBusyEmployeeId(emp.id);
+
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !sessionData?.session) {
+        throw new Error("Session expired. Please sign in again.");
+      }
+
+      const res = await fetch("/api/erp/hr/employee-auth/upsert", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ employee_id: emp.id, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to enable portal login");
+      }
+
+      setSuccessMsg("Employee portal login enabled.");
+      setPortalPasswordDrafts((prev) => ({ ...prev, [emp.id]: "" }));
+      setPortalLogins((prev) => {
+        const existing = prev.find((row) => row.employee_id === emp.id);
+        if (existing) {
+          return prev.map((row) =>
+            row.employee_id === emp.id ? { ...row, is_active: true } : row
+          );
+        }
+        return [...prev, { employee_id: emp.id, last_login_at: null, is_active: true }];
+      });
+    } catch (e) {
+      setError(e?.message || "Something went wrong");
+    } finally {
+      setPortalBusyEmployeeId(null);
+    }
+  }
+
   return (
     <div style={{ padding: 28, fontFamily: "system-ui" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
@@ -253,7 +329,7 @@ export default function EmployeeLogins() {
           <div style={{ fontSize: 12, letterSpacing: 1, opacity: 0.7 }}>HR</div>
           <h1 style={{ margin: "6px 0 6px", fontSize: 44, lineHeight: 1.05 }}>Employee Logins</h1>
           <div style={{ opacity: 0.75, marginBottom: 6 }}>
-            Link employees to Supabase logins and generate password setup links.
+            Link employees to Supabase logins and enable employee-code portal access.
           </div>
           <div style={{ opacity: 0.75 }}>
             Signed in as <b>{sessionEmail || "—"}</b>
@@ -353,7 +429,8 @@ export default function EmployeeLogins() {
             <div>
               <div style={{ fontSize: 18, fontWeight: 900 }}>Employees</div>
               <div style={{ opacity: 0.75, marginTop: 4 }}>
-                For each employee, confirm the email and click <b>Link Login</b>.
+                For each employee, confirm the email and click <b>Link Login</b>. Set a temporary portal
+                password to enable employee-code access.
               </div>
             </div>
             <div style={{ alignSelf: "center" }}>
@@ -369,11 +446,15 @@ export default function EmployeeLogins() {
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Status</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Login Email</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>Action</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #eee" }}>
+                    Portal Access
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {employees.map((emp) => {
                   const map = mappingForEmployee(emp.id);
+                  const portal = portalLoginForEmployee(emp.id);
                   const mapped = !!map;
                   return (
                     <tr key={emp.id}>
@@ -439,12 +520,61 @@ export default function EmployeeLogins() {
                           {busyEmployeeId === emp.id ? "Linking…" : "Link Login"}
                         </button>
                       </td>
+                      <td style={{ padding: "12px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                        <div style={{ marginBottom: 8 }}>
+                          {portal?.is_active ? (
+                            <Pill tone="green">Enabled</Pill>
+                          ) : (
+                            <Pill>Not enabled</Pill>
+                          )}
+                        </div>
+                        <input
+                          type="password"
+                          value={portalPasswordDrafts[emp.id] ?? ""}
+                          onChange={(e) =>
+                            setPortalPasswordDrafts((prev) => ({
+                              ...prev,
+                              [emp.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Temporary password"
+                          style={{
+                            width: "100%",
+                            minWidth: 200,
+                            padding: 10,
+                            borderRadius: 10,
+                            border: "1px solid #d1d5db",
+                          }}
+                          disabled={!canManage}
+                        />
+                        {portal?.last_login_at ? (
+                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+                            Last login: {new Date(portal.last_login_at).toLocaleString()}
+                          </div>
+                        ) : null}
+                        <button
+                          onClick={() => enablePortalLogin(emp)}
+                          disabled={!canManage || portalBusyEmployeeId === emp.id}
+                          style={{
+                            marginTop: 10,
+                            padding: "10px 14px",
+                            borderRadius: 10,
+                            border: "1px solid #d1d5db",
+                            background: canManage ? "#111827" : "#e5e7eb",
+                            color: canManage ? "#fff" : "#6b7280",
+                            cursor: canManage ? "pointer" : "not-allowed",
+                            fontWeight: 800,
+                          }}
+                        >
+                          {portalBusyEmployeeId === emp.id ? "Saving…" : "Enable Portal Login"}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {employees.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ padding: 14, opacity: 0.75 }}>
+                    <td colSpan={5} style={{ padding: 14, opacity: 0.75 }}>
                       No employees found.
                     </td>
                   </tr>
@@ -456,8 +586,7 @@ export default function EmployeeLogins() {
       )}
 
       <div style={{ marginTop: 14, opacity: 0.7, fontSize: 12 }}>
-        Tip: After linking, send the password setup link to the employee. They can then log in and use{" "}
-        <code>/me</code>.
+        Tip: Send the portal temporary password to employees and ask them to reset it on first sign-in.
       </div>
     </div>
   );
