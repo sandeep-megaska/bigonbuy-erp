@@ -54,6 +54,10 @@ export default function EmployeeExitPage() {
         router.replace("/erp/employee/login");
         return;
       }
+      if (session.mustResetPassword) {
+        router.replace("/erp/employee/change-password");
+        return;
+      }
       setCtx(session);
       await Promise.all([loadMeta(), loadExits()]);
       setLoading(false);

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { requireEmployeeSession } from "../../../../lib/erp/employeeAuth";
+import { requireEmployeeSession } from "../../../../../lib/erp/employeeAuth";
 
 type MeResponse =
   | {

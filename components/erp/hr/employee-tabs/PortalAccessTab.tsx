@@ -15,14 +15,14 @@ type Props = {
   canManage: boolean;
 };
 
-type ActionState = "enable" | "reset" | "disable" | null;
+type ActionState = "reset" | null;
 
 type ApiResponse =
   | { ok: true; portal: PortalAccessStatus }
   | { ok: false; error: string };
 
 type ActionResponse =
-  | { ok: true; portal: PortalAccessStatus }
+  | { ok: true; portal: PortalAccessStatus; temp_password: string }
   | { ok: false; error: string };
 
 export default function PortalAccessTab({ employeeId, accessToken, canManage }: Props) {
@@ -31,6 +31,7 @@ export default function PortalAccessTab({ employeeId, accessToken, canManage }: 
   const [saving, setSaving] = useState<ActionState>(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
 
   const hasAccess = useMemo(() => Boolean(employeeId && accessToken), [employeeId, accessToken]);
 
@@ -61,48 +62,29 @@ export default function PortalAccessTab({ employeeId, accessToken, canManage }: 
     }
   }
 
-  async function handleAction(action: "enable" | "reset" | "disable") {
+  async function handleResetPassword() {
     if (!canManage) return;
-    setSaving(action);
+    setSaving("reset");
     setError("");
     setToast(null);
 
-    let tempPassword: string | null = null;
-    if (action === "enable" || action === "reset") {
-      tempPassword = window.prompt("Set a temporary password for the employee portal:");
-      if (!tempPassword || !tempPassword.trim()) {
-        setSaving(null);
-        return;
-      }
-    }
-
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/portal-access`, {
+      const res = await fetch(`/api/erp/hr/employees/${employeeId}/portal-reset-password`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          action,
-          temp_password: tempPassword?.trim() || undefined,
-        }),
       });
       const data = (await res.json()) as ActionResponse;
       if (!res.ok || !data.ok) {
-        setError(!data.ok ? data.error : "Failed to update portal access.");
+        setError(!data.ok ? data.error : "Failed to reset portal password.");
         return;
       }
       setPortal(data.portal);
-      setToast({
-        type: "success",
-        message:
-          action === "disable"
-            ? "Portal access disabled."
-            : "Portal access updated. Temporary password set.",
-      });
+      setTempPassword(data.temp_password);
+      setToast({ type: "success", message: "Temporary password generated." });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to update portal access.";
+      const message = err instanceof Error ? err.message : "Failed to reset portal password.";
       setError(message);
     } finally {
       setSaving(null);
@@ -143,26 +125,49 @@ export default function PortalAccessTab({ employeeId, accessToken, canManage }: 
         <div style={actionRowStyle}>
           <button
             type="button"
-            onClick={() => handleAction(isActive ? "reset" : "enable")}
+            onClick={handleResetPassword}
             style={primaryButtonStyle}
             disabled={!canManage || saving !== null}
           >
-            {saving === "enable" || saving === "reset"
-              ? "Saving…"
-              : isActive
-                ? "Reset Password"
-                : "Enable Portal Access"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleAction("disable")}
-            style={dangerButtonStyle}
-            disabled={!canManage || saving !== null || !isActive}
-          >
-            {saving === "disable" ? "Disabling…" : "Disable Access"}
+            {saving === "reset" ? "Saving…" : isActive ? "Reset Password" : "Enable Portal Access"}
           </button>
         </div>
       </div>
+      {tempPassword ? (
+        <div style={modalOverlayStyle}>
+          <div style={modalCardStyle}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Temporary password</div>
+            <p style={{ marginTop: 0, color: "#4b5563" }}>
+              This password will not be shown again. Ask the employee to change it after login.
+            </p>
+            <div style={passwordBoxStyle}>{tempPassword}</div>
+            <div style={modalActionRowStyle}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(tempPassword);
+                    setToast({ type: "success", message: "Password copied to clipboard." });
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Unable to copy password.";
+                    setToast({ type: "error", message });
+                  }
+                }}
+              >
+                Copy password
+              </button>
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                onClick={() => setTempPassword(null)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -233,16 +238,6 @@ const primaryButtonStyle: CSSProperties = {
   fontWeight: 600,
 };
 
-const dangerButtonStyle: CSSProperties = {
-  background: "#fee2e2",
-  color: "#b91c1c",
-  border: "1px solid #fecaca",
-  borderRadius: 8,
-  padding: "10px 16px",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
 const successBoxStyle: CSSProperties = {
   background: "#ecfdf3",
   color: "#166534",
@@ -259,4 +254,53 @@ const errorBoxStyle: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 8,
   marginBottom: 12,
+};
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(15, 23, 42, 0.5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 50,
+};
+
+const modalCardStyle: CSSProperties = {
+  background: "#fff",
+  borderRadius: 16,
+  padding: 20,
+  width: "100%",
+  maxWidth: 420,
+  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.2)",
+};
+
+const passwordBoxStyle: CSSProperties = {
+  fontSize: 18,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  padding: "12px 14px",
+  borderRadius: 10,
+  background: "#f8fafc",
+  border: "1px solid #e5e7eb",
+  marginBottom: 16,
+  textAlign: "center",
+};
+
+const modalActionRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  background: "#fff",
+  color: "#111827",
+  border: "1px solid #d1d5db",
+  borderRadius: 8,
+  padding: "10px 16px",
+  cursor: "pointer",
+  fontWeight: 600,
 };
