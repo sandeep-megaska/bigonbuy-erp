@@ -48,6 +48,7 @@ export const vendorBillPreview = (billId: string) =>
 export const vendorBillPost = (billId: string) =>
   supabase.rpc("erp_ap_vendor_bill_post", {
     p_bill_id: billId,
+    p_use_maker_checker: false,
   });
 
 export const vendorAdvanceList = (vendorId?: string | null, status?: string | null) =>
@@ -62,6 +63,7 @@ export const vendorAdvanceCreate = (payload: Record<string, unknown>) =>
 export const vendorAdvancePost = (advanceId: string) =>
   supabase.rpc("erp_ap_vendor_advance_approve_and_post", {
     p_advance_id: advanceId,
+    p_use_maker_checker: false,
   });
 
 export const vendorAdvanceAllocations = (billId: string) =>

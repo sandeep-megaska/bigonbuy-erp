@@ -186,6 +186,7 @@ export default function PeriodLockPage() {
         p_fiscal_year: fiscalYear,
         p_period_month: month,
         p_reason: reason,
+        p_use_maker_checker: false,
       });
       if (unlockError) throw unlockError;
       setNotice(`Unlocked FY ${fiscalYear} month ${month}.`);
