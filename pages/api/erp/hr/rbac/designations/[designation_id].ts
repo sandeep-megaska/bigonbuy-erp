@@ -38,15 +38,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: `Missing Supabase env vars: ${missing.join(", ")}` });
   }
 
-  const accessToken = getAccessToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Authorization token is required" });
-  }
+  const accessTokenRaw = getAccessToken(req);
+const accessToken = typeof accessTokenRaw === "string" ? accessTokenRaw.trim() : "";
 
-  const authz = await authorizeHrAccess({ supabaseUrl, anonKey, accessToken });
-  if (authz.status !== 200) {
-    return res.status(authz.status).json({ ok: false, error: authz.error });
-  }
+if (!accessToken) {
+  return res.status(401).json({ ok: false, error: "Authorization token is required" });
+}
+
+const authz = await authorizeHrAccess({ supabaseUrl, anonKey, accessToken });
+if (authz.status !== 200) {
+  return res.status(authz.status).json({ ok: false, error: authz.error });
+}
+
 
   const adminClient = createServiceClient(supabaseUrl, serviceKey);
 
