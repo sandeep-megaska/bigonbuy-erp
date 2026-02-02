@@ -14,7 +14,7 @@
 ## Cookie & Session Design
 
 - Cookie: `erp_emp_session` (HTTP-only, SameSite=Lax).
-- Value format: `company_id:session_id:token`.
+- Value format: `company_id:session_token`.
 - The raw token is stored only in the cookie; the database stores `sha256(token)`.
 - Session expiry defaults to 30 days and is enforced in `erp_employee_session_get`.
 - Revocation occurs via `erp_employee_session_revoke`.
@@ -25,9 +25,9 @@ Employee auth + sessions:
 
 - `erp_employee_auth_user_get(p_employee_code text)`
 - `erp_employee_auth_user_upsert(p_company_id uuid, p_employee_id uuid, p_password_hash text, p_actor_user_id uuid)`
-- `erp_employee_session_create(p_company_id uuid, p_employee_code text, p_token_hash text, p_expires_at timestamptz, p_ip text, p_user_agent text)`
-- `erp_employee_session_get(p_company_id uuid, p_token_hash text)`
-- `erp_employee_session_revoke(p_company_id uuid, p_session_id uuid)`
+- `erp_employee_auth_login(p_employee_code text, p_password text, p_user_agent text, p_ip inet)`
+- `erp_employee_session_get(p_company_id uuid, p_session_token_hash text)`
+- `erp_employee_session_revoke(p_company_id uuid, p_session_token_hash text)`
 
 Employee permission guards:
 

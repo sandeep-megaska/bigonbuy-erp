@@ -1,6 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { randomBytes, createHash } from "crypto";
-import bcrypt from "bcryptjs";
 import {
   buildEmployeeSessionCookieValue,
   setEmployeeSessionCookies,
@@ -36,67 +34,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const adminClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
 
-  const { data: authRows, error: authError } = await adminClient.rpc("erp_employee_auth_user_get", {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const forwardedValue = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  const ipValue = forwardedValue?.split(",")[0].trim() || req.socket.remoteAddress || null;
+
+  const { data: loginRows, error: loginError } = await adminClient.rpc("erp_employee_auth_login", {
     p_employee_code: employeeCode,
+    p_password: passwordRaw,
+    p_ip: ipValue,
+    p_user_agent: req.headers["user-agent"] || null,
   });
 
-  if (authError) {
-    return res.status(500).json({ ok: false, error: authError.message });
-  }
-
-  const authRow = Array.isArray(authRows) ? authRows[0] : authRows;
-  if (!authRow || !authRow.password_hash) {
-    return res.status(401).json({ ok: false, error: "Invalid credentials" });
-  }
-
-  if (!authRow.is_active) {
-    return res.status(403).json({ ok: false, error: "Employee login is disabled" });
-  }
-
-  const matches = await bcrypt.compare(passwordRaw, authRow.password_hash);
-  if (!matches) {
-    return res.status(401).json({ ok: false, error: "Invalid credentials" });
-  }
-
-  const token = randomBytes(32).toString("hex");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
-
-  const { data: sessionRows, error: sessionError } = await adminClient.rpc(
-    "erp_employee_session_create",
-    {
-      p_company_id: authRow.company_id,
-      p_employee_code: employeeCode,
-      p_token_hash: tokenHash,
-      p_expires_at: expiresAt.toISOString(),
-      p_ip: req.headers["x-forwarded-for"]?.toString() || req.socket.remoteAddress || null,
-      p_user_agent: req.headers["user-agent"] || null,
+  if (loginError) {
+    const message = loginError.message || "Unable to sign in";
+    if (message === "Invalid employee credentials") {
+      return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
-  );
-
-  if (sessionError) {
-    return res.status(500).json({ ok: false, error: sessionError.message });
+    if (message === "Employee login is disabled") {
+      return res.status(403).json({ ok: false, error: message });
+    }
+    return res.status(500).json({ ok: false, error: message });
   }
 
-  const sessionRow = Array.isArray(sessionRows) ? sessionRows[0] : sessionRows;
-  if (!sessionRow?.session_id) {
+  const loginRow = Array.isArray(loginRows) ? loginRows[0] : loginRows;
+  if (!loginRow?.session_token) {
     return res.status(500).json({ ok: false, error: "Unable to create session" });
   }
 
-  const cookieValue = buildEmployeeSessionCookieValue(
-    authRow.company_id,
-    sessionRow.session_id,
-    token
-  );
+  const expiresAt = loginRow.expires_at ? new Date(loginRow.expires_at) : null;
+  const maxAgeSeconds = expiresAt
+    ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+    : 60 * 60 * 24 * 30;
 
-  setEmployeeSessionCookies(res, cookieValue, 60 * 60 * 24 * 30);
+  const cookieValue = buildEmployeeSessionCookieValue(loginRow.company_id, loginRow.session_token);
+
+  setEmployeeSessionCookies(res, cookieValue, maxAgeSeconds);
 
   return res.status(200).json({
     ok: true,
     session: {
-      employee_id: sessionRow.employee_id,
-      company_id: authRow.company_id,
-      employee_code: authRow.employee_code,
+      employee_id: loginRow.employee_id,
+      company_id: loginRow.company_id,
+      employee_code: loginRow.employee_code,
     },
   });
 }
