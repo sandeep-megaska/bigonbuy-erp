@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { authorizeHrAccess, createServiceClient, getSupabaseEnv } from "../../../../../lib/hrRoleApi";
+import { authorizeHrAccess, createServiceClient, getSupabaseEnv } from "lib/hrRoleApi";
 
 type DesignationRow = {
   id: string;
