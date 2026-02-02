@@ -12,8 +12,10 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
+import { apiGet, apiPost } from "../../../../../lib/erp/apiFetch";
+import { isMakerCheckerBypassAllowed } from "../../../../../lib/erp/featureFlags";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
-import { vendorAdvanceCreate, vendorAdvanceList, vendorAdvancePost } from "../../../../../lib/erp/vendorBills";
+import { vendorAdvanceCreate, vendorAdvanceList } from "../../../../../lib/erp/vendorBills";
 import { supabase } from "../../../../../lib/supabaseClient";
 
 const formatMoney = (value: number) =>
@@ -62,6 +64,17 @@ type VendorAdvanceRow = {
   is_void: boolean;
 };
 
+type ApprovalRecord = {
+  id: string;
+  entity_id: string;
+  state: string;
+  requested_by: string | null;
+  requested_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_comment: string | null;
+};
+
 /**
  * Dependency map:
  * UI: /erp/finance/ap/vendor-advances -> RPC: erp_ap_vendor_advances_list,
@@ -90,8 +103,17 @@ export default function VendorAdvancesPage() {
   const [formAmount, setFormAmount] = useState("");
   const [formReference, setFormReference] = useState("");
   const [formPaymentAccount, setFormPaymentAccount] = useState("");
+  const [approvalMap, setApprovalMap] = useState<Record<string, ApprovalRecord>>({});
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
   const vendorMap = useMemo(() => new Map(vendors.map((v) => [v.id, v.legal_name])), [vendors]);
+
+  const canWrite = useMemo(() => {
+    if (!ctx?.roleKey) return false;
+    return ["owner", "admin", "finance"].includes(ctx.roleKey);
+  }, [ctx?.roleKey]);
+
+  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -110,7 +132,12 @@ export default function VendorAdvancesPage() {
         return;
       }
 
-      await Promise.all([loadVendors(context.companyId), loadPaymentAccounts(), loadAdvances(context.companyId)]);
+      await Promise.all([
+        loadVendors(context.companyId),
+        loadPaymentAccounts(),
+        loadAdvances(context.companyId),
+        loadApprovals(context.companyId),
+      ]);
       if (active) setLoading(false);
     })();
 
@@ -146,6 +173,40 @@ export default function VendorAdvancesPage() {
     }
 
     setPaymentAccounts((data || []) as PaymentAccountOption[]);
+  };
+
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const loadApprovals = async (companyId: string) => {
+    if (!ctx?.session?.access_token) return;
+    setApprovalLoading(true);
+    try {
+      const params = new URLSearchParams({
+        companyId,
+        entityType: "ap_advance",
+      });
+      const payload = await apiGet<{ data?: ApprovalRecord[] }>(
+        `/api/finance/approvals/list?${params.toString()}`,
+        { headers: getAuthHeaders() }
+      );
+      const map: Record<string, ApprovalRecord> = {};
+      (payload.data || []).forEach((row) => {
+        map[row.entity_id] = row;
+      });
+      setApprovalMap(map);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load approvals.";
+      setError(message || "Failed to load approvals.");
+    } finally {
+      setApprovalLoading(false);
+    }
   };
 
   const loadAdvances = async (_companyId: string) => {
@@ -229,22 +290,105 @@ export default function VendorAdvancesPage() {
     }
 
     setPostingId(advance.advance_id);
-    const { data, error: postError } = await vendorAdvancePost(advance.advance_id);
-
-    if (postError) {
+    try {
+      const payload = await apiPost<{ data?: { doc_no?: string | null } | null }>(
+        "/api/finance/ap/vendor-advances/post",
+        { advanceId: advance.advance_id },
+        { headers: getAuthHeaders() }
+      );
+      const postedDocNo = payload?.data?.doc_no ?? null;
+      setNotice(postedDocNo ? `Approved journal ${postedDocNo}.` : "Vendor advance approved.");
+      if (ctx?.companyId) {
+        await loadAdvances(ctx.companyId);
+        await loadApprovals(ctx.companyId);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to post vendor advance.";
+      setError(message || "Failed to post vendor advance.");
+    } finally {
       setPostingId(null);
-      setError(postError.message || "Failed to post vendor advance.");
-      return;
     }
+  };
 
-    const postedDocNo = (data as { doc_no?: string | null } | null)?.doc_no ?? null;
-    setNotice(postedDocNo ? `Approved journal ${postedDocNo}.` : "Vendor advance approved.");
+  const handleSubmitAdvance = async (advanceId: string) => {
+    if (!ctx?.companyId) return;
+    setPostingId(advanceId);
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/submit",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_advance",
+          entityId: advanceId,
+          note: null,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor advance submitted for approval.");
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to submit vendor advance.";
+      setError(message || "Failed to submit vendor advance.");
+    } finally {
+      setPostingId(null);
+    }
+  };
 
-    if (ctx?.companyId) {
+  const handleApproveAdvance = async (advanceId: string) => {
+    if (!ctx?.companyId) return;
+    const comment = window.prompt("Approval note (optional):")?.trim() || null;
+    setPostingId(advanceId);
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/approve",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_advance",
+          entityId: advanceId,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor advance approved and posted.");
       await loadAdvances(ctx.companyId);
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve vendor advance.";
+      setError(message || "Failed to approve vendor advance.");
+    } finally {
+      setPostingId(null);
     }
+  };
 
-    setPostingId(null);
+  const handleRejectAdvance = async (advanceId: string) => {
+    if (!ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
+    setPostingId(advanceId);
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/reject",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_advance",
+          entityId: advanceId,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor advance rejected.");
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to reject vendor advance.";
+      setError(message || "Failed to reject vendor advance.");
+    } finally {
+      setPostingId(null);
+    }
   };
 
   return (
@@ -353,6 +497,7 @@ export default function VendorAdvancesPage() {
             <p>No vendor advances found.</p>
           ) : (
             <div style={{ overflowX: "auto" }}>
+              {approvalLoading ? <p>Loading approvals…</p> : null}
               <table style={tableStyle}>
                 <thead>
                   <tr>
@@ -360,6 +505,7 @@ export default function VendorAdvancesPage() {
                     <th style={tableHeaderCellStyle}>Vendor</th>
                     <th style={tableHeaderCellStyle}>Reference</th>
                     <th style={tableHeaderCellStyle}>Amount</th>
+                    <th style={tableHeaderCellStyle}>Approval</th>
                     <th style={tableHeaderCellStyle}>Status</th>
                     <th style={tableHeaderCellStyle}>Journal Doc No</th>
                     <th style={tableHeaderCellStyle}>Actions</th>
@@ -368,26 +514,66 @@ export default function VendorAdvancesPage() {
                 <tbody>
                   {advances.map((advance) => (
                     <tr key={advance.advance_id}>
+                      {(() => {
+                        const approvalState = approvalMap[advance.advance_id]?.state ?? "draft";
+                        return (
+                          <>
                       <td style={tableCellStyle}>{advance.advance_date}</td>
                       <td style={tableCellStyle}>{advance.vendor_name || vendorMap.get(advance.vendor_id) || "—"}</td>
                       <td style={tableCellStyle}>{advance.reference || "—"}</td>
                       <td style={tableCellStyle}>{formatMoney(advance.amount)}</td>
+                      <td style={tableCellStyle}>{approvalState}</td>
                       <td style={tableCellStyle}>{statusLabel(advance.status)}</td>
                       <td style={tableCellStyle}>{advance.journal_doc_no || "—"}</td>
                       <td style={{ ...tableCellStyle, textAlign: "right" }}>
                         {advance.status === "draft" ? (
-                          <button
-                            type="button"
-                            style={secondaryButtonStyle}
-                            onClick={() => handlePostAdvance(advance)}
-                            disabled={postingId === advance.advance_id}
-                          >
-                            {postingId === advance.advance_id ? "Posting…" : "Post"}
-                          </button>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            {canBypass ? (
+                              <button
+                                type="button"
+                                style={secondaryButtonStyle}
+                                onClick={() => handlePostAdvance(advance)}
+                                disabled={postingId === advance.advance_id}
+                              >
+                                {postingId === advance.advance_id ? "Posting…" : "Post"}
+                              </button>
+                            ) : approvalState === "submitted" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  style={primaryButtonStyle}
+                                  onClick={() => handleApproveAdvance(advance.advance_id)}
+                                  disabled={postingId === advance.advance_id || !canWrite}
+                                >
+                                  {postingId === advance.advance_id ? "Approving…" : "Approve"}
+                                </button>
+                                <button
+                                  type="button"
+                                  style={secondaryButtonStyle}
+                                  onClick={() => handleRejectAdvance(advance.advance_id)}
+                                  disabled={postingId === advance.advance_id || !canWrite}
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                style={secondaryButtonStyle}
+                                onClick={() => handleSubmitAdvance(advance.advance_id)}
+                                disabled={postingId === advance.advance_id || !canWrite}
+                              >
+                                {postingId === advance.advance_id ? "Submitting…" : "Submit"}
+                              </button>
+                            )}
+                          </div>
                         ) : (
                           <span style={{ color: "#6b7280" }}>—</span>
                         )}
                       </td>
+                          </>
+                        );
+                      })()}
                     </tr>
                   ))}
                 </tbody>
