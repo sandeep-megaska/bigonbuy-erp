@@ -3,19 +3,19 @@ import { authorizeHrAccess, createServiceClient, getSupabaseEnv } from "lib/hrRo
 
 type DesignationRow = {
   id: string;
-  code: string | null;
-  name: string | null;
-  department: string | null;
-  is_active: boolean | null;
+  code: string;
+  name: string;
+  is_active: boolean;
 };
 
 type ApiResponse =
   | { ok: true; designations: DesignationRow[] }
   | { ok: false; error: string };
 
-function getAccessToken(req: NextApiRequest) {
+function getAccessToken(req: NextApiRequest): string | null {
   const authHeader = req.headers.authorization || "";
-  return authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  return token ? token : null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -25,20 +25,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { supabaseUrl, anonKey, serviceKey, missing } = getSupabaseEnv();
-  if (missing.length) {
-    return res.status(500).json({ ok: false, error: `Missing Supabase env vars: ${missing.join(", ")}` });
+
+  // Normalize to guaranteed strings (prevents `string | undefined` TS errors)
+  const supabaseUrlValue = typeof supabaseUrl === "string" ? supabaseUrl.trim() : "";
+  const anonKeyValue = typeof anonKey === "string" ? anonKey.trim() : "";
+  const serviceKeyValue = typeof serviceKey === "string" ? serviceKey.trim() : "";
+
+  if (!supabaseUrlValue || !anonKeyValue || !serviceKeyValue || (missing?.length ?? 0) > 0) {
+    return res.status(500).json({
+      ok: false,
+      error: `Missing Supabase env vars: ${
+        missing && missing.length
+          ? missing.join(", ")
+          : "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
+      }`,
+    });
   }
 
   const accessToken = getAccessToken(req);
-  const authz = await authorizeHrAccess({ supabaseUrl, anonKey, accessToken });
-  if (authz.status !== 200) {
-    return res.status(authz.status).json({ ok: false, error: authz.error });
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Authorization token is required" });
   }
 
-  const adminClient = createServiceClient(supabaseUrl, serviceKey);
+  const authz = await authorizeHrAccess({
+    supabaseUrl: supabaseUrlValue,
+    anonKey: anonKeyValue,
+    accessToken,
+  });
+
+  // Works with BOTH auth return shapes:
+  // - old: {status,error}|{status,companyId...}
+  // - new: {ok:false,error}|{ok:true,companyId...}
+  if ("ok" in authz) {
+    if (!authz.ok) {
+      return res.status(authz.status).json({ ok: false, error: authz.error });
+    }
+  } else {
+    if (authz.status !== 200) {
+      const msg = "error" in authz ? authz.error : "Not authorized";
+      return res.status(authz.status).json({ ok: false, error: msg });
+    }
+  }
+
+  // At this point we are authorized. Extract companyId safely.
+  const companyId = (authz as any).companyId as string;
+
+  const adminClient = createServiceClient(supabaseUrlValue, serviceKeyValue);
+
   const { data, error } = await adminClient
     .from("erp_designations")
-    .select("id, code, name, department, is_active")
+    .select("id, code, name, is_active")
+    .eq("is_active", true)
     .order("name", { ascending: true });
 
   if (error) {
