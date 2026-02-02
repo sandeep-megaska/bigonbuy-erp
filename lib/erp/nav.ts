@@ -29,6 +29,14 @@ export const ERP_NAV: NavItem[] = [
     access: "publicAuth",
   },
   {
+    id: "ops-dashboard",
+    label: "Ops",
+    href: "/erp/ops",
+    section: "Workspace",
+    description: "Daily operational counts and tasks.",
+    access: "manager",
+  },
+  {
     id: "products",
     label: "Products",
     href: "/erp/products",

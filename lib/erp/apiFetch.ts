@@ -42,8 +42,13 @@ export const buildApiUrl = (path: string): string => {
     throw new Error(`apiFetch requires paths starting with /api/. Received: ${path}`);
   }
 
-  if (!apiPath.startsWith("/api/finance/") && apiPath !== "/api/finance") {
-    throw new Error(`apiFetch requires finance endpoints under /api/finance. Received: ${path}`);
+  const isFinanceApi = apiPath.startsWith("/api/finance/") || apiPath === "/api/finance";
+  const isOpsApi = apiPath.startsWith("/api/ops/") || apiPath === "/api/ops";
+
+  if (!isFinanceApi && !isOpsApi) {
+    throw new Error(
+      `apiFetch requires finance or ops endpoints under /api/finance or /api/ops. Received: ${path}`
+    );
   }
 
   return apiPath;
