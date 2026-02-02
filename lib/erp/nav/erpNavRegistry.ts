@@ -608,6 +608,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["hr"],
   },
   {
+    id: "hr-rbac-designations",
+    label: "Designation Access",
+    href: "/erp/hr/rbac/designations",
+    icon: "RA",
+    groupId: "hr",
+    requiredGuard: "hr_reader",
+    status: "active",
+    moduleKeys: ["hr"],
+  },
+  {
     id: "hr-employees",
     label: "Employees",
     href: "/erp/hr/employees",

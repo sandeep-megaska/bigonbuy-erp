@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { fetchEmployeeAccess } from "../../../lib/erp/employeeAccess";
 import { fetchEmployeeSession, type EmployeeSessionContext } from "../../../lib/erp/employeeSession";
-import { getEmployeeNavForRoles } from "../../../lib/erp/employeeNav";
+import { getEmployeeNavForModules } from "../../../lib/erp/employeeNav";
 
 const cardStyle = {
   border: "1px solid #e5e7eb",
@@ -15,6 +16,7 @@ const cardStyle = {
 export default function EmployeeHomePage() {
   const router = useRouter();
   const [session, setSession] = useState<EmployeeSessionContext | null>(null);
+  const [moduleKeys, setModuleKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,6 +33,10 @@ export default function EmployeeHomePage() {
         return;
       }
       setSession(current);
+      const access = await fetchEmployeeAccess();
+      if (active) {
+        setModuleKeys(access?.moduleKeys ?? []);
+      }
       setLoading(false);
     })();
     return () => {
@@ -47,7 +53,7 @@ export default function EmployeeHomePage() {
     return <div style={{ padding: 24 }}>Loading employee portal…</div>;
   }
 
-  const navItems = getEmployeeNavForRoles(session?.roleKeys ?? []);
+  const navItems = getEmployeeNavForModules(moduleKeys);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>

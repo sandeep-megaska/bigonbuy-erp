@@ -8,14 +8,6 @@ export type EmployeeNavItem = {
   moduleKey: EmployeeModuleKey;
 };
 
-const BASE_MODULES: EmployeeModuleKey[] = ["self-service"];
-
-const ROLE_MODULE_ACCESS: Record<string, EmployeeModuleKey[]> = {
-  employee: ["self-service"],
-  warehouse: ["inventory"],
-  finance_view: ["finance"],
-};
-
 export const EMPLOYEE_NAV_ITEMS: EmployeeNavItem[] = [
   {
     id: "employee-profile",
@@ -47,24 +39,12 @@ export const EMPLOYEE_NAV_ITEMS: EmployeeNavItem[] = [
   },
 ];
 
-export function getEmployeeAllowedModules(roleKeys: string[]): EmployeeModuleKey[] {
-  const allowed = new Set<EmployeeModuleKey>(BASE_MODULES);
-  const normalized = roleKeys.map((role) => role.toLowerCase().trim()).filter(Boolean);
+export function getEmployeeNavForModules(moduleKeys: string[]): EmployeeNavItem[] {
+  const allowed = new Set(
+    moduleKeys
+      .map((moduleKey) => moduleKey.toLowerCase().trim())
+      .filter((moduleKey) => moduleKey.length > 0)
+  );
 
-  if (normalized.length === 0) {
-    return Array.from(allowed);
-  }
-
-  normalized.forEach((role) => {
-    const modules = ROLE_MODULE_ACCESS[role];
-    if (!modules) return;
-    modules.forEach((moduleKey) => allowed.add(moduleKey));
-  });
-
-  return Array.from(allowed);
-}
-
-export function getEmployeeNavForRoles(roleKeys: string[]): EmployeeNavItem[] {
-  const allowed = getEmployeeAllowedModules(roleKeys);
-  return EMPLOYEE_NAV_ITEMS.filter((item) => allowed.includes(item.moduleKey));
+  return EMPLOYEE_NAV_ITEMS.filter((item) => allowed.has(item.moduleKey));
 }
