@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/router";
-import { supabase } from "../../../../lib/supabaseClient";
-import ErpShell from "../../../../components/erp/ErpShell";
+import supabase from "../../../lib/supabaseClient";
 
 type DesignationRow = {
   id: string;
-  code: string | null;
-  name: string | null;
-  department: string | null;
-  is_active: boolean | null;
+  name: string;
+  code: string;
+  is_active: boolean;
 };
 
 type PermissionRow = {
@@ -19,414 +15,286 @@ type PermissionRow = {
   allowed: boolean;
 };
 
-function safeJsonParse(text: string) {
-  try {
-    return JSON.parse(text);
-  } catch (_e) {
-    return null;
+type ApiListResp =
+  | { ok: true; designations: DesignationRow[] }
+  | { ok: false; error: string };
+
+type ApiPermResp =
+  | { ok: true; permissions: PermissionRow[] }
+  | { ok: false; error: string };
+
+function groupByModule(rows: PermissionRow[]) {
+  const m = new Map<string, PermissionRow[]>();
+  for (const r of rows) {
+    const key = r.module_key || "other";
+    if (!m.has(key)) m.set(key, []);
+    m.get(key)!.push(r);
   }
+  // stable ordering
+  return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-async function fetchJson(url: string, options: RequestInit = {}) {
-  const res = await fetch(url, options);
-  const text = await res.text();
-  const data = safeJsonParse(text);
-  return { res, data, text };
-}
-
-export default function HrDesignationRbacPage() {
-  const router = useRouter();
+export default function HrRbacDesignationsPage() {
   const [loading, setLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState("");
-  const [designations, setDesignations] = useState<DesignationRow[]>([]);
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [permissions, setPermissions] = useState<PermissionRow[]>([]);
-  const [baseline, setBaseline] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoading(true);
-      setError("");
-      setSuccess("");
+  const [designations, setDesignations] = useState<DesignationRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session) {
-        router.replace("/");
-        return;
-      }
+  const [permissions, setPermissions] = useState<PermissionRow[]>([]);
+  const [original, setOriginal] = useState<Map<string, boolean>>(new Map());
 
-      if (!active) return;
+  const [error, setError] = useState<string | null>(null);
 
-      const token = sessionData.session.access_token;
-      setAccessToken(token);
+  const grouped = useMemo(() => groupByModule(permissions), [permissions]);
 
-      const { res, data } = await fetchJson("/api/erp/hr/rbac/designations", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+  async function getAccessToken(): Promise<string | null> {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    return data.session?.access_token ?? null;
+  }
 
-      if (!res.ok || !data?.ok) {
-        setError(data?.error || "Unable to load designations.");
-        setLoading(false);
-        return;
-      }
+  async function loadDesignations() {
+    setError(null);
+    setLoading(true);
 
-      const list = (data.designations as DesignationRow[]) ?? [];
-      setDesignations(list);
-      if (list.length > 0) {
-        setSelectedId((prev) => prev || list[0].id);
-      }
+    const token = await getAccessToken();
+    if (!token) {
       setLoading(false);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [router]);
+      setError("Not authenticated. Please sign in again.");
+      return;
+    }
+
+    const resp = await fetch("/api/erp/hr/rbac/designations", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const json = (await resp.json()) as ApiListResp;
+    if (!json.ok) {
+      setLoading(false);
+      setError(json.error);
+      return;
+    }
+
+    const active = (json.designations || []).filter((d) => d.is_active);
+    setDesignations(active);
+    setSelectedId(active.length ? active[0].id : null);
+
+    setLoading(false);
+  }
+
+  async function loadPermissions(hrDesignationId: string) {
+    setError(null);
+
+    const token = await getAccessToken();
+    if (!token) {
+      setError("Not authenticated. Please sign in again.");
+      return;
+    }
+
+    const resp = await fetch(`/api/erp/hr/rbac/designations/${hrDesignationId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const json = (await resp.json()) as ApiPermResp;
+    if (!json.ok) {
+      setError(json.error);
+      return;
+    }
+
+    const rows = json.permissions ?? [];
+    setPermissions(rows);
+
+    const m = new Map<string, boolean>();
+    for (const r of rows) m.set(r.perm_key, !!r.allowed);
+    setOriginal(m);
+  }
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!selectedId || !accessToken) return;
-      setError("");
-      setSuccess("");
-      const { res, data } = await fetchJson(`/api/erp/hr/rbac/designations/${selectedId}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}` },
+    loadDesignations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (selectedId) loadPermissions(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  function togglePerm(permKey: string) {
+    setPermissions((prev) =>
+      prev.map((p) => (p.perm_key === permKey ? { ...p, allowed: !p.allowed } : p))
+    );
+  }
+
+  function getChanges(): Array<{ perm_key: string; allowed: boolean }> {
+    const changes: Array<{ perm_key: string; allowed: boolean }> = [];
+    for (const p of permissions) {
+      const oldVal = original.get(p.perm_key);
+      if (oldVal === undefined) continue;
+      if (oldVal !== !!p.allowed) changes.push({ perm_key: p.perm_key, allowed: !!p.allowed });
+    }
+    return changes;
+  }
+
+  async function saveChanges() {
+    if (!selectedId) return;
+    const changes = getChanges();
+    if (!changes.length) return;
+
+    setSaving(true);
+    setError(null);
+
+    const token = await getAccessToken();
+    if (!token) {
+      setSaving(false);
+      setError("Not authenticated. Please sign in again.");
+      return;
+    }
+
+    for (const ch of changes) {
+      const resp = await fetch(`/api/erp/hr/rbac/designations/${selectedId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(ch),
       });
 
-      if (!res.ok || !data?.ok) {
-        if (active) {
-          setError(data?.error || "Unable to load permissions.");
-        }
+      const json = (await resp.json()) as ApiPermResp;
+      if (!json.ok) {
+        setSaving(false);
+        setError(json.error);
         return;
       }
-
-      const rows = (data.permissions as PermissionRow[]) ?? [];
-      if (active) {
-        setPermissions(rows);
-        setBaseline(Object.fromEntries(rows.map((row) => [row.perm_key, row.allowed])));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [accessToken, selectedId]);
-
-  const permissionGroups = useMemo(() => {
-    return permissions.reduce((acc, perm) => {
-      const groupKey = perm.module_key || "other";
-      if (!acc[groupKey]) acc[groupKey] = [];
-      acc[groupKey].push(perm);
-      return acc;
-    }, {} as Record<string, PermissionRow[]>);
-  }, [permissions]);
-
-  const changedCount = useMemo(() => {
-    return permissions.filter((perm) => baseline[perm.perm_key] !== perm.allowed).length;
-  }, [permissions, baseline]);
-
-  function handleToggle(permKey: string) {
-    setPermissions((prev) =>
-      prev.map((perm) =>
-        perm.perm_key === permKey ? { ...perm, allowed: !perm.allowed } : perm
-      )
-    );
-  }
-
-  async function handleSave() {
-    if (!selectedId || !accessToken) return;
-    setSaving(true);
-    setError("");
-    setSuccess("");
-
-    const updates = permissions.filter((perm) => baseline[perm.perm_key] !== perm.allowed);
-
-    try {
-      for (const perm of updates) {
-        const { res, data } = await fetchJson(`/api/erp/hr/rbac/designations/${selectedId}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ perm_key: perm.perm_key, allowed: perm.allowed }),
-        });
-
-        if (!res.ok || !data?.ok) {
-          throw new Error(data?.error || "Failed to update permission.");
-        }
-      }
-
-      setBaseline(Object.fromEntries(permissions.map((row) => [row.perm_key, row.allowed])));
-      setSuccess("Permissions updated.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update permissions.");
-    } finally {
-      setSaving(false);
     }
-  }
 
-  if (loading) {
-    return (
-      <ErpShell activeModule="hr">
-        <div style={pageContainerStyle}>Loading RBAC…</div>
-      </ErpShell>
-    );
+    // reload to reset originals
+    await loadPermissions(selectedId);
+    setSaving(false);
   }
 
   return (
-    <ErpShell activeModule="hr">
-      <div style={pageContainerStyle}>
-        <header style={pageHeaderStyle}>
-          <div>
-            <p style={eyebrowStyle}>HR · RBAC</p>
-            <h1 style={h1Style}>Designation Permissions</h1>
-            <p style={subtitleStyle}>Define which modules each designation can access.</p>
-          </div>
-          <div>
-            <Link href="/erp/hr" style={linkStyle}>
-              ← Back to HR Home
-            </Link>
-          </div>
-        </header>
+    <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>HR · RBAC</div>
+          <h1 style={{ margin: "6px 0 6px", fontSize: 34 }}>Designation Permissions</h1>
+          <div style={{ opacity: 0.75 }}>Define which modules each designation can access.</div>
+        </div>
 
-        {error ? <div style={errorStyle}>{error}</div> : null}
-        {success ? <div style={successStyle}>{success}</div> : null}
+        <button
+          onClick={saveChanges}
+          disabled={saving || !getChanges().length || !selectedId}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "1px solid #ddd",
+            background: saving ? "#eee" : "#3b82f6",
+            color: saving ? "#444" : "white",
+            cursor: saving ? "not-allowed" : "pointer",
+            fontWeight: 600,
+          }}
+        >
+          {saving ? "Saving..." : "Save changes"}
+        </button>
+      </div>
 
-        <div style={contentGridStyle}>
-          <aside style={listStyle}>
-            <div style={listHeaderStyle}>Designations</div>
-            {designations.map((designation) => {
-              const label = designation.name || designation.code || designation.id;
-              const isActive = designation.is_active !== false;
-              const isSelected = designation.id === selectedId;
-              return (
-                <button
-                  key={designation.id}
-                  type="button"
-                  onClick={() => setSelectedId(designation.id)}
-                  style={{
-                    ...listItemStyle,
-                    ...(isSelected ? listItemActiveStyle : null),
-                  }}
-                >
-                  <span>{label}</span>
-                  {!isActive ? <span style={inactiveBadgeStyle}>Inactive</span> : null}
-                </button>
-              );
-            })}
-          </aside>
+      {error ? (
+        <div style={{ marginTop: 14, padding: 12, border: "1px solid #fca5a5", color: "#b91c1c" }}>
+          {error}
+        </div>
+      ) : null}
 
-          <section style={detailStyle}>
-            <div style={detailHeaderStyle}>
-              <h2 style={detailTitleStyle}>Permissions</h2>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || changedCount === 0}
-                style={{
-                  ...primaryButtonStyle,
-                  ...(saving || changedCount === 0 ? disabledButtonStyle : null),
-                }}
-              >
-                {saving ? "Saving…" : `Save changes${changedCount ? ` (${changedCount})` : ""}`}
-              </button>
+      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, marginTop: 18 }}>
+        {/* Left: designations */}
+        <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>Designations</div>
+
+          {loading ? (
+            <div style={{ opacity: 0.75 }}>Loading...</div>
+          ) : designations.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {designations.map((d) => {
+                const active = d.id === selectedId;
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => setSelectedId(d.id)}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      border: active ? "2px solid #3b82f6" : "1px solid #eee",
+                      background: active ? "#eff6ff" : "white",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {d.name}
+                    <span style={{ marginLeft: 8, opacity: 0.6, fontWeight: 500 }}>
+                      ({d.code})
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+          ) : (
+            <div style={{ opacity: 0.75 }}>No active designations found.</div>
+          )}
+        </div>
 
-            {selectedId ? (
-              Object.keys(permissionGroups).length > 0 ? (
-                Object.entries(permissionGroups).map(([moduleKey, rows]) => (
-                  <div key={moduleKey} style={moduleCardStyle}>
-                    <div style={moduleHeaderStyle}>{moduleKey}</div>
-                    <div style={moduleGridStyle}>
-                      {rows.map((perm) => (
-                        <label key={perm.perm_key} style={permissionRowStyle}>
-                          <input
-                            type="checkbox"
-                            checked={perm.allowed}
-                            onChange={() => handleToggle(perm.perm_key)}
-                          />
-                          <span>{perm.label}</span>
-                        </label>
-                      ))}
-                    </div>
+        {/* Right: permissions */}
+        <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 16 }}>
+          <h2 style={{ margin: "0 0 12px", fontSize: 22 }}>Permissions</h2>
+
+          {!selectedId ? (
+            <div style={{ opacity: 0.75 }}>Select a designation.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {grouped.map(([moduleKey, rows]) => (
+                <div
+                  key={moduleKey}
+                  style={{ border: "1px solid #eee", borderRadius: 14, padding: 14 }}
+                >
+                  <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                    {moduleKey === "self-service" ? "Self-Service" : moduleKey}
                   </div>
-                ))
-              ) : (
-                <div style={emptyStateStyle}>No permissions configured yet.</div>
-              )
-            ) : (
-              <div style={emptyStateStyle}>Select a designation to view permissions.</div>
-            )}
-          </section>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+                    {rows.map((p) => (
+                      <label
+                        key={p.perm_key}
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          alignItems: "center",
+                          border: "1px solid #eee",
+                          borderRadius: 12,
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!p.allowed}
+                          onChange={() => togglePerm(p.perm_key)}
+                        />
+                        <span style={{ fontWeight: 600 }}>{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {permissions.length === 0 ? (
+                <div style={{ opacity: 0.75 }}>No permissions found.</div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
-    </ErpShell>
+    </div>
   );
 }
-
-const pageContainerStyle = {
-  padding: "32px 24px",
-  minHeight: "100vh",
-  background: "#f8fafc",
-};
-
-const pageHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 16,
-  flexWrap: "wrap" as const,
-};
-
-const eyebrowStyle = { fontSize: 12, letterSpacing: 1, color: "#6b7280" };
-
-const h1Style = { margin: "6px 0", fontSize: 28 };
-
-const subtitleStyle = { margin: 0, color: "#4b5563" };
-
-const linkStyle = { color: "#2563eb", textDecoration: "none", fontWeight: 600 };
-
-const errorStyle = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "#fee2e2",
-  color: "#991b1b",
-  fontWeight: 600,
-};
-
-const successStyle = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "#dcfce7",
-  color: "#166534",
-  fontWeight: 600,
-};
-
-const contentGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "minmax(220px, 280px) 1fr",
-  gap: 20,
-  marginTop: 24,
-};
-
-const listStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  background: "#fff",
-  padding: 12,
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: 8,
-  maxHeight: "70vh",
-  overflowY: "auto" as const,
-};
-
-const listHeaderStyle = {
-  fontWeight: 700,
-  marginBottom: 4,
-  color: "#111827",
-};
-
-const listItemStyle = {
-  border: "1px solid transparent",
-  borderRadius: 10,
-  padding: "10px 12px",
-  background: "#f9fafb",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  cursor: "pointer",
-  fontWeight: 600,
-  color: "#111827",
-};
-
-const listItemActiveStyle = {
-  borderColor: "#2563eb",
-  background: "#eff6ff",
-};
-
-const inactiveBadgeStyle = {
-  fontSize: 11,
-  padding: "2px 6px",
-  borderRadius: 999,
-  background: "#fef3c7",
-  color: "#92400e",
-};
-
-const detailStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  background: "#fff",
-  padding: 20,
-};
-
-const detailHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: 16,
-  gap: 12,
-  flexWrap: "wrap" as const,
-};
-
-const detailTitleStyle = { margin: 0, fontSize: 20 };
-
-const primaryButtonStyle = {
-  border: "none",
-  borderRadius: 10,
-  background: "#2563eb",
-  color: "white",
-  padding: "10px 16px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const disabledButtonStyle = {
-  opacity: 0.6,
-  cursor: "not-allowed",
-};
-
-const moduleCardStyle = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 16,
-  marginBottom: 16,
-};
-
-const moduleHeaderStyle = {
-  fontWeight: 700,
-  marginBottom: 12,
-  textTransform: "capitalize" as const,
-};
-
-const moduleGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const permissionRowStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  background: "#f9fafb",
-  fontWeight: 600,
-};
-
-const emptyStateStyle = {
-  padding: 16,
-  borderRadius: 10,
-  background: "#f3f4f6",
-  color: "#6b7280",
-  fontWeight: 600,
-};
