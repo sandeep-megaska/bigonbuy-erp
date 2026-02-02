@@ -27,21 +27,30 @@ type ApprovalRow = {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_comment: string | null;
+  entity_label?: string | null;
+  entity_ref_no?: string | null;
+  entity_amount?: number | null;
+  entity_date?: string | null;
 };
 
 const entityTypeLabel: Record<string, string> = {
   ap_bill: "Vendor Bill",
   ap_payment: "Vendor Payment",
   ap_advance: "Vendor Advance",
+  vendor_bill: "Vendor Bill",
+  vendor_payment: "Vendor Payment",
   month_close: "Month Close",
   period_unlock: "Period Unlock",
+  payroll_post: "Payroll Post",
 };
 
 const entityLink = (entityType: string, entityId: string) => {
   switch (entityType) {
     case "ap_bill":
+    case "vendor_bill":
       return `/erp/finance/ap/vendor-bills/${entityId}`;
     case "ap_payment":
+    case "vendor_payment":
       return `/erp/finance/vendor-payments/${entityId}`;
     case "ap_advance":
       return "/erp/finance/ap/vendor-advances";
@@ -49,9 +58,23 @@ const entityLink = (entityType: string, entityId: string) => {
       return "/erp/finance/control/month-close";
     case "period_unlock":
       return "/erp/finance/control/period-lock";
+    case "payroll_post":
+      return `/erp/hr/payroll/runs/${entityId}`;
     default:
       return null;
   }
+};
+
+const formatAmount = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return null;
+  return value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const formatDate = (value: string | null | undefined) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "2-digit" });
 };
 
 export default function ApprovalsPage() {
@@ -270,6 +293,23 @@ export default function ApprovalsPage() {
                 ) : (
                   approvals.map((approval) => {
                     const link = entityLink(approval.entity_type, approval.entity_id);
+                    const displayLabel =
+                      approval.entity_label ||
+                      entityTypeLabel[approval.entity_type] ||
+                      approval.entity_type;
+                    const detailParts: string[] = [];
+                    if (approval.entity_ref_no) {
+                      detailParts.push(approval.entity_ref_no);
+                    }
+                    const formattedAmount = formatAmount(approval.entity_amount);
+                    if (formattedAmount) {
+                      detailParts.push(`₹${formattedAmount}`);
+                    }
+                    const formattedDate = formatDate(approval.entity_date);
+                    if (formattedDate) {
+                      detailParts.push(formattedDate);
+                    }
+                    const detailText = detailParts.join(" • ");
                     return (
                       <tr key={approval.id}>
                         <td style={tableCellStyle}>
@@ -277,9 +317,19 @@ export default function ApprovalsPage() {
                         </td>
                         <td style={tableCellStyle}>
                           {link ? (
-                            <Link href={link}>{approval.entity_id}</Link>
+                            <Link href={link} style={{ color: "inherit", textDecoration: "none" }}>
+                              <div style={{ fontWeight: 600 }}>{displayLabel}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                {detailText || "—"}
+                              </div>
+                            </Link>
                           ) : (
-                            approval.entity_id
+                            <>
+                              <div style={{ fontWeight: 600 }}>{displayLabel}</div>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                {detailText || "—"}
+                              </div>
+                            </>
                           )}
                         </td>
                         <td style={tableCellStyle}>{approval.state}</td>
