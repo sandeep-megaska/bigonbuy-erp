@@ -155,6 +155,7 @@ export default function HrHomePage() {
     { label: "Add employee", href: "/erp/hr/employees", variant: "primary" },
     { label: "Mark attendance (month)", href: "/erp/hr/attendance", variant: "secondary" },
     { label: "Run payroll", href: "/erp/hr/payroll/runs", variant: "secondary" },
+    { label: "Designation access", href: "/erp/hr/rbac/designations", variant: "secondary" },
     {
       label: "Attendance → Payroll Summary",
       href: "/erp/hr/reports/attendance-payroll-summary",
