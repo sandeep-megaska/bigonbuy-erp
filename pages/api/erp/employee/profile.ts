@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const { data, error } = await adminClient
     .from("erp_employees")
     .select(
-      "id, employee_code, full_name, department, designation, joining_date, employment_status, phone, email"
+      "id, employee_code, full_name, department, designation, joining_date, lifecycle_status, status, phone, email"
     )
     .eq("company_id", session.company_id)
     .eq("id", session.employee_id)
@@ -38,5 +38,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: error?.message || "Profile not found" });
   }
 
-  return res.status(200).json({ ok: true, profile: data });
+  const lifecycleStatus = typeof data.lifecycle_status === "string" ? data.lifecycle_status.trim() : "";
+  const employmentStatus = lifecycleStatus !== "" ? lifecycleStatus : data.status;
+  const { lifecycle_status, status, ...profile } = data;
+
+  return res.status(200).json({
+    ok: true,
+    profile: {
+      ...profile,
+      employment_status: employmentStatus ?? null,
+    },
+  });
 }
