@@ -13,17 +13,22 @@ type AuthorizeParams = {
   accessToken: string | null;
 };
 
-type AuthorizeSuccess = {
+export type AuthorizeSuccess = {
+  ok: true;
   status: 200;
   companyId: string;
   roleKey: string;
   userId: string;
 };
 
-type AuthorizeFailure = {
+export type AuthorizeFailure = {
+  ok: false;
   status: number;
   error: string;
 };
+
+export type AuthorizeResult = AuthorizeSuccess | AuthorizeFailure;
+
 
 type RoleUsageCountResult = {
   count: number;
