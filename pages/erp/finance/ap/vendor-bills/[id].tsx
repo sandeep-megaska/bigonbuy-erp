@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
@@ -12,17 +13,17 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
+import { apiGet, apiPost } from "../../../../../lib/erp/apiFetch";
+import { isMakerCheckerBypassAllowed } from "../../../../../lib/erp/featureFlags";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import {
   vendorAdvanceAllocate,
   vendorAdvanceAllocations,
   vendorAdvanceCreate,
   vendorAdvanceList,
-  vendorAdvancePost,
   vendorBillDetail,
   vendorBillLineUpsert,
   vendorBillLineVoid,
-  vendorBillPost,
   vendorBillPreview,
   vendorBillUpsert,
   vendorTdsProfileLatest,
@@ -104,6 +105,16 @@ type AdvanceAllocation = {
   is_void: boolean;
 };
 
+type ApprovalRecord = {
+  id: string;
+  state: string;
+  requested_by: string | null;
+  requested_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_comment: string | null;
+};
+
 const emptyHeader: BillHeader = {
   bill_no: "",
   bill_date: new Date().toISOString().slice(0, 10),
@@ -143,6 +154,7 @@ export default function VendorBillDetailPage() {
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [header, setHeader] = useState<BillHeader>(emptyHeader);
   const [lines, setLines] = useState<BillLine[]>([newLine(1)]);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
@@ -158,6 +170,8 @@ export default function VendorBillDetailPage() {
   const [advanceDate, setAdvanceDate] = useState(new Date().toISOString().slice(0, 10));
   const [advanceReference, setAdvanceReference] = useState("");
   const [advanceAccountId, setAdvanceAccountId] = useState("");
+  const [approval, setApproval] = useState<ApprovalRecord | null>(null);
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
   const totals = useMemo(() => {
     const subtotal = lines.reduce((sum, line) => sum + (line.line_amount || 0), 0);
@@ -168,6 +182,15 @@ export default function VendorBillDetailPage() {
     const netPayable = total - tdsAmount;
     return { subtotal, gstTotal, total, tdsAmount, netPayable };
   }, [lines, header.tds_rate]);
+
+  const canWrite = useMemo(() => {
+    if (!ctx?.roleKey) return false;
+    return ["owner", "admin", "finance"].includes(ctx.roleKey);
+  }, [ctx?.roleKey]);
+
+  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+
+  const approvalState = approval?.state ?? "draft";
 
   useEffect(() => {
     let active = true;
@@ -300,6 +323,37 @@ export default function VendorBillDetailPage() {
     }
   };
 
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const loadApproval = async (companyId: string, entityId: string) => {
+    if (!ctx?.session?.access_token) return;
+    setApprovalLoading(true);
+    try {
+      const params = new URLSearchParams({
+        companyId,
+        entityType: "ap_bill",
+        entityId,
+      });
+      const payload = await apiGet<{ data?: ApprovalRecord | null }>(
+        `/api/finance/approvals/entity?${params.toString()}`,
+        { headers: getAuthHeaders() }
+      );
+      setApproval(payload.data ?? null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load approval state.";
+      setError(message || "Failed to load approval state.");
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
   const loadBillDetail = async (targetId: string) => {
     const { data, error: loadError } = await vendorBillDetail(targetId);
 
@@ -352,6 +406,9 @@ export default function VendorBillDetailPage() {
     }));
 
     setLines(loadedLines.length ? loadedLines : [newLine(1)]);
+    if (ctx?.companyId) {
+      await loadApproval(ctx.companyId, targetId);
+    }
   };
 
   const loadVendorTds = async (vendorId: string, forDate: string) => {
@@ -426,6 +483,7 @@ export default function VendorBillDetailPage() {
     }
 
     setError("");
+    setNotice("");
     const payload = {
       id: header.id,
       vendor_id: header.vendor_id,
@@ -495,13 +553,93 @@ export default function VendorBillDetailPage() {
 
   const handlePost = async () => {
     if (!header.id) return;
-    const { error: postError } = await vendorBillPost(header.id);
-    if (postError) {
-      setError(postError.message || "Failed to post vendor bill.");
-      return;
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/ap/vendor-bills/post",
+        { billId: header.id },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor bill posted.");
+      await loadBillDetail(header.id);
+      await handlePreview();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to post vendor bill.";
+      setError(message || "Failed to post vendor bill.");
     }
-    await loadBillDetail(header.id);
-    await handlePreview();
+  };
+
+  const handleSubmitForApproval = async () => {
+    if (!header.id || !ctx?.companyId) return;
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/submit",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_bill",
+          entityId: header.id,
+          note: null,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor bill submitted for approval.");
+      await loadApproval(ctx.companyId, header.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to submit vendor bill.";
+      setError(message || "Failed to submit vendor bill.");
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!header.id || !ctx?.companyId) return;
+    const comment = window.prompt("Approval note (optional):")?.trim() || null;
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/approve",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_bill",
+          entityId: header.id,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor bill approved and posted.");
+      await loadBillDetail(header.id);
+      await handlePreview();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve vendor bill.";
+      setError(message || "Failed to approve vendor bill.");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!header.id || !ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
+    setError("");
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/reject",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_bill",
+          entityId: header.id,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Vendor bill rejected.");
+      await loadApproval(ctx.companyId, header.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to reject vendor bill.";
+      setError(message || "Failed to reject vendor bill.");
+    }
   };
 
   const handleAdvanceAllocate = async (advanceId: string) => {
@@ -543,10 +681,37 @@ export default function VendorBillDetailPage() {
     }
 
     const advanceId = data as string;
-    const { error: postError } = await vendorAdvancePost(advanceId);
-    if (postError) {
-      setError(postError.message || "Failed to post advance.");
-      return;
+    if (canBypass) {
+      try {
+        await apiPost(
+          "/api/finance/ap/vendor-advances/post",
+          { advanceId },
+          { headers: getAuthHeaders() }
+        );
+        setNotice("Vendor advance posted.");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Failed to post advance.";
+        setError(message || "Failed to post advance.");
+        return;
+      }
+    } else if (ctx?.companyId) {
+      try {
+        await apiPost(
+          "/api/finance/approvals/submit",
+          {
+            companyId: ctx.companyId,
+            entityType: "ap_advance",
+            entityId: advanceId,
+            note: "Submitted from vendor bill",
+          },
+          { headers: getAuthHeaders() }
+        );
+        setNotice("Vendor advance submitted for approval.");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Failed to submit advance.";
+        setError(message || "Failed to submit advance.");
+        return;
+      }
     }
 
     setAdvanceAmount("");
@@ -580,6 +745,7 @@ export default function VendorBillDetailPage() {
         />
 
         {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {notice ? <div style={{ ...cardStyle, borderColor: "#86efac", color: "#166534" }}>{notice}</div> : null}
 
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Bill Header</h2>
@@ -868,7 +1034,7 @@ export default function VendorBillDetailPage() {
           </div>
           <div style={{ marginTop: 12 }}>
             <button type="button" style={secondaryButtonStyle} onClick={handleCreateAdvance}>
-              Create & Post Advance
+              {canBypass ? "Create & Post Advance" : "Create Advance"}
             </button>
           </div>
 
@@ -955,13 +1121,54 @@ export default function VendorBillDetailPage() {
 
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Posting</h2>
+          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+            <div style={{ color: "#6b7280" }}>Approval state: {approvalLoading ? "Loading…" : approvalState}</div>
+            <div style={{ color: "#6b7280" }}>
+              Requested by: {approval?.requested_by || "—"} · {approval?.requested_at || "—"}
+            </div>
+            <div style={{ color: "#6b7280" }}>
+              Reviewed by: {approval?.reviewed_by || "—"} · {approval?.reviewed_at || "—"}
+            </div>
+            <div style={{ color: "#6b7280" }}>Review note: {approval?.review_comment || "—"}</div>
+            {header.finance_journal_id ? (
+              <div style={{ color: "#6b7280" }}>
+                Journal:{" "}
+                <Link href={`/erp/finance/journals/${header.finance_journal_id}`}>
+                  {header.finance_journal_id}
+                </Link>
+              </div>
+            ) : null}
+          </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button type="button" style={secondaryButtonStyle} onClick={handlePreview} disabled={!header.id}>
               Preview Journal
             </button>
-            <button type="button" style={primaryButtonStyle} onClick={handlePost} disabled={!header.id}>
-              Post Bill
-            </button>
+            {canBypass ? (
+              <button type="button" style={primaryButtonStyle} onClick={handlePost} disabled={!header.id}>
+                Post Bill
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  style={primaryButtonStyle}
+                  onClick={handleSubmitForApproval}
+                  disabled={!header.id || !canWrite || approvalState === "submitted" || approvalState === "approved"}
+                >
+                  Submit for Approval
+                </button>
+                {canWrite && approvalState === "submitted" ? (
+                  <>
+                    <button type="button" style={primaryButtonStyle} onClick={handleApprove}>
+                      Approve
+                    </button>
+                    <button type="button" style={secondaryButtonStyle} onClick={handleReject}>
+                      Reject
+                    </button>
+                  </>
+                ) : null}
+              </>
+            )}
           </div>
           {preview ? (
             <div style={{ marginTop: 12 }}>

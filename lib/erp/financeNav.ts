@@ -165,6 +165,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-approvals",
+    label: "Approvals",
+    href: "/erp/finance/control/approvals",
+    description: "Review submitted finance approvals.",
+    group: "Finance Control",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "AP",
+    cardIcon: "✅",
+    showInSidebar: true,
+    showInCards: true,
+  },
+  {
     id: "finance-month-close",
     label: "Month Close",
     href: "/erp/finance/control/month-close",

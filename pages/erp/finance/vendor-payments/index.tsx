@@ -14,10 +14,11 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
+import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
-  approveVendorPayment,
   createVendorPaymentDraft,
   searchVendorPayments,
   vendorPaymentListSchema,
@@ -45,6 +46,17 @@ type PaymentAccountOption = {
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
+
+type ApprovalRecord = {
+  id: string;
+  entity_id: string;
+  state: string;
+  requested_by: string | null;
+  requested_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_comment: string | null;
+};
 
 /**
  * Dependency map:
@@ -74,6 +86,8 @@ export default function VendorPaymentsListPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPosting, setIsPosting] = useState<string | null>(null);
+  const [approvalMap, setApprovalMap] = useState<Record<string, ApprovalRecord>>({});
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
   const [formVendorId, setFormVendorId] = useState("");
   const [formPaymentDate, setFormPaymentDate] = useState(today());
@@ -86,6 +100,8 @@ export default function VendorPaymentsListPage() {
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx?.roleKey]
   );
+
+  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -167,6 +183,40 @@ export default function VendorPaymentsListPage() {
     };
   }, []);
 
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const loadApprovals = async (companyId: string) => {
+    if (!ctx?.session?.access_token) return;
+    setApprovalLoading(true);
+    try {
+      const params = new URLSearchParams({
+        companyId,
+        entityType: "ap_payment",
+      });
+      const payload = await apiGet<{ data?: ApprovalRecord[] }>(
+        `/api/finance/approvals/list?${params.toString()}`,
+        { headers: getAuthHeaders() }
+      );
+      const map: Record<string, ApprovalRecord> = {};
+      (payload.data || []).forEach((row) => {
+        map[row.entity_id] = row;
+      });
+      setApprovalMap(map);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load approvals.";
+      setError(message || "Failed to load approvals.");
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
   const loadPayments = async (targetOffset = offset) => {
     if (!ctx?.companyId) return;
     setIsLoadingData(true);
@@ -205,6 +255,7 @@ export default function VendorPaymentsListPage() {
     (async () => {
       if (!active || !ctx?.companyId) return;
       await loadPayments(0);
+      await loadApprovals(ctx.companyId);
       if (active) setOffset(0);
     })();
 
@@ -260,25 +311,112 @@ export default function VendorPaymentsListPage() {
     const newId = data as string | null;
     setToast({ type: "success", message: "Vendor payment saved as draft." });
     await loadPayments(0);
+    if (ctx?.companyId) {
+      await loadApprovals(ctx.companyId);
+    }
     if (newId) {
       void router.push(`/erp/finance/vendor-payments/${newId}`);
     }
   };
 
-  const handleApprove = async (paymentId: string) => {
+  const handlePostBypass = async (paymentId: string) => {
     setIsPosting(paymentId);
     setToast(null);
-    const { error: approveError } = await approveVendorPayment(paymentId);
-
-    if (approveError) {
-      setToast({ type: "error", message: approveError.message || "Failed to approve payment." });
+    try {
+      await apiPost(
+        "/api/finance/ap/vendor-payments/post",
+        { paymentId },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment approved and posted." });
+      await loadPayments(0);
+      if (ctx?.companyId) {
+        await loadApprovals(ctx.companyId);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve payment.";
+      setToast({ type: "error", message });
+    } finally {
       setIsPosting(null);
-      return;
     }
+  };
 
-    setToast({ type: "success", message: "Vendor payment approved and posted." });
-    setIsPosting(null);
-    await loadPayments(0);
+  const handleSubmit = async (paymentId: string) => {
+    if (!ctx?.companyId) return;
+    setIsPosting(paymentId);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/submit",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: paymentId,
+          note: null,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment submitted for approval." });
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to submit payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsPosting(null);
+    }
+  };
+
+  const handleApprove = async (paymentId: string) => {
+    if (!ctx?.companyId) return;
+    const comment = window.prompt("Approval note (optional):")?.trim() || null;
+    setIsPosting(paymentId);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/approve",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: paymentId,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment approved and posted." });
+      await loadPayments(0);
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsPosting(null);
+    }
+  };
+
+  const handleReject = async (paymentId: string) => {
+    if (!ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
+    setIsPosting(paymentId);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/reject",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: paymentId,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment rejected." });
+      await loadApprovals(ctx.companyId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to reject payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsPosting(null);
+    }
   };
 
   if (loading) {
@@ -386,12 +524,14 @@ export default function VendorPaymentsListPage() {
 
         <div style={{ ...cardStyle, padding: 0 }}>
           <div style={{ overflowX: "auto" }}>
+            {approvalLoading ? <p style={{ padding: "12px 16px" }}>Loading approvals…</p> : null}
             <table style={tableStyle}>
               <thead>
                 <tr>
                   <th style={tableHeaderCellStyle}>Payment Date</th>
                   <th style={tableHeaderCellStyle}>Vendor</th>
                   <th style={tableHeaderCellStyle}>Amount</th>
+                  <th style={tableHeaderCellStyle}>Approval</th>
                   <th style={tableHeaderCellStyle}>Status</th>
                   <th style={tableHeaderCellStyle}>Accounting</th>
                   <th style={tableHeaderCellStyle}>Reference</th>
@@ -404,14 +544,14 @@ export default function VendorPaymentsListPage() {
               <tbody>
                 {isLoadingData && (
                   <tr>
-                    <td style={tableCellStyle} colSpan={10}>
+                    <td style={tableCellStyle} colSpan={11}>
                       Loading payments...
                     </td>
                   </tr>
                 )}
                 {!isLoadingData && payments.length === 0 && (
                   <tr>
-                    <td style={tableCellStyle} colSpan={10}>
+                    <td style={tableCellStyle} colSpan={11}>
                       No vendor payments found.
                     </td>
                   </tr>
@@ -419,6 +559,7 @@ export default function VendorPaymentsListPage() {
                 {payments
                   .filter((payment) => (statusFilter ? payment.status === statusFilter : true))
                   .map((payment) => {
+                    const approvalState = approvalMap[payment.id]?.state ?? "draft";
                     const matchedTooltip = payment.matched
                       ? `Matched: ${payment.matched_bank_txn_date ?? ""} · ${payment.matched_bank_txn_amount ?? ""}`
                       : "";
@@ -434,6 +575,7 @@ export default function VendorPaymentsListPage() {
                         <td style={tableCellStyle}>
                           {payment.currency} {payment.amount.toLocaleString("en-IN")}
                         </td>
+                        <td style={tableCellStyle}>{approvalLoading ? "…" : approvalState}</td>
                         <td style={tableCellStyle}>
                           <span style={badgeStyle}>{payment.status}</span>
                         </td>
@@ -464,13 +606,40 @@ export default function VendorPaymentsListPage() {
                               View
                             </button>
                             {canWrite && payment.status === "draft" ? (
-                              <button
-                                style={primaryButtonStyle}
-                                onClick={() => handleApprove(payment.id)}
-                                disabled={isPosting === payment.id}
-                              >
-                                {isPosting === payment.id ? "Posting…" : "Approve"}
-                              </button>
+                              canBypass ? (
+                                <button
+                                  style={primaryButtonStyle}
+                                  onClick={() => handlePostBypass(payment.id)}
+                                  disabled={isPosting === payment.id}
+                                >
+                                  {isPosting === payment.id ? "Posting…" : "Post"}
+                                </button>
+                              ) : approvalState === "submitted" ? (
+                                <>
+                                  <button
+                                    style={primaryButtonStyle}
+                                    onClick={() => handleApprove(payment.id)}
+                                    disabled={isPosting === payment.id}
+                                  >
+                                    {isPosting === payment.id ? "Approving…" : "Approve"}
+                                  </button>
+                                  <button
+                                    style={secondaryButtonStyle}
+                                    onClick={() => handleReject(payment.id)}
+                                    disabled={isPosting === payment.id}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  style={primaryButtonStyle}
+                                  onClick={() => handleSubmit(payment.id)}
+                                  disabled={isPosting === payment.id}
+                                >
+                                  {isPosting === payment.id ? "Submitting…" : "Submit"}
+                                </button>
+                              )
                             ) : null}
                           </div>
                         </td>

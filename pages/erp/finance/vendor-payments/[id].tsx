@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
@@ -15,10 +16,11 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
+import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
+import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
-  approveVendorPayment,
   getVendorPayment,
   setVendorPaymentAllocations,
   upsertVendorPayment,
@@ -46,6 +48,16 @@ type InvoiceAllocationRow = {
   invoice_total: number;
   outstanding_amount: number;
   allocated_amount: number;
+};
+
+type ApprovalRecord = {
+  id: string;
+  state: string;
+  requested_by: string | null;
+  requested_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_comment: string | null;
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
@@ -88,6 +100,8 @@ export default function VendorPaymentDetailPage() {
   const [invoiceAllocations, setInvoiceAllocations] = useState<InvoiceAllocationRow[]>([]);
   const [isAllocationsLoading, setIsAllocationsLoading] = useState(false);
   const [isAllocationsSaving, setIsAllocationsSaving] = useState(false);
+  const [approval, setApproval] = useState<ApprovalRecord | null>(null);
+  const [approvalLoading, setApprovalLoading] = useState(false);
 
   const [formVendorId, setFormVendorId] = useState("");
   const [formPaymentDate, setFormPaymentDate] = useState("");
@@ -100,6 +114,10 @@ export default function VendorPaymentDetailPage() {
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx?.roleKey]
   );
+
+  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+
+  const approvalState = approval?.state ?? "draft";
 
   const totalAllocated = useMemo(
     () => invoiceAllocations.reduce((sum, row) => sum + Number(row.allocated_amount || 0), 0),
@@ -186,6 +204,37 @@ export default function VendorPaymentDetailPage() {
     };
   }, []);
 
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = ctx?.session?.access_token;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
+  const loadApproval = async (companyId: string, entityId: string) => {
+    if (!ctx?.session?.access_token) return;
+    setApprovalLoading(true);
+    try {
+      const params = new URLSearchParams({
+        companyId,
+        entityType: "ap_payment",
+        entityId,
+      });
+      const payload = await apiGet<{ data?: ApprovalRecord | null }>(
+        `/api/finance/approvals/entity?${params.toString()}`,
+        { headers: getAuthHeaders() }
+      );
+      setApproval(payload.data ?? null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to load approval state.";
+      setError(message || "Failed to load approval state.");
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
   const loadPayment = async () => {
     if (!paymentId) return;
     setError(null);
@@ -203,6 +252,9 @@ export default function VendorPaymentDetailPage() {
     }
 
     setPayment(parsed.data);
+    if (ctx?.companyId) {
+      await loadApproval(ctx.companyId, paymentId);
+    }
   };
 
   const loadAllocations = async (currentPayment: VendorPaymentRow) => {
@@ -336,22 +388,101 @@ export default function VendorPaymentDetailPage() {
     await loadPayment();
   };
 
-  const handleApprove = async () => {
+  const handlePostBypass = async () => {
     if (!payment) return;
     setIsApproving(true);
     setToast(null);
-
-    const { error: approveError } = await approveVendorPayment(payment.id);
-
-    if (approveError) {
-      setToast({ type: "error", message: approveError.message || "Failed to approve payment." });
+    try {
+      await apiPost(
+        "/api/finance/ap/vendor-payments/post",
+        { paymentId: payment.id },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment approved and posted." });
+      await loadPayment();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve payment.";
+      setToast({ type: "error", message });
+    } finally {
       setIsApproving(false);
-      return;
     }
+  };
 
-    setToast({ type: "success", message: "Vendor payment approved and posted." });
-    setIsApproving(false);
-    await loadPayment();
+  const handleSubmit = async () => {
+    if (!payment || !ctx?.companyId) return;
+    setIsApproving(true);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/submit",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: payment.id,
+          note: null,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment submitted for approval." });
+      await loadApproval(ctx.companyId, payment.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to submit payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!payment || !ctx?.companyId) return;
+    const comment = window.prompt("Approval note (optional):")?.trim() || null;
+    setIsApproving(true);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/approve",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: payment.id,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment approved and posted." });
+      await loadPayment();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to approve payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!payment || !ctx?.companyId) return;
+    const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
+    setIsApproving(true);
+    setToast(null);
+    try {
+      await apiPost(
+        "/api/finance/approvals/reject",
+        {
+          companyId: ctx.companyId,
+          entityType: "ap_payment",
+          entityId: payment.id,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setToast({ type: "success", message: "Vendor payment rejected." });
+      await loadApproval(ctx.companyId, payment.id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to reject payment.";
+      setToast({ type: "error", message });
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   const handleVoid = async () => {
@@ -520,14 +651,46 @@ export default function VendorPaymentDetailPage() {
               >
                 Edit
               </button>
-              <button
-                type="button"
-                style={primaryButtonStyle}
-                onClick={handleApprove}
-                disabled={!canWrite || payment.status !== "draft" || isApproving}
-              >
-                {isApproving ? "Posting…" : "Approve & Post"}
-              </button>
+              {payment.status === "draft" && canWrite ? (
+                canBypass ? (
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handlePostBypass}
+                    disabled={isApproving}
+                  >
+                    {isApproving ? "Posting…" : "Post"}
+                  </button>
+                ) : approvalState === "submitted" ? (
+                  <>
+                    <button
+                      type="button"
+                      style={primaryButtonStyle}
+                      onClick={handleApprove}
+                      disabled={isApproving}
+                    >
+                      {isApproving ? "Approving…" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      onClick={handleReject}
+                      disabled={isApproving}
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    style={primaryButtonStyle}
+                    onClick={handleSubmit}
+                    disabled={isApproving}
+                  >
+                    {isApproving ? "Submitting…" : "Submit for Approval"}
+                  </button>
+                )
+              ) : null}
               <button
                 type="button"
                 style={secondaryButtonStyle}
@@ -576,10 +739,31 @@ export default function VendorPaymentDetailPage() {
               <p style={subtitleStyle}>Journal doc no</p>
               <strong>{payment.journal_doc_no || "—"}</strong>
             </div>
+            <div>
+              <p style={subtitleStyle}>Approval state</p>
+              <strong>{approvalLoading ? "Loading…" : approvalState}</strong>
+            </div>
           </div>
           <div>
             <p style={subtitleStyle}>Notes</p>
             <p>{payment.note || "—"}</p>
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ color: "#6b7280" }}>
+              Requested by: {approval?.requested_by || "—"} · {approval?.requested_at || "—"}
+            </div>
+            <div style={{ color: "#6b7280" }}>
+              Reviewed by: {approval?.reviewed_by || "—"} · {approval?.reviewed_at || "—"}
+            </div>
+            <div style={{ color: "#6b7280" }}>Review note: {approval?.review_comment || "—"}</div>
+            {payment.finance_journal_id ? (
+              <div style={{ color: "#6b7280" }}>
+                Journal:{" "}
+                <Link href={`/erp/finance/journals/${payment.finance_journal_id}`}>
+                  {payment.finance_journal_id}
+                </Link>
+              </div>
+            ) : null}
           </div>
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             <div>
