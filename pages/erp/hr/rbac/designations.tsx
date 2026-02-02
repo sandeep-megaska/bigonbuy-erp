@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import supabase from "../../../lib/supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 
 type DesignationRow = {
   id: string;
@@ -23,6 +23,17 @@ type ApiPermResp =
   | { ok: true; permissions: PermissionRow[] }
   | { ok: false; error: string };
 
+// Browser-only Supabase client (no dependency on repo's supabaseClient file)
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+
+const supabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: true, autoRefreshToken: true },
+      })
+    : null;
+
 function groupByModule(rows: PermissionRow[]) {
   const m = new Map<string, PermissionRow[]>();
   for (const r of rows) {
@@ -30,7 +41,6 @@ function groupByModule(rows: PermissionRow[]) {
     if (!m.has(key)) m.set(key, []);
     m.get(key)!.push(r);
   }
-  // stable ordering
   return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
@@ -49,6 +59,7 @@ export default function HrRbacDesignationsPage() {
   const grouped = useMemo(() => groupByModule(permissions), [permissions]);
 
   async function getAccessToken(): Promise<string | null> {
+    if (!supabase) return null;
     const { data, error } = await supabase.auth.getSession();
     if (error) return null;
     return data.session?.access_token ?? null;
@@ -57,6 +68,12 @@ export default function HrRbacDesignationsPage() {
   async function loadDesignations() {
     setError(null);
     setLoading(true);
+
+    if (!supabase) {
+      setLoading(false);
+      setError("Supabase env vars missing in browser (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY).");
+      return;
+    }
 
     const token = await getAccessToken();
     if (!token) {
@@ -169,7 +186,6 @@ export default function HrRbacDesignationsPage() {
       }
     }
 
-    // reload to reset originals
     await loadPermissions(selectedId);
     setSaving(false);
   }
@@ -207,7 +223,6 @@ export default function HrRbacDesignationsPage() {
       ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, marginTop: 18 }}>
-        {/* Left: designations */}
         <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>Designations</div>
 
@@ -232,9 +247,7 @@ export default function HrRbacDesignationsPage() {
                     }}
                   >
                     {d.name}
-                    <span style={{ marginLeft: 8, opacity: 0.6, fontWeight: 500 }}>
-                      ({d.code})
-                    </span>
+                    <span style={{ marginLeft: 8, opacity: 0.6, fontWeight: 500 }}>({d.code})</span>
                   </button>
                 );
               })}
@@ -244,7 +257,6 @@ export default function HrRbacDesignationsPage() {
           )}
         </div>
 
-        {/* Right: permissions */}
         <div style={{ border: "1px solid #eee", borderRadius: 14, padding: 16 }}>
           <h2 style={{ margin: "0 0 12px", fontSize: 22 }}>Permissions</h2>
 
@@ -253,10 +265,7 @@ export default function HrRbacDesignationsPage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {grouped.map(([moduleKey, rows]) => (
-                <div
-                  key={moduleKey}
-                  style={{ border: "1px solid #eee", borderRadius: 14, padding: 14 }}
-                >
+                <div key={moduleKey} style={{ border: "1px solid #eee", borderRadius: 14, padding: 14 }}>
                   <div style={{ fontWeight: 800, marginBottom: 10 }}>
                     {moduleKey === "self-service" ? "Self-Service" : moduleKey}
                   </div>
@@ -276,11 +285,7 @@ export default function HrRbacDesignationsPage() {
                           userSelect: "none",
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={!!p.allowed}
-                          onChange={() => togglePerm(p.perm_key)}
-                        />
+                        <input type="checkbox" checked={!!p.allowed} onChange={() => togglePerm(p.perm_key)} />
                         <span style={{ fontWeight: 600 }}>{p.label}</span>
                       </label>
                     ))}
@@ -288,9 +293,7 @@ export default function HrRbacDesignationsPage() {
                 </div>
               ))}
 
-              {permissions.length === 0 ? (
-                <div style={{ opacity: 0.75 }}>No permissions found.</div>
-              ) : null}
+              {permissions.length === 0 ? <div style={{ opacity: 0.75 }}>No permissions found.</div> : null}
             </div>
           )}
         </div>
