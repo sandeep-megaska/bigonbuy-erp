@@ -14,7 +14,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
-  session: unknown;
+  session: { access_token?: string } | null;
   email: string | null;
   userId: string | null;
   companyId: string | null;
