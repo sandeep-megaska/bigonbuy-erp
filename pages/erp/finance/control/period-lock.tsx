@@ -3,13 +3,15 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   pageContainerStyle,
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../../../components/erp/uiStyles";
 import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
-import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
+import { humanizeApiError, type HumanizedError } from "../../../../lib/erp/errors";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
@@ -101,7 +103,7 @@ export default function PeriodLockPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<HumanizedError | null>(null);
   const [notice, setNotice] = useState("");
   const [fiscalYear, setFiscalYear] = useState(getFiscalYearLabel());
   const [locks, setLocks] = useState<PeriodLockRow[]>([]);
@@ -114,7 +116,7 @@ export default function PeriodLockPage() {
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
 
-  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -127,7 +129,7 @@ export default function PeriodLockPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(context.membershipError || "No active company membership found for this user.");
       }
       setLoading(false);
     })();
@@ -139,7 +141,7 @@ export default function PeriodLockPage() {
 
   const fetchLocks = async (companyId: string, year: string) => {
     setLoadingLocks(true);
-    setError("");
+    setError(null);
     setNotice("");
     try {
       const { data, error: fetchError } = await supabase.rpc("erp_fin_period_locks_list", {
@@ -150,7 +152,7 @@ export default function PeriodLockPage() {
       setLocks((data as PeriodLockRow[]) || []);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load period locks.";
-      setError(message || "Unable to load period locks.");
+      reportError(message || "Unable to load period locks.");
     } finally {
       setLoadingLocks(false);
     }
@@ -163,6 +165,10 @@ export default function PeriodLockPage() {
       headers.Authorization = `Bearer ${token}`;
     }
     return headers;
+  };
+
+  const reportError = (err: unknown) => {
+    setError(humanizeApiError(err));
   };
 
   const loadApprovals = async (companyId: string) => {
@@ -184,7 +190,7 @@ export default function PeriodLockPage() {
       setApprovalMap(map);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load approval states.";
-      setError(message || "Unable to load approval states.");
+      reportError(message || "Unable to load approval states.");
     } finally {
       setApprovalLoading(false);
     }
@@ -199,11 +205,11 @@ export default function PeriodLockPage() {
   const handleLock = async (month: number) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can lock periods.");
+      reportError("Only finance admins can lock periods.");
       return;
     }
     const reason = window.prompt("Reason for locking this period (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       const { error: lockError } = await supabase.rpc("erp_fin_period_lock", {
@@ -217,20 +223,20 @@ export default function PeriodLockPage() {
       await fetchLocks(ctx.companyId, fiscalYear);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to lock period.";
-      setError(message || "Unable to lock period.");
+      reportError(message || "Unable to lock period.");
     }
   };
 
   const handleUnlock = async (month: number) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can unlock periods.");
+      reportError("Only finance admins can unlock periods.");
       return;
     }
     const confirmed = window.confirm(`Unlock FY ${fiscalYear} month ${month}? This should be rare.`);
     if (!confirmed) return;
     const reason = window.prompt("Reason for unlocking this period (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       if (canBypass) {
@@ -249,7 +255,7 @@ export default function PeriodLockPage() {
       } else {
         const lock = locks.find((row) => row.period_month === month);
         if (!lock?.id) {
-          setError("Approval record could not be created for this period.");
+          reportError("Approval record could not be created for this period.");
           return;
         }
         await apiPost(
@@ -267,18 +273,18 @@ export default function PeriodLockPage() {
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to unlock period.";
-      setError(message || "Unable to unlock period.");
+      reportError(message || "Unable to unlock period.");
     }
   };
 
   const handleApproveUnlock = async (lockId: string, month: number) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can approve unlocks.");
+      reportError("Only finance admins can approve unlocks.");
       return;
     }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -296,18 +302,18 @@ export default function PeriodLockPage() {
       await loadApprovals(ctx.companyId);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to approve unlock.";
-      setError(message || "Unable to approve unlock.");
+      reportError(message || "Unable to approve unlock.");
     }
   };
 
   const handleRejectUnlock = async (lockId: string, month: number) => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can reject unlocks.");
+      reportError("Only finance admins can reject unlocks.");
       return;
     }
     const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -324,7 +330,7 @@ export default function PeriodLockPage() {
       await loadApprovals(ctx.companyId);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to reject unlock.";
-      setError(message || "Unable to reject unlock.");
+      reportError(message || "Unable to reject unlock.");
     }
   };
 
@@ -348,7 +354,11 @@ export default function PeriodLockPage() {
           <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#111827" }}>
             Finance Control → Period Lock
           </h2>
-          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+          {error ? (
+            <ErrorBanner message={error.message} />
+          ) : (
+            <p style={{ color: "#b91c1c" }}>Unable to load company context.</p>
+          )}
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
       </ErpShell>
@@ -398,7 +408,7 @@ export default function PeriodLockPage() {
           </button>
         </div>
 
-        {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
+        {error ? <ErrorBanner message={error.message} /> : null}
         {notice && <p style={{ color: "#16a34a", marginTop: 12 }}>{notice}</p>}
 
         <div style={{ marginTop: 16, ...gridStyle }}>

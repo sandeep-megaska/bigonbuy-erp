@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import BankTxnMatchModal, { type BankTxnRow } from "../../../../components/erp/finance/BankTxnMatchModal";
 import {
   badgeStyle,
@@ -17,7 +18,8 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
-import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
+import { humanizeApiError, type HumanizedError } from "../../../../lib/erp/errors";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 import {
@@ -65,6 +67,28 @@ type ToastState = { type: "success" | "error"; message: string } | null;
 const formatCurrency = (amount: number, currency: string) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amount);
 
+const approvalBadgeStyle = (state: string) => {
+  const palette: Record<string, { bg: string; text: string }> = {
+    draft: { bg: "#e5e7eb", text: "#111827" },
+    submitted: { bg: "#fde68a", text: "#92400e" },
+    approved: { bg: "#bbf7d0", text: "#166534" },
+    rejected: { bg: "#fecaca", text: "#991b1b" },
+  };
+  const colors = palette[state] ?? palette.draft;
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "4px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    background: colors.bg,
+    color: colors.text,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.04em",
+  };
+};
+
 /**
  * Dependency map:
  * UI: /erp/finance/vendor-payments/[id]
@@ -82,7 +106,7 @@ export default function VendorPaymentDetailPage() {
   const [payment, setPayment] = useState<VendorPaymentRow | null>(null);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccountOption[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<HumanizedError | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isVoidOpen, setIsVoidOpen] = useState(false);
@@ -115,7 +139,7 @@ export default function VendorPaymentDetailPage() {
     [ctx?.roleKey]
   );
 
-  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
 
   const approvalState = approval?.state ?? "draft";
 
@@ -136,7 +160,7 @@ export default function VendorPaymentDetailPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
+        reportError(context.membershipError || "No active company membership found.");
         setLoading(false);
         return;
       }
@@ -164,7 +188,7 @@ export default function VendorPaymentDetailPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load vendors.");
+        reportError(loadError.message || "Failed to load vendors.");
         return;
       }
 
@@ -190,7 +214,7 @@ export default function VendorPaymentDetailPage() {
       if (!active) return;
 
       if (loadError) {
-        setError(loadError.message || "Failed to load payment accounts.");
+        reportError(loadError.message || "Failed to load payment accounts.");
         return;
       }
 
@@ -213,6 +237,10 @@ export default function VendorPaymentDetailPage() {
     return headers;
   };
 
+  const reportError = (err: unknown) => {
+    setError(humanizeApiError(err));
+  };
+
   const loadApproval = async (companyId: string, entityId: string) => {
     if (!ctx?.session?.access_token) return;
     setApprovalLoading(true);
@@ -229,7 +257,7 @@ export default function VendorPaymentDetailPage() {
       setApproval(payload.data ?? null);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to load approval state.";
-      setError(message || "Failed to load approval state.");
+      reportError(message || "Failed to load approval state.");
     } finally {
       setApprovalLoading(false);
     }
@@ -241,13 +269,13 @@ export default function VendorPaymentDetailPage() {
     const { data, error: loadError } = await getVendorPayment(paymentId);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load payment.");
+      reportError(loadError.message || "Failed to load payment.");
       return;
     }
 
     const parsed = vendorPaymentRowSchema.safeParse((data as VendorPaymentRow[] | null)?.[0]);
     if (!parsed.success) {
-      setError("Failed to parse payment data.");
+      reportError("Failed to parse payment data.");
       return;
     }
 
@@ -272,7 +300,7 @@ export default function VendorPaymentDetailPage() {
     );
 
     if (outstandingError) {
-      setError(outstandingError.message || "Failed to load outstanding invoices.");
+      reportError(outstandingError.message || "Failed to load outstanding invoices.");
       setIsAllocationsLoading(false);
       return;
     }
@@ -287,7 +315,7 @@ export default function VendorPaymentDetailPage() {
       .eq("is_void", false);
 
     if (allocationsError) {
-      setError(allocationsError.message || "Failed to load payment allocations.");
+      reportError(allocationsError.message || "Failed to load payment allocations.");
       setIsAllocationsLoading(false);
       return;
     }
@@ -390,7 +418,12 @@ export default function VendorPaymentDetailPage() {
 
   const handlePostBypass = async () => {
     if (!payment) return;
+    if (!canBypass && approvalState !== "approved") {
+      reportError("Approval required before posting this payment.");
+      return;
+    }
     setIsApproving(true);
+    setError(null);
     setToast(null);
     try {
       await apiPost(
@@ -401,8 +434,7 @@ export default function VendorPaymentDetailPage() {
       setToast({ type: "success", message: "Vendor payment approved and posted." });
       await loadPayment();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to approve payment.";
-      setToast({ type: "error", message });
+      reportError(e instanceof Error ? e.message : "Failed to approve payment.");
     } finally {
       setIsApproving(false);
     }
@@ -411,6 +443,7 @@ export default function VendorPaymentDetailPage() {
   const handleSubmit = async () => {
     if (!payment || !ctx?.companyId) return;
     setIsApproving(true);
+    setError(null);
     setToast(null);
     try {
       await apiPost(
@@ -426,8 +459,7 @@ export default function VendorPaymentDetailPage() {
       setToast({ type: "success", message: "Vendor payment submitted for approval." });
       await loadApproval(ctx.companyId, payment.id);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to submit payment.";
-      setToast({ type: "error", message });
+      reportError(e instanceof Error ? e.message : "Failed to submit payment.");
     } finally {
       setIsApproving(false);
     }
@@ -437,6 +469,7 @@ export default function VendorPaymentDetailPage() {
     if (!payment || !ctx?.companyId) return;
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setIsApproving(true);
+    setError(null);
     setToast(null);
     try {
       await apiPost(
@@ -452,8 +485,7 @@ export default function VendorPaymentDetailPage() {
       setToast({ type: "success", message: "Vendor payment approved and posted." });
       await loadPayment();
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to approve payment.";
-      setToast({ type: "error", message });
+      reportError(e instanceof Error ? e.message : "Failed to approve payment.");
     } finally {
       setIsApproving(false);
     }
@@ -463,6 +495,7 @@ export default function VendorPaymentDetailPage() {
     if (!payment || !ctx?.companyId) return;
     const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
     setIsApproving(true);
+    setError(null);
     setToast(null);
     try {
       await apiPost(
@@ -478,8 +511,7 @@ export default function VendorPaymentDetailPage() {
       setToast({ type: "success", message: "Vendor payment rejected." });
       await loadApproval(ctx.companyId, payment.id);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to reject payment.";
-      setToast({ type: "error", message });
+      reportError(e instanceof Error ? e.message : "Failed to reject payment.");
     } finally {
       setIsApproving(false);
     }
@@ -535,6 +567,28 @@ export default function VendorPaymentDetailPage() {
     setIsAllocationsSaving(false);
     await loadAllocations(payment);
   };
+
+  const errorActions = useMemo(() => {
+    if (!error) return [];
+    const actions: Array<{ label: string; onClick: () => void; variant?: "primary" | "secondary" }> = [];
+    if (
+      error.kind === "approval_required" &&
+      canWrite &&
+      payment?.id &&
+      approvalState !== "submitted" &&
+      approvalState !== "approved"
+    ) {
+      actions.push({ label: "Submit for approval", onClick: handleSubmit });
+    }
+    if (error.kind === "period_locked") {
+      actions.push({
+        label: "Request unlock",
+        onClick: () => router.push("/erp/finance/control/period-lock"),
+        variant: "secondary",
+      });
+    }
+    return actions;
+  }, [approvalState, canWrite, error, payment?.id, router, handleSubmit]);
 
   const handleUnmatch = async () => {
     if (!payment?.matched_bank_txn_id) return;
@@ -629,7 +683,11 @@ export default function VendorPaymentDetailPage() {
       <ErpShell activeModule="finance">
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Vendor Payment" />
-          <div style={cardStyle}>{error || "Payment not found."}</div>
+          {error ? (
+            <ErrorBanner message={error.message} actions={errorActions} />
+          ) : (
+            <div style={cardStyle}>Payment not found.</div>
+          )}
         </div>
       </ErpShell>
     );
@@ -652,7 +710,7 @@ export default function VendorPaymentDetailPage() {
                 Edit
               </button>
               {payment.status === "draft" && canWrite ? (
-                canBypass ? (
+                canBypass || approvalState === "approved" ? (
                   <button
                     type="button"
                     style={primaryButtonStyle}
@@ -703,6 +761,8 @@ export default function VendorPaymentDetailPage() {
           }
         />
 
+        {error ? <ErrorBanner message={error.message} actions={errorActions} /> : null}
+
         {toast && (
           <div style={{ ...cardStyle, borderColor: toast.type === "error" ? "#fecaca" : "#bbf7d0" }}>
             <strong>{toast.message}</strong>
@@ -741,7 +801,9 @@ export default function VendorPaymentDetailPage() {
             </div>
             <div>
               <p style={subtitleStyle}>Approval state</p>
-              <strong>{approvalLoading ? "Loading…" : approvalState}</strong>
+              <span style={approvalBadgeStyle(approvalLoading ? "draft" : approvalState)}>
+                {approvalLoading ? "loading" : approvalState}
+              </span>
             </div>
           </div>
           <div>

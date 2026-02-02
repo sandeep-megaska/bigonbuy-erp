@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
+import { canBypassMakerChecker } from "lib/erp/featureFlags";
+import { createUserClient, getBearerToken, getSupabaseEnv, getUserRoleKey } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
@@ -45,12 +46,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
-    const { data, error } = await userClient.rpc("erp_fin_month_close_finalize", {
+    const roleKey = await getUserRoleKey(userClient, userData.user.id);
+    const rpcPayload: Record<string, unknown> = {
       p_company_id: payload.companyId,
       p_fiscal_year: payload.fiscalYear,
       p_period_month: payload.periodMonth,
-      p_use_maker_checker: false,
-    });
+    };
+    if (canBypassMakerChecker(roleKey)) {
+      rpcPayload.p_use_maker_checker = false;
+    }
+
+    const { data, error } = await userClient.rpc("erp_fin_month_close_finalize", rpcPayload);
 
     if (error) {
       return res.status(400).json({

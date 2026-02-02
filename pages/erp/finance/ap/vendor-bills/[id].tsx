@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../../components/erp/ErrorBanner";
 import {
   cardStyle,
   inputStyle,
@@ -14,7 +15,8 @@ import {
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
 import { apiGet, apiPost } from "../../../../../lib/erp/apiFetch";
-import { isMakerCheckerBypassAllowed } from "../../../../../lib/erp/featureFlags";
+import { canBypassMakerChecker } from "../../../../../lib/erp/featureFlags";
+import { humanizeApiError, type HumanizedError } from "../../../../../lib/erp/errors";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import {
   vendorAdvanceAllocate,
@@ -145,6 +147,28 @@ const newLine = (lineNo: number): BillLine => ({
   cess: 0,
 });
 
+const approvalBadgeStyle = (state: string) => {
+  const palette: Record<string, { bg: string; text: string }> = {
+    draft: { bg: "#e5e7eb", text: "#111827" },
+    submitted: { bg: "#fde68a", text: "#92400e" },
+    approved: { bg: "#bbf7d0", text: "#166534" },
+    rejected: { bg: "#fecaca", text: "#991b1b" },
+  };
+  const colors = palette[state] ?? palette.draft;
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "4px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    background: colors.bg,
+    color: colors.text,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.04em",
+  };
+};
+
 export default function VendorBillDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -153,7 +177,7 @@ export default function VendorBillDetailPage() {
 
   const [ctx, setCtx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<HumanizedError | null>(null);
   const [notice, setNotice] = useState("");
   const [header, setHeader] = useState<BillHeader>(emptyHeader);
   const [lines, setLines] = useState<BillLine[]>([newLine(1)]);
@@ -188,7 +212,7 @@ export default function VendorBillDetailPage() {
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx?.roleKey]);
 
-  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
 
   const approvalState = approval?.state ?? "draft";
 
@@ -204,7 +228,7 @@ export default function VendorBillDetailPage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(context.membershipError || "No active company membership found for this user.");
         setLoading(false);
         return;
       }
@@ -237,7 +261,7 @@ export default function VendorBillDetailPage() {
       .order("legal_name");
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendors.");
+      reportError(loadError.message || "Failed to load vendors.");
       return;
     }
 
@@ -253,7 +277,7 @@ export default function VendorBillDetailPage() {
       .limit(200);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load variants.");
+      reportError(loadError.message || "Failed to load variants.");
       return;
     }
 
@@ -267,7 +291,7 @@ export default function VendorBillDetailPage() {
     });
 
     if (loadError) {
-      setError(loadError.message || "Failed to load payment accounts.");
+      reportError(loadError.message || "Failed to load payment accounts.");
       return;
     }
 
@@ -287,7 +311,7 @@ export default function VendorBillDetailPage() {
     ]);
 
     if (poRes.error) {
-      setError(poRes.error.message || "Failed to load purchase orders.");
+      reportError(poRes.error.message || "Failed to load purchase orders.");
     } else {
       setPurchaseOrders((poRes.data || []) as PurchaseOrderOption[]);
     }
@@ -303,7 +327,7 @@ export default function VendorBillDetailPage() {
           .order("received_at", { ascending: false });
 
         if (grnError) {
-          setError(grnError.message || "Failed to load GRNs.");
+          reportError(grnError.message || "Failed to load GRNs.");
         } else {
           setGrns((data || []) as GrnOption[]);
         }
@@ -313,7 +337,7 @@ export default function VendorBillDetailPage() {
     }
 
     if (advancesRes.error) {
-      setError(advancesRes.error.message || "Failed to load advances.");
+      reportError(advancesRes.error.message || "Failed to load advances.");
     } else {
       setAdvances((advancesRes.data || []) as AdvanceRow[]);
     }
@@ -332,6 +356,10 @@ export default function VendorBillDetailPage() {
     return headers;
   };
 
+  const reportError = (err: unknown) => {
+    setError(humanizeApiError(err));
+  };
+
   const loadApproval = async (companyId: string, entityId: string) => {
     if (!ctx?.session?.access_token) return;
     setApprovalLoading(true);
@@ -348,7 +376,7 @@ export default function VendorBillDetailPage() {
       setApproval(payload.data ?? null);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to load approval state.";
-      setError(message || "Failed to load approval state.");
+      reportError(message || "Failed to load approval state.");
     } finally {
       setApprovalLoading(false);
     }
@@ -358,7 +386,7 @@ export default function VendorBillDetailPage() {
     const { data, error: loadError } = await vendorBillDetail(targetId);
 
     if (loadError) {
-      setError(loadError.message || "Failed to load vendor bill.");
+      reportError(loadError.message || "Failed to load vendor bill.");
       return;
     }
 
@@ -415,7 +443,7 @@ export default function VendorBillDetailPage() {
     if (!vendorId) return;
     const { data, error: loadError } = await vendorTdsProfileLatest(vendorId, forDate);
     if (loadError) {
-      setError(loadError.message || "Failed to load TDS profile.");
+      reportError(loadError.message || "Failed to load TDS profile.");
       return;
     }
 
@@ -431,7 +459,7 @@ export default function VendorBillDetailPage() {
   const loadAllocations = async (targetId: string) => {
     const { data, error: loadError } = await vendorAdvanceAllocations(targetId);
     if (loadError) {
-      setError(loadError.message || "Failed to load advance allocations.");
+      reportError(loadError.message || "Failed to load advance allocations.");
       return;
     }
 
@@ -465,7 +493,7 @@ export default function VendorBillDetailPage() {
     if (line.id) {
       const { error: voidError } = await vendorBillLineVoid(line.id, "Removed from bill");
       if (voidError) {
-        setError(voidError.message || "Failed to void line.");
+        reportError(voidError.message || "Failed to void line.");
         return;
       }
     }
@@ -474,15 +502,15 @@ export default function VendorBillDetailPage() {
 
   const handleSave = async () => {
     if (!header.vendor_id) {
-      setError("Vendor is required.");
+      reportError("Vendor is required.");
       return;
     }
     if (!header.bill_no) {
-      setError("Bill number is required.");
+      reportError("Bill number is required.");
       return;
     }
 
-    setError("");
+    setError(null);
     setNotice("");
     const payload = {
       id: header.id,
@@ -501,7 +529,7 @@ export default function VendorBillDetailPage() {
 
     const { data, error: saveError } = await vendorBillUpsert(payload);
     if (saveError) {
-      setError(saveError.message || "Failed to save vendor bill.");
+      reportError(saveError.message || "Failed to save vendor bill.");
       return;
     }
 
@@ -528,7 +556,7 @@ export default function VendorBillDetailPage() {
 
       const { error: lineError } = await vendorBillLineUpsert(linePayload);
       if (lineError) {
-        setError(lineError.message || "Failed to save line item.");
+        reportError(lineError.message || "Failed to save line item.");
         return;
       }
     }
@@ -545,7 +573,7 @@ export default function VendorBillDetailPage() {
     if (!header.id) return;
     const { data, error: previewError } = await vendorBillPreview(header.id);
     if (previewError) {
-      setError(previewError.message || "Failed to preview posting.");
+      reportError(previewError.message || "Failed to preview posting.");
       return;
     }
     setPreview(data);
@@ -553,7 +581,11 @@ export default function VendorBillDetailPage() {
 
   const handlePost = async () => {
     if (!header.id) return;
-    setError("");
+    if (!canBypass && approvalState !== "approved") {
+      reportError("Approval required before posting this vendor bill.");
+      return;
+    }
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -566,13 +598,13 @@ export default function VendorBillDetailPage() {
       await handlePreview();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to post vendor bill.";
-      setError(message || "Failed to post vendor bill.");
+      reportError(message || "Failed to post vendor bill.");
     }
   };
 
   const handleSubmitForApproval = async () => {
     if (!header.id || !ctx?.companyId) return;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -589,14 +621,14 @@ export default function VendorBillDetailPage() {
       await loadApproval(ctx.companyId, header.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to submit vendor bill.";
-      setError(message || "Failed to submit vendor bill.");
+      reportError(message || "Failed to submit vendor bill.");
     }
   };
 
   const handleApprove = async () => {
     if (!header.id || !ctx?.companyId) return;
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -614,14 +646,14 @@ export default function VendorBillDetailPage() {
       await handlePreview();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to approve vendor bill.";
-      setError(message || "Failed to approve vendor bill.");
+      reportError(message || "Failed to approve vendor bill.");
     }
   };
 
   const handleReject = async () => {
     if (!header.id || !ctx?.companyId) return;
     const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -638,7 +670,7 @@ export default function VendorBillDetailPage() {
       await loadApproval(ctx.companyId, header.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to reject vendor bill.";
-      setError(message || "Failed to reject vendor bill.");
+      reportError(message || "Failed to reject vendor bill.");
     }
   };
 
@@ -648,7 +680,7 @@ export default function VendorBillDetailPage() {
     if (!amount) return;
     const { error: allocateError } = await vendorAdvanceAllocate(header.id, advanceId, amount);
     if (allocateError) {
-      setError(allocateError.message || "Failed to allocate advance.");
+      reportError(allocateError.message || "Failed to allocate advance.");
       return;
     }
     setAllocationAmounts((prev) => ({ ...prev, [advanceId]: "" }));
@@ -657,11 +689,11 @@ export default function VendorBillDetailPage() {
 
   const handleCreateAdvance = async () => {
     if (!header.vendor_id) {
-      setError("Select vendor before creating advance.");
+      reportError("Select vendor before creating advance.");
       return;
     }
     if (!advanceAmount || !advanceAccountId) {
-      setError("Advance amount and payment account are required.");
+      reportError("Advance amount and payment account are required.");
       return;
     }
 
@@ -676,7 +708,7 @@ export default function VendorBillDetailPage() {
     });
 
     if (createError) {
-      setError(createError.message || "Failed to create advance.");
+      reportError(createError.message || "Failed to create advance.");
       return;
     }
 
@@ -691,7 +723,7 @@ export default function VendorBillDetailPage() {
         setNotice("Vendor advance posted.");
       } catch (e) {
         const message = e instanceof Error ? e.message : "Failed to post advance.";
-        setError(message || "Failed to post advance.");
+        reportError(message || "Failed to post advance.");
         return;
       }
     } else if (ctx?.companyId) {
@@ -709,7 +741,7 @@ export default function VendorBillDetailPage() {
         setNotice("Vendor advance submitted for approval.");
       } catch (e) {
         const message = e instanceof Error ? e.message : "Failed to submit advance.";
-        setError(message || "Failed to submit advance.");
+        reportError(message || "Failed to submit advance.");
         return;
       }
     }
@@ -730,6 +762,28 @@ export default function VendorBillDetailPage() {
     return map;
   }, [advances, allocations]);
 
+  const errorActions = useMemo(() => {
+    if (!error) return [];
+    const actions: Array<{ label: string; onClick: () => void; variant?: "primary" | "secondary" }> = [];
+    if (
+      error.kind === "approval_required" &&
+      canWrite &&
+      header.id &&
+      approvalState !== "submitted" &&
+      approvalState !== "approved"
+    ) {
+      actions.push({ label: "Submit for approval", onClick: handleSubmitForApproval });
+    }
+    if (error.kind === "period_locked") {
+      actions.push({
+        label: "Request unlock",
+        onClick: () => router.push("/erp/finance/control/period-lock"),
+        variant: "secondary",
+      });
+    }
+    return actions;
+  }, [approvalState, canWrite, error, header.id, router, handleSubmitForApproval]);
+
   return (
     <ErpShell activeModule="finance">
       <div style={pageContainerStyle}>
@@ -744,11 +798,15 @@ export default function VendorBillDetailPage() {
           }
         />
 
-        {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {error ? <ErrorBanner message={error.message} actions={errorActions} /> : null}
         {notice ? <div style={{ ...cardStyle, borderColor: "#86efac", color: "#166534" }}>{notice}</div> : null}
 
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Bill Header</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#6b7280" }}>Approval</span>
+            <span style={approvalBadgeStyle(approvalState)}>{approvalState}</span>
+          </div>
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             <label style={{ display: "grid", gap: 6 }}>
               Vendor
@@ -1143,7 +1201,7 @@ export default function VendorBillDetailPage() {
             <button type="button" style={secondaryButtonStyle} onClick={handlePreview} disabled={!header.id}>
               Preview Journal
             </button>
-            {canBypass ? (
+            {canBypass || approvalState === "approved" ? (
               <button type="button" style={primaryButtonStyle} onClick={handlePost} disabled={!header.id}>
                 Post Bill
               </button>

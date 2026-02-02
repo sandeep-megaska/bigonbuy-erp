@@ -3,13 +3,15 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
   pageContainerStyle,
   secondaryButtonStyle,
   subtitleStyle,
 } from "../../../../components/erp/uiStyles";
 import { apiGet, apiPost } from "../../../../lib/erp/apiFetch";
-import { isMakerCheckerBypassAllowed } from "../../../../lib/erp/featureFlags";
+import { canBypassMakerChecker } from "../../../../lib/erp/featureFlags";
+import { humanizeApiError, type HumanizedError } from "../../../../lib/erp/errors";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
@@ -107,7 +109,7 @@ export default function MonthClosePage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<HumanizedError | null>(null);
   const [notice, setNotice] = useState("");
   const [fiscalYear, setFiscalYear] = useState(getFiscalYearLabel());
   const [periodMonth, setPeriodMonth] = useState(getFiscalPeriodMonth());
@@ -123,7 +125,7 @@ export default function MonthClosePage() {
     return ["owner", "admin", "finance"].includes(ctx.roleKey);
   }, [ctx]);
 
-  const canBypass = useMemo(() => isMakerCheckerBypassAllowed(ctx?.roleKey), [ctx?.roleKey]);
+  const canBypass = useMemo(() => canBypassMakerChecker(ctx?.roleKey), [ctx?.roleKey]);
 
   useEffect(() => {
     let active = true;
@@ -136,7 +138,7 @@ export default function MonthClosePage() {
 
       setCtx(context);
       if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found for this user.");
+        reportError(context.membershipError || "No active company membership found for this user.");
       }
       setLoading(false);
     })();
@@ -173,6 +175,10 @@ export default function MonthClosePage() {
     return headers;
   };
 
+  const reportError = (err: unknown) => {
+    setError(humanizeApiError(err));
+  };
+
   const loadApproval = async (companyId: string, entityId: string) => {
     if (!ctx?.session?.access_token) return;
     setApprovalLoading(true);
@@ -189,7 +195,7 @@ export default function MonthClosePage() {
       setApproval(payload.data ?? null);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load approval status.";
-      setError(message || "Unable to load approval status.");
+      reportError(message || "Unable to load approval status.");
     } finally {
       setApprovalLoading(false);
     }
@@ -208,7 +214,7 @@ export default function MonthClosePage() {
   const refreshChecks = async () => {
     if (!ctx?.companyId) return;
     setLoadingChecks(true);
-    setError("");
+    setError(null);
     setNotice("");
     try {
       if (canWrite) {
@@ -233,7 +239,7 @@ export default function MonthClosePage() {
       await loadLockStatus(ctx.companyId, fiscalYear, periodMonth);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to refresh checks.";
-      setError(message || "Unable to refresh checks.");
+      reportError(message || "Unable to refresh checks.");
     } finally {
       setLoadingChecks(false);
     }
@@ -242,10 +248,18 @@ export default function MonthClosePage() {
   const handleFinalize = async () => {
     if (!ctx?.companyId) return;
     if (!canWrite) {
-      setError("Only finance admins can finalize month close.");
+      reportError("Only finance admins can finalize month close.");
       return;
     }
-    setError("");
+    if (!canBypass && !closeRecord?.id) {
+      reportError("Run the checks first to create a close record before submitting for approval.");
+      return;
+    }
+    if (!canBypass && approval?.state !== "approved") {
+      await handleSubmit();
+      return;
+    }
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -261,17 +275,53 @@ export default function MonthClosePage() {
       await refreshChecks();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to finalize month close.";
-      setError(message || "Unable to finalize month close.");
+      reportError(message || "Unable to finalize month close.");
+    }
+  };
+
+  const handleApproveAndFinalize = async () => {
+    if (!ctx?.companyId || !closeRecord?.id) return;
+    if (!canWrite) {
+      reportError("Only finance admins can approve month close.");
+      return;
+    }
+    const comment = window.prompt("Approval note (optional):")?.trim() || null;
+    setError(null);
+    setNotice("");
+    try {
+      await apiPost(
+        "/api/finance/approvals/approve",
+        {
+          companyId: ctx.companyId,
+          entityType: "month_close",
+          entityId: closeRecord.id,
+          comment,
+        },
+        { headers: getAuthHeaders() }
+      );
+      await apiPost(
+        "/api/finance/control/month-close/finalize",
+        {
+          companyId: ctx.companyId,
+          fiscalYear,
+          periodMonth,
+        },
+        { headers: getAuthHeaders() }
+      );
+      setNotice("Month close approved and finalized.");
+      await refreshChecks();
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : "Unable to approve and finalize month close.");
     }
   };
 
   const handleSubmit = async () => {
     if (!ctx?.companyId || !closeRecord?.id) return;
     if (!canWrite) {
-      setError("Only finance admins can submit month close.");
+      reportError("Only finance admins can submit month close.");
       return;
     }
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -288,18 +338,18 @@ export default function MonthClosePage() {
       await loadApproval(ctx.companyId, closeRecord.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to submit month close.";
-      setError(message || "Unable to submit month close.");
+      reportError(message || "Unable to submit month close.");
     }
   };
 
   const handleApprove = async () => {
     if (!ctx?.companyId || !closeRecord?.id) return;
     if (!canWrite) {
-      setError("Only finance admins can approve month close.");
+      reportError("Only finance admins can approve month close.");
       return;
     }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -316,18 +366,18 @@ export default function MonthClosePage() {
       await refreshChecks();
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to approve month close.";
-      setError(message || "Unable to approve month close.");
+      reportError(message || "Unable to approve month close.");
     }
   };
 
   const handleReject = async () => {
     if (!ctx?.companyId || !closeRecord?.id) return;
     if (!canWrite) {
-      setError("Only finance admins can reject month close.");
+      reportError("Only finance admins can reject month close.");
       return;
     }
     const comment = window.prompt("Rejection reason (optional):")?.trim() || null;
-    setError("");
+    setError(null);
     setNotice("");
     try {
       await apiPost(
@@ -344,9 +394,25 @@ export default function MonthClosePage() {
       await loadApproval(ctx.companyId, closeRecord.id);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to reject month close.";
-      setError(message || "Unable to reject month close.");
+      reportError(message || "Unable to reject month close.");
     }
   };
+
+  const errorActions = useMemo(() => {
+    if (!error) return [];
+    const actions: Array<{ label: string; onClick: () => void; variant?: "primary" | "secondary" }> = [];
+    if (error.kind === "approval_required" && canWrite && closeRecord?.id) {
+      actions.push({ label: "Submit for approval", onClick: handleSubmit });
+    }
+    if (error.kind === "period_locked") {
+      actions.push({
+        label: "Request unlock",
+        onClick: () => router.push("/erp/finance/control/period-lock"),
+        variant: "secondary",
+      });
+    }
+    return actions;
+  }, [canWrite, closeRecord?.id, error, router, handleSubmit]);
 
   useEffect(() => {
     if (!ctx?.companyId) return;
@@ -373,7 +439,11 @@ export default function MonthClosePage() {
           <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#111827" }}>
             Finance Control → Month Close
           </h2>
-          <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
+          {error ? (
+            <ErrorBanner message={error.message} actions={errorActions} />
+          ) : (
+            <p style={{ color: "#b91c1c" }}>Unable to load company context.</p>
+          )}
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
       </ErpShell>
@@ -447,36 +517,52 @@ export default function MonthClosePage() {
             >
               Finalize Close
             </button>
-          ) : (
+          ) : approvalState === "approved" ? (
+            <button
+              type="button"
+              onClick={handleFinalize}
+              style={{
+                ...secondaryButtonStyle,
+                backgroundColor: canWrite && allOk ? "#111827" : "#d1d5db",
+                color: canWrite && allOk ? "#fff" : "#6b7280",
+                borderColor: "transparent",
+              }}
+              disabled={!canWrite || !allOk || status === "closed"}
+            >
+              Finalize Close
+            </button>
+          ) : approvalState === "submitted" ? (
             <>
               <button
                 type="button"
-                onClick={handleSubmit}
-                style={{
-                  ...secondaryButtonStyle,
-                  backgroundColor: canWrite && allOk ? "#111827" : "#d1d5db",
-                  color: canWrite && allOk ? "#fff" : "#6b7280",
-                  borderColor: "transparent",
-                }}
-                disabled={!canWrite || !allOk || approvalState === "submitted" || approvalState === "approved"}
+                onClick={handleApproveAndFinalize}
+                style={secondaryButtonStyle}
+                disabled={!canWrite || !allOk}
               >
-                Submit for Approval
+                Approve &amp; Finalize
               </button>
-              {canWrite && approvalState === "submitted" ? (
-                <>
-                  <button type="button" onClick={handleApprove} style={secondaryButtonStyle}>
-                    Approve
-                  </button>
-                  <button type="button" onClick={handleReject} style={secondaryButtonStyle}>
-                    Reject
-                  </button>
-                </>
-              ) : null}
+              <button type="button" onClick={handleReject} style={secondaryButtonStyle} disabled={!canWrite}>
+                Reject
+              </button>
             </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              style={{
+                ...secondaryButtonStyle,
+                backgroundColor: canWrite && allOk ? "#111827" : "#d1d5db",
+                color: canWrite && allOk ? "#fff" : "#6b7280",
+                borderColor: "transparent",
+              }}
+              disabled={!canWrite || !allOk}
+            >
+              Submit for Approval
+            </button>
           )}
         </div>
 
-        {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
+        {error ? <ErrorBanner message={error.message} actions={errorActions} /> : null}
         {notice && <p style={{ color: "#16a34a", marginTop: 12 }}>{notice}</p>}
 
         <div style={{ marginTop: 16, ...cardStyle }}>

@@ -60,6 +60,22 @@ export function createServiceRoleClient(
   });
 }
 
+export async function getUserRoleKey(userClient: SupabaseClient, userId: string): Promise<string | null> {
+  const { data, error } = await userClient
+    .from("erp_company_users")
+    .select("role_key, is_active")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.role_key ?? null;
+}
+
 export function getSiteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "https://erp.bigonbuy.com";
 }
