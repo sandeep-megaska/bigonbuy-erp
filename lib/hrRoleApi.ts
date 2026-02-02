@@ -78,7 +78,6 @@ export async function authorizeHrAccess({
   anonKey,
   accessToken,
 }: AuthorizeParams): Promise<AuthorizeResult> {
-
   if (!accessToken) {
     return { ok: false, status: 401, error: "Missing Authorization Bearer token" };
   }
@@ -87,7 +86,7 @@ export async function authorizeHrAccess({
 
   const { data: userData, error: userErr } = await anonClient.auth.getUser();
   if (userErr || !userData?.user) {
-    return {  ok: false, status: 401, error: "Invalid session" };
+    return { ok: false, status: 401, error: "Invalid session" };
   }
 
   const { data: membership, error: memberErr } = await anonClient
@@ -98,17 +97,21 @@ export async function authorizeHrAccess({
     .limit(1)
     .maybeSingle();
 
-  if (memberErr) return { status: 403, error: memberErr.message };
-  if (!membership) return { status: 403, error: "No active company membership found" };
-  if (!AUTHORIZED_ROLES.includes(membership.role_key)) return { status: 403, error: "Not authorized" };
+  if (memberErr) return { ok: false, status: 403, error: memberErr.message };
+  if (!membership) return { ok: false, status: 403, error: "No active company membership found" };
+  if (!AUTHORIZED_ROLES.includes(membership.role_key as any)) {
+    return { ok: false, status: 403, error: "Not authorized" };
+  }
 
   return {
+    ok: true,
     status: 200,
     companyId: membership.company_id,
     roleKey: membership.role_key,
     userId: userData.user.id,
   };
 }
+
 
 export async function getRoleUsageCount(
   adminClient: SupabaseClient,
