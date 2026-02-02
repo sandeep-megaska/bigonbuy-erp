@@ -37,7 +37,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (missing.length) {
     return res.status(500).json({ ok: false, error: `Missing Supabase env vars: ${missing.join(", ")}` });
   }
+const supabaseUrlValue = typeof supabaseUrl === "string" ? supabaseUrl.trim() : "";
+const anonKeyValue = typeof anonKey === "string" ? anonKey.trim() : "";
+const serviceKeyValue = typeof serviceKey === "string" ? serviceKey.trim() : "";
 
+if (!supabaseUrlValue || !anonKeyValue || !serviceKeyValue || missing.length > 0) {
+  return res.status(500).json({
+    ok: false,
+    error:
+      "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+  });
+}
   const accessTokenRaw = getAccessToken(req);
 const accessToken = typeof accessTokenRaw === "string" ? accessTokenRaw.trim() : "";
 
