@@ -43,7 +43,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!supabaseUrlValue || !anonKeyValue || !serviceKeyValue || (missing?.length ?? 0) > 0) {
     return res.status(500).json({
       ok: false,
-      error: `Missing Supabase env vars: ${(missing && missing.length ? missing.join(", ") : "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY")}`,
+      error: `Missing Supabase env vars: ${
+        missing && missing.length
+          ? missing.join(", ")
+          : "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
+      }`,
     });
   }
 
@@ -52,19 +56,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: "Authorization token is required" });
   }
 
-  // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
- const authz = await authorizeHrAccess({
-  supabaseUrl: supabaseUrlValue,
-  anonKey: anonKeyValue,
-  accessToken,
-});
+  const authz = await authorizeHrAccess({
+    supabaseUrl: supabaseUrlValue,
+    anonKey: anonKeyValue,
+    accessToken,
+  });
 
-if (!authz.ok) {
-  return res.status(authz.status).json({ ok: false, error: authz.error });
-}
+  if (!authz.ok) {
+    return res.status(authz.status).json({ ok: false, error: authz.error });
+  }
 
-
-  // ✅ IMPORTANT: use the *Value vars* (guaranteed strings)
   const adminClient = createServiceClient(supabaseUrlValue, serviceKeyValue);
 
   if (req.method === "GET") {
