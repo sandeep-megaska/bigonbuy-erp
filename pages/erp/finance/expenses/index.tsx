@@ -111,6 +111,7 @@ export default function ExpensesListPage() {
   const [postingFilter, setPostingFilter] = useState<"all" | "posted" | "missing">("all");
 
   const [expenses, setExpenses] = useState<ExpenseListRow[]>([]);
+  const [postingLookup, setPostingLookup] = useState<Record<string, { financeDocId: string }>>({});
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [postingSummary, setPostingSummary] = useState<ExpensePostingSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -172,7 +173,7 @@ export default function ExpensesListPage() {
     }
     if (postingFilter !== "all") {
       rows = rows.filter((row) => {
-        const posted = row.finance_posted ?? Boolean(row.finance_journal_id);
+        const posted = Boolean(postingLookup[row.id]?.financeDocId);
         const isCapitalized =
           Boolean(row.is_capitalizable) ||
           ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
@@ -182,7 +183,7 @@ export default function ExpensesListPage() {
       });
     }
     return rows;
-  }, [expenses, groupKey, postingFilter]);
+  }, [expenses, groupKey, postingFilter, postingLookup]);
 
   const totalAmount = useMemo(
     () => filteredExpenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
@@ -216,6 +217,33 @@ export default function ExpensesListPage() {
     setChannels(parsedChannels.data);
     setWarehouses(parsedWarehouses.data);
     return true;
+  };
+
+  const loadPostingRows = async (companyId: string, expenseIds: string[]) => {
+    if (!companyId || expenseIds.length === 0) {
+      setPostingLookup({});
+      return;
+    }
+    const { data, error: postingError } = await supabase
+      .from("erp_expense_finance_posts")
+      .select("expense_id, finance_doc_id")
+      .eq("company_id", companyId)
+      .eq("status", "posted")
+      .in("expense_id", expenseIds);
+
+    if (postingError) {
+      console.error("Failed to load expense posting status.", postingError);
+      setPostingLookup({});
+      return;
+    }
+
+    const nextLookup: Record<string, { financeDocId: string }> = {};
+    (data ?? []).forEach((row) => {
+      if (row?.expense_id && row?.finance_doc_id) {
+        nextLookup[row.expense_id] = { financeDocId: row.finance_doc_id };
+      }
+    });
+    setPostingLookup(nextLookup);
   };
 
   const loadExpenses = async (overrides?: {
@@ -262,6 +290,15 @@ export default function ExpensesListPage() {
       setError("Failed to parse expenses list.");
       setIsLoadingList(false);
       return;
+    }
+
+    if (ctx?.companyId) {
+      await loadPostingRows(
+        ctx.companyId,
+        parsed.data.map((row) => row.id)
+      );
+    } else {
+      setPostingLookup({});
     }
 
     setExpenses(parsed.data);
@@ -563,13 +600,13 @@ export default function ExpensesListPage() {
                       <td style={tableCellStyle}>{row.reference || "—"}</td>
                       <td style={tableCellStyle}>
                         {(() => {
-                          const posted = row.finance_posted ?? Boolean(row.finance_journal_id);
+                          const postingInfo = postingLookup[row.id];
+                          const posted = Boolean(postingInfo?.financeDocId);
                           const isCapitalized =
                             Boolean(row.is_capitalizable) ||
                             ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
                             Boolean(row.applied_to_inventory_at);
-                          const journalLink =
-                            row.finance_post_link ?? (row.finance_journal_id ? `/erp/finance/journals/${row.finance_journal_id}` : null);
+                          const journalLink = postingInfo?.financeDocId ? `/erp/finance/journals/${postingInfo.financeDocId}` : null;
                           if (isCapitalized) {
                             return (
                               <span style={{ ...badgeStyle, backgroundColor: "#fffbeb", color: "#b45309" }}>
