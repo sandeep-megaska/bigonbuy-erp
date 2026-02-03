@@ -15,7 +15,14 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { createCsvBlob, triggerDownload } from "../../../../components/inventory/csvUtils";
-import { expenseCategorySchema, expenseListResponseSchema, type ExpenseCategory, type ExpenseListRow } from "../../../../lib/erp/expenses";
+import {
+  expenseCategorySchema,
+  expenseListResponseSchema,
+  expensePostingSummarySchema,
+  type ExpenseCategory,
+  type ExpenseListRow,
+  type ExpensePostingSummary,
+} from "../../../../lib/erp/expenses";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { supabase } from "../../../../lib/supabaseClient";
 
@@ -75,6 +82,8 @@ export default function ExpensesListPage() {
 
   const [expenses, setExpenses] = useState<ExpenseListRow[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(false);
+  const [postingSummary, setPostingSummary] = useState<ExpensePostingSummary | null>(null);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -196,6 +205,8 @@ export default function ExpensesListPage() {
       return;
     }
 
+    await loadPostingSummary({ fromDate: effectiveFrom, toDate: effectiveTo });
+
     const parsed = expenseListResponseSchema.safeParse(data);
     if (!parsed.success) {
       setError("Failed to parse expenses list.");
@@ -205,6 +216,32 @@ export default function ExpensesListPage() {
 
     setExpenses(parsed.data);
     setIsLoadingList(false);
+  };
+
+  const loadPostingSummary = async (overrides?: { fromDate?: string; toDate?: string }) => {
+    setIsLoadingSummary(true);
+    const effectiveFrom = overrides?.fromDate ?? fromDate;
+    const effectiveTo = overrides?.toDate ?? toDate;
+    const { data, error: summaryError } = await supabase.rpc("erp_expense_finance_posting_summary", {
+      p_from: effectiveFrom,
+      p_to: effectiveTo,
+    });
+
+    if (summaryError) {
+      setPostingSummary(null);
+      setIsLoadingSummary(false);
+      return;
+    }
+
+    const parsed = expensePostingSummarySchema.safeParse(data);
+    if (!parsed.success) {
+      setPostingSummary(null);
+      setIsLoadingSummary(false);
+      return;
+    }
+
+    setPostingSummary(parsed.data);
+    setIsLoadingSummary(false);
   };
 
   const handleExport = () => {
@@ -375,6 +412,33 @@ export default function ExpensesListPage() {
               {filteredExpenses.length} records · Total ₹{totalAmount.toFixed(2)}
             </span>
           </div>
+        </div>
+
+        <div style={cardStyle}>
+          <div style={{ marginBottom: 12, color: "#6b7280" }}>Finance posting coverage</div>
+          {isLoadingSummary ? (
+            <div style={{ color: "#6b7280" }}>Loading posting summary…</div>
+          ) : postingSummary ? (
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Total expenses</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.total_count}</div>
+                <div style={{ color: "#6b7280" }}>₹{postingSummary.total_amount.toFixed(2)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Posted to finance</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.posted_count}</div>
+                <div style={{ color: "#6b7280" }}>₹{postingSummary.posted_amount.toFixed(2)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Missing journals</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.missing_count}</div>
+                <div style={{ color: "#6b7280" }}>₹{postingSummary.missing_amount.toFixed(2)}</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: "#6b7280" }}>Posting summary unavailable for the selected date range.</div>
+          )}
         </div>
 
         <div style={cardStyle}>

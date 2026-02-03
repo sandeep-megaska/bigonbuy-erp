@@ -63,6 +63,17 @@ export const expenseListRowSchema = z.object({
 export const expenseListResponseSchema = z.array(expenseListRowSchema);
 export type ExpenseListRow = z.infer<typeof expenseListRowSchema>;
 
+export const expensePostingSummarySchema = z.object({
+  total_count: z.coerce.number(),
+  posted_count: z.coerce.number(),
+  missing_count: z.coerce.number(),
+  total_amount: z.coerce.number(),
+  posted_amount: z.coerce.number(),
+  missing_amount: z.coerce.number(),
+});
+
+export type ExpensePostingSummary = z.infer<typeof expensePostingSummarySchema>;
+
 export const expenseImportRowSchema = z.object({
   expense_date: z.string(),
   amount: z.string(),
