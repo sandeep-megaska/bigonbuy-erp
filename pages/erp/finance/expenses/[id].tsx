@@ -96,8 +96,24 @@ export default function ExpenseEditPage() {
 
   const isCapitalized = useMemo(() => {
     const appliesTo = initialValues?.applies_to_type ?? "";
-    return Boolean(initialValues?.is_capitalizable) || ["grn", "stock_transfer"].includes(appliesTo) || Boolean(appliedAt);
-  }, [initialValues?.applies_to_type, initialValues?.is_capitalizable, appliedAt]);
+    return (
+      Boolean(initialValues?.is_capitalizable) ||
+      ["grn", "stock_transfer"].includes(appliesTo) ||
+      Boolean(appliedAt) ||
+      Boolean(appliedRef)
+    );
+  }, [initialValues?.applies_to_type, initialValues?.is_capitalizable, appliedAt, appliedRef]);
+
+  const isPostable = useMemo(() => {
+    const appliesTo = initialValues?.applies_to_type ?? "";
+    const blockedTypes = ["grn", "stock_transfer", "ap_bill", "vendor_bill", "ap_vendor_bill"];
+    return !(
+      Boolean(initialValues?.is_capitalizable) ||
+      blockedTypes.includes(appliesTo) ||
+      Boolean(appliedAt) ||
+      Boolean(appliedRef)
+    );
+  }, [initialValues?.applies_to_type, initialValues?.is_capitalizable, appliedAt, appliedRef]);
 
   const normalizeFinanceError = (message: string) => {
     const lower = message.toLowerCase();
@@ -517,7 +533,7 @@ export default function ExpenseEditPage() {
               ) : (
                 <div style={{ color: "#6b7280" }}>
                   Not posted yet.
-                  {isCapitalized ? (
+                  {!isPostable ? (
                     <div style={{ marginTop: 6, color: "#b45309" }}>
                       This expense is capitalized / inventory-linked and must be posted via landed-cost (GRN) workflow.
                     </div>
@@ -525,18 +541,20 @@ export default function ExpenseEditPage() {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={handleFinancePost}
-              disabled={!canWrite || financePosting || Boolean(financePost)}
-              style={{
-                ...primaryButtonStyle,
-                opacity: !canWrite || financePosting || Boolean(financePost) ? 0.6 : 1,
-                cursor: !canWrite || financePosting || Boolean(financePost) ? "not-allowed" : "pointer",
-              }}
-            >
-              {financePosting ? "Posting…" : financePost ? "Posted" : "Post to Finance"}
-            </button>
+            {isPostable ? (
+              <button
+                type="button"
+                onClick={handleFinancePost}
+                disabled={!canWrite || financePosting || Boolean(financePost)}
+                style={{
+                  ...primaryButtonStyle,
+                  opacity: !canWrite || financePosting || Boolean(financePost) ? 0.6 : 1,
+                  cursor: !canWrite || financePosting || Boolean(financePost) ? "not-allowed" : "pointer",
+                }}
+              >
+                {financePosting ? "Posting…" : financePost ? "Posted" : "Post to Finance"}
+              </button>
+            ) : null}
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
