@@ -1,24 +1,46 @@
-export type EmployeeAccessContext = {
-  permissionKeys: string[];
-  moduleKeys: string[];
+export type EmployeeModuleLink = {
+  id: string;
+  title: string;
+  href: string;
+  description: string;
 };
 
-export async function fetchEmployeeAccess(): Promise<EmployeeAccessContext | null> {
-  const res = await fetch("/api/erp/employee/access");
+export type EmployeeModule = {
+  moduleKey: string;
+  title: string;
+  links: EmployeeModuleLink[];
+};
+
+export type EmployeeModulesContext = {
+  permissions: { permKey: string; moduleKey: string }[];
+  modules: EmployeeModule[];
+};
+
+export async function fetchEmployeeModules(): Promise<EmployeeModulesContext | null> {
+  const res = await fetch("/api/erp/employee/modules");
   if (!res.ok) {
     return null;
   }
 
   const data = (await res.json()) as {
     ok: boolean;
-    permission_keys?: string[];
-    module_keys?: string[];
+    permissions?: { perm_key: string; module_key: string }[];
+    modules?: { module_key: string; title: string; links: EmployeeModuleLink[] }[];
   };
 
   if (!data.ok) return null;
 
   return {
-    permissionKeys: data.permission_keys ?? [],
-    moduleKeys: data.module_keys ?? [],
+    permissions:
+      data.permissions?.map((permission) => ({
+        permKey: permission.perm_key,
+        moduleKey: permission.module_key,
+      })) ?? [],
+    modules:
+      data.modules?.map((moduleItem) => ({
+        moduleKey: moduleItem.module_key,
+        title: moduleItem.title,
+        links: moduleItem.links ?? [],
+      })) ?? [],
   };
 }

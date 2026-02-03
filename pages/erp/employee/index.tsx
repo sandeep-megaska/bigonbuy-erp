@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { fetchEmployeeAccess } from "../../../lib/erp/employeeAccess";
+import { fetchEmployeeModules, type EmployeeModule } from "../../../lib/erp/employeeAccess";
 import { fetchEmployeeSession, type EmployeeSessionContext } from "../../../lib/erp/employeeSession";
-import { getEmployeeNavForModules } from "../../../lib/erp/employeeNav";
 
 const cardStyle = {
   border: "1px solid #e5e7eb",
@@ -13,10 +12,18 @@ const cardStyle = {
   boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
 };
 
+type EmployeeNavItem = {
+  id: string;
+  label: string;
+  href: string;
+  description: string;
+  moduleTitle: string;
+};
+
 export default function EmployeeHomePage() {
   const router = useRouter();
   const [session, setSession] = useState<EmployeeSessionContext | null>(null);
-  const [moduleKeys, setModuleKeys] = useState<string[]>([]);
+  const [modules, setModules] = useState<EmployeeModule[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,9 +40,9 @@ export default function EmployeeHomePage() {
         return;
       }
       setSession(current);
-      const access = await fetchEmployeeAccess();
+      const access = await fetchEmployeeModules();
       if (active) {
-        setModuleKeys(access?.moduleKeys ?? []);
+        setModules(access?.modules ?? []);
       }
       setLoading(false);
     })();
@@ -49,11 +56,21 @@ export default function EmployeeHomePage() {
     router.replace("/erp/employee/login");
   }
 
+  const navItems = useMemo<EmployeeNavItem[]>(() => {
+    return modules.flatMap((moduleItem) =>
+      moduleItem.links.map((link) => ({
+        id: link.id,
+        label: link.title,
+        href: link.href,
+        description: link.description,
+        moduleTitle: moduleItem.title,
+      }))
+    );
+  }, [modules]);
+
   if (loading) {
     return <div style={{ padding: 24 }}>Loading employee portal…</div>;
   }
-
-  const navItems = getEmployeeNavForModules(moduleKeys);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
@@ -97,6 +114,7 @@ export default function EmployeeHomePage() {
           >
             <div style={{ fontWeight: 700 }}>{item.label}</div>
             <p style={{ marginTop: 8, color: "#6b7280" }}>{item.description}</p>
+            <div style={{ marginTop: 12, fontSize: 12, color: "#94a3b8" }}>{item.moduleTitle}</div>
           </Link>
         ))}
         {navItems.length === 0 ? (
