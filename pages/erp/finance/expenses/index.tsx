@@ -49,12 +49,40 @@ const channelSchema = z.object({
   name: z.string(),
 });
 
-const today = () => new Date().toISOString().slice(0, 10);
+const formatLocalDate = (date: Date) => date.toLocaleDateString("en-CA");
 
-const startOfMonth = () => {
+const today = () => formatLocalDate(new Date());
+
+const startOfPreviousMonth = () => {
   const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  return first.toISOString().slice(0, 10);
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return formatLocalDate(first);
+};
+
+const loadStoredRange = (companyId: string) => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(`erp_expenses_date_range_${companyId}`);
+    if (!raw) return null;
+    const parsed = z
+      .object({
+        from: z.string(),
+        to: z.string(),
+      })
+      .safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistStoredRange = (companyId: string, from: string, to: string) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`erp_expenses_date_range_${companyId}`, JSON.stringify({ from, to }));
+  } catch {
+    return;
+  }
 };
 
 const parseDateQuery = (value: string | string[] | undefined) => {
@@ -73,7 +101,7 @@ export default function ExpensesListPage() {
   const [channels, setChannels] = useState<SimpleOption[]>([]);
   const [warehouses, setWarehouses] = useState<SimpleOption[]>([]);
 
-  const [fromDate, setFromDate] = useState(startOfMonth());
+  const [fromDate, setFromDate] = useState(startOfPreviousMonth());
   const [toDate, setToDate] = useState(today());
   const [categoryId, setCategoryId] = useState("");
   const [groupKey, setGroupKey] = useState("");
@@ -86,6 +114,7 @@ export default function ExpensesListPage() {
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [postingSummary, setPostingSummary] = useState<ExpensePostingSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+  const [postingSummaryError, setPostingSummaryError] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -116,8 +145,9 @@ export default function ExpensesListPage() {
         return;
       }
 
-      const initialFrom = parseDateQuery(router.query.from) ?? startOfMonth();
-      const initialTo = parseDateQuery(router.query.to) ?? today();
+      const storedRange = context.companyId ? loadStoredRange(context.companyId) : null;
+      const initialFrom = parseDateQuery(router.query.from) ?? storedRange?.from ?? startOfPreviousMonth();
+      const initialTo = parseDateQuery(router.query.to) ?? storedRange?.to ?? today();
       setFromDate(initialFrom);
       setToDate(initialTo);
       await loadExpenses({ fromDate: initialFrom, toDate: initialTo });
@@ -215,6 +245,10 @@ export default function ExpensesListPage() {
       p_offset: 0,
     });
 
+    if (ctx?.companyId) {
+      persistStoredRange(ctx.companyId, effectiveFrom, effectiveTo);
+    }
+
     if (listError) {
       setError(listError.message);
       setIsLoadingList(false);
@@ -236,6 +270,7 @@ export default function ExpensesListPage() {
 
   const loadPostingSummary = async (overrides?: { fromDate?: string; toDate?: string }) => {
     setIsLoadingSummary(true);
+    setPostingSummaryError(null);
     const effectiveFrom = overrides?.fromDate ?? fromDate;
     const effectiveTo = overrides?.toDate ?? toDate;
     const { data, error: summaryError } = await supabase.rpc("erp_expense_finance_posting_summary", {
@@ -244,13 +279,20 @@ export default function ExpensesListPage() {
     });
 
     if (summaryError) {
+      const message = `Posting summary error: ${summaryError.message}`;
+      console.error(message);
+      setPostingSummaryError(message);
       setPostingSummary(null);
       setIsLoadingSummary(false);
       return;
     }
 
-    const parsed = expensePostingSummarySchema.safeParse(data);
+    const summaryPayload = Array.isArray(data) ? data[0] : data;
+    const parsed = expensePostingSummarySchema.safeParse(summaryPayload);
     if (!parsed.success) {
+      const message = "Posting summary error: failed to parse response.";
+      console.error(message, { data });
+      setPostingSummaryError(message);
       setPostingSummary(null);
       setIsLoadingSummary(false);
       return;
@@ -474,9 +516,10 @@ export default function ExpensesListPage() {
                 <div style={{ color: "#6b7280" }}>₹{postingSummary.missing_amount.toFixed(2)}</div>
               </div>
             </div>
-          ) : (
-            <div style={{ color: "#6b7280" }}>Posting summary unavailable for the selected date range.</div>
-          )}
+          ) : null}
+          {postingSummaryError ? (
+            <div style={{ marginTop: 8, color: "#b91c1c", fontSize: 12 }}>{postingSummaryError}</div>
+          ) : null}
         </div>
 
         <div style={cardStyle}>
