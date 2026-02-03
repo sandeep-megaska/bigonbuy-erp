@@ -270,8 +270,8 @@ export default function ShopifySalesPostingPage() {
     }
   };
 
-  const totalGross = useMemo(
-    () => orders.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0),
+  const totalAmount = useMemo(
+    () => orders.reduce((sum, row) => sum + Number(row.amount || 0), 0),
     [orders]
   );
 
@@ -382,6 +382,11 @@ export default function ShopifySalesPostingPage() {
                 <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.missing_count}</div>
                 <div style={{ fontSize: 12 }}>₹{postingSummary.missing_amount.toFixed(2)}</div>
               </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Excluded</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.excluded_count}</div>
+                <div style={{ fontSize: 12 }}>₹{postingSummary.excluded_amount.toFixed(2)}</div>
+              </div>
             </div>
           ) : (
             <div style={{ marginTop: 8 }}>No summary available.</div>
@@ -392,7 +397,7 @@ export default function ShopifySalesPostingPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontWeight: 600 }}>
               {isLoadingList ? "Loading orders…" : "Shopify orders"} · {orders.length} records · Total ₹
-              {totalGross.toFixed(2)}
+              {totalAmount.toFixed(2)}
             </div>
             <Link href="/erp/finance/settings/sales-posting" style={secondaryButtonStyle}>
               Sales posting settings
@@ -407,8 +412,8 @@ export default function ShopifySalesPostingPage() {
                 <tr>
                   <th style={tableHeaderCellStyle}>Order</th>
                   <th style={tableHeaderCellStyle}>Date</th>
-                  <th style={tableHeaderCellStyle}>Customer</th>
-                  <th style={tableHeaderCellStyle}>Gross</th>
+                  <th style={tableHeaderCellStyle}>Ship to</th>
+                  <th style={tableHeaderCellStyle}>Net sales (est.)</th>
                   <th style={tableHeaderCellStyle}>Posting</th>
                   <th style={tableHeaderCellStyle}>Journal</th>
                   <th style={tableHeaderCellStyle}>Action</th>
@@ -423,14 +428,16 @@ export default function ShopifySalesPostingPage() {
                   </tr>
                 ) : (
                   orders.map((row) => (
-                    <tr key={row.order_id}>
+                    <tr key={row.order_uuid}>
                       <td style={tableCellStyle}>
-                        <div style={{ fontWeight: 600 }}>{row.order_no ?? row.shopify_order_id}</div>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>{row.shopify_order_id}</div>
+                        <div style={{ fontWeight: 600 }}>{row.order_number || "—"}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>{row.order_uuid}</div>
                       </td>
-                      <td style={tableCellStyle}>{row.order_date}</td>
-                      <td style={tableCellStyle}>{row.customer_name || "—"}</td>
-                      <td style={tableCellStyle}>₹{Number(row.gross_amount || 0).toFixed(2)}</td>
+                      <td style={tableCellStyle}>{row.order_created_at}</td>
+                      <td style={tableCellStyle}>
+                        {[row.ship_city, row.ship_state].filter(Boolean).join(", ") || "—"}
+                      </td>
+                      <td style={tableCellStyle}>₹{Number(row.amount || 0).toFixed(2)}</td>
                       <td style={tableCellStyle}>
                         <span
                           style={{
@@ -459,10 +466,10 @@ export default function ShopifySalesPostingPage() {
                           <button
                             type="button"
                             style={primaryButtonStyle}
-                            disabled={!canWrite || postingOrderId === row.order_id}
-                            onClick={() => handlePost(row.order_id)}
+                            disabled={!canWrite || postingOrderId === row.order_uuid}
+                            onClick={() => handlePost(row.order_uuid)}
                           >
-                            {postingOrderId === row.order_id ? "Posting…" : "Post to Finance"}
+                            {postingOrderId === row.order_uuid ? "Posting…" : "Post to Finance"}
                           </button>
                         ) : (
                           "—"
