@@ -7,6 +7,7 @@ import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
   inputStyle,
+  badgeStyle,
   pageContainerStyle,
   primaryButtonStyle,
   secondaryButtonStyle,
@@ -79,6 +80,7 @@ export default function ExpensesListPage() {
   const [channelId, setChannelId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [search, setSearch] = useState("");
+  const [postingFilter, setPostingFilter] = useState<"all" | "posted" | "missing">("all");
 
   const [expenses, setExpenses] = useState<ExpenseListRow[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(false);
@@ -134,9 +136,23 @@ export default function ExpensesListPage() {
   }, [categories]);
 
   const filteredExpenses = useMemo(() => {
-    if (!groupKey) return expenses;
-    return expenses.filter((row) => row.category_group === groupKey);
-  }, [expenses, groupKey]);
+    let rows = expenses;
+    if (groupKey) {
+      rows = rows.filter((row) => row.category_group === groupKey);
+    }
+    if (postingFilter !== "all") {
+      rows = rows.filter((row) => {
+        const posted = row.finance_posted ?? Boolean(row.finance_journal_id);
+        const isCapitalized =
+          Boolean(row.is_capitalizable) ||
+          ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
+          Boolean(row.applied_to_inventory_at);
+        if (postingFilter === "posted") return posted;
+        return !posted && !isCapitalized;
+      });
+    }
+    return rows;
+  }, [expenses, groupKey, postingFilter]);
 
   const totalAmount = useMemo(
     () => filteredExpenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
@@ -408,6 +424,25 @@ export default function ExpensesListPage() {
             <button type="button" onClick={handleExport} style={secondaryButtonStyle}>
               Export CSV
             </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ color: "#6b7280", fontSize: 13 }}>Posted filter</span>
+              {(["all", "posted", "missing"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setPostingFilter(option)}
+                  style={{
+                    ...secondaryButtonStyle,
+                    padding: "6px 12px",
+                    borderColor: postingFilter === option ? "#111827" : "#d1d5db",
+                    backgroundColor: postingFilter === option ? "#111827" : "#fff",
+                    color: postingFilter === option ? "#fff" : "#111827",
+                  }}
+                >
+                  {option === "all" ? "All" : option === "posted" ? "Posted" : "Missing"}
+                </button>
+              ))}
+            </div>
             <span style={{ color: "#6b7280" }}>
               {filteredExpenses.length} records · Total ₹{totalAmount.toFixed(2)}
             </span>
@@ -416,6 +451,9 @@ export default function ExpensesListPage() {
 
         <div style={cardStyle}>
           <div style={{ marginBottom: 12, color: "#6b7280" }}>Finance posting coverage</div>
+          <div style={{ marginBottom: 12, color: "#94a3b8", fontSize: 12 }}>
+            Excludes capitalized/inventory-linked and AP-bill-linked expenses.
+          </div>
           {isLoadingSummary ? (
             <div style={{ color: "#6b7280" }}>Loading posting summary…</div>
           ) : postingSummary ? (
@@ -456,13 +494,14 @@ export default function ExpensesListPage() {
                   <th style={tableHeaderCellStyle}>Warehouse</th>
                   <th style={tableHeaderCellStyle}>Vendor/Payee</th>
                   <th style={tableHeaderCellStyle}>Reference</th>
+                  <th style={tableHeaderCellStyle}>Posting</th>
                   <th style={tableHeaderCellStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredExpenses.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
+                    <td colSpan={9} style={{ ...tableCellStyle, textAlign: "center", color: "#6b7280" }}>
                       No expenses found for this filter.
                     </td>
                   </tr>
@@ -479,6 +518,37 @@ export default function ExpensesListPage() {
                       <td style={tableCellStyle}>{row.warehouse_name || "—"}</td>
                       <td style={tableCellStyle}>{row.vendor_name || row.payee_name || "—"}</td>
                       <td style={tableCellStyle}>{row.reference || "—"}</td>
+                      <td style={tableCellStyle}>
+                        {(() => {
+                          const posted = row.finance_posted ?? Boolean(row.finance_journal_id);
+                          const isCapitalized =
+                            Boolean(row.is_capitalizable) ||
+                            ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
+                            Boolean(row.applied_to_inventory_at);
+                          const journalLink =
+                            row.finance_post_link ?? (row.finance_journal_id ? `/erp/finance/journals/${row.finance_journal_id}` : null);
+                          if (isCapitalized) {
+                            return (
+                              <span style={{ ...badgeStyle, backgroundColor: "#fffbeb", color: "#b45309" }}>
+                                Capitalized (Posts via GRN)
+                              </span>
+                            );
+                          }
+                          if (posted) {
+                            return (
+                              <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <span style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>Posted</span>
+                                {journalLink ? (
+                                  <Link href={journalLink} style={{ fontSize: 12, color: "#2563eb" }}>
+                                    {row.finance_journal_no || "View journal"}
+                                  </Link>
+                                ) : null}
+                              </span>
+                            );
+                          }
+                          return <span style={{ ...badgeStyle, backgroundColor: "#fee2e2", color: "#b91c1c" }}>Missing</span>;
+                        })()}
+                      </td>
                       <td style={tableCellStyle}>
                         <div style={{ display: "flex", gap: 8 }}>
                           <Link href={`/erp/finance/expenses/${row.id}`} style={secondaryButtonStyle}>
