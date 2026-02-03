@@ -14,7 +14,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { apiFetch, apiPost } from "../../../../lib/erp/apiFetch";
 import { supabase } from "../../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
@@ -212,6 +212,7 @@ export default function FinanceSettlementsPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [dailyMatrix, setDailyMatrix] = useState<any[]>([]);
   const [statusMessage, setStatusMessage] = useState("");
+  const [normalizingEventId, setNormalizingEventId] = useState<string | null>(null);
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
@@ -406,6 +407,28 @@ export default function FinanceSettlementsPage() {
       setGmailToast({ type: "error", message: batchesError.message });
     } else {
       setGmailBatches(batchesData || []);
+    }
+  };
+
+  const handleNormalizeEvent = async (eventId: string) => {
+    setStatusMessage("");
+    setNormalizingEventId(eventId);
+    try {
+      const result = await apiPost<{
+        ok: true;
+        batch_id: string;
+        attempted_rows: number;
+        inserted_rows: number;
+      }>(`/api/finance/amazon/settlements/${eventId}/normalize`);
+
+      setStatusMessage(
+        `Normalized settlement event. Batch ${result.batch_id} inserted ${result.inserted_rows} of ${result.attempted_rows} rows.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to normalize settlement event";
+      setStatusMessage(message);
+    } finally {
+      setNormalizingEventId(null);
     }
   };
 
@@ -1381,12 +1404,13 @@ export default function FinanceSettlementsPage() {
                 <th style={tableHeaderCellStyle}>Status</th>
                 <th style={tableHeaderCellStyle}>Indifi Ref</th>
                 <th style={tableHeaderCellStyle}>Bank Ref</th>
+                <th style={tableHeaderCellStyle}>Ledger</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td style={tableCellStyle} colSpan={6}>
+                  <td style={tableCellStyle} colSpan={7}>
                     No settlement events in this range.
                   </td>
                 </tr>
@@ -1408,6 +1432,16 @@ export default function FinanceSettlementsPage() {
                     </td>
                     <td style={tableCellStyle}>{row.indifi_reference_no || "—"}</td>
                     <td style={tableCellStyle}>{row.bank_reference_no || "—"}</td>
+                    <td style={tableCellStyle}>
+                      <button
+                        type="button"
+                        style={secondaryButtonStyle}
+                        onClick={() => handleNormalizeEvent(row.id)}
+                        disabled={normalizingEventId === row.id}
+                      >
+                        {normalizingEventId === row.id ? "Normalizing…" : "Normalize"}
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
