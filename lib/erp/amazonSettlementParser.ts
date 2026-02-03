@@ -134,7 +134,10 @@ const extractRowsFromTable = (tableHtml: string): AmazonSettlementRow[] => {
   const parseCells = (rowHtml: string) =>
     (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
 
-  let headers = parseCells(rowMatches[0]).filter(Boolean);
+  const firstRow = rowMatches[0];
+  if (!firstRow) return [];
+
+  let headers = parseCells(firstRow).filter(Boolean);
   if (headers.length === 0 && rowMatches.length > 1) {
     headers = parseCells(rowMatches[1]).filter(Boolean);
   }
