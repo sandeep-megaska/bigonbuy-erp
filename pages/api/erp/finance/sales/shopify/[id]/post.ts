@@ -18,16 +18,15 @@ const getOrderIdParam = (value: string | string[] | undefined): string | null =>
 };
 
 const normalizePosting = (data: any): PostingSummary => {
-  const posted = Boolean(data?.posted?.journal_id || data?.posted?.doc_no);
+  const posted = Boolean(data?.posted);
   if (!posted) {
     return { posted: false, journal_id: null, journal_no: null, link: null };
   }
-  const journalId = data?.posted?.journal_id ?? null;
   return {
     posted: true,
-    journal_id: journalId,
-    journal_no: data?.posted?.doc_no ?? null,
-    link: journalId ? `/erp/finance/journals/${journalId}` : null,
+    journal_id: data?.finance_doc_id ?? null,
+    journal_no: data?.journal_no ?? null,
+    link: data?.link ?? null,
   };
 };
 
@@ -68,8 +67,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ ok: false, error: permissionError.message || "Finance write access required" });
     }
 
-    const { error: postError } = await userClient.rpc("erp_shopify_sales_finance_post", {
-      p_source_id: orderId,
+    const { error: postError } = await userClient.rpc("erp_shopify_order_post_to_finance", {
+      p_order_id: orderId,
+      p_actor_user_id: userData.user.id,
     });
 
     if (postError) {
@@ -80,19 +80,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const { data: previewData, error: previewError } = await userClient.rpc("erp_sales_finance_posting_preview", {
+    const { data: postData, error: postReadError } = await userClient.rpc("erp_shopify_order_finance_posting_get", {
       p_order_id: orderId,
     });
 
-    if (previewError) {
+    if (postReadError) {
       return res.status(400).json({
         ok: false,
-        error: previewError.message || "Failed to load Shopify posting preview",
-        details: previewError.details || previewError.hint || previewError.code,
+        error: postReadError.message || "Failed to load Shopify posting summary",
+        details: postReadError.details || postReadError.hint || postReadError.code,
       });
     }
 
-    const post = normalizePosting(previewData);
+    const post = normalizePosting(postData);
     return res.status(200).json({ ok: true, ...post });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
