@@ -108,10 +108,9 @@ export default function ExpensesListPage() {
   const [channelId, setChannelId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [search, setSearch] = useState("");
-  const [postingFilter, setPostingFilter] = useState<"all" | "posted" | "missing">("all");
+  const [postingFilter, setPostingFilter] = useState<"all" | "posted" | "missing" | "excluded">("all");
 
   const [expenses, setExpenses] = useState<ExpenseListRow[]>([]);
-  const [postingLookup, setPostingLookup] = useState<Record<string, { financeDocId: string }>>({});
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [postingSummary, setPostingSummary] = useState<ExpensePostingSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -171,19 +170,8 @@ export default function ExpensesListPage() {
     if (groupKey) {
       rows = rows.filter((row) => row.category_group === groupKey);
     }
-    if (postingFilter !== "all") {
-      rows = rows.filter((row) => {
-        const posted = Boolean(postingLookup[row.id]?.financeDocId);
-        const isCapitalized =
-          Boolean(row.is_capitalizable) ||
-          ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
-          Boolean(row.applied_to_inventory_at);
-        if (postingFilter === "posted") return posted;
-        return !posted && !isCapitalized;
-      });
-    }
     return rows;
-  }, [expenses, groupKey, postingFilter, postingLookup]);
+  }, [expenses, groupKey]);
 
   const totalAmount = useMemo(
     () => filteredExpenses.reduce((sum, row) => sum + Number(row.amount || 0), 0),
@@ -219,33 +207,6 @@ export default function ExpensesListPage() {
     return true;
   };
 
-  const loadPostingRows = async (companyId: string, expenseIds: string[]) => {
-    if (!companyId || expenseIds.length === 0) {
-      setPostingLookup({});
-      return;
-    }
-    const { data, error: postingError } = await supabase
-      .from("erp_expense_finance_posts")
-      .select("expense_id, finance_doc_id")
-      .eq("company_id", companyId)
-      .eq("status", "posted")
-      .in("expense_id", expenseIds);
-
-    if (postingError) {
-      console.error("Failed to load expense posting status.", postingError);
-      setPostingLookup({});
-      return;
-    }
-
-    const nextLookup: Record<string, { financeDocId: string }> = {};
-    (data ?? []).forEach((row) => {
-      if (row?.expense_id && row?.finance_doc_id) {
-        nextLookup[row.expense_id] = { financeDocId: row.finance_doc_id };
-      }
-    });
-    setPostingLookup(nextLookup);
-  };
-
   const loadExpenses = async (overrides?: {
     fromDate?: string;
     toDate?: string;
@@ -253,6 +214,7 @@ export default function ExpensesListPage() {
     channelId?: string;
     warehouseId?: string;
     search?: string;
+    postingFilter?: "all" | "posted" | "missing" | "excluded";
   }) => {
     setIsLoadingList(true);
     setError(null);
@@ -262,15 +224,15 @@ export default function ExpensesListPage() {
     const effectiveChannel = overrides?.channelId ?? channelId;
     const effectiveWarehouse = overrides?.warehouseId ?? warehouseId;
     const effectiveSearch = overrides?.search ?? search;
-    const { data, error: listError } = await supabase.rpc("erp_expenses_list", {
+    const effectivePostingFilter = overrides?.postingFilter ?? postingFilter;
+    const { data, error: listError } = await supabase.rpc("erp_expenses_list_with_posting", {
       p_from: effectiveFrom,
       p_to: effectiveTo,
       p_category_id: effectiveCategory || null,
       p_channel_id: effectiveChannel || null,
       p_warehouse_id: effectiveWarehouse || null,
       p_search: effectiveSearch || null,
-      p_limit: 500,
-      p_offset: 0,
+      p_posting_filter: effectivePostingFilter,
     });
 
     if (ctx?.companyId) {
@@ -290,15 +252,6 @@ export default function ExpensesListPage() {
       setError("Failed to parse expenses list.");
       setIsLoadingList(false);
       return;
-    }
-
-    if (ctx?.companyId) {
-      await loadPostingRows(
-        ctx.companyId,
-        parsed.data.map((row) => row.id)
-      );
-    } else {
-      setPostingLookup({});
     }
 
     setExpenses(parsed.data);
@@ -505,11 +458,14 @@ export default function ExpensesListPage() {
             </button>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <span style={{ color: "#6b7280", fontSize: 13 }}>Posted filter</span>
-              {(["all", "posted", "missing"] as const).map((option) => (
+              {(["all", "posted", "missing", "excluded"] as const).map((option) => (
                 <button
                   key={option}
                   type="button"
-                  onClick={() => setPostingFilter(option)}
+                  onClick={() => {
+                    setPostingFilter(option);
+                    void loadExpenses({ postingFilter: option });
+                  }}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "6px 12px",
@@ -518,7 +474,7 @@ export default function ExpensesListPage() {
                     color: postingFilter === option ? "#fff" : "#111827",
                   }}
                 >
-                  {option === "all" ? "All" : option === "posted" ? "Posted" : "Missing"}
+                  {option === "all" ? "All" : option === "posted" ? "Posted" : option === "missing" ? "Missing" : "Excluded"}
                 </button>
               ))}
             </div>
@@ -600,27 +556,20 @@ export default function ExpensesListPage() {
                       <td style={tableCellStyle}>{row.reference || "—"}</td>
                       <td style={tableCellStyle}>
                         {(() => {
-                          const postingInfo = postingLookup[row.id];
-                          const posted = Boolean(postingInfo?.financeDocId);
-                          const isCapitalized =
-                            Boolean(row.is_capitalizable) ||
-                            ["grn", "stock_transfer"].includes(row.applies_to_type ?? "") ||
-                            Boolean(row.applied_to_inventory_at);
-                          const journalLink = postingInfo?.financeDocId ? `/erp/finance/journals/${postingInfo.financeDocId}` : null;
-                          if (isCapitalized) {
+                          const postingState = row.posting_state || "missing";
+                          const journalLink = row.journal_id ? `/erp/finance/journals/${row.journal_id}` : null;
+                          if (postingState === "excluded") {
                             return (
-                              <span style={{ ...badgeStyle, backgroundColor: "#fffbeb", color: "#b45309" }}>
-                                Capitalized (Posts via GRN)
-                              </span>
+                              <span style={{ ...badgeStyle, backgroundColor: "#f1f5f9", color: "#475569" }}>Excluded</span>
                             );
                           }
-                          if (posted) {
+                          if (postingState === "posted") {
                             return (
                               <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                 <span style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>Posted</span>
                                 {journalLink ? (
                                   <Link href={journalLink} style={{ fontSize: 12, color: "#2563eb" }}>
-                                    {row.finance_journal_no || "View journal"}
+                                    {row.journal_no || "View journal"}
                                   </Link>
                                 ) : null}
                               </span>

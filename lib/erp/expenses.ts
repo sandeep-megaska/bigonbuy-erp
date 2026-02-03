@@ -64,6 +64,9 @@ export const expenseListRowSchema = z.object({
   finance_journal_id: z.string().uuid().nullable().optional(),
   finance_journal_no: z.string().nullable().optional(),
   finance_post_link: z.string().nullable().optional(),
+  posting_state: z.string().nullable().optional(),
+  journal_id: z.string().uuid().nullable().optional(),
+  journal_no: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });
