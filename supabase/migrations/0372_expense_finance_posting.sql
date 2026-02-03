@@ -14,6 +14,12 @@ create table if not exists public.erp_expense_finance_posts (
   constraint erp_expense_finance_posts_status_check check (status in ('posted', 'void'))
 );
 
+alter table public.erp_expense_categories
+  add column if not exists expense_account_code text null;
+
+alter table public.erp_company_settings
+  add column if not exists default_expense_account_code text null;
+
 create unique index if not exists erp_expense_finance_posts_company_expense_key
   on public.erp_expense_finance_posts (company_id, expense_id);
 
@@ -205,6 +211,7 @@ declare
   v_actor uuid := auth.uid();
   v_expense public.erp_expenses%rowtype;
   v_category record;
+  v_default_expense_account_code text;
   v_existing_doc_id uuid;
   v_journal_id uuid;
   v_doc_no text;
@@ -213,6 +220,7 @@ declare
   v_payment_account_id uuid;
   v_vendor_name text;
   v_narration text;
+  v_expense_account_code text;
 begin
   if auth.role() <> 'service_role' then
     perform public.erp_require_finance_writer();
@@ -237,21 +245,56 @@ begin
     raise exception 'Expense not found';
   end if;
 
+  if coalesce(v_expense.is_capitalizable, false)
+    or v_expense.applies_to_type in ('grn', 'stock_transfer')
+    or v_expense.applied_to_inventory_at is not null
+    or v_expense.applied_inventory_ref is not null then
+    raise exception 'Capitalizable/inventory-linked expense must be posted via landed-cost/GRN workflow (avoid double posting).';
+  end if;
+
   if v_expense.applies_to_type in ('ap_bill', 'vendor_bill', 'ap_vendor_bill') then
     raise exception 'Expense is linked to an AP bill and should not be posted directly';
   end if;
 
-  select p.finance_doc_id
+  select j.id
     into v_existing_doc_id
-    from public.erp_expense_finance_posts p
-    where p.company_id = v_company_id
-      and p.expense_id = p_expense_id;
+    from public.erp_fin_journals j
+    where j.company_id = v_company_id
+      and j.reference_type = 'expense'
+      and j.reference_id = p_expense_id
+    order by j.created_at desc
+    limit 1;
 
   if v_existing_doc_id is not null then
+    insert into public.erp_expense_finance_posts (
+      company_id,
+      expense_id,
+      finance_doc_type,
+      finance_doc_id,
+      status,
+      posted_at,
+      posted_by_user_id,
+      meta,
+      idempotency_key
+    ) values (
+      v_company_id,
+      p_expense_id,
+      'journal',
+      v_existing_doc_id,
+      'posted',
+      now(),
+      coalesce(p_posted_by_user_id, v_actor),
+      '{}'::jsonb,
+      p_expense_id
+    )
+    on conflict (company_id, expense_id)
+    do update set finance_doc_id = public.erp_expense_finance_posts.finance_doc_id
+    returning finance_doc_id into v_existing_doc_id;
+
     return v_existing_doc_id;
   end if;
 
-  select c.code, c.name
+  select c.code, c.name, c.expense_account_code
     into v_category
     from public.erp_expense_categories c
     where c.company_id = v_company_id
@@ -261,84 +304,32 @@ begin
     raise exception 'Expense category not found';
   end if;
 
+  v_expense_account_code := v_category.expense_account_code;
+
+  select cs.default_expense_account_code
+    into v_default_expense_account_code
+    from public.erp_company_settings cs
+    where cs.company_id = v_company_id;
+
+  v_expense_account_code := coalesce(
+    nullif(btrim(v_expense_account_code), ''),
+    nullif(btrim(v_default_expense_account_code), '')
+  );
+
+  if v_expense_account_code is null then
+    raise exception 'Missing expense account mapping';
+  end if;
+
   select a.code, a.name
     into v_expense_account
     from public.erp_gl_accounts a
     where a.company_id = v_company_id
       and a.account_type = 'expense'
-      and (a.code = v_category.code or lower(a.name) = lower(v_category.name))
-    order by case when a.code = v_category.code then 0 else 1 end,
-             case when lower(a.name) = lower(v_category.name) then 0 else 1 end
+      and a.code = v_expense_account_code
     limit 1;
 
   if v_expense_account.code is null then
-    insert into public.erp_gl_accounts (
-      company_id,
-      code,
-      name,
-      account_type,
-      normal_balance,
-      is_active,
-      created_by_user_id,
-      updated_by_user_id
-    ) values (
-      v_company_id,
-      upper('EXP-' || replace(v_category.code, '_', '-')),
-      v_category.name,
-      'expense',
-      'debit',
-      true,
-      v_actor,
-      v_actor
-    )
-    on conflict (company_id, code)
-    do update set
-      name = excluded.name,
-      account_type = excluded.account_type,
-      normal_balance = excluded.normal_balance,
-      updated_at = now(),
-      updated_by_user_id = v_actor
-    returning code, name into v_expense_account;
-
-    if v_expense_account.code is null then
-      select a.code, a.name
-        into v_expense_account
-        from public.erp_gl_accounts a
-        where a.company_id = v_company_id
-          and a.account_type = 'expense'
-          and lower(a.name) = lower('Uncategorized Expense')
-        limit 1;
-
-      if v_expense_account.code is null then
-        insert into public.erp_gl_accounts (
-          company_id,
-          code,
-          name,
-          account_type,
-          normal_balance,
-          is_active,
-          created_by_user_id,
-          updated_by_user_id
-        ) values (
-          v_company_id,
-          'EXP-UNCAT',
-          'Uncategorized Expense',
-          'expense',
-          'debit',
-          true,
-          v_actor,
-          v_actor
-        )
-        on conflict (company_id, code)
-        do update set
-          name = excluded.name,
-          account_type = excluded.account_type,
-          normal_balance = excluded.normal_balance,
-          updated_at = now(),
-          updated_by_user_id = v_actor
-        returning code, name into v_expense_account;
-      end if;
-    end if;
+    raise exception 'Missing expense account mapping';
   end if;
 
   v_payment_account_id := public.erp_fin_account_by_role('bank_main');
@@ -369,7 +360,41 @@ begin
     v_expense.id::text
   );
 
+  perform public.erp_require_fin_open_period(v_company_id, v_expense.expense_date);
+
+  v_journal_id := gen_random_uuid();
+
+  insert into public.erp_expense_finance_posts (
+    company_id,
+    expense_id,
+    finance_doc_type,
+    finance_doc_id,
+    status,
+    posted_at,
+    posted_by_user_id,
+    meta,
+    idempotency_key
+  ) values (
+    v_company_id,
+    v_expense.id,
+    'journal',
+    v_journal_id,
+    'posted',
+    now(),
+    coalesce(p_posted_by_user_id, v_actor),
+    '{}'::jsonb,
+    v_expense.id
+  )
+  on conflict (company_id, expense_id)
+  do update set finance_doc_id = public.erp_expense_finance_posts.finance_doc_id
+  returning finance_doc_id into v_existing_doc_id;
+
+  if v_existing_doc_id <> v_journal_id then
+    return v_existing_doc_id;
+  end if;
+
   insert into public.erp_fin_journals (
+    id,
     company_id,
     journal_date,
     status,
@@ -380,6 +405,7 @@ begin
     total_credit,
     created_by
   ) values (
+    v_journal_id,
     v_company_id,
     v_expense.expense_date,
     'posted',
@@ -429,27 +455,13 @@ begin
   where id = v_journal_id
     and company_id = v_company_id;
 
-  insert into public.erp_expense_finance_posts (
-    company_id,
-    expense_id,
-    finance_doc_type,
-    finance_doc_id,
-    status,
-    posted_at,
-    posted_by_user_id,
-    meta,
-    idempotency_key
-  ) values (
-    v_company_id,
-    v_expense.id,
-    'journal',
-    v_journal_id,
-    'posted',
-    now(),
-    coalesce(p_posted_by_user_id, v_actor),
-    jsonb_build_object('journal_no', v_doc_no),
-    v_expense.id
-  );
+  update public.erp_expense_finance_posts
+  set meta = jsonb_build_object('journal_no', v_doc_no),
+      posted_at = now(),
+      posted_by_user_id = coalesce(p_posted_by_user_id, v_actor)
+  where company_id = v_company_id
+    and expense_id = v_expense.id
+    and finance_doc_id = v_journal_id;
 
   return v_journal_id;
 end;
