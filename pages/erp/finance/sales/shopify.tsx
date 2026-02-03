@@ -16,6 +16,7 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import {
+  shopifySalesDayPostingPreviewSchema,
   shopifySalesPostingListSchema,
   shopifySalesPostingSummarySchema,
   type ShopifySalesPostingRow,
@@ -90,6 +91,8 @@ export default function ShopifySalesPostingPage() {
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [postingSummaryError, setPostingSummaryError] = useState<string | null>(null);
   const [postingOrderId, setPostingOrderId] = useState<string | null>(null);
+  const [isPostingDay, setIsPostingDay] = useState(false);
+  const [postingDayError, setPostingDayError] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -270,6 +273,70 @@ export default function ShopifySalesPostingPage() {
     }
   };
 
+  const handlePostDay = async () => {
+    if (!canWrite) {
+      setError("Only finance, admin, or owner can post Shopify orders.");
+      return;
+    }
+
+    if (fromDate !== toDate) {
+      setPostingDayError("Select a single day (from = to) before posting.");
+      return;
+    }
+
+    setPostingDayError(null);
+    setError(null);
+    setIsPostingDay(true);
+
+    try {
+      const previewResponse = await fetch(
+        `/api/erp/finance/sales/shopify/day/preview?day=${fromDate}`,
+        { headers: getAuthHeaders() }
+      );
+      const previewPayload = await previewResponse.json();
+      if (!previewResponse.ok || !previewPayload?.ok) {
+        setPostingDayError(previewPayload?.error || "Failed to load daily posting preview.");
+        setIsPostingDay(false);
+        return;
+      }
+
+      const parsedPreview = shopifySalesDayPostingPreviewSchema.safeParse(previewPayload.data);
+      if (!parsedPreview.success) {
+        setPostingDayError("Failed to parse daily posting preview.");
+        setIsPostingDay(false);
+        return;
+      }
+
+      const preview = parsedPreview.data;
+      const confirmMessage = `Post Shopify sales for ${preview.day}? Eligible ${preview.eligible_orders_count} orders (₹${preview.eligible_amount_sum.toFixed(
+        2
+      )}), missing ${preview.missing_count}, already posted ${preview.already_posted_count}.`;
+      if (!window.confirm(confirmMessage)) {
+        setIsPostingDay(false);
+        return;
+      }
+
+      const postResponse = await fetch(`/api/erp/finance/sales/shopify/day/post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ day: preview.day }),
+      });
+      const postPayload = await postResponse.json();
+      if (!postResponse.ok || !postPayload?.ok) {
+        setPostingDayError(postPayload?.error || "Failed to post Shopify daily journal.");
+        setIsPostingDay(false);
+        return;
+      }
+
+      await loadOrders();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to post Shopify daily journal.";
+      setPostingDayError(message);
+    } finally {
+      setIsPostingDay(false);
+    }
+  };
+
   const totalAmount = useMemo(
     () => orders.reduce((sum, row) => sum + Number(row.amount || 0), 0),
     [orders]
@@ -359,10 +426,21 @@ export default function ShopifySalesPostingPage() {
         </section>
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
             <div style={{ fontWeight: 600 }}>Posting coverage</div>
-            {isLoadingSummary ? <div style={{ fontSize: 12 }}>Loading…</div> : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {isLoadingSummary ? <div style={{ fontSize: 12 }}>Loading…</div> : null}
+              <button
+                type="button"
+                style={primaryButtonStyle}
+                disabled={!canWrite || isPostingDay}
+                onClick={handlePostDay}
+              >
+                {isPostingDay ? "Posting day…" : "Post Day"}
+              </button>
+            </div>
           </div>
+          {postingDayError ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{postingDayError}</div> : null}
           {postingSummaryError ? (
             <div style={{ marginTop: 8, color: "#b91c1c" }}>{postingSummaryError}</div>
           ) : postingSummary ? (
