@@ -1,16 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
 
-type JournalSummary = { id: string; doc_no?: string | null; status?: string | null } | null;
-
 type PostingSummary = {
   posted: boolean;
-  journal: { id: string | null; doc_no: string | null } | null;
-  link?: string | null;
+  journal_id: string | null;
+  journal_no: string | null;
+  link: string | null;
 };
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
-type SuccessResponse = { ok: true; journal: JournalSummary; post: PostingSummary };
+type SuccessResponse = PostingSummary & { ok: true };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
 const getExpenseIdParam = (value: string | string[] | undefined): string | null => {
@@ -21,14 +20,12 @@ const getExpenseIdParam = (value: string | string[] | undefined): string | null 
 const normalizePosting = (data: any): PostingSummary => {
   const posted = Boolean(data?.posted);
   if (!posted) {
-    return { posted: false, journal: null, link: null };
+    return { posted: false, journal_id: null, journal_no: null, link: null };
   }
   return {
     posted: true,
-    journal: {
-      id: data?.finance_doc_id ?? null,
-      doc_no: data?.journal_no ?? null,
-    },
+    journal_id: data?.finance_doc_id ?? null,
+    journal_no: data?.journal_no ?? null,
     link: data?.link ?? null,
   };
 };
@@ -66,6 +63,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     if (req.method === "GET") {
+      const { error: permissionError } = await userClient.rpc("erp_require_finance_reader");
+      if (permissionError) {
+        return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
+      }
+
       const { data, error } = await userClient.rpc("erp_expense_finance_posting_get", {
         p_expense_id: expenseId,
       });
@@ -78,9 +80,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
 
       const post = normalizePosting(data);
-      const journal = post.posted && post.journal?.id ? { id: post.journal.id, doc_no: post.journal.doc_no } : null;
 
-      return res.status(200).json({ ok: true, journal, post });
+      return res.status(200).json({ ok: true, ...post });
+    }
+
+    const { error: permissionError } = await userClient.rpc("erp_require_finance_writer");
+    if (permissionError) {
+      return res.status(403).json({ ok: false, error: permissionError.message || "Finance write access required" });
     }
 
     const { data: membership, error: membershipError } = await userClient
@@ -98,7 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const { data: journalId, error: postError } = await userClient.rpc("erp_expense_post_to_finance", {
+    const { error: postError } = await userClient.rpc("erp_expense_post_to_finance", {
       p_company_id: membership.company_id,
       p_expense_id: expenseId,
       p_posted_by_user_id: userData.user.id,
@@ -125,30 +131,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const post = normalizePosting(postData);
-    let journal: JournalSummary = null;
-
-    if (journalId) {
-      const { data: journalData, error: journalError } = await userClient.rpc("erp_fin_journal_get", {
-        p_journal_id: journalId,
-      });
-      if (!journalError && journalData?.header) {
-        journal = {
-          id: journalData.header.id,
-          doc_no: journalData.header.doc_no,
-          status: journalData.header.status,
-        };
-      }
-    }
-
-    if (!journal && post.posted && post.journal?.id) {
-      journal = {
-        id: post.journal.id,
-        doc_no: post.journal.doc_no,
-        status: null,
-      };
-    }
-
-    return res.status(200).json({ ok: true, journal, post });
+    return res.status(200).json({ ok: true, ...post });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });

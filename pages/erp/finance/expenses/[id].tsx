@@ -94,6 +94,21 @@ export default function ExpenseEditPage() {
     [ctx]
   );
 
+  const isCapitalized = useMemo(() => {
+    const appliesTo = initialValues?.applies_to_type ?? "";
+    return Boolean(initialValues?.is_capitalizable) || ["grn", "stock_transfer"].includes(appliesTo) || Boolean(appliedAt);
+  }, [initialValues?.applies_to_type, initialValues?.is_capitalizable, appliedAt]);
+
+  const normalizeFinanceError = (message: string) => {
+    const lower = message.toLowerCase();
+    if (lower.includes("period") && lower.includes("lock")) return "Posting period is locked.";
+    if (lower.includes("account") && lower.includes("mapping")) return "Missing expense account mapping.";
+    if (lower.includes("capital") || lower.includes("inventory") || lower.includes("landed")) {
+      return "This expense is capitalized / inventory-linked and must be posted via landed-cost (GRN) workflow.";
+    }
+    return message;
+  };
+
   useEffect(() => {
     let active = true;
 
@@ -284,17 +299,16 @@ export default function ExpenseEditPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to load finance posting.");
       }
-      const post = payload?.post;
-      if (post?.posted && post?.journal?.id) {
-        setFinancePost({ journalId: post.journal.id, docNo: post.journal.doc_no ?? null });
-        setFinanceLink(post.link ?? null);
+      if (payload?.posted && payload?.journal_id) {
+        setFinancePost({ journalId: payload.journal_id, docNo: payload.journal_no ?? null });
+        setFinanceLink(payload.link ?? (payload.journal_id ? `/erp/finance/journals/${payload.journal_id}` : null));
       } else {
         setFinancePost(null);
         setFinanceLink(null);
       }
     } catch (postError) {
       const message = postError instanceof Error ? postError.message : "Failed to load finance posting.";
-      setFinanceError(message);
+      setFinanceError(normalizeFinanceError(message));
       setFinancePost(null);
       setFinanceLink(null);
     } finally {
@@ -409,16 +423,19 @@ export default function ExpenseEditPage() {
       if (!response.ok) {
         throw new Error(payload?.error || "Failed to post expense journal.");
       }
-      if (payload?.journal?.id) {
-        setFinancePost({ journalId: payload.journal.id, docNo: payload.journal.doc_no ?? null });
-        setFinanceNotice(`Posted finance journal ${payload.journal.doc_no || ""}`.trim());
+      if (payload?.posted && payload?.journal_id) {
+        setFinancePost({ journalId: payload.journal_id, docNo: payload.journal_no ?? null });
+        setFinanceNotice(`Posted finance journal ${payload.journal_no || ""}`.trim());
+        setFinanceLink(payload.link ?? (payload.journal_id ? `/erp/finance/journals/${payload.journal_id}` : null));
       } else {
-        setFinanceNotice("Posted finance journal.");
+        const warningMessage = isCapitalized
+          ? "This expense is capitalized / inventory-linked and must be posted via landed-cost (GRN) workflow."
+          : "No finance journal was created.";
+        setFinanceError(warningMessage);
       }
-      setFinanceLink(payload?.post?.link ?? financeLink);
     } catch (postError) {
       const message = postError instanceof Error ? postError.message : "Failed to post expense journal.";
-      setFinanceError(message);
+      setFinanceError(normalizeFinanceError(message));
     } finally {
       setFinancePosting(false);
     }
@@ -498,7 +515,14 @@ export default function ExpenseEditPage() {
                   ) : null}
                 </div>
               ) : (
-                <div style={{ color: "#6b7280" }}>Not posted yet.</div>
+                <div style={{ color: "#6b7280" }}>
+                  Not posted yet.
+                  {isCapitalized ? (
+                    <div style={{ marginTop: 6, color: "#b45309" }}>
+                      This expense is capitalized / inventory-linked and must be posted via landed-cost (GRN) workflow.
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
             <button
