@@ -6,6 +6,9 @@ begin;
 -- -------------------------------------------------------------------
 -- 1) Helper: internal period lock enforcement (reuse canonical finance lock)
 -- -------------------------------------------------------------------
+-- Ensure we can change return type (OUT columns) by recreating functions
+drop function if exists public.erp_sales_shopify_posting_summary(date, date);
+drop function if exists public.erp_shopify_orders_list_with_posting(date, date, text, text);
 
 create or replace function public.erp__shopify_sales_assert_period_open(
   p_company_id uuid,
