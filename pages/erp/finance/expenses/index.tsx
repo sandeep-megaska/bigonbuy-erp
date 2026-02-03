@@ -249,7 +249,15 @@ export default function ExpensesListPage() {
 
     const parsed = expenseListResponseSchema.safeParse(data);
     if (!parsed.success) {
-      setError("Failed to parse expenses list.");
+      const sampleRow = Array.isArray(data) ? data[0] : data;
+      const sampleKeys =
+        sampleRow && typeof sampleRow === "object" && !Array.isArray(sampleRow) ? Object.keys(sampleRow as Record<string, unknown>) : [];
+      console.error("Failed to parse expenses list.", {
+        error: parsed.error,
+        sampleKeys,
+        sampleRow,
+      });
+      setError("Failed to parse expenses list (see console).");
       setIsLoadingList(false);
       return;
     }
@@ -308,8 +316,8 @@ export default function ExpensesListPage() {
     ];
     const rows = filteredExpenses.map((row) => [
       row.expense_date,
-      row.category_group,
-      row.category_name,
+      row.category_group || "",
+      row.category_name || "",
       row.amount.toFixed(2),
       row.currency,
       row.channel_name || "",
@@ -546,8 +554,8 @@ export default function ExpensesListPage() {
                     <tr key={row.id}>
                       <td style={tableCellStyle}>{row.expense_date}</td>
                       <td style={tableCellStyle}>
-                        {row.category_name}
-                        <div style={{ color: "#6b7280", fontSize: 12 }}>{row.category_group}</div>
+                        {row.category_name || "—"}
+                        <div style={{ color: "#6b7280", fontSize: 12 }}>{row.category_group || "—"}</div>
                       </td>
                       <td style={{ ...tableCellStyle, fontWeight: 600 }}>₹{row.amount.toFixed(2)}</td>
                       <td style={tableCellStyle}>{row.channel_name || "—"}</td>
@@ -571,6 +579,8 @@ export default function ExpensesListPage() {
                                   <Link href={journalLink} style={{ fontSize: 12, color: "#2563eb" }}>
                                     {row.journal_no || "View journal"}
                                   </Link>
+                                ) : row.journal_no ? (
+                                  <span style={{ fontSize: 12, color: "#6b7280" }}>{row.journal_no}</span>
                                 ) : null}
                               </span>
                             );
