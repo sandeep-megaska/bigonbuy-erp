@@ -196,8 +196,9 @@ export const parseAmazonSettlementHtml = (html: string): AmazonSettlementParseRe
 
   const tableScores = tables.map((table) => {
     const headerMatch = table.match(/<tr[\s\S]*?<\/tr>/i);
+    const headerRow = headerMatch?.[0] ?? "";
     const headerCells =
-      headerMatch?.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi)?.map((cell) => stripTags(cell)) ?? [];
+      headerRow.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi)?.map((cell) => stripTags(cell)) ?? [];
     return { table, score: scoreHeaders(headerCells.filter(Boolean)) };
   });
 
