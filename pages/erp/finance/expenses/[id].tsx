@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
-import { pageContainerStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
+import { cardStyle, pageContainerStyle, primaryButtonStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
 import ExpenseForm from "../../../../components/finance/ExpenseForm";
 import { expenseCategorySchema, expenseFormSchema, type ExpenseCategory, type ExpenseFormPayload } from "../../../../lib/erp/expenses";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
@@ -87,6 +87,12 @@ export default function ExpenseEditPage() {
   const [appliedAt, setAppliedAt] = useState<string | null>(null);
   const [appliedRef, setAppliedRef] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [financePost, setFinancePost] = useState<{ journalId: string | null; docNo: string | null } | null>(null);
+  const [financeLink, setFinanceLink] = useState<string | null>(null);
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financePosting, setFinancePosting] = useState(false);
+  const [financeNotice, setFinanceNotice] = useState<string | null>(null);
+  const [financeError, setFinanceError] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -118,6 +124,7 @@ export default function ExpenseEditPage() {
 
       await loadLookups(context.companyId);
       await loadExpense(id);
+      await loadFinancePost(id, session.access_token);
       if (active) setLoading(false);
     })();
 
@@ -262,6 +269,44 @@ export default function ExpenseEditPage() {
     setAppliedRef(parsed.data.applied_inventory_ref);
   };
 
+  const getAuthHeaders = (tokenOverride?: string | null) => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const token = tokenOverride ?? ctx?.session?.access_token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
+
+  const loadFinancePost = async (expenseId: string, accessToken?: string | null) => {
+    if (!accessToken && !ctx?.session?.access_token) return;
+    setFinanceLoading(true);
+    setFinanceError(null);
+    try {
+      const response = await fetch(`/api/erp/finance/expenses/${expenseId}/post`, {
+        method: "GET",
+        headers: getAuthHeaders(accessToken),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load finance posting.");
+      }
+      const post = payload?.post;
+      if (post?.posted && post?.journal?.id) {
+        setFinancePost({ journalId: post.journal.id, docNo: post.journal.doc_no ?? null });
+        setFinanceLink(post.link ?? null);
+      } else {
+        setFinancePost(null);
+        setFinanceLink(null);
+      }
+    } catch (postError) {
+      const message = postError instanceof Error ? postError.message : "Failed to load finance posting.";
+      setFinanceError(message);
+      setFinancePost(null);
+      setFinanceLink(null);
+    } finally {
+      setFinanceLoading(false);
+    }
+  };
+
   const handleSubmit = async (payload: ExpenseFormPayload) => {
     if (typeof id !== "string") {
       setError("Expense id not found.");
@@ -350,6 +395,40 @@ export default function ExpenseEditPage() {
     await loadExpense(id);
   };
 
+  const handleFinancePost = async () => {
+    if (typeof id !== "string") {
+      setFinanceError("Expense id not found.");
+      return;
+    }
+    if (!ctx?.session?.access_token) return;
+    setFinancePosting(true);
+    setFinanceError(null);
+    setFinanceNotice(null);
+    try {
+      const response = await fetch(`/api/erp/finance/expenses/${id}/post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ expenseId: id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to post expense journal.");
+      }
+      if (payload?.journal?.id) {
+        setFinancePost({ journalId: payload.journal.id, docNo: payload.journal.doc_no ?? null });
+        setFinanceNotice(`Posted finance journal ${payload.journal.doc_no || ""}`.trim());
+      } else {
+        setFinanceNotice("Posted finance journal.");
+      }
+      setFinanceLink(payload?.post?.link ?? financeLink);
+    } catch (postError) {
+      const message = postError instanceof Error ? postError.message : "Failed to post expense journal.";
+      setFinanceError(message);
+    } finally {
+      setFinancePosting(false);
+    }
+  };
+
   if (loading) {
     return (
       <ErpShell activeModule="finance">
@@ -388,6 +467,8 @@ export default function ExpenseEditPage() {
           }
         />
         {notice ? <div style={{ color: "#047857", marginBottom: 12 }}>{notice}</div> : null}
+        {financeNotice ? <div style={{ color: "#047857", marginBottom: 12 }}>{financeNotice}</div> : null}
+        {financeError ? <div style={{ color: "#b91c1c", marginBottom: 12 }}>{financeError}</div> : null}
         {appliedAt ? (
           <div style={{ color: "#4b5563", marginBottom: 12 }}>
             Applied to inventory at {new Date(appliedAt).toLocaleString()} ({appliedRef || "no ref"}).
@@ -406,6 +487,39 @@ export default function ExpenseEditPage() {
           error={error}
           initialValues={initialValues}
         />
+        <div style={{ ...cardStyle, marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Finance posting</div>
+              {financeLoading ? (
+                <div style={{ color: "#6b7280" }}>Loading posting status…</div>
+              ) : financePost ? (
+                <div style={{ fontWeight: 600 }}>
+                  Posted to journal {financePost.docNo || financePost.journalId}
+                  {financeLink ? (
+                    <Link href={financeLink} style={{ marginLeft: 8, fontSize: 13, color: "#2563eb" }}>
+                      View journal
+                    </Link>
+                  ) : null}
+                </div>
+              ) : (
+                <div style={{ color: "#6b7280" }}>Not posted yet.</div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleFinancePost}
+              disabled={!canWrite || financePosting || Boolean(financePost)}
+              style={{
+                ...primaryButtonStyle,
+                opacity: !canWrite || financePosting || Boolean(financePost) ? 0.6 : 1,
+                cursor: !canWrite || financePosting || Boolean(financePost) ? "not-allowed" : "pointer",
+              }}
+            >
+              {financePosting ? "Posting…" : financePost ? "Posted" : "Post to Finance"}
+            </button>
+          </div>
+        </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
           <button
             type="button"
