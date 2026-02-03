@@ -419,7 +419,7 @@ export default function FinanceSettlementsPage() {
         batch_id: string;
         attempted_rows: number;
         inserted_rows: number;
-      }>(`/api/finance/amazon/settlements/${eventId}/normalize`);
+      }>(`/api/finance/amazon/settlements/events/${eventId}/normalize`);
 
       setStatusMessage(
         `Normalized settlement event. Batch ${result.batch_id} inserted ${result.inserted_rows} of ${result.attempted_rows} rows.`
