@@ -29,3 +29,13 @@ export const shopifySalesPostingRowSchema = z
 
 export const shopifySalesPostingListSchema = z.array(shopifySalesPostingRowSchema);
 export type ShopifySalesPostingRow = z.infer<typeof shopifySalesPostingRowSchema>;
+
+export const shopifySalesDayPostingPreviewSchema = z.object({
+  day: z.string(),
+  eligible_orders_count: z.coerce.number(),
+  eligible_amount_sum: z.coerce.number(),
+  already_posted_count: z.coerce.number(),
+  missing_count: z.coerce.number(),
+});
+
+export type ShopifySalesDayPostingPreview = z.infer<typeof shopifySalesDayPostingPreviewSchema>;
