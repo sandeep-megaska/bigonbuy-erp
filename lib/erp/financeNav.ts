@@ -64,6 +64,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-shopify-sales-posting",
+    label: "Shopify Sales Posting",
+    href: "/erp/finance/sales/shopify",
+    description: "Review Shopify order posting coverage and post missing journals.",
+    group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "SP",
+    cardIcon: "🛒",
+    showInSidebar: true,
+    showInCards: true,
+  },
+  {
     id: "finance-recurring-expenses",
     label: "Recurring Expenses",
     href: "/erp/finance/expenses/recurring",
