@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { extractAmazonSettlementBody, parseAmazonSettlementHtml } from "lib/erp/amazonSettlementParser";
+import { parseAmazonSettlementHtml } from "lib/erp/amazonSettlementParser";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
@@ -13,9 +13,7 @@ type DebugInfo = {
   raw_payload_type: string;
   raw_payload_keys: string[];
   html_len: number;
-  extracted_body_len: number;
-  extracted_body_preview: string;
-  has_table: boolean;
+  html_preview: string;
   table_count: number;
   parsed_meta: {
     batchRef: string | null;
@@ -124,16 +122,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const body = extractAmazonSettlementBody(event.raw_payload);
-    if (!body) {
+    const html = getRawPayloadHtml(event.raw_payload);
+    if (!html) {
       return res.status(400).json({
         ok: false,
-        error: "Settlement email body not found in raw_payload",
+        error: "Settlement HTML not found in raw_payload",
       });
     }
 
     // IMPORTANT: parse the full HTML, do not slice to summary sections
-    const parsed = parseAmazonSettlementHtml(body);
+    const parsed = parseAmazonSettlementHtml(html);
 
     const rows = parsed.rows.map((row) => ({
       txn_date: row.txn_date,
@@ -159,16 +157,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             event.raw_payload && typeof event.raw_payload === "object"
               ? Object.keys(event.raw_payload as Record<string, unknown>)
               : [];
-          const rawPayloadHtml = getRawPayloadHtml(event.raw_payload);
-          const tableMatches = body.match(/<table\b/gi) || [];
-          const extractedBody = stripHtmlForDebug(body);
+          const tableMatches = html.match(/<table\b/gi) || [];
+          const htmlPreview = stripHtmlForDebug(html).slice(0, 300);
           return {
             raw_payload_type: typeof event.raw_payload,
             raw_payload_keys: rawPayloadKeys,
-            html_len: rawPayloadHtml?.length ?? 0,
-            extracted_body_len: extractedBody.length,
-            extracted_body_preview: extractedBody.slice(0, 300),
-            has_table: tableMatches.length > 0,
+            html_len: html.length,
+            html_preview: htmlPreview,
             table_count: tableMatches.length,
             parsed_meta: {
               batchRef: parsed.batchRef,
