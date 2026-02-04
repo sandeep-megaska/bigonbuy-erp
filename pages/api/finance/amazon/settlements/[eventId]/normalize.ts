@@ -15,7 +15,6 @@ const getEventIdParam = (value: string | string[] | undefined): string | null =>
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
 };
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
