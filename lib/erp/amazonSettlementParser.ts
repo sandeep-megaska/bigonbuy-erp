@@ -264,14 +264,19 @@ export const parseAmazonSettlementHtml = (html: string): AmazonSettlementParseRe
   };
 };
 
+const looksLikeHtml = (value: string) => /<\s*(html|table|body|div|span|tr|td|th)\b/i.test(value);
+
 export const extractAmazonSettlementBody = (payload: unknown): string | null => {
   if (!payload) return null;
   if (typeof payload === "string") return payload;
   if (typeof payload === "object" && payload !== null) {
     const record = payload as Record<string, unknown>;
-    if (typeof record.body === "string") return record.body;
+    const body = typeof record.body === "string" ? record.body : null;
+    const bodyHtml = typeof record.body_html === "string" ? record.body_html : null;
+    if (body && looksLikeHtml(body)) return body;
+    if (bodyHtml) return bodyHtml;
+    if (body) return body;
     if (typeof record.html === "string") return record.html;
-    if (typeof record.body_html === "string") return record.body_html;
     if (typeof record.raw_html === "string") return record.raw_html;
   }
   return null;
