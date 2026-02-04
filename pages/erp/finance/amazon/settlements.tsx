@@ -28,6 +28,7 @@ type SettlementReportSummary = {
   createdTime?: string;
   processingStatus?: string;
   marketplaceIds?: string[];
+  normalizedBatchId?: string | null;
 };
 
 type SettlementPreview = {
@@ -346,6 +347,8 @@ export default function AmazonSettlementReportsPage() {
   const [preview, setPreview] = useState<SettlementPreview | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [normalizingReportId, setNormalizingReportId] = useState<string | null>(null);
+  const [normalizeMessage, setNormalizeMessage] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [amountTypeFilter, setAmountTypeFilter] = useState("");
@@ -759,6 +762,44 @@ export default function AmazonSettlementReportsPage() {
     downloadCsv(filename, columns, preview.rows);
   };
 
+  const handleNormalizeReport = async (eventId: string) => {
+    setNormalizeMessage(null);
+    setNormalizingReportId(eventId);
+
+    try {
+      const response = await apiFetch(`/api/finance/amazon/settlements/${eventId}/normalize`, {
+        method: "POST",
+      });
+      const json = (await response.json()) as {
+        ok: boolean;
+        batch_id?: string;
+        attempted_rows?: number;
+        inserted_rows?: number;
+        error?: string;
+      };
+
+      if (!response.ok || !json.ok) {
+        throw new Error(json.error || "Unable to normalize report.");
+      }
+
+      setReports((current) =>
+        current.map((report) =>
+          report.eventId === eventId
+            ? { ...report, normalizedBatchId: json.batch_id ?? report.normalizedBatchId ?? null }
+            : report
+        )
+      );
+      setNormalizeMessage(
+        `Normalized report ${eventId}. Inserted ${json.inserted_rows ?? 0} of ${json.attempted_rows ?? 0} rows.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to normalize report.";
+      setNormalizeMessage(message);
+    } finally {
+      setNormalizingReportId(null);
+    }
+  };
+
   if (loading) {
     return (
       <ErpShell activeModule="finance">
@@ -802,6 +843,12 @@ export default function AmazonSettlementReportsPage() {
           </div>
         ) : null}
 
+        {normalizeMessage ? (
+          <div style={{ ...cardStyle, borderColor: "#bae6fd", backgroundColor: "#f0f9ff" }}>
+            <p style={{ margin: 0, color: "#075985", fontSize: 14 }}>{normalizeMessage}</p>
+          </div>
+        ) : null}
+
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Available settlement reports</h2>
           {reports.length === 0 && !isLoadingReports ? (
@@ -814,12 +861,14 @@ export default function AmazonSettlementReportsPage() {
                   <th style={tableHeaderCellStyle}>Created</th>
                   <th style={tableHeaderCellStyle}>Status</th>
                   <th style={tableHeaderCellStyle}>Marketplace</th>
+                  <th style={tableHeaderCellStyle}>Normalized</th>
                   <th style={tableHeaderCellStyle}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {reports.map((report) => {
                   const tone = statusTone[report.processingStatus ?? ""] ?? badgeStyle;
+                  const isNormalized = Boolean(report.normalizedBatchId);
                   return (
                     <tr key={report.eventId}>
                       <td style={tableCellStyle}>{report.eventId}</td>
@@ -835,12 +884,30 @@ export default function AmazonSettlementReportsPage() {
                           : "—"}
                       </td>
                       <td style={tableCellStyle}>
+                        {isNormalized ? (
+                          <span style={{ ...badgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>
+                            Normalized
+                          </span>
+                        ) : (
+                          <span style={{ ...badgeStyle, backgroundColor: "#fef3c7", color: "#92400e" }}>
+                            Pending
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ ...tableCellStyle, display: "flex", gap: 8 }}>
                         <button
                           style={primaryButtonStyle}
                           onClick={() => handlePreview(report.eventId)}
                           disabled={isLoadingPreview}
                         >
                           Preview
+                        </button>
+                        <button
+                          style={secondaryButtonStyle}
+                          onClick={() => handleNormalizeReport(report.eventId)}
+                          disabled={isNormalized || normalizingReportId === report.eventId}
+                        >
+                          {normalizingReportId === report.eventId ? "Normalizing…" : "Normalize"}
                         </button>
                       </td>
                     </tr>
@@ -888,6 +955,14 @@ export default function AmazonSettlementReportsPage() {
                 <div>
                   <div style={labelStyle}>Status</div>
                   <p style={valueStyle}>{preview.report.processingStatus ?? "UNKNOWN"}</p>
+                </div>
+                <div>
+                  <div style={labelStyle}>Normalized</div>
+                  <p style={valueStyle}>
+                    {reports.find((report) => report.eventId === preview.report.eventId)?.normalizedBatchId
+                      ? "Yes"
+                      : "No"}
+                  </p>
                 </div>
                 <div>
                   <div style={labelStyle}>Rows</div>
