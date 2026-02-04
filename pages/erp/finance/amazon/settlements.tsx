@@ -24,7 +24,7 @@ type CompanyContext = {
 };
 
 type SettlementReportSummary = {
-  reportId: string;
+  eventId: string;
   createdTime?: string;
   processingStatus?: string;
   marketplaceIds?: string[];
@@ -32,7 +32,7 @@ type SettlementReportSummary = {
 
 type SettlementPreview = {
   report: {
-    reportId: string;
+    eventId: string;
     createdTime?: string;
     processingStatus?: string;
   };
@@ -376,7 +376,7 @@ export default function AmazonSettlementReportsPage() {
     setNonZeroOnly(false);
     setMinAmount("");
     setMaxAmount("");
-  }, [preview?.report.reportId]);
+  }, [preview?.report.eventId]);
 
   const columnMap = useMemo(() => {
     if (!preview) return null;
@@ -698,13 +698,13 @@ export default function AmazonSettlementReportsPage() {
     loadReports();
   }, [ctx?.companyId]);
 
-  const handlePreview = async (reportId: string) => {
+  const handlePreview = async (eventId: string) => {
     setIsLoadingPreview(true);
     setPreviewError(null);
     setPreview(null);
 
     try {
-      const response = await apiFetch(`/api/finance/amazon/settlements/${reportId}`);
+      const response = await apiFetch(`/api/finance/amazon/settlements/${eventId}`);
       const json = (await response.json()) as { ok: boolean; error?: string } & SettlementPreview;
       if (!response.ok || !json.ok) {
         throw new Error(json.error || "Unable to preview report.");
@@ -720,9 +720,9 @@ export default function AmazonSettlementReportsPage() {
 
   const handleExportNormalizedCsv = () => {
     if (!preview) return;
-    const reportId = preview.report.reportId;
+  const eventId = preview.report.eventId;
     const columns = [
-      { header: "settlementReportId", accessor: () => reportId },
+      { header: "settlementReportId", accessor: () => eventId },
       { header: "posted-date", accessor: (row: typeof filteredLinesWithMeta[number]) => row.postedDate ?? "" },
       {
         header: "transaction-type",
@@ -744,7 +744,7 @@ export default function AmazonSettlementReportsPage() {
       { header: "currency", accessor: (row: typeof filteredLinesWithMeta[number]) => row.currency },
     ];
     const timestamp = formatTimestampForFilename(new Date());
-    const filename = `amazon-settlement-normalized-${preview.report.reportId}-${timestamp}.csv`;
+    const filename = `amazon-settlement-normalized-${preview.report.eventId}-${timestamp}.csv`;
     downloadCsv(filename, columns, filteredLinesWithMeta);
   };
 
@@ -755,7 +755,7 @@ export default function AmazonSettlementReportsPage() {
       accessor: (row: (typeof preview.rows)[number]) => row[column] ?? "",
     }));
     const timestamp = formatTimestampForFilename(new Date());
-    const filename = `amazon-settlement-raw-${preview.report.reportId}-${timestamp}.csv`;
+    const filename = `amazon-settlement-raw-${preview.report.eventId}-${timestamp}.csv`;
     downloadCsv(filename, columns, preview.rows);
   };
 
@@ -821,8 +821,8 @@ export default function AmazonSettlementReportsPage() {
                 {reports.map((report) => {
                   const tone = statusTone[report.processingStatus ?? ""] ?? badgeStyle;
                   return (
-                    <tr key={report.reportId}>
-                      <td style={tableCellStyle}>{report.reportId}</td>
+                    <tr key={report.eventId}>
+                      <td style={tableCellStyle}>{report.eventId}</td>
                       <td style={tableCellStyle}>{formatDateTime(report.createdTime)}</td>
                       <td style={tableCellStyle}>
                         <span style={{ ...badgeStyle, ...tone }}>
@@ -837,7 +837,7 @@ export default function AmazonSettlementReportsPage() {
                       <td style={tableCellStyle}>
                         <button
                           style={primaryButtonStyle}
-                          onClick={() => handlePreview(report.reportId)}
+                          onClick={() => handlePreview(report.eventId)}
                           disabled={isLoadingPreview}
                         >
                           Preview
@@ -879,7 +879,7 @@ export default function AmazonSettlementReportsPage() {
               <div style={metadataGridStyle}>
                 <div>
                   <div style={labelStyle}>Report ID</div>
-                  <p style={valueStyle}>{preview.report.reportId}</p>
+                  <p style={valueStyle}>{preview.report.eventId}</p>
                 </div>
                 <div>
                   <div style={labelStyle}>Created</div>
