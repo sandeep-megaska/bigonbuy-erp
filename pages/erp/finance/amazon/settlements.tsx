@@ -13,7 +13,6 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-import { apiFetch } from "../../../../lib/erp/apiFetch";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 import { downloadCsv } from "../../../../lib/erp/exportCsv";
 
@@ -21,6 +20,7 @@ type CompanyContext = {
   companyId: string | null;
   roleKey: string | null;
   membershipError: string | null;
+  session?: { access_token?: string | null } | null;
 };
 
 type SettlementReportSummary = {
@@ -358,6 +358,14 @@ export default function AmazonSettlementReportsPage() {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
 
+  const getAuthHeaders = (tokenOverride?: string | null): HeadersInit => {
+    const token = tokenOverride ?? ctx?.session?.access_token;
+    return {
+      Authorization: token ? `Bearer ${token}` : "",
+      "Content-Type": "application/json",
+    };
+  };
+
   const totalsEntries = useMemo(() => {
     if (!preview) return [];
     return Object.entries(preview.totalsByCurrency);
@@ -658,6 +666,7 @@ export default function AmazonSettlementReportsPage() {
         companyId: companyContext.companyId,
         roleKey: companyContext.roleKey,
         membershipError: companyContext.membershipError,
+        session: companyContext.session,
       });
       setLoading(false);
     })();
@@ -674,7 +683,9 @@ export default function AmazonSettlementReportsPage() {
     try {
       const params = new URLSearchParams();
       if (token) params.set("nextToken", token);
-      const response = await apiFetch(`/api/finance/amazon/settlements?${params.toString()}`);
+      const response = await fetch(`/api/erp/finance/amazon/settlements?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
       const json = (await response.json()) as {
         ok: boolean;
         reports?: SettlementReportSummary[];
@@ -707,7 +718,9 @@ export default function AmazonSettlementReportsPage() {
     setPreview(null);
 
     try {
-      const response = await apiFetch(`/api/finance/amazon/settlements/${eventId}`);
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${eventId}`, {
+        headers: getAuthHeaders(),
+      });
       const json = (await response.json()) as { ok: boolean; error?: string } & SettlementPreview;
       if (!response.ok || !json.ok) {
         throw new Error(json.error || "Unable to preview report.");
@@ -723,7 +736,7 @@ export default function AmazonSettlementReportsPage() {
 
   const handleExportNormalizedCsv = () => {
     if (!preview) return;
-  const eventId = preview.report.eventId;
+    const eventId = preview.report.eventId;
     const columns = [
       { header: "settlementReportId", accessor: () => eventId },
       { header: "posted-date", accessor: (row: typeof filteredLinesWithMeta[number]) => row.postedDate ?? "" },
@@ -767,8 +780,9 @@ export default function AmazonSettlementReportsPage() {
     setNormalizingReportId(eventId);
 
     try {
-      const response = await apiFetch(`/api/finance/amazon/settlements/${eventId}/normalize`, {
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${eventId}/normalize`, {
         method: "POST",
+        headers: getAuthHeaders(),
       });
       const json = (await response.json()) as {
         ok: boolean;
@@ -812,9 +826,9 @@ export default function AmazonSettlementReportsPage() {
     return (
       <ErpShell activeModule="finance">
         <div style={pageContainerStyle}>
-          <ErpPageHeader
+            <ErpPageHeader
             eyebrow="Finance"
-            title="Amazon Settlements (India)"
+            title="Amazon Payouts (India)"
             description="Preview Amazon settlement flat-file reports without importing data."
           />
           <p style={errorTextStyle}>{ctx?.membershipError || "Unable to load company context."}</p>
@@ -828,7 +842,7 @@ export default function AmazonSettlementReportsPage() {
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
-          title="Amazon Settlements (India)"
+          title="Amazon Payouts (India)"
           description="Review settlement reports, download previews, and inspect totals."
           rightActions={
             <button style={secondaryButtonStyle} onClick={() => loadReports()}>

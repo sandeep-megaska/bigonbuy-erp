@@ -412,7 +412,7 @@ export default function FinanceSettlementsPage() {
 
   const handleNormalizeEvent = async (eventId: string) => {
     setStatusMessage(
-      "Amazon settlement normalization now runs from the settlement report preview. Use Finance → Amazon Settlements."
+      "Amazon settlement normalization now runs from the settlement report preview. Use Finance → Amazon Payouts."
     );
     setNormalizingEventId(null);
   };

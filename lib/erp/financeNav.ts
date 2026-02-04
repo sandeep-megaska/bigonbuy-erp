@@ -366,9 +366,9 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-amazon-settlements",
-    label: "Amazon Settlements",
+    label: "Amazon Payouts",
     href: "/erp/finance/amazon/settlements",
-    description: "Preview Amazon settlement flat-file reports without importing data.",
+    description: "Preview Amazon payout flat-file reports without importing data.",
     group: "Finance",
     sidebarIcon: "AS",
     cardIcon: "🧾",
