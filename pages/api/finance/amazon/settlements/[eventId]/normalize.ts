@@ -1,5 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { parseAmazonSettlementHtml } from "lib/erp/amazonSettlementParser";
+import {
+  parseAmazonSettlementAmount,
+  parseAmazonSettlementReportText,
+} from "lib/erp/amazonSettlementReport";
+import {
+  amazonDownloadReportDocument,
+  amazonGetReport,
+  amazonGetReportDocument,
+} from "lib/oms/adapters/amazonSpApi";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
@@ -9,53 +17,26 @@ type SuccessResponse = {
   attempted_rows: number;
   inserted_rows: number;
 };
-type DebugInfo = {
-  raw_payload_type: string;
-  raw_payload_keys: string[];
-  html_len: number;
-  html_preview: string;
-  table_count: number;
-  parsed_meta: {
-    batchRef: string | null;
-    periodStart: string | null;
-    periodEnd: string | null;
-    currency: string | null;
-  };
-  parsed_row_count: number;
+type ApiResponse = ErrorResponse | SuccessResponse;
+
+type SettlementSummary = {
+  settlement_id: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  deposit_date: string | null;
+  total_amount: number | null;
+  currency: string | null;
 };
-type ApiResponse = ErrorResponse | (SuccessResponse & Partial<DebugInfo>);
 
-const stripHtmlForDebug = (value: string) =>
-  value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const looksLikeHtml = (value: string) => /<\s*(html|table|body|div|span|tr|td|th)\b/i.test(value);
-
-const getRawPayloadHtml = (payload: unknown): string | null => {
-  if (!payload) return null;
-  if (typeof payload === "string") return payload;
-  if (typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    const body = typeof record.body === "string" ? record.body : null;
-    const bodyHtml = typeof record.body_html === "string" ? record.body_html : null;
-    if (body && looksLikeHtml(body)) return body;
-    if (bodyHtml) return bodyHtml;
-    if (body) return body;
-    if (typeof record.html === "string") return record.html;
-    if (typeof record.raw_html === "string") return record.raw_html;
-  }
-  return null;
+const normalizeDate = (value: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length >= 10 ? trimmed.slice(0, 10) : trimmed;
 };
+
+const normalizeValue = (value: string | null) =>
+  (value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const getEventIdParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
@@ -66,8 +47,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
-
-  const debugEnabled = req.query.debug === "1";
 
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || missing.length > 0) {
@@ -83,9 +62,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
   }
 
-  const eventId = getEventIdParam(req.query.eventId) || (req.body?.eventId as string | undefined);
-  if (!eventId) {
-    return res.status(400).json({ ok: false, error: "eventId is required" });
+  const reportId = getEventIdParam(req.query.eventId) || (req.body?.eventId as string | undefined);
+  if (!reportId) {
+    return res.status(400).json({ ok: false, error: "reportId is required" });
   }
 
   try {
@@ -102,89 +81,165 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         .json({ ok: false, error: permissionError.message || "Marketplace write access required" });
     }
 
-    const { data: event, error: eventError } = await userClient
-      .from("erp_settlement_events")
-      .select("id, platform, event_type, currency, raw_payload, reference_no")
-      .eq("id", eventId)
-      .maybeSingle();
+    const report = await amazonGetReport({ reportId });
+    const processingStatus = report.processingStatus ?? "UNKNOWN";
 
-    if (eventError || !event) {
-      return res.status(404).json({
-        ok: false,
-        error: eventError?.message || "Settlement event not found",
-      });
+    if (processingStatus !== "DONE") {
+      return res
+        .status(400)
+        .json({ ok: false, error: `Report status is ${processingStatus}. Try again later.` });
     }
 
-    if (event.platform !== "amazon" || event.event_type !== "AMAZON_SETTLEMENT") {
-      return res.status(400).json({
-        ok: false,
-        error: "Event is not an Amazon settlement",
-      });
+    if (!report.reportDocumentId) {
+      return res.status(400).json({ ok: false, error: "Missing reportDocumentId." });
     }
 
-    const html = getRawPayloadHtml(event.raw_payload);
-    if (!html) {
-      return res.status(400).json({
-        ok: false,
-        error: "Settlement HTML not found in raw_payload",
-      });
+    const reportDocument = await amazonGetReportDocument({
+      reportDocumentId: report.reportDocumentId,
+    });
+    const text = await amazonDownloadReportDocument({ reportDocument });
+
+    const parsed = parseAmazonSettlementReportText(text);
+    if (parsed.columns.length === 0 || parsed.rows.length === 0) {
+      return res.status(400).json({ ok: false, error: "Settlement report has no rows." });
     }
 
-    // IMPORTANT: parse the full HTML, do not slice to summary sections
-    const parsed = parseAmazonSettlementHtml(html);
+    const findColumnName = (candidates: string[]) => {
+      const normalized = parsed.columns.map((column) => normalizeValue(column));
+      for (const candidate of candidates) {
+        const matchIndex = normalized.indexOf(normalizeValue(candidate));
+        if (matchIndex >= 0) return parsed.columns[matchIndex];
+      }
+      return null;
+    };
 
-    const rows = parsed.rows.map((row) => ({
-      txn_date: row.txn_date,
-      order_id: row.order_id,
-      sub_order_id: row.sub_order_id,
-      sku: row.sku,
-      qty: row.qty,
-      gross_sales: row.gross_sales,
-      net_payout: row.net_payout,
-      total_fees: row.total_fees,
-      shipping_fee: row.shipping_fee,
-      commission_fee: row.commission_fee,
-      fixed_fee: row.fixed_fee,
-      closing_fee: row.closing_fee,
-      refund_amount: row.refund_amount,
-      other_charges: row.other_charges,
-      settlement_type: row.settlement_type,
-      raw: row.raw,
-    }));
-    const debugInfo: DebugInfo | null = debugEnabled
-      ? (() => {
-          const rawPayloadKeys =
-            event.raw_payload && typeof event.raw_payload === "object"
-              ? Object.keys(event.raw_payload as Record<string, unknown>)
-              : [];
-          const tableMatches = html.match(/<table\b/gi) || [];
-          const htmlPreview = stripHtmlForDebug(html).slice(0, 300);
-          return {
-            raw_payload_type: typeof event.raw_payload,
-            raw_payload_keys: rawPayloadKeys,
-            html_len: html.length,
-            html_preview: htmlPreview,
-            table_count: tableMatches.length,
-            parsed_meta: {
-              batchRef: parsed.batchRef,
-              periodStart: parsed.periodStart,
-              periodEnd: parsed.periodEnd,
-              currency: parsed.currency,
-            },
-            parsed_row_count: rows.length,
-          };
-        })()
+    const transactionTypeColumn = findColumnName(["transaction-type"]);
+    const amountTypeColumn = findColumnName(["amount-type"]);
+    const amountDescriptionColumn = findColumnName(["amount-description"]);
+    const amountColumn = findColumnName(["amount"]);
+    const orderIdColumn = findColumnName(["order-id"]);
+    const merchantOrderIdColumn = findColumnName(["merchant-order-id"]);
+    const shipmentIdColumn = findColumnName(["shipment-id"]);
+    const adjustmentIdColumn = findColumnName(["adjustment-id"]);
+    const skuColumn = findColumnName(["sku"]);
+    const orderItemCodeColumn = findColumnName(["order-item-code"]);
+    const quantityColumn = findColumnName(["quantity-purchased", "quantity"]);
+    const postedDateColumn = findColumnName(["posted-date"]);
+    const postedDateTimeColumn = findColumnName(["posted-date-time"]);
+    const settlementIdColumn = findColumnName(["settlement-id"]);
+    const settlementStartColumn = findColumnName(["settlement-start-date"]);
+    const settlementEndColumn = findColumnName(["settlement-end-date"]);
+    const depositDateColumn = findColumnName(["deposit-date"]);
+    const totalAmountColumn = findColumnName(["total-amount"]);
+    const currencyColumn = findColumnName(["currency", "amount-currency", "currency-code"]);
+
+    const getValue = (row: Record<string, string>, column: string | null) =>
+      column ? row[column]?.trim() || "" : "";
+
+    const summaryRow = transactionTypeColumn
+      ? parsed.rows.find((row) => getValue(row, transactionTypeColumn) === "")
       : null;
 
+    if (!summaryRow) {
+      return res.status(400).json({ ok: false, error: "Settlement summary row not found." });
+    }
+
+    const summary: SettlementSummary = {
+      settlement_id: getValue(summaryRow, settlementIdColumn) || reportId,
+      period_start: normalizeDate(getValue(summaryRow, settlementStartColumn)),
+      period_end: normalizeDate(getValue(summaryRow, settlementEndColumn)),
+      deposit_date: normalizeDate(getValue(summaryRow, depositDateColumn)),
+      total_amount: null,
+      currency: null,
+    };
+
+    const totalAmountRaw = getValue(summaryRow, totalAmountColumn);
+    summary.total_amount = totalAmountRaw ? parseAmazonSettlementAmount(totalAmountRaw) : null;
+    summary.currency = getValue(summaryRow, currencyColumn) || null;
+
+    const normalizedRows = parsed.rows
+      .filter((row) => row !== summaryRow)
+      .map((row) => {
+        const transactionType = getValue(row, transactionTypeColumn);
+        const amountType = getValue(row, amountTypeColumn);
+        const amountDescription = getValue(row, amountDescriptionColumn);
+        const normalizedAmountType = normalizeValue(amountType || amountDescription);
+        const normalizedTransactionType = normalizeValue(transactionType);
+        const amountRaw = getValue(row, amountColumn);
+        const amount = amountRaw ? parseAmazonSettlementAmount(amountRaw) : null;
+        const qtyRaw = getValue(row, quantityColumn);
+        const qty = qtyRaw ? Number.parseInt(qtyRaw, 10) : null;
+        const postedDate = normalizeDate(
+          getValue(row, postedDateColumn) || getValue(row, postedDateTimeColumn) || summary.deposit_date || ""
+        );
+
+        const settlementTypeParts = [transactionType, amountType, amountDescription]
+          .map((value) => value?.trim())
+          .filter(Boolean);
+
+        const rowPayload = {
+          txn_date: postedDate,
+          order_id: getValue(row, orderIdColumn) || null,
+          sub_order_id:
+            getValue(row, merchantOrderIdColumn) ||
+            getValue(row, shipmentIdColumn) ||
+            getValue(row, adjustmentIdColumn) ||
+            null,
+          sku: getValue(row, skuColumn) || getValue(row, orderItemCodeColumn) || null,
+          qty,
+          gross_sales:
+            amount !== null &&
+            (normalizedAmountType.includes("principal") || normalizedAmountType.includes("itemprice"))
+              ? amount
+              : null,
+          net_payout: amount,
+          total_fees:
+            amount !== null &&
+            (normalizedAmountType.includes("fee") ||
+              normalizedAmountType.includes("commission") ||
+              normalizedAmountType.includes("shipping") ||
+              normalizedAmountType.includes("fulfillment"))
+              ? amount
+              : null,
+          shipping_fee: normalizedAmountType.includes("shipping") ? amount : null,
+          commission_fee: normalizedAmountType.includes("commission") ? amount : null,
+          fixed_fee: normalizedAmountType.includes("fixed") ? amount : null,
+          closing_fee: normalizedAmountType.includes("closing") ? amount : null,
+          refund_amount: normalizedTransactionType.includes("refund") ? amount : null,
+          other_charges:
+            amount !== null && normalizedAmountType.includes("other") ? amount : null,
+          settlement_type: settlementTypeParts.length > 0 ? settlementTypeParts.join(" / ") : null,
+          raw: row,
+        };
+
+        return rowPayload;
+      });
+
+    const { error: payloadError } = await userClient
+      .from("erp_marketplace_settlement_report_payloads")
+      .upsert(
+        {
+          report_id: reportId,
+          payload: {
+            summary,
+            rows: normalizedRows,
+          },
+        },
+        { onConflict: "company_id,report_id" }
+      );
+
+    if (payloadError) {
+      return res.status(400).json({
+        ok: false,
+        error: payloadError.message || "Unable to stage settlement report rows",
+        details: payloadError.details || payloadError.hint || payloadError.code,
+      });
+    }
+
     const { data: upsertResult, error: upsertError } = await userClient.rpc(
-      "erp_marketplace_settlement_batch_upsert_from_rows",
+      "erp_marketplace_settlement_batch_upsert_from_amazon_report",
       {
-        p_event_id: eventId,
-        p_batch_ref: parsed.batchRef ?? event.reference_no ?? null,
-        p_period_start: parsed.periodStart,
-        p_period_end: parsed.periodEnd,
-        p_currency: parsed.currency ?? event.currency ?? null,
-        p_rows: rows,
+        p_report_id: reportId,
         p_actor_user_id: userData.user.id,
       }
     );
@@ -192,7 +247,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (upsertError || !upsertResult) {
       return res.status(400).json({
         ok: false,
-        error: upsertError?.message || "Unable to normalize settlement event",
+        error: upsertError?.message || "Unable to normalize settlement report",
         details: upsertError?.details || upsertError?.hint || upsertError?.code,
       });
     }
@@ -202,7 +257,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       batch_id: upsertResult.batch_id as string,
       attempted_rows: upsertResult.attempted_rows as number,
       inserted_rows: upsertResult.inserted_rows as number,
-      ...(debugInfo ?? {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";

@@ -411,25 +411,10 @@ export default function FinanceSettlementsPage() {
   };
 
   const handleNormalizeEvent = async (eventId: string) => {
-    setStatusMessage("");
-    setNormalizingEventId(eventId);
-    try {
-      const result = await apiPost<{
-        ok: true;
-        batch_id: string;
-        attempted_rows: number;
-        inserted_rows: number;
-      }>(`/api/finance/amazon/settlements/${eventId}/normalize`);
-
-      setStatusMessage(
-        `Normalized settlement event. Batch ${result.batch_id} inserted ${result.inserted_rows} of ${result.attempted_rows} rows.`
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to normalize settlement event";
-      setStatusMessage(message);
-    } finally {
-      setNormalizingEventId(null);
-    }
+    setStatusMessage(
+      "Amazon settlement normalization now runs from the settlement report preview. Use Finance → Amazon Settlements."
+    );
+    setNormalizingEventId(null);
   };
 
   useEffect(() => {
