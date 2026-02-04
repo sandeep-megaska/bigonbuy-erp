@@ -9,7 +9,30 @@ type SuccessResponse = {
   attempted_rows: number;
   inserted_rows: number;
 };
-type ApiResponse = ErrorResponse | SuccessResponse;
+type DebugInfo = {
+  raw_payload_keys: string[];
+  html_len: number;
+  extracted_body_len: number;
+  extracted_body_preview: string;
+  has_table: boolean;
+  table_count: number;
+  parsed_row_count: number;
+};
+type ApiResponse = ErrorResponse | (SuccessResponse & Partial<DebugInfo>);
+
+const stripHtmlForDebug = (value: string) =>
+  value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const getEventIdParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
@@ -20,6 +43,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
+
+  const debugEnabled = req.query.debug === "1";
 
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || missing.length > 0) {
@@ -101,6 +126,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       settlement_type: row.settlement_type,
       raw: row.raw,
     }));
+    const debugInfo: DebugInfo | null = debugEnabled
+      ? (() => {
+          const rawPayloadKeys =
+            event.raw_payload && typeof event.raw_payload === "object"
+              ? Object.keys(event.raw_payload as Record<string, unknown>)
+              : [];
+          const tableMatches = body.match(/<table\b/gi) || [];
+          const extractedBody = stripHtmlForDebug(body);
+          return {
+            raw_payload_keys: rawPayloadKeys,
+            html_len: body.length,
+            extracted_body_len: extractedBody.length,
+            extracted_body_preview: extractedBody.slice(0, 300),
+            has_table: tableMatches.length > 0,
+            table_count: tableMatches.length,
+            parsed_row_count: rows.length,
+          };
+        })()
+      : null;
 
     const { data: upsertResult, error: upsertError } = await userClient.rpc(
       "erp_marketplace_settlement_batch_upsert_from_rows",
@@ -128,6 +172,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       batch_id: upsertResult.batch_id as string,
       attempted_rows: upsertResult.attempted_rows as number,
       inserted_rows: upsertResult.inserted_rows as number,
+      ...(debugInfo ?? {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
