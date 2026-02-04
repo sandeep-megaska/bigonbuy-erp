@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { amazonListReports } from "../../../../lib/oms/adapters/amazonSpApi";
 
 type SettlementReportSummary = {
-  reportId: string;
+  eventId: string;
   createdTime?: string;
   processingStatus?: string;
   marketplaceIds?: string[];
@@ -32,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     );
 
     const summaries = reports.map((report) => ({
-      reportId: report.reportId,
+      eventId: report.reportId,
       createdTime: report.createdTime,
       processingStatus: report.processingStatus,
       marketplaceIds: report.marketplaceIds,
