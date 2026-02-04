@@ -144,7 +144,8 @@ const parsed = parseAmazonSettlementHtml(html);
       });
     }
 
-    const parsed = parseAmazonSettlementHtml(body);
+    const parsed = parseAmazonSettlementHtml(html);
+
     const rows = parsed.rows.map((row) => ({
       txn_date: row.txn_date,
       order_id: row.order_id,
