@@ -460,8 +460,9 @@ export default async function handler(
 
         ingestId = ingestBatchId;
 
-        const body = findBodyInParts(payload) ?? messageResponse.data.snippet ?? "";
-        const amount = body ? extractAmount(body) : null;
+        const bodyText = findBodyInParts(payload, ["text/plain"]) ?? messageResponse.data.snippet ?? "";
+        const bodyHtml = findBodyInParts(payload, ["text/html"]) ?? bodyText;
+        const amount = bodyText ? extractAmount(bodyText) : null;
         if (!amount || !receivedAtMs) {
           await sbAdmin.rpc("erp_email_ingest_batch_mark_service", {
             p_company_id: companyId,
@@ -487,7 +488,8 @@ export default async function handler(
             p_raw: {
               gmail_message_id: messageResponse.data.id,
               subject,
-              body,
+              body: bodyText,
+              body_html: bodyHtml,
               kind: message.kind,
               attachment_names: attachmentNames,
               headers: headerMap,
@@ -508,7 +510,7 @@ export default async function handler(
           party = "indifi";
           platform = "indifi";
         } else if (message.kind === "INDIFI_OUT") {
-          eventType = /Indifi\s+Capital\s+Pvt\s+Ltd/i.test(body)
+          eventType = /Indifi\s+Capital\s+Pvt\s+Ltd/i.test(bodyText)
             ? "INDIFI_RELEASE_TO_INDIFI"
             : "INDIFI_RELEASE_TO_BANK";
           party = "indifi";
@@ -530,7 +532,9 @@ export default async function handler(
             p_payload: {
               gmail_message_id: messageResponse.data.id,
               subject,
-              body,
+              body: message.kind === "AMAZON" ? bodyHtml : bodyText,
+              body_text: bodyText,
+              body_html: bodyHtml,
               kind: message.kind,
             },
           },
