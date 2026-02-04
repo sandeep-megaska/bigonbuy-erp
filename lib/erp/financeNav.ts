@@ -76,6 +76,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: true,
   },
   {
+    id: "finance-amazon-settlement-posting",
+    label: "Amazon Settlement Posting",
+    href: "/erp/finance/amazon/settlement-posting",
+    description: "Review Amazon settlement batch posting coverage and post missing journals.",
+    group: "Finance",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "AZ",
+    cardIcon: "🧾",
+    showInSidebar: true,
+    showInCards: true,
+  },
+  {
     id: "finance-recurring-expenses",
     label: "Recurring Expenses",
     href: "/erp/finance/expenses/recurring",
