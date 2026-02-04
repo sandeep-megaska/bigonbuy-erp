@@ -93,7 +93,14 @@ const extractMeta = (text: string) => {
 const inferField = (header: string): keyof AmazonSettlementRow | null => {
   const key = normalizeHeader(header);
   if (!key) return null;
-  if (key.includes("orderid") || (key.includes("order") && key.endsWith("id"))) return "order_id";
+  if (
+    key.includes("orderid") ||
+    key.includes("orderno") ||
+    key.includes("ordernumber") ||
+    (key.includes("order") && key.endsWith("id"))
+  ) {
+    return "order_id";
+  }
   if (key.includes("suborder")) return "sub_order_id";
   if (key === "sku" || key.includes("sku") || key.includes("asin")) return "sku";
   if (key.includes("qty") || key.includes("quantity")) return "qty";
@@ -117,26 +124,30 @@ const inferField = (header: string): keyof AmazonSettlementRow | null => {
   return null;
 };
 
-const expectedFields: Array<keyof AmazonSettlementRow> = [
-  "txn_date",
-  "order_id",
-  "sub_order_id",
+const settlementHeaderKeywords = [
+  "order",
+  "orderid",
   "sku",
+  "asin",
   "qty",
-  "gross_sales",
-  "net_payout",
-  "total_fees",
-  "refund_amount",
-  "other_charges",
-  "settlement_type",
+  "quantity",
+  "gross",
+  "net",
+  "payout",
+  "fee",
+  "commission",
+  "closing",
+  "refund",
+  "adjustment",
 ];
 
 const scoreHeaders = (headers: string[]) => {
-  const normalized = headers.map(normalizeHeader);
+  const normalized = headers.map(normalizeHeader).filter(Boolean);
   let score = 0;
-  const keywords = ["order", "sku", "qty", "amount", "fee", "payout", "transaction", "date"];
-  for (const key of normalized) {
-    if (keywords.some((word) => key.includes(word))) score += 1;
+  for (const keyword of settlementHeaderKeywords) {
+    if (normalized.some((header) => header.includes(keyword))) {
+      score += 1;
+    }
   }
   return score;
 };
@@ -148,19 +159,23 @@ const extractRowsFromTable = (tableHtml: string): AmazonSettlementRow[] => {
   const parseCells = (rowHtml: string) =>
     (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
 
+  const headerRows = rowMatches.slice(0, 3);
   let headerRowIndex = 0;
   let headers: string[] = [];
   let headerFields: Array<keyof AmazonSettlementRow | null> = [];
-  let bestScore = 0;
+  let bestFieldScore = 0;
+  let bestKeywordScore = 0;
 
-  rowMatches.forEach((rowHtml, index) => {
+  headerRows.forEach((rowHtml, index) => {
     const cells = parseCells(rowHtml).filter(Boolean);
     if (cells.length === 0) return;
     const fields = cells.map(inferField);
     const uniqueFields = new Set(fields.filter(Boolean));
-    const score = uniqueFields.size;
-    if (score > bestScore) {
-      bestScore = score;
+    const fieldScore = uniqueFields.size;
+    const keywordScore = scoreHeaders(cells);
+    if (fieldScore > bestFieldScore || (fieldScore === bestFieldScore && keywordScore > bestKeywordScore)) {
+      bestFieldScore = fieldScore;
+      bestKeywordScore = keywordScore;
       headerRowIndex = index;
       headers = cells;
       headerFields = fields;
@@ -219,40 +234,52 @@ export const parseAmazonSettlementHtml = (html: string): AmazonSettlementParseRe
     return { ...meta, rows: [] };
   }
 
-  const tableScores = tables.map((table) => {
-    const rowMatches = table.match(/<tr[\s\S]*?<\/tr>/gi) || [];
-    const parseCells = (rowHtml: string) =>
-      (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
-    let bestHeaderCells: string[] = [];
-    let bestFieldScore = 0;
-    let bestKeywordScore = 0;
+  const parseCells = (rowHtml: string) =>
+    (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
 
-    rowMatches.forEach((rowHtml) => {
+  const tableCandidates = tables.map((table) => {
+    const rowMatches = table.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+    const headerRows = rowMatches.slice(0, 3);
+    const headerCells = headerRows.flatMap((rowHtml) => parseCells(rowHtml)).filter(Boolean);
+    const keywordScore = scoreHeaders(headerCells);
+
+    let bestFieldScore = 0;
+    let bestRowKeywordScore = 0;
+
+    headerRows.forEach((rowHtml, index) => {
       const cells = parseCells(rowHtml).filter(Boolean);
       if (cells.length === 0) return;
-      const fields = cells.map(inferField).filter(Boolean) as Array<keyof AmazonSettlementRow>;
+      const fields = cells.map(inferField).filter(Boolean);
       const uniqueFields = new Set(fields);
-      const fieldScore = Array.from(uniqueFields).filter((field) => expectedFields.includes(field)).length;
-      const keywordScore = scoreHeaders(cells);
-      if (fieldScore > bestFieldScore || (fieldScore === bestFieldScore && keywordScore > bestKeywordScore)) {
-        bestHeaderCells = cells;
+      const fieldScore = uniqueFields.size;
+      const rowKeywordScore = scoreHeaders(cells);
+      if (
+        fieldScore > bestFieldScore ||
+        (fieldScore === bestFieldScore && rowKeywordScore > bestRowKeywordScore)
+      ) {
         bestFieldScore = fieldScore;
-        bestKeywordScore = keywordScore;
+        bestRowKeywordScore = rowKeywordScore;
       }
     });
 
-    return { table, fieldScore: bestFieldScore, keywordScore: bestKeywordScore, headers: bestHeaderCells };
+    return {
+      table,
+      keywordScore,
+      fieldScore: bestFieldScore,
+    };
   });
 
-  tableScores.sort((a, b) => {
-    if (b.fieldScore !== a.fieldScore) return b.fieldScore - a.fieldScore;
-    return b.keywordScore - a.keywordScore;
-  });
+  const threshold = 3;
+  const rankedTables = tableCandidates
+    .filter((candidate) => candidate.keywordScore >= threshold)
+    .sort((a, b) => {
+      if (b.keywordScore !== a.keywordScore) return b.keywordScore - a.keywordScore;
+      return b.fieldScore - a.fieldScore;
+    });
 
   let rows: AmazonSettlementRow[] = [];
-  for (const tableScore of tableScores) {
-    rows = extractRowsFromTable(tableScore.table);
-    if (rows.length > 0 || tableScore.fieldScore > 0) break;
+  if (rankedTables.length > 0) {
+    rows = extractRowsFromTable(rankedTables[0].table);
   }
 
   return {
