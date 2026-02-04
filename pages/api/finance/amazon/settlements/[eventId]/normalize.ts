@@ -124,7 +124,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const body = extractAmazonSettlementBody(event.raw_payload);
+    const raw = event.raw_payload as any;
+const html =
+  typeof raw === "string" ? raw :
+  typeof raw === "object" && raw ? (raw.body ?? raw.html ?? raw.body_html ?? raw.raw_html ?? null) :
+  null;
+
+if (!html || typeof html !== "string") {
+  return res.status(400).json({ ok: false, error: "Settlement email HTML not found in raw_payload" });
+}
+
+// IMPORTANT: parse the full HTML, do not slice to summary sections
+const parsed = parseAmazonSettlementHtml(html);
+
     if (!body) {
       return res.status(400).json({
         ok: false,
