@@ -117,6 +117,20 @@ const inferField = (header: string): keyof AmazonSettlementRow | null => {
   return null;
 };
 
+const expectedFields: Array<keyof AmazonSettlementRow> = [
+  "txn_date",
+  "order_id",
+  "sub_order_id",
+  "sku",
+  "qty",
+  "gross_sales",
+  "net_payout",
+  "total_fees",
+  "refund_amount",
+  "other_charges",
+  "settlement_type",
+];
+
 const scoreHeaders = (headers: string[]) => {
   const normalized = headers.map(normalizeHeader);
   let score = 0;
@@ -134,17 +148,28 @@ const extractRowsFromTable = (tableHtml: string): AmazonSettlementRow[] => {
   const parseCells = (rowHtml: string) =>
     (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
 
-  const firstRow = rowMatches[0];
-  if (!firstRow) return [];
+  let headerRowIndex = 0;
+  let headers: string[] = [];
+  let headerFields: Array<keyof AmazonSettlementRow | null> = [];
+  let bestScore = 0;
 
-  let headers = parseCells(firstRow).filter(Boolean);
-  if (headers.length === 0 && rowMatches.length > 1) {
-    headers = parseCells(rowMatches[1]).filter(Boolean);
-  }
+  rowMatches.forEach((rowHtml, index) => {
+    const cells = parseCells(rowHtml).filter(Boolean);
+    if (cells.length === 0) return;
+    const fields = cells.map(inferField);
+    const uniqueFields = new Set(fields.filter(Boolean));
+    const score = uniqueFields.size;
+    if (score > bestScore) {
+      bestScore = score;
+      headerRowIndex = index;
+      headers = cells;
+      headerFields = fields;
+    }
+  });
 
-  const headerFields = headers.map(inferField);
+  if (headers.length === 0) return [];
 
-  return rowMatches.slice(1).flatMap((rowHtml) => {
+  return rowMatches.slice(headerRowIndex + 1).flatMap((rowHtml) => {
     const cells = parseCells(rowHtml);
     if (cells.length === 0) return [];
     const raw: Record<string, string> = {};
@@ -195,16 +220,40 @@ export const parseAmazonSettlementHtml = (html: string): AmazonSettlementParseRe
   }
 
   const tableScores = tables.map((table) => {
-    const headerMatch = table.match(/<tr[\s\S]*?<\/tr>/i);
-    const headerRow = headerMatch?.[0] ?? "";
-    const headerCells =
-      headerRow.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi)?.map((cell) => stripTags(cell)) ?? [];
-    return { table, score: scoreHeaders(headerCells.filter(Boolean)) };
+    const rowMatches = table.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+    const parseCells = (rowHtml: string) =>
+      (rowHtml.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) || []).map((cell) => stripTags(cell));
+    let bestHeaderCells: string[] = [];
+    let bestFieldScore = 0;
+    let bestKeywordScore = 0;
+
+    rowMatches.forEach((rowHtml) => {
+      const cells = parseCells(rowHtml).filter(Boolean);
+      if (cells.length === 0) return;
+      const fields = cells.map(inferField).filter(Boolean) as Array<keyof AmazonSettlementRow>;
+      const uniqueFields = new Set(fields);
+      const fieldScore = Array.from(uniqueFields).filter((field) => expectedFields.includes(field)).length;
+      const keywordScore = scoreHeaders(cells);
+      if (fieldScore > bestFieldScore || (fieldScore === bestFieldScore && keywordScore > bestKeywordScore)) {
+        bestHeaderCells = cells;
+        bestFieldScore = fieldScore;
+        bestKeywordScore = keywordScore;
+      }
+    });
+
+    return { table, fieldScore: bestFieldScore, keywordScore: bestKeywordScore, headers: bestHeaderCells };
   });
 
-  tableScores.sort((a, b) => b.score - a.score);
-  const bestTable = tableScores[0]?.table ?? tables[0];
-  const rows = extractRowsFromTable(bestTable);
+  tableScores.sort((a, b) => {
+    if (b.fieldScore !== a.fieldScore) return b.fieldScore - a.fieldScore;
+    return b.keywordScore - a.keywordScore;
+  });
+
+  let rows: AmazonSettlementRow[] = [];
+  for (const tableScore of tableScores) {
+    rows = extractRowsFromTable(tableScore.table);
+    if (rows.length > 0 || tableScore.fieldScore > 0) break;
+  }
 
   return {
     batchRef: meta.batchRef,
@@ -222,6 +271,12 @@ export const extractAmazonSettlementBody = (payload: unknown): string | null => 
     const record = payload as Record<string, unknown>;
     if (typeof record.body === "string") return record.body;
     if (typeof record.html === "string") return record.html;
+    if (typeof record.body_html === "string") return record.body_html;
+    if (typeof record.raw_html === "string") return record.raw_html;
   }
   return null;
 };
+
+// Sample usage (dev-only):
+// const html = extractAmazonSettlementBody({ body: "<table>...</table>" });
+// if (html) console.log(parseAmazonSettlementHtml(html));
