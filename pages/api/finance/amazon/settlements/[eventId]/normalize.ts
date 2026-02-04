@@ -10,12 +10,19 @@ type SuccessResponse = {
   inserted_rows: number;
 };
 type DebugInfo = {
+  raw_payload_type: string;
   raw_payload_keys: string[];
   html_len: number;
   extracted_body_len: number;
   extracted_body_preview: string;
   has_table: boolean;
   table_count: number;
+  parsed_meta: {
+    batchRef: string | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+    currency: string | null;
+  };
   parsed_row_count: number;
 };
 type ApiResponse = ErrorResponse | (SuccessResponse & Partial<DebugInfo>);
@@ -33,6 +40,19 @@ const stripHtmlForDebug = (value: string) =>
     .replace(/&#39;/gi, "'")
     .replace(/\s+/g, " ")
     .trim();
+
+const getRawPayloadHtml = (payload: unknown): string | null => {
+  if (!payload) return null;
+  if (typeof payload === "string") return payload;
+  if (typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (typeof record.body === "string") return record.body;
+    if (typeof record.html === "string") return record.html;
+    if (typeof record.body_html === "string") return record.body_html;
+    if (typeof record.raw_html === "string") return record.raw_html;
+  }
+  return null;
+};
 
 const getEventIdParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
@@ -132,15 +152,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             event.raw_payload && typeof event.raw_payload === "object"
               ? Object.keys(event.raw_payload as Record<string, unknown>)
               : [];
+          const rawPayloadHtml = getRawPayloadHtml(event.raw_payload);
           const tableMatches = body.match(/<table\b/gi) || [];
           const extractedBody = stripHtmlForDebug(body);
           return {
+            raw_payload_type: typeof event.raw_payload,
             raw_payload_keys: rawPayloadKeys,
-            html_len: body.length,
+            html_len: rawPayloadHtml?.length ?? 0,
             extracted_body_len: extractedBody.length,
             extracted_body_preview: extractedBody.slice(0, 300),
             has_table: tableMatches.length > 0,
             table_count: tableMatches.length,
+            parsed_meta: {
+              batchRef: parsed.batchRef,
+              periodStart: parsed.periodStart,
+              periodEnd: parsed.periodEnd,
+              currency: parsed.currency,
+            },
             parsed_row_count: rows.length,
           };
         })()
