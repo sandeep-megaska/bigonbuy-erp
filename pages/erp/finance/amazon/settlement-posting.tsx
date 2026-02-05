@@ -102,46 +102,46 @@ export default function AmazonSettlementPostingPage() {
     [ctx]
   );
 
-  const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => ({
+const getJsonRequestOptions = (
+  method: "GET" | "POST" = "GET",
+  body?: unknown
+): RequestInit => {
+  const accessToken = ctx?.session?.access_token ?? null;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return {
     method,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(ctx?.session?.access_token ? { Authorization: `Bearer ${ctx.session.access_token}` } : {}),
-    },
+    headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-
-  const readErrorResponse = async (response: Response, fallback: string) => {
-    const text = await response.text();
-    if (!text) return fallback;
-    try {
-      const parsed = JSON.parse(text) as { error?: unknown };
-      if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
-      return text;
-    } catch {
-      return text;
-    }
   };
+};
 
   useEffect(() => {
     let active = true;
 
-    (async () => {
-      if (!router.isReady) return;
-      const session = await requireAuthRedirectHome(router);
-      if (!session || !active) return;
-
-      const context = await getCompanyContext(session);
-      if (!active) return;
-
-     setCtx({ ...context, session });
-
-      if (!context.companyId) {
-        setError(context.membershipError || "No active company membership found.");
-        setLoading(false);
-        return;
-      }
+      (async () => {
+        if (!router.isReady) return;
+        const session = await requireAuthRedirectHome(router);
+        if (!session || !active) return;
+  
+        const context = await getCompanyContext(session);
+        if (!active) return;
+  
+       setCtx({ ...context, session });
+  
+        if (!context.companyId) {
+          setError(context.membershipError || "No active company membership found.");
+          setLoading(false);
+          return;
+        }
 
       const storedRange = loadStoredRange(context.companyId);
       const initialFrom = parseDateQuery(router.query.from) ?? storedRange?.from ?? startOfPreviousMonth();
