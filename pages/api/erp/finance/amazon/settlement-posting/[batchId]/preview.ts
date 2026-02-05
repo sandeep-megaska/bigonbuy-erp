@@ -16,21 +16,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  // DEBUG: confirm request hits this file + auth header presence
-  if (req.query.debug === "auth") {
-    const authHeader = req.headers.authorization ?? null;
-    return res.status(200).json({
-      ok: true,
-      data: {
-        hit: "api/erp/finance/amazon/settlement-posting/[batchId]/preview.ts",
-        method: req.method,
-        batchId: getPathParam(req.query.batchId),
-        hasAuthorizationHeader: Boolean(authHeader),
-        authorizationPrefix: authHeader ? authHeader.slice(0, 20) : null,
-      },
-    });
-  }
-
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || missing.length > 0) {
     return res.status(500).json({
