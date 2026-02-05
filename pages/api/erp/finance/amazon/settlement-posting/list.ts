@@ -29,14 +29,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  // TEMP DEBUG (remove after fix)
+  // DEBUG: confirm request hits this file + auth header presence
   if (req.query.debug === "auth") {
+    const authHeader = req.headers.authorization ?? null;
     return res.status(200).json({
       ok: true,
       data: {
-        hit: "amazon/settlement-posting/list",
-        hasAuthorizationHeader: Boolean(req.headers.authorization),
-        authorizationPrefix: typeof req.headers.authorization === "string" ? req.headers.authorization.slice(0, 16) : null,
+        hit: "api/erp/finance/amazon/settlement-posting/list.ts",
+        method: req.method,
+        hasAuthorizationHeader: Boolean(authHeader),
+        authorizationPrefix: authHeader ? authHeader.slice(0, 20) : null,
       },
     });
   }
@@ -49,10 +51,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
+  // Shopify-style: require Bearer token
   const accessToken = getBearerToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
-  }
+  if (!accessToken) return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
@@ -60,9 +61,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const limit = parseNumberParam(req.query.limit) ?? 50;
   const offset = parseNumberParam(req.query.offset) ?? 0;
 
-  if (!from || !to) {
-    return res.status(400).json({ ok: false, error: "from/to dates are required" });
-  }
+  if (!from || !to) return res.status(400).json({ ok: false, error: "from/to dates are required" });
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
@@ -77,7 +76,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
     }
 
-    // Canonical list RPC (already used in your uploaded file)
     const { data, error } = await userClient.rpc("erp_amazon_settlement_batches_list_with_posting", {
       p_from: from,
       p_to: to,
