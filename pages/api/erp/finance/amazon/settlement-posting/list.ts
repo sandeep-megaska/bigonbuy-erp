@@ -1,10 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import {
-  createUserClient,
-  getBearerToken,
-  getCookieAccessToken,
-  getSupabaseEnv,
-} from "../../../../../../lib/serverSupabase";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
@@ -43,9 +38,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
+  // Shopify-style: Bearer token is required
+  const accessToken = getBearerToken(req);
   if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization token" });
+    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
   }
 
   const from = parseDateParam(req.query.from);
@@ -60,6 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+
     const { data: userData, error: sessionError } = await userClient.auth.getUser();
     if (sessionError || !userData?.user) {
       return res.status(401).json({ ok: false, error: "Not authenticated" });
