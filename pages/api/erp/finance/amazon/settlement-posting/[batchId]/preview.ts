@@ -11,19 +11,7 @@ const getPathParam = (value: string | string[] | undefined): string | null => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.length > 0) {
-    return res.status(500).json({
-      ok: false,
-      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    });
-  }
-export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+ export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.query.debug === "1") {
     return res.status(200).json({
       ok: true,
@@ -38,7 +26,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   // ...normal logic
-}
+
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
+ }
 
   const accessToken = getBearerToken(req);
   if (!accessToken) {
