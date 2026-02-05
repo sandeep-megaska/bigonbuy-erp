@@ -114,20 +114,25 @@ export default function AmazonSettlementPostingPage() {
       return text;
     }
   };
+const accessToken = ctx?.session?.access_token ?? null;
+
+// TEMP UI DEBUG
+console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken?.slice(0, 12));
 
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => {
-    const token = accessTokenRef.current;
+  const accessToken = ctx?.session?.access_token ?? null;
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers.Authorization = `Bearer ${token}`;
-
-    return {
-      method,
-      credentials: "include",
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    };
+  return {
+    method,
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   };
+};
+
 
   useEffect(() => {
     let active = true;
