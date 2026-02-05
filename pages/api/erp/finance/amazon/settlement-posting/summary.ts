@@ -17,33 +17,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.length > 0) {
-    return res.status(500).json({
-      ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    });
-  }
   // TEMP DEBUG (remove after fix)
-  if (req.query.debug === "1") {
-    const authHeader = req.headers.authorization ?? null;
-    const cookieKeys = Object.keys(req.cookies ?? {});
+  if (req.query.debug === "auth") {
     return res.status(200).json({
       ok: true,
       data: {
-        debug: true,
-        method: req.method,
-        path: req.url ?? null,
-        hasAuthHeader: Boolean(authHeader),
-        authHeaderPrefix: authHeader ? authHeader.slice(0, 12) : null, // e.g. "Bearer eyJ"
-        cookieCount: cookieKeys.length,
-        cookieKeys: cookieKeys.slice(0, 20), // names only, safe
+        hit: "amazon/settlement-posting/summary",
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
+        authorizationPrefix: typeof req.headers.authorization === "string" ? req.headers.authorization.slice(0, 16) : null,
       },
     });
   }
 
-  // Shopify-style: Bearer token is required
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
+
   const accessToken = getBearerToken(req);
   if (!accessToken) {
     return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
@@ -51,7 +44,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
-
   if (!from || !to) {
     return res.status(400).json({ ok: false, error: "from/to dates are required" });
   }
