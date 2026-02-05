@@ -251,9 +251,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
+    const batchId = upsertResult.batch_id as string;
+    const { error: backfillError } = await userClient.rpc("erp_amazon_settlement_txns_backfill_amounts", {
+      p_batch_id: batchId,
+    });
+
+    if (backfillError) {
+      return res.status(400).json({
+        ok: false,
+        error: backfillError.message || "Unable to backfill Amazon settlement transaction amounts",
+        details: backfillError.details || backfillError.hint || backfillError.code,
+      });
+    }
+
     return res.status(200).json({
       ok: true,
-      batch_id: upsertResult.batch_id as string,
+      batch_id: batchId,
       attempted_rows: upsertResult.attempted_rows as number,
       inserted_rows: upsertResult.inserted_rows as number,
     });

@@ -498,7 +498,16 @@ export default function AmazonSettlementPostingPage() {
                       <td style={tableCellStyle}>
                         {[row.settlement_start_date, row.settlement_end_date].filter(Boolean).join(" → ") || "—"}
                       </td>
-                      <td style={tableCellStyle}>₹{Number(row.net_payout || 0).toFixed(2)}</td>
+                      <td style={tableCellStyle}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <span>₹{Number(row.net_payout || 0).toFixed(2)}</span>
+                          {Number(row.txn_count ?? 0) > 0 && Math.abs(Number(row.net_payout || 0)) < 0.01 ? (
+                            <span style={{ ...badgeStyle, background: "#fef3c7", color: "#92400e" }}>
+                              Net payout is zero
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td style={tableCellStyle}>
                         <span
                           style={{
