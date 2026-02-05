@@ -95,6 +95,7 @@ export default function AmazonSettlementPostingPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
+  const [normalizingBatchId, setNormalizingBatchId] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
@@ -310,6 +311,40 @@ export default function AmazonSettlementPostingPage() {
     }
   };
 
+  const handleNormalize = async (batchId: string, reportId: string) => {
+    if (!canWrite) {
+      setError("Only finance, admin, or owner can normalize Amazon settlements.");
+      return;
+    }
+
+    setNormalizingBatchId(batchId);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${reportId}/normalize`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        setError(payload?.error || "Failed to normalize Amazon settlement batch.");
+        return;
+      }
+
+      await loadBatches();
+      await loadSummary({ fromDate, toDate });
+      if (previewBatchId === batchId) {
+        await loadPreview(batchId);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to normalize Amazon settlement batch.";
+      setError(message);
+    } finally {
+      setNormalizingBatchId(null);
+    }
+  };
+
   const totalNetPayout = useMemo(
     () => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0),
     [batches]
@@ -497,12 +532,25 @@ export default function AmazonSettlementPostingPage() {
                           >
                             {isPreviewLoading && previewBatchId === row.batch_id ? "Loading…" : "Preview"}
                           </button>
+                          {Number(row.txn_count ?? 0) > 0 ? (
+                            <span style={{ ...badgeStyle, background: "#dcfce7", color: "#166534" }}>Normalized</span>
+                          ) : row.report_id ? (
+                            <button
+                              type="button"
+                              style={secondaryButtonStyle}
+                              disabled={normalizingBatchId === row.batch_id || !canWrite}
+                              onClick={() => handleNormalize(row.batch_id, row.report_id as string)}
+                            >
+                              {normalizingBatchId === row.batch_id ? "Normalizing…" : "Normalize"}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             style={primaryButtonStyle}
                             disabled={
                               !canWrite ||
                               row.posting_state !== "missing" ||
+                              Number(row.txn_count ?? 0) === 0 ||
                               postingBatchId === row.batch_id ||
                               previewBatchId !== row.batch_id ||
                               preview?.can_post === false
