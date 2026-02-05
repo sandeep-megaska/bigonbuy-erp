@@ -11,7 +11,7 @@ const getPathParam = (value: string | string[] | undefined): string | null => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
- export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+ 
   if (req.query.debug === "1") {
     return res.status(200).json({
       ok: true,
