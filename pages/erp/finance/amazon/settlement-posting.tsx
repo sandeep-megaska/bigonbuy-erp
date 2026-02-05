@@ -105,7 +105,10 @@ export default function AmazonSettlementPostingPage() {
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => ({
     method,
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(ctx?.session?.access_token ? { Authorization: `Bearer ${ctx.session.access_token}` } : {}),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
