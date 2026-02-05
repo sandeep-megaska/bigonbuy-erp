@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { requireErpFinanceApiAuth } from "../../../../../../lib/erp/financeApiAuth";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
@@ -16,11 +16,11 @@ const parseStringParam = (value: string | string[] | undefined) => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-const parseNumberParam = (value: string | string[] | undefined, fallback: number) => {
-  if (!value) return fallback;
+const parseNumberParam = (value: string | string[] | undefined) => {
+  if (!value) return null;
   const raw = Array.isArray(value) ? value[0] : value;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -29,21 +29,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const auth = await requireErpFinanceApiAuth(req, "finance_reader");
-  if (!auth.ok) {
-    return res.status(auth.status).json({ ok: false, error: auth.error });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error:
+        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
+
+  // TEMP DEBUG (remove after fix)
+  if (req.query.debug === "auth") {
+    return res.status(200).json({
+      ok: true,
+      data: {
+        debug: "amazon/settlements/list auth-probe",
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
+        authPrefix: req.headers.authorization ? String(req.headers.authorization).slice(0, 12) : null,
+      },
+    });
+  }
+
+  const accessToken = getBearerToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
   }
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
-  if (!from || !to) return res.status(400).json({ ok: false, error: "from/to dates are required" });
-
   const status = parseStringParam(req.query.status) ?? "all";
-  const limit = parseNumberParam(req.query.limit, 50);
-  const offset = parseNumberParam(req.query.offset, 0);
+  const limit = parseNumberParam(req.query.limit) ?? 50;
+  const offset = parseNumberParam(req.query.offset) ?? 0;
+
+  if (!from || !to) {
+    return res.status(400).json({ ok: false, error: "from/to dates are required" });
+  }
 
   try {
-    const { data, error } = await auth.client.rpc("erp_amazon_settlement_batches_list_with_posting", {
+    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+
+    const { data: userData, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const { error: permissionError } = await userClient.rpc("erp_require_finance_reader");
+    if (permissionError) {
+      return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
+    }
+
+    const { data, error } = await userClient.rpc("erp_amazon_settlement_batches_list_with_posting", {
       p_from: from,
       p_to: to,
       p_status: status,
