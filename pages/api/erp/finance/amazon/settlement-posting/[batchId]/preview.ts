@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { requireErpFinanceApiAuth } from "../../../../../../../lib/erp/financeApiAuth";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
 type ApiResponse = ErrorResponse | SuccessResponse;
+
+const getPathParam = (value: string | string[] | undefined): string | null => {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] : value;
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "GET") {
@@ -11,33 +16,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const batchIdRaw = req.query.batchId;
-  const batchId = typeof batchIdRaw === "string" ? batchIdRaw : Array.isArray(batchIdRaw) ? batchIdRaw[0] : null;
-  if (!batchId) return res.status(400).json({ ok: false, error: "batchId is required" });
-
-  // Debug probe (no TS hacks)
-  if (req.query.debug === "1") {
-    const cookieKeys = Object.keys(req.cookies ?? {});
+  // DEBUG: confirm request hits this file + auth header presence
+  if (req.query.debug === "auth") {
+    const authHeader = req.headers.authorization ?? null;
     return res.status(200).json({
       ok: true,
       data: {
         hit: "api/erp/finance/amazon/settlement-posting/[batchId]/preview.ts",
         method: req.method,
-        batchId,
-        hasAuthHeader: Boolean(req.headers.authorization),
-        cookieCount: cookieKeys.length,
-        cookieKeys: cookieKeys.slice(0, 30),
+        batchId: getPathParam(req.query.batchId),
+        hasAuthorizationHeader: Boolean(authHeader),
+        authorizationPrefix: authHeader ? authHeader.slice(0, 20) : null,
       },
     });
   }
 
-  const auth = await requireErpFinanceApiAuth(req, "finance_reader");
-  if (!auth.ok) {
-    return res.status(auth.status).json({ ok: false, error: auth.error });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
   }
 
+  // Shopify-style: require Bearer token
+  const accessToken = getBearerToken(req);
+  if (!accessToken) return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
+
+  const batchId = getPathParam(req.query.batchId);
+  if (!batchId) return res.status(400).json({ ok: false, error: "batchId is required" });
+
   try {
-    const { data, error } = await auth.client.rpc("erp_amazon_settlement_posting_preview", {
+    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+
+    const { data: userData, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const { error: permissionError } = await userClient.rpc("erp_require_finance_reader");
+    if (permissionError) {
+      return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
+    }
+
+    const { data, error } = await userClient.rpc("erp_amazon_settlement_batch_preview_post_to_finance", {
       p_batch_id: batchId,
     });
 
