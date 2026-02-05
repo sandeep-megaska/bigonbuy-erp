@@ -13,14 +13,19 @@ set search_path = public
 as $$
 declare
   v_company_id uuid;
-  v_batch record;
+
+  v_batch_id uuid;
+  v_batch_ref text;
+  v_period_start date;
+  v_period_end date;
+  v_currency text;
+  v_batch_net_payout numeric;
 
   v_sales numeric := 0;
   v_fees numeric := 0;
   v_refunds numeric := 0;
   v_tcs numeric := 0;
   v_tds numeric := 0;
-
   v_net numeric := 0;
   v_adjustments numeric := 0;
 
@@ -30,7 +35,6 @@ declare
   v_lines jsonb := '[]'::jsonb;
   v_warnings text[] := '{}'::text[];
 
-  -- role -> account_id mapping (from Posting settings)
   v_sales_acc uuid;
   v_fees_acc uuid;
   v_refunds_acc uuid;
@@ -44,30 +48,8 @@ declare
 
   v_txn_count int := 0;
 
-  -- helpers
-  function add_line(p_role text, p_account_id uuid, p_dr numeric, p_cr numeric, p_label text default null)
-  returns void
-  language plpgsql
-  as $f$
-  begin
-    -- never negative dr/cr
-    p_dr := greatest(coalesce(p_dr,0),0);
-    p_cr := greatest(coalesce(p_cr,0),0);
-
-    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'role_key', p_role,
-      'account_id', p_account_id,
-      'account_code', null,
-      'account_name', null,
-      'dr', round(p_dr, 2),
-      'cr', round(p_cr, 2),
-      'label', p_label
-    ));
-
-    v_total_dr := v_total_dr + p_dr;
-    v_total_cr := v_total_cr + p_cr;
-  end;
-  $f$;
+  v_dr numeric;
+  v_cr numeric;
 begin
   perform public.erp_require_finance_reader();
 
@@ -78,14 +60,19 @@ begin
   v_company_id := public.erp_current_company_id();
 
   select
-    b.id as batch_id,
+    b.id,
     b.batch_ref,
     b.period_start,
     b.period_end,
     b.currency,
-    b.net_payout,
-    b.deposit_date
-  into v_batch
+    b.net_payout
+  into
+    v_batch_id,
+    v_batch_ref,
+    v_period_start,
+    v_period_end,
+    v_currency,
+    v_batch_net_payout
   from public.erp_marketplace_settlement_batches b
   where b.company_id = v_company_id
     and b.id = p_batch_id;
@@ -94,7 +81,7 @@ begin
     raise exception 'Batch not found: %', p_batch_id;
   end if;
 
-  -- txn_count and core totals from normalized txns
+  -- Core totals from normalized txns
   select
     count(*)::int,
     round(coalesce(sum(coalesce(t.gross_sales,0)),0),2),
@@ -111,34 +98,42 @@ begin
   where t.company_id = v_company_id
     and t.batch_id = p_batch_id;
 
-  -- Best-effort TCS/TDS detection (based on settlement_type / raw fields)
+  -- Best-effort TCS/TDS detection
   select
     round(coalesce(sum(case
       when lower(coalesce(t.settlement_type,'')) like '%tcs%'
         or lower(coalesce(t.raw->>'amount-type','')) like '%tcs%'
-        or lower(coalesce(t.raw->>'settlement_type','')) like '%tcs%'
       then coalesce(t.net_payout,0) else 0 end),0),2),
     round(coalesce(sum(case
       when lower(coalesce(t.settlement_type,'')) like '%tds%'
         or lower(coalesce(t.raw->>'amount-type','')) like '%tds%'
-        or lower(coalesce(t.raw->>'settlement_type','')) like '%tds%'
       then coalesce(t.net_payout,0) else 0 end),0),2)
   into v_tcs, v_tds
   from public.erp_marketplace_settlement_txns t
   where t.company_id = v_company_id
     and t.batch_id = p_batch_id;
 
-  -- Canonical net payout: batch.net_payout (already fixed by 0399)
-  v_net := coalesce(v_batch.net_payout, v_net, 0);
+  -- Canonical net payout: batch.net_payout (your 0399 fixed this)
+  v_net := coalesce(v_batch_net_payout, v_net, 0);
 
-  -- adjustments = plug so buckets reconcile to net
-  v_adjustments := round(v_net - (coalesce(v_sales,0) + coalesce(v_fees,0) + coalesce(v_refunds,0) + coalesce(v_tcs,0) + coalesce(v_tds,0)), 2);
+  -- Adjustments plug so all buckets reconcile to net payout
+  v_adjustments := round(
+    v_net
+    - (
+      coalesce(v_sales,0)
+      + coalesce(v_fees,0)
+      + coalesce(v_refunds,0)
+      + coalesce(v_tcs,0)
+      + coalesce(v_tds,0)
+    ),
+    2
+  );
 
   if v_txn_count = 0 then
     v_warnings := array_append(v_warnings, 'No normalized settlement transactions found for this batch.');
   end if;
 
-  -- Pull COA role accounts (Posting settings page writes these)
+  -- Role -> account mappings (Posting settings)
   select account_id into v_sales_acc
   from public.erp_fin_coa_role_accounts
   where company_id = v_company_id and role_key = 'amazon_settlement_sales_account'
@@ -187,90 +182,98 @@ begin
   if v_adj_acc is null then v_warnings := array_append(v_warnings, 'Missing COA role: amazon_settlement_adjustments_account'); end if;
   if v_clearing_acc is null then v_warnings := array_append(v_warnings, 'Missing COA role: amazon_settlement_clearing_account'); end if;
 
-  -- Stage-1 line construction (sign-safe)
-  -- Sales normally CREDIT if positive
-  if coalesce(v_sales,0) >= 0 then
-    perform add_line('amazon_settlement_sales_account', v_sales_acc, 0, v_sales, 'Sales');
-  else
-    v_warnings := array_append(v_warnings, 'Sales total is negative; check normalization/signs.');
-    perform add_line('amazon_settlement_sales_account', v_sales_acc, -v_sales, 0, 'Sales (negative)');
+  -- Build lines (dr/cr sign-safe)
+  -- SALES: usually credit if positive
+  if coalesce(v_sales,0) <> 0 then
+    if v_sales >= 0 then v_dr := 0; v_cr := v_sales; else v_dr := -v_sales; v_cr := 0; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_sales_account','account_id',v_sales_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','Sales'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- Fees normally DEBIT (fees in data often negative)
-  if coalesce(v_fees,0) <= 0 then
-    perform add_line('amazon_settlement_fees_account', v_fees_acc, -v_fees, 0, 'Fees');
-  else
-    v_warnings := array_append(v_warnings, 'Fees total is positive; check normalization/signs.');
-    perform add_line('amazon_settlement_fees_account', v_fees_acc, 0, v_fees, 'Fees (positive)');
+  -- FEES: often negative -> debit
+  if coalesce(v_fees,0) <> 0 then
+    if v_fees <= 0 then v_dr := -v_fees; v_cr := 0; else v_dr := 0; v_cr := v_fees; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_fees_account','account_id',v_fees_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','Fees'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- Refunds normally DEBIT (refunds in data often negative)
-  if coalesce(v_refunds,0) <= 0 then
-    perform add_line('amazon_settlement_refunds_account', v_refunds_acc, -v_refunds, 0, 'Refunds');
-  else
-    v_warnings := array_append(v_warnings, 'Refunds total is positive; check normalization/signs.');
-    perform add_line('amazon_settlement_refunds_account', v_refunds_acc, 0, v_refunds, 'Refunds (positive)');
+  -- REFUNDS: often negative -> debit
+  if coalesce(v_refunds,0) <> 0 then
+    if v_refunds <= 0 then v_dr := -v_refunds; v_cr := 0; else v_dr := 0; v_cr := v_refunds; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_refunds_account','account_id',v_refunds_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','Refunds'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- TCS/TDS if present (treated like withholdings; usually negative -> debit)
-  if coalesce(v_tcs,0) <> 0 then
-    if v_tcs <= 0 then
-      perform add_line('amazon_settlement_tcs_account', v_tcs_acc, -v_tcs, 0, 'TCS');
-    else
-      perform add_line('amazon_settlement_tcs_account', v_tcs_acc, 0, v_tcs, 'TCS (positive)');
-    end if;
+  -- TCS / TDS (optional)
+  if coalesce(v_tcs,0) <> 0 and v_tcs_acc is not null then
+    if v_tcs <= 0 then v_dr := -v_tcs; v_cr := 0; else v_dr := 0; v_cr := v_tcs; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_tcs_account','account_id',v_tcs_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','TCS'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  if coalesce(v_tds,0) <> 0 then
-    if v_tds <= 0 then
-      perform add_line('amazon_settlement_tds_account', v_tds_acc, -v_tds, 0, 'TDS');
-    else
-      perform add_line('amazon_settlement_tds_account', v_tds_acc, 0, v_tds, 'TDS (positive)');
-    end if;
+  if coalesce(v_tds,0) <> 0 and v_tds_acc is not null then
+    if v_tds <= 0 then v_dr := -v_tds; v_cr := 0; else v_dr := 0; v_cr := v_tds; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_tds_account','account_id',v_tds_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','TDS'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- Adjustments bucket (by sign)
+  -- ADJUSTMENTS plug
   if coalesce(v_adjustments,0) <> 0 then
-    if v_adjustments <= 0 then
-      perform add_line('amazon_settlement_adjustments_account', v_adj_acc, -v_adjustments, 0, 'Adjustments');
-    else
-      perform add_line('amazon_settlement_adjustments_account', v_adj_acc, 0, v_adjustments, 'Adjustments');
-    end if;
+    if v_adjustments <= 0 then v_dr := -v_adjustments; v_cr := 0; else v_dr := 0; v_cr := v_adjustments; end if;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_adjustments_account','account_id',v_adj_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','Adjustments'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- Clearing plug to balance
+  -- CLEARING: final balancing plug
   if round(v_total_dr - v_total_cr,2) <> 0 then
     if v_total_cr > v_total_dr then
-      perform add_line('amazon_settlement_clearing_account', v_clearing_acc, v_total_cr - v_total_dr, 0, 'Clearing');
+      v_dr := v_total_cr - v_total_dr; v_cr := 0;
     else
-      perform add_line('amazon_settlement_clearing_account', v_clearing_acc, 0, v_total_dr - v_total_cr, 'Clearing');
+      v_dr := 0; v_cr := v_total_dr - v_total_cr;
     end if;
+
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'role_key','amazon_settlement_clearing_account','account_id',v_clearing_acc,'account_code',null,'account_name',null,'dr',round(v_dr,2),'cr',round(v_cr,2),'label','Clearing'
+    ));
+    v_total_dr := v_total_dr + v_dr; v_total_cr := v_total_cr + v_cr;
   end if;
 
-  -- Check if already posted (best-effort: look for a bridge row; adjust table/cols if yours differ)
+  -- If you have a post bridge table, keep this optional (won't fail if missing)
   begin
     select p.journal_id into v_journal_id
     from public.erp_marketplace_settlement_finance_posts p
     where p.company_id = v_company_id and p.batch_id = p_batch_id
     order by p.created_at desc
     limit 1;
+
+    if v_journal_id is not null then
+      select j.doc_no into v_journal_no
+      from public.erp_fin_journals j
+      where j.id = v_journal_id;
+    end if;
   exception when undefined_table then
-    -- ignore if table not present yet
     v_journal_id := null;
+    v_journal_no := null;
   end;
 
-  if v_journal_id is not null then
-    select j.doc_no into v_journal_no
-    from public.erp_fin_journals j
-    where j.id = v_journal_id;
-  end if;
-
   return jsonb_build_object(
-    'batch_id', v_batch.batch_id,
-    'batch_ref', v_batch.batch_ref,
-    'period_start', v_batch.period_start,
-    'period_end', v_batch.period_end,
-    'currency', v_batch.currency,
+    'batch_id', v_batch_id,
+    'batch_ref', v_batch_ref,
+    'period_start', v_period_start,
+    'period_end', v_period_end,
+    'currency', v_currency,
     'totals', jsonb_build_object(
       'net_payout', round(coalesce(v_net,0),2),
       'sales', round(coalesce(v_sales,0),2),
@@ -284,18 +287,19 @@ begin
     ),
     'lines', v_lines,
     'warnings', coalesce(v_warnings, '{}'::text[]),
-    'can_post', (array_length(coalesce(v_warnings,'{}'::text[]),1) is null or array_length(coalesce(v_warnings,'{}'::text[]),1)=0),
-    'posted', case when v_journal_id is null then null else jsonb_build_object('journal_id', v_journal_id, 'journal_no', v_journal_no) end
+    'can_post', (coalesce(array_length(v_warnings,1),0) = 0),
+    'posted', case
+      when v_journal_id is null then null
+      else jsonb_build_object('journal_id', v_journal_id, 'journal_no', v_journal_no)
+    end
   );
 end;
 $$;
 
--- Optional: force PostgREST schema reload (helps avoid "schema cache" errors right after deploy)
+-- Optional: helps right after deploy (if permitted)
 do $$
 begin
   perform pg_notify('pgrst', 'reload schema');
 exception when others then
-  -- ignore if notify not permitted
   null;
 end$$;
-    
