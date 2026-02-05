@@ -588,15 +588,18 @@ export default function AmazonSettlementPostingPage() {
             </table>
           </div>
 
+          {previewError ? (
+            <div style={{ marginTop: 12, padding: "8px 10px", borderRadius: 8, background: "#fee2e2", color: "#991b1b" }}>
+              {previewError}
+            </div>
+          ) : null}
+
           {previewBatchId && preview ? (
             <div style={{ marginTop: 16, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontWeight: 600 }}>Journal preview</div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Batch {preview.batch_ref || preview.batch_id}</div>
               </div>
-
-              {previewError ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{previewError}</div> : null}
-
               {preview.warnings?.length ? (
                 <div style={{ marginTop: 8, color: "#b45309" }}>
                   <div style={{ fontWeight: 600 }}>Warnings</div>
