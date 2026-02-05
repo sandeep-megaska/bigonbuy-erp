@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { requireErpFinanceApiAuth } from "../../../../../../lib/erp/financeApiAuth";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
@@ -17,24 +17,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-    // TEMP DEBUG (remove after fix)
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error:
+        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
+
+  // TEMP DEBUG (remove after fix)
   if (req.query.debug === "auth") {
-    const cookieKeys = Object.keys(req.cookies ?? {});
     return res.status(200).json({
       ok: true,
       data: {
-        debug: "auth-probe",
-        hasCookieHeader: Boolean(req.headers.cookie),
-        cookieCount: cookieKeys.length,
-        cookieKeys: cookieKeys.slice(0, 30),
+        debug: "amazon/settlements/summary auth-probe",
         hasAuthorizationHeader: Boolean(req.headers.authorization),
+        authPrefix: req.headers.authorization ? String(req.headers.authorization).slice(0, 12) : null,
       },
     });
   }
 
-  const auth = await requireErpFinanceApiAuth(req, "finance_reader");
-  if (!auth.ok) {
-    return res.status(auth.status).json({ ok: false, error: auth.error });
+  const accessToken = getBearerToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
   }
 
   const from = parseDateParam(req.query.from);
@@ -44,7 +50,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
-    const { data, error } = await auth.client.rpc("erp_amazon_settlement_posting_summary", {
+    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+
+    const { data: userData, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const { error: permissionError } = await userClient.rpc("erp_require_finance_reader");
+    if (permissionError) {
+      return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
+    }
+
+    const { data, error } = await userClient.rpc("erp_amazon_settlement_posting_summary", {
       p_from: from,
       p_to: to,
     });
