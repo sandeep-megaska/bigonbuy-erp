@@ -16,7 +16,7 @@ alter table public.erp_marketplace_settlement_finance_posts
   add constraint erp_marketplace_settlement_finance_posts_state_check
   check (posting_state in ('posted', 'missing', 'excluded', 'error'));
 
-create unique index if not exists erp_marketplace_settlement_finance_posts_company_platform_batch_uk
+create unique index if not exists erp_mkt_settle_fin_posts_cmp_plat_batch_uk
   on public.erp_marketplace_settlement_finance_posts (company_id, platform, batch_id);
 
 create or replace function public.erp__amazon_parse_amount(p_text text)
@@ -43,7 +43,9 @@ exception
 end;
 $$;
 
-create or replace function public.erp_amazon_settlement_posting_summary(
+drop function if exists public.erp_amazon_settlement_posting_summary(date, date);
+
+create function public.erp_amazon_settlement_posting_summary(
   p_from date,
   p_to date
 ) returns table (
@@ -106,7 +108,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_amazon_settlement_journal_preview(
+drop function if exists public.erp_amazon_settlement_journal_preview(uuid);
+
+create function public.erp_amazon_settlement_journal_preview(
   p_batch_id uuid
 ) returns table (
   role text,
@@ -267,7 +271,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_amazon_settlement_post_to_finance(
+drop function if exists public.erp_amazon_settlement_post_to_finance(uuid);
+
+create function public.erp_amazon_settlement_post_to_finance(
   p_batch_id uuid
 ) returns table (
   journal_id uuid,
