@@ -550,7 +550,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
   {
     id: "finance-amazon-settlement-posting",
     label: "Amazon Settlement Posting",
-    href: "/erp/finance/sales/amazon-settlements",
+    href: "/erp/finance/amazon/settlement-posting",
     icon: "AP",
     groupId: "finance",
     requiredGuard: "finance_reader",
