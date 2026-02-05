@@ -25,6 +25,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
+  // TEMP DEBUG (remove after fix)
+  if (req.query.debug === "1") {
+    const authHeader = req.headers.authorization ?? null;
+    const cookieKeys = Object.keys(req.cookies ?? {});
+    return res.status(200).json({
+      ok: true,
+      data: {
+        debug: true,
+        method: req.method,
+        path: req.url ?? null,
+        hasAuthHeader: Boolean(authHeader),
+        authHeaderPrefix: authHeader ? authHeader.slice(0, 12) : null, // e.g. "Bearer eyJ"
+        cookieCount: cookieKeys.length,
+        cookieKeys: cookieKeys.slice(0, 20), // names only, safe
+      },
+    });
+  }
 
   // Shopify-style: Bearer token is required
   const accessToken = getBearerToken(req);
