@@ -20,7 +20,8 @@ create unique index if not exists erp_marketplace_settlement_finance_posts_compa
   on public.erp_marketplace_settlement_finance_posts (company_id, platform, batch_id);
 -- Pre-drop to avoid 42P13 return type mismatch across iterations
 drop function if exists public.erp_amazon_settlement_posting_summary(date, date);
-
+drop function if exists public.erp_amazon_settlement_batches_list_with_posting(date, date, text, integer, integer);
+drop function if exists public.erp_amazon_settlement_post_to_finance(uuid);
 
 create or replace function public.erp__amazon_parse_amount(p_text text)
 returns numeric
@@ -270,7 +271,7 @@ begin
 end;
 $$;
 
-create or replace function public.erp_amazon_settlement_post_to_finance(
+create function public.erp_amazon_settlement_post_to_finance(
   p_batch_id uuid
 ) returns table (
   journal_id uuid,
