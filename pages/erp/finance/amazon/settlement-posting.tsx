@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -34,6 +34,7 @@ type CompanyContext = {
 
 const formatLocalDate = (date: Date) => date.toLocaleDateString("en-CA");
 const today = () => formatLocalDate(new Date());
+
 const startOfPreviousMonth = () => {
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -52,7 +53,10 @@ const loadStoredRange = (companyId: string) => {
     const raw = window.localStorage.getItem(`erp_amazon_settlement_posting_range_${companyId}`);
     if (!raw) return null;
     const parsed = z
-      .object({ from: z.string(), to: z.string() })
+      .object({
+        from: z.string(),
+        to: z.string(),
+      })
       .safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
   } catch {
@@ -69,23 +73,11 @@ const persistStoredRange = (companyId: string, from: string, to: string) => {
   }
 };
 
-const readErrorResponse = async (response: Response, fallback: string) => {
-  const text = await response.text();
-  if (!text) return fallback;
-  try {
-    const parsed = JSON.parse(text) as { error?: unknown };
-    if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
-    return text;
-  } catch {
-    return text;
-  }
-};
-
 export default function AmazonSettlementPostingPage() {
   const router = useRouter();
 
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,14 +101,26 @@ export default function AmazonSettlementPostingPage() {
 
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
 
-  const canWrite = useMemo(
-    () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
-    [ctx]
-  );
+  const canWrite = useMemo(() => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)), [ctx]);
+
+  const readErrorResponse = async (response: Response, fallback: string) => {
+    const text = await response.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
+      return text;
+    } catch {
+      return text;
+    }
+  };
 
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => {
+    const token = accessTokenRef.current;
+
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    if (token) headers.Authorization = `Bearer ${token}`;
+
     return {
       method,
       credentials: "include",
@@ -134,7 +138,8 @@ export default function AmazonSettlementPostingPage() {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
-      setAccessToken((session as any)?.access_token ?? null);
+      // IMPORTANT: store token in ref immediately (avoids setState race)
+      accessTokenRef.current = session.access_token ?? null;
 
       const context = await getCompanyContext(session);
       if (!active) return;
@@ -154,8 +159,8 @@ export default function AmazonSettlementPostingPage() {
       setFromDate(initialFrom);
       setToDate(initialTo);
 
-      await loadBatches({ fromDate: initialFrom, toDate: initialTo, postingFilter: "all" });
-      await loadSummary({ fromDate: initialFrom, toDate: initialTo });
+      // Load AFTER token ref is set
+      await Promise.all([loadBatches({ fromDate: initialFrom, toDate: initialTo }), loadSummary({ fromDate: initialFrom, toDate: initialTo })]);
 
       if (active) setLoading(false);
     })();
@@ -174,12 +179,13 @@ export default function AmazonSettlementPostingPage() {
     try {
       const response = await fetch(
         `/api/erp/finance/amazon/settlement-posting/summary?from=${params.fromDate}&to=${params.toDate}`,
-        getJsonRequestOptions("GET")
+        getJsonRequestOptions()
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setSummaryError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setSummaryError(msg);
         setPostingSummary(null);
         return;
       }
@@ -231,12 +237,13 @@ export default function AmazonSettlementPostingPage() {
     try {
       const response = await fetch(
         `/api/erp/finance/amazon/settlement-posting/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`,
-        getJsonRequestOptions("GET")
+        getJsonRequestOptions()
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setError(msg);
         setBatches([]);
         return;
       }
@@ -281,12 +288,13 @@ export default function AmazonSettlementPostingPage() {
     try {
       const response = await fetch(
         `/api/erp/finance/amazon/settlement-posting/${batchId}/preview`,
-        getJsonRequestOptions("GET")
+        getJsonRequestOptions()
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setPreviewError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setPreviewError(msg);
         setPreview(null);
         setPreviewBatchId(null);
         return;
@@ -329,8 +337,7 @@ export default function AmazonSettlementPostingPage() {
 
   const handleApplyFilters = async () => {
     if (ctx?.companyId) persistStoredRange(ctx.companyId, fromDate, toDate);
-    await loadBatches();
-    await loadSummary({ fromDate, toDate });
+    await Promise.all([loadBatches(), loadSummary({ fromDate, toDate })]);
   };
 
   const handlePost = async (batchId: string) => {
@@ -356,8 +363,9 @@ export default function AmazonSettlementPostingPage() {
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setError(msg);
         return;
       }
 
@@ -372,9 +380,7 @@ export default function AmazonSettlementPostingPage() {
         return;
       }
 
-      await loadBatches();
-      await loadSummary({ fromDate, toDate });
-      await loadPreview(batchId);
+      await Promise.all([loadBatches(), loadSummary({ fromDate, toDate }), loadPreview(batchId)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to post Amazon settlement batch.";
       setError(message);
@@ -385,9 +391,7 @@ export default function AmazonSettlementPostingPage() {
 
   const totalNetPayout = useMemo(() => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0), [batches]);
 
-  if (loading) {
-    return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
-  }
+  if (loading) return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
 
   return (
     <ErpShell>
@@ -401,7 +405,7 @@ export default function AmazonSettlementPostingPage() {
         {authError ? (
           <section style={{ ...cardStyle, marginBottom: 16, border: "1px solid #fca5a5", background: "#fef2f2" }}>
             <div style={{ color: "#b91c1c", fontWeight: 600 }}>Not authenticated</div>
-            <div style={{ color: "#991b1b", marginTop: 4 }}>Please sign in again and refresh this page.</div>
+            <div style={{ color: "#991b1b", marginTop: 4 }}>{authError}</div>
           </section>
         ) : null}
 
@@ -455,7 +459,6 @@ export default function AmazonSettlementPostingPage() {
             <div style={{ fontWeight: 600 }}>Posting coverage</div>
             {isLoadingSummary ? <div style={{ fontSize: 12 }}>Loading…</div> : null}
           </div>
-
           {summaryError ? (
             <div style={{ marginTop: 8, color: "#b91c1c" }}>{summaryError}</div>
           ) : postingSummary ? (
@@ -567,6 +570,7 @@ export default function AmazonSettlementPostingPage() {
                             disabled={
                               !canWrite ||
                               row.posting_state !== "missing" ||
+                              Number(row.txn_count ?? 0) === 0 ||
                               postingBatchId === row.batch_id ||
                               previewBatchId !== row.batch_id ||
                               preview?.can_post === false
@@ -593,12 +597,12 @@ export default function AmazonSettlementPostingPage() {
 
               {previewError ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{previewError}</div> : null}
 
-              {preview.warnings && preview.warnings.length > 0 ? (
+              {preview.warnings?.length ? (
                 <div style={{ marginTop: 8, color: "#b45309" }}>
                   <div style={{ fontWeight: 600 }}>Warnings</div>
                   <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-                    {preview.warnings.map((warning) => (
-                      <li key={warning}>{warning}</li>
+                    {preview.warnings.map((w) => (
+                      <li key={w}>{w}</li>
                     ))}
                   </ul>
                 </div>
@@ -622,8 +626,8 @@ export default function AmazonSettlementPostingPage() {
                         </td>
                       </tr>
                     ) : (
-                      preview.lines.map((line, index) => (
-                        <tr key={`${line.role_key}-${index}`}>
+                      preview.lines.map((line, idx) => (
+                        <tr key={`${line.role_key}-${idx}`}>
                           <td style={tableCellStyle}>{line.role_key}</td>
                           <td style={tableCellStyle}>
                             <div style={{ fontWeight: 600 }}>{line.account_name || "—"}</div>
