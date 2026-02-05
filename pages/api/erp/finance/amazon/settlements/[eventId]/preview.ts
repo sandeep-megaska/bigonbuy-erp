@@ -5,7 +5,7 @@ type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
-const getBatchIdParam = (value: string | string[] | undefined): string | null => {
+const getPathParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
 };
@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
   if (!accessToken) return res.status(401).json({ ok: false, error: "Not authenticated" });
 
-  const batchId = getBatchIdParam(req.query.batchId);
+  const batchId = getPathParam(req.query.eventId) ?? getPathParam(req.query.batchId);
   if (!batchId) return res.status(400).json({ ok: false, error: "batchId is required" });
 
   try {
