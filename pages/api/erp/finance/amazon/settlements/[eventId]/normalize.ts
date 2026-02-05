@@ -8,7 +8,7 @@ import {
   amazonGetReport,
   amazonGetReportDocument,
 } from "lib/oms/adapters/amazonSpApi";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
+import { createUserClient, getBearerToken, getCookieAccessToken, getSupabaseEnv } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = {
@@ -57,9 +57,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const accessToken = getBearerToken(req);
+  const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
   if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
+    return res.status(401).json({ ok: false, error: "Missing Authorization token" });
   }
 
   const reportId = getEventIdParam(req.query.eventId) || (req.body?.eventId as string | undefined);

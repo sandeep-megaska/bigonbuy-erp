@@ -21,6 +21,9 @@ export const amazonSettlementPostingRowSchema = z.object({
   posting_state: z.enum(["posted", "missing", "excluded"]).nullable().optional(),
   journal_id: z.string().uuid().nullable().optional(),
   journal_no: z.string().nullable().optional(),
+  report_id: z.string().nullable().optional(),
+  txn_count: z.coerce.number().nullable().optional(),
+  normalized_state: z.boolean().nullable().optional(),
   has_txns: z.boolean().nullable().optional(),
 });
 
