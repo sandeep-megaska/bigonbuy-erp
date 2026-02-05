@@ -433,20 +433,20 @@ export default function AmazonSettlementPostingPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginTop: 12 }}>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Total batches</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.total_batches}</div>
-                <div style={{ fontSize: 12 }}>₹{postingSummary.total_net_payout.toFixed(2)}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.total_count}</div>
+                <div style={{ fontSize: 12 }}>₹{postingSummary.total_amount.toFixed(2)}</div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Posted</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.posted}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.posted_count}</div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Missing</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.missing}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.missing_count}</div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Excluded</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.excluded}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{postingSummary.excluded_count}</div>
               </div>
             </div>
           ) : (

@@ -1,11 +1,14 @@
 import { z } from "zod";
 
 export const amazonSettlementPostingSummarySchema = z.object({
-  total_batches: z.coerce.number(),
-  posted: z.coerce.number(),
-  missing: z.coerce.number(),
-  excluded: z.coerce.number(),
-  total_net_payout: z.coerce.number(),
+  total_count: z.coerce.number(),
+  posted_count: z.coerce.number(),
+  missing_count: z.coerce.number(),
+  excluded_count: z.coerce.number(),
+  total_amount: z.coerce.number(),
+  posted_amount: z.coerce.number(),
+  missing_amount: z.coerce.number(),
+  excluded_amount: z.coerce.number(),
 });
 
 export type AmazonSettlementPostingSummary = z.infer<typeof amazonSettlementPostingSummarySchema>;
