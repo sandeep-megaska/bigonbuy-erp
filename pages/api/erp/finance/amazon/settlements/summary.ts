@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getCookieAccessToken, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
+import { requireErpFinanceApiAuth } from "../../../../../../lib/erp/financeApiAuth";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
@@ -17,25 +17,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.length > 0) {
-    return res.status(500).json({
-      ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    });
+  const auth = await requireErpFinanceApiAuth(req, "finance_reader");
+  if (!auth.ok) {
+    return res.status(auth.status).json({ ok: false, error: auth.error });
   }
-
-  const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
-  if (!accessToken) return res.status(401).json({ ok: false, error: "Not authenticated" });
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
   if (!from || !to) return res.status(400).json({ ok: false, error: "from/to dates are required" });
 
   try {
-    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
-    const { data, error } = await userClient.rpc("erp_amazon_settlement_posting_summary", {
+    const { data, error } = await auth.client.rpc("erp_amazon_settlement_posting_summary", {
       p_from: from,
       p_to: to,
     });

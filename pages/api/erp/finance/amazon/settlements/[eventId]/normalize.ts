@@ -8,7 +8,7 @@ import {
   amazonGetReport,
   amazonGetReportDocument,
 } from "lib/oms/adapters/amazonSpApi";
-import { createUserClient, getBearerToken, getCookieAccessToken, getSupabaseEnv } from "lib/serverSupabase";
+import { requireErpFinanceApiAuth } from "lib/erp/financeApiAuth";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = {
@@ -48,19 +48,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.length > 0) {
-    return res.status(500).json({
-      ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    });
+  const auth = await requireErpFinanceApiAuth(req, "marketplace_writer");
+  if (!auth.ok) {
+    return res.status(auth.status).json({ ok: false, error: auth.error });
   }
 
-  const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization token" });
-  }
 
   const reportId = getEventIdParam(req.query.eventId) || (req.body?.eventId as string | undefined);
   if (!reportId) {
@@ -68,18 +60,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
-    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
-    const { data: userData, error: sessionError } = await userClient.auth.getUser();
-    if (sessionError || !userData?.user) {
-      return res.status(401).json({ ok: false, error: "Not authenticated" });
-    }
-
-    const { error: permissionError } = await userClient.rpc("erp_require_marketplace_writer");
-    if (permissionError) {
-      return res
-        .status(403)
-        .json({ ok: false, error: permissionError.message || "Marketplace write access required" });
-    }
 
     const report = await amazonGetReport({ reportId });
     const processingStatus = report.processingStatus ?? "UNKNOWN";
@@ -214,7 +194,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return rowPayload;
       });
 
-    const { error: payloadError } = await userClient
+    const { error: payloadError } = await auth.client
       .from("erp_marketplace_settlement_report_payloads")
       .upsert(
         {
@@ -235,11 +215,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const { data: upsertResult, error: upsertError } = await userClient.rpc(
+    const { data: upsertResult, error: upsertError } = await auth.client.rpc(
       "erp_marketplace_settlement_batch_upsert_from_amazon_report",
       {
         p_report_id: reportId,
-        p_actor_user_id: userData.user.id,
+        p_actor_user_id: auth.actorUserId,
       }
     );
 
@@ -252,7 +232,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const batchId = upsertResult.batch_id as string;
-    const { error: backfillError } = await userClient.rpc("erp_amazon_settlement_txns_backfill_amounts", {
+    const { error: backfillError } = await auth.client.rpc("erp_amazon_settlement_txns_backfill_amounts", {
       p_batch_id: batchId,
     });
 
