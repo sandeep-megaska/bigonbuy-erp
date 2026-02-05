@@ -22,7 +22,7 @@ create unique index if not exists erp_marketplace_settlement_finance_posts_compa
 drop function if exists public.erp_amazon_settlement_posting_summary(date, date);
 
 drop function if exists public.erp_amazon_settlement_post_to_finance(uuid);
-
+drop function if exists public.erp_amazon_settlement_batches_list_with_posting(date, date, text, integer, integer);
 create or replace function public.erp__amazon_parse_amount(p_text text)
 returns numeric
 language plpgsql
