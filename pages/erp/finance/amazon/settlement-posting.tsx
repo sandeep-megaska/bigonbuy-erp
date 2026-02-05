@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -31,8 +31,6 @@ type CompanyContext = {
   membershipError: string | null;
   email: string | null;
 };
-
-type UiSession = { access_token?: string | null } | null;
 
 const formatLocalDate = (date: Date) => date.toLocaleDateString("en-CA");
 const today = () => formatLocalDate(new Date());
@@ -79,7 +77,7 @@ export default function AmazonSettlementPostingPage() {
   const router = useRouter();
 
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
-  const [session, setSession] = useState<UiSession>(null);
+  const accessTokenRef = useRef<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +92,6 @@ export default function AmazonSettlementPostingPage() {
 
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
-
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
   const [preview, setPreview] = useState<AmazonSettlementPostingPreview | null>(null);
@@ -104,10 +101,7 @@ export default function AmazonSettlementPostingPage() {
 
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
 
-  const canWrite = useMemo(
-    () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
-    [ctx]
-  );
+  const canWrite = useMemo(() => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)), [ctx]);
 
   const readErrorResponse = async (response: Response, fallback: string) => {
     const text = await response.text();
@@ -122,12 +116,9 @@ export default function AmazonSettlementPostingPage() {
   };
 
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => {
-    const token = session?.access_token ?? null;
+    const token = accessTokenRef.current;
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    // Match Shopify reality: include Bearer when available
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
 
     return {
@@ -144,13 +135,13 @@ export default function AmazonSettlementPostingPage() {
     (async () => {
       if (!router.isReady) return;
 
-      const s = await requireAuthRedirectHome(router);
-      if (!s || !active) return;
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
 
-      // keep token for Bearer header
-      setSession(s as UiSession);
+      // IMPORTANT: store token in ref immediately (avoids setState race)
+      accessTokenRef.current = session.access_token ?? null;
 
-      const context = await getCompanyContext(s);
+      const context = await getCompanyContext(session);
       if (!active) return;
 
       setCtx(context);
@@ -168,10 +159,8 @@ export default function AmazonSettlementPostingPage() {
       setFromDate(initialFrom);
       setToDate(initialTo);
 
-      await Promise.all([
-        loadBatches({ fromDate: initialFrom, toDate: initialTo }),
-        loadSummary({ fromDate: initialFrom, toDate: initialTo }),
-      ]);
+      // Load AFTER token ref is set
+      await Promise.all([loadBatches({ fromDate: initialFrom, toDate: initialTo }), loadSummary({ fromDate: initialFrom, toDate: initialTo })]);
 
       if (active) setLoading(false);
     })();
@@ -179,6 +168,7 @@ export default function AmazonSettlementPostingPage() {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady]);
 
   const loadSummary = async (params: { fromDate: string; toDate: string }) => {
@@ -193,8 +183,9 @@ export default function AmazonSettlementPostingPage() {
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setSummaryError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setSummaryError(msg);
         setPostingSummary(null);
         return;
       }
@@ -250,8 +241,9 @@ export default function AmazonSettlementPostingPage() {
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setError(msg);
         setBatches([]);
         return;
       }
@@ -300,8 +292,9 @@ export default function AmazonSettlementPostingPage() {
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setPreviewError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setPreviewError(msg);
         setPreview(null);
         setPreviewBatchId(null);
         return;
@@ -370,8 +363,9 @@ export default function AmazonSettlementPostingPage() {
       );
 
       if (response.status === 401) {
-        setAuthError("Not authenticated");
-        setError("Not authenticated");
+        const msg = await readErrorResponse(response, "Not authenticated");
+        setAuthError(msg);
+        setError(msg);
         return;
       }
 
@@ -395,10 +389,7 @@ export default function AmazonSettlementPostingPage() {
     }
   };
 
-  const totalNetPayout = useMemo(
-    () => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0),
-    [batches]
-  );
+  const totalNetPayout = useMemo(() => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0), [batches]);
 
   if (loading) return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
 
@@ -414,7 +405,7 @@ export default function AmazonSettlementPostingPage() {
         {authError ? (
           <section style={{ ...cardStyle, marginBottom: 16, border: "1px solid #fca5a5", background: "#fef2f2" }}>
             <div style={{ color: "#b91c1c", fontWeight: 600 }}>Not authenticated</div>
-            <div style={{ color: "#991b1b", marginTop: 4 }}>Please sign in again and refresh this page.</div>
+            <div style={{ color: "#991b1b", marginTop: 4 }}>{authError}</div>
           </section>
         ) : null}
 
@@ -445,20 +436,20 @@ export default function AmazonSettlementPostingPage() {
         </section>
 
         <section style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          {(["all", "posted", "missing", "excluded"] as const).map((opt) => (
+          {(["all", "posted", "missing", "excluded"] as const).map((option) => (
             <button
-              key={opt}
+              key={option}
               type="button"
               onClick={() => {
-                setPostingFilter(opt);
-                void loadBatches({ postingFilter: opt });
+                setPostingFilter(option);
+                void loadBatches({ postingFilter: option });
               }}
               style={{
                 ...secondaryButtonStyle,
-                ...(postingFilter === opt ? { borderColor: "#111827", color: "#111827" } : null),
+                ...(postingFilter === option ? { borderColor: "#111827", color: "#111827" } : null),
               }}
             >
-              {opt.charAt(0).toUpperCase() + opt.slice(1)}
+              {option.charAt(0).toUpperCase() + option.slice(1)}
             </button>
           ))}
         </section>
@@ -468,7 +459,6 @@ export default function AmazonSettlementPostingPage() {
             <div style={{ fontWeight: 600 }}>Posting coverage</div>
             {isLoadingSummary ? <div style={{ fontSize: 12 }}>Loading…</div> : null}
           </div>
-
           {summaryError ? (
             <div style={{ marginTop: 8, color: "#b91c1c" }}>{summaryError}</div>
           ) : postingSummary ? (
@@ -548,8 +538,8 @@ export default function AmazonSettlementPostingPage() {
                             ...(row.posting_state === "posted"
                               ? { background: "#dcfce7", color: "#166534" }
                               : row.posting_state === "missing"
-                                ? { background: "#fee2e2", color: "#991b1b" }
-                                : { background: "#fef3c7", color: "#92400e" }),
+                              ? { background: "#fee2e2", color: "#991b1b" }
+                              : { background: "#fef3c7", color: "#92400e" }),
                           }}
                         >
                           {row.posting_state}
@@ -574,7 +564,6 @@ export default function AmazonSettlementPostingPage() {
                           >
                             {isPreviewLoading && previewBatchId === row.batch_id ? "Loading…" : "Preview"}
                           </button>
-
                           <button
                             type="button"
                             style={primaryButtonStyle}
