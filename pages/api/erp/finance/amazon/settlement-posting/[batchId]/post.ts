@@ -12,38 +12,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const batchIdRaw = req.query.batchId;
-  const batchId = Array.isArray(batchIdRaw) ? batchIdRaw[0] : batchIdRaw;
-
-  if (!batchId || typeof batchId !== "string") {
-    return res.status(400).json({ ok: false, error: "batchId is required" });
-  }
-
-  // TEMP DEBUG: call .../post?debug=1 (remove later)
-  if (req.query.debug === "1") {
-    return res.status(200).json({
-      ok: true,
-      journal_id: null,
-      journal_no: null,
-    });
-  }
+  const batchId = typeof batchIdRaw === "string" ? batchIdRaw : Array.isArray(batchIdRaw) ? batchIdRaw[0] : null;
+  if (!batchId) return res.status(400).json({ ok: false, error: "batchId is required" });
 
   const auth = await requireErpFinanceApiAuth(req, "finance_writer");
   if (!auth.ok) {
     return res.status(auth.status).json({ ok: false, error: auth.error });
   }
 
+  // Resolve actor user from the authenticated Supabase user session
+  const { data: userData, error: userErr } = await auth.client.auth.getUser();
+  if (userErr || !userData?.user?.id) {
+    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  }
+
   try {
-    // ✅ Don’t rely on auth.user (not present). Ask Supabase using the same authenticated client.
-    const { data: userData, error: userErr } = await auth.client.auth.getUser();
-    const actorUserId = userData?.user?.id ?? null;
-
-    if (userErr || !actorUserId) {
-      return res.status(401).json({ ok: false, error: "Not authenticated" });
-    }
-
     const { data: journalId, error: postError } = await auth.client.rpc("erp_amazon_settlement_batch_post_to_finance", {
       p_batch_id: batchId,
-      p_actor_user_id: actorUserId,
+      p_actor_user_id: userData.user.id,
     });
 
     if (postError) {
@@ -58,13 +44,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(200).json({ ok: true, journal_id: null, journal_no: null });
     }
 
-    const { data: journalData, error: journalErr } = await auth.client
+    const { data: journalData, error: journalError } = await auth.client
       .from("erp_fin_journals")
       .select("id, doc_no")
       .eq("id", journalId as string)
       .maybeSingle();
 
-    if (journalErr || !journalData) {
+    if (journalError || !journalData) {
       return res.status(200).json({ ok: true, journal_id: journalId as string, journal_no: null });
     }
 
