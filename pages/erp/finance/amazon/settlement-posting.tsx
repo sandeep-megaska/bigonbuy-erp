@@ -135,7 +135,8 @@ export default function AmazonSettlementPostingPage() {
       const context = await getCompanyContext(session);
       if (!active) return;
 
-      setCtx(context);
+     setCtx({ ...context, session });
+
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found.");
         setLoading(false);
