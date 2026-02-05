@@ -80,6 +80,7 @@ export default function AmazonSettlementPostingPage() {
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const [fromDate, setFromDate] = useState(startOfPreviousMonth());
   const [toDate, setToDate] = useState(today());
@@ -101,9 +102,24 @@ export default function AmazonSettlementPostingPage() {
     [ctx]
   );
 
-  const getJsonHeaders = (): HeadersInit => ({
-    "Content-Type": "application/json",
+  const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => ({
+    method,
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+
+  const readErrorResponse = async (response: Response, fallback: string) => {
+    const text = await response.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
+      return text;
+    } catch {
+      return text;
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -141,16 +157,31 @@ export default function AmazonSettlementPostingPage() {
   const loadSummary = async (params: { fromDate: string; toDate: string }) => {
     setIsLoadingSummary(true);
     setSummaryError(null);
+    setAuthError(null);
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlements/summary?from=${params.fromDate}&to=${params.toDate}`
+        `/api/erp/finance/amazon/settlements/summary?from=${params.fromDate}&to=${params.toDate}`,
+        getJsonRequestOptions()
       );
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        setSummaryError(payload?.error || "Failed to load posting summary.");
+
+      if (response.status === 401) {
+        setAuthError("Not authenticated");
+        setSummaryError("Not authenticated");
         setPostingSummary(null);
-        setIsLoadingSummary(false);
+        return;
+      }
+
+      if (!response.ok) {
+        setSummaryError(await readErrorResponse(response, "Failed to load posting summary."));
+        setPostingSummary(null);
+        return;
+      }
+
+      const payload = await response.json();
+      if (!payload?.ok) {
+        setSummaryError(typeof payload?.error === "string" ? payload.error : "Failed to load posting summary.");
+        setPostingSummary(null);
         return;
       }
 
@@ -180,6 +211,7 @@ export default function AmazonSettlementPostingPage() {
   }) => {
     setIsLoadingList(true);
     setError(null);
+    setAuthError(null);
 
     const effectiveFrom = overrides?.fromDate ?? fromDate;
     const effectiveTo = overrides?.toDate ?? toDate;
@@ -187,13 +219,27 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlements/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`
+        `/api/erp/finance/amazon/settlements/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`,
+        getJsonRequestOptions()
       );
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        setError(payload?.error || "Failed to load Amazon settlement batches.");
+
+      if (response.status === 401) {
+        setAuthError("Not authenticated");
+        setError("Not authenticated");
         setBatches([]);
-        setIsLoadingList(false);
+        return;
+      }
+
+      if (!response.ok) {
+        setError(await readErrorResponse(response, "Failed to load Amazon settlement batches."));
+        setBatches([]);
+        return;
+      }
+
+      const payload = await response.json();
+      if (!payload?.ok) {
+        setError(typeof payload?.error === "string" ? payload.error : "Failed to load Amazon settlement batches.");
+        setBatches([]);
         return;
       }
 
@@ -223,10 +269,26 @@ export default function AmazonSettlementPostingPage() {
     setPreview(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/settlements/${batchId}/preview`);
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${batchId}/preview`, getJsonRequestOptions());
+
+      if (response.status === 401) {
+        setAuthError("Not authenticated");
+        setPreviewError("Not authenticated");
+        setPreview(null);
+        setPreviewBatchId(null);
+        return;
+      }
+
+      if (!response.ok) {
+        setPreviewError(await readErrorResponse(response, "Failed to load preview."));
+        setPreview(null);
+        setPreviewBatchId(null);
+        return;
+      }
+
       const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        setPreviewError(payload?.error || "Failed to load preview.");
+      if (!payload?.ok) {
+        setPreviewError(typeof payload?.error === "string" ? payload.error : "Failed to load preview.");
         setPreview(null);
         setPreviewBatchId(null);
         return;
@@ -278,15 +340,25 @@ export default function AmazonSettlementPostingPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/settlements/${batchId}/post`, {
-        method: "POST",
-        headers: getJsonHeaders(),
-        body: JSON.stringify({ batchId }),
-      });
+      const response = await fetch(
+        `/api/erp/finance/amazon/settlements/${batchId}/post`,
+        getJsonRequestOptions("POST", { batchId })
+      );
+
+      if (response.status === 401) {
+        setAuthError("Not authenticated");
+        setError("Not authenticated");
+        return;
+      }
+
+      if (!response.ok) {
+        setError(await readErrorResponse(response, "Failed to post Amazon settlement batch."));
+        return;
+      }
 
       const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        setError(payload?.error || "Failed to post Amazon settlement batch.");
+      if (!payload?.ok) {
+        setError(typeof payload?.error === "string" ? payload.error : "Failed to post Amazon settlement batch.");
         return;
       }
 
@@ -310,10 +382,6 @@ export default function AmazonSettlementPostingPage() {
     return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
   }
 
-  if (error && batches.length === 0) {
-    return <div style={pageContainerStyle}>{error}</div>;
-  }
-
   return (
     <ErpShell>
       <div style={pageContainerStyle}>
@@ -322,6 +390,13 @@ export default function AmazonSettlementPostingPage() {
           title="Amazon Settlement Posting"
           description="Monitor Amazon settlement batches and post missing journals."
         />
+
+        {authError ? (
+          <section style={{ ...cardStyle, marginBottom: 16, border: "1px solid #fca5a5", background: "#fef2f2" }}>
+            <div style={{ color: "#b91c1c", fontWeight: 600 }}>Not authenticated</div>
+            <div style={{ color: "#991b1b", marginTop: 4 }}>Please sign in again and refresh this page.</div>
+          </section>
+        ) : null}
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>

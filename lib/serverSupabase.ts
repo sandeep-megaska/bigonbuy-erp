@@ -31,6 +31,30 @@ export function getBearerToken(req: NextApiRequest): string | null {
 export function getCookieAccessToken(req: NextApiRequest): string | null {
   const token = req.cookies?.["sb-access-token"];
   if (token) return token;
+
+  const supabaseAuthCookie = Object.entries(req.cookies ?? {}).find(
+    ([name]) => name.startsWith("sb-") && name.endsWith("-auth-token")
+  )?.[1];
+  if (supabaseAuthCookie) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(supabaseAuthCookie));
+      if (Array.isArray(parsed) && typeof parsed[0] === "string" && parsed[0]) {
+        return parsed[0];
+      }
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "access_token" in parsed &&
+        typeof parsed.access_token === "string" &&
+        parsed.access_token
+      ) {
+        return parsed.access_token;
+      }
+    } catch {
+      // ignore malformed auth cookie and continue fallbacks
+    }
+  }
+
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return null;
   const parts = cookieHeader.split(";").map((part) => part.trim());
