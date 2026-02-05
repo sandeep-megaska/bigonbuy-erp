@@ -317,6 +317,17 @@ const getJsonRequestOptions = (
       setIsPreviewLoading(false);
     }
   };
+const readErrorResponse = async (response: Response, fallback: string) => {
+  const text = await response.text();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
+    return text;
+  } catch {
+    return text;
+  }
+};
 
   const handleApplyFilters = async () => {
     if (ctx?.companyId) {
