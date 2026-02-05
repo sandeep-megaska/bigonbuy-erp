@@ -379,7 +379,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   {
     id: "finance-amazon-settlement-posting",
     label: "Amazon Settlement Posting",
-    href: "/erp/finance/sales/amazon-settlements",
+    href: "/erp/finance/amazon/settlement-posting",
     description: "Post normalized Amazon settlement batches to finance journals.",
     group: "Finance",
     sidebarIcon: "AP",

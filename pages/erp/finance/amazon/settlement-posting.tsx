@@ -95,20 +95,15 @@ export default function AmazonSettlementPostingPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
-  const [normalizingBatchId, setNormalizingBatchId] = useState<string | null>(null);
 
   const canWrite = useMemo(
     () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
     [ctx]
   );
 
-  const getAuthHeaders = (tokenOverride?: string | null): HeadersInit => {
-    const token = tokenOverride ?? ctx?.session?.access_token;
-    return {
-      Authorization: token ? `Bearer ${token}` : "",
-      "Content-Type": "application/json",
-    };
-  };
+  const getJsonHeaders = (): HeadersInit => ({
+    "Content-Type": "application/json",
+  });
 
   useEffect(() => {
     let active = true;
@@ -133,8 +128,8 @@ export default function AmazonSettlementPostingPage() {
       const initialTo = parseDateQuery(router.query.to) ?? storedRange?.to ?? today();
       setFromDate(initialFrom);
       setToDate(initialTo);
-      await loadBatches({ fromDate: initialFrom, toDate: initialTo, token: session.access_token });
-      await loadSummary({ fromDate: initialFrom, toDate: initialTo, token: session.access_token });
+      await loadBatches({ fromDate: initialFrom, toDate: initialTo });
+      await loadSummary({ fromDate: initialFrom, toDate: initialTo });
       if (active) setLoading(false);
     })();
 
@@ -143,14 +138,13 @@ export default function AmazonSettlementPostingPage() {
     };
   }, [router.isReady]);
 
-  const loadSummary = async (params: { fromDate: string; toDate: string; token?: string | null }) => {
+  const loadSummary = async (params: { fromDate: string; toDate: string }) => {
     setIsLoadingSummary(true);
     setSummaryError(null);
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/summary?from=${params.fromDate}&to=${params.toDate}`,
-        { headers: getAuthHeaders(params.token) }
+        `/api/erp/finance/amazon/settlements/summary?from=${params.fromDate}&to=${params.toDate}`
       );
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
@@ -183,7 +177,6 @@ export default function AmazonSettlementPostingPage() {
     fromDate?: string;
     toDate?: string;
     postingFilter?: "all" | "posted" | "missing" | "excluded";
-    token?: string | null;
   }) => {
     setIsLoadingList(true);
     setError(null);
@@ -194,8 +187,7 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`,
-        { headers: getAuthHeaders(overrides?.token) }
+        `/api/erp/finance/amazon/settlements/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`
       );
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
@@ -224,16 +216,14 @@ export default function AmazonSettlementPostingPage() {
     }
   };
 
-  const loadPreview = async (batchId: string, tokenOverride?: string | null) => {
+  const loadPreview = async (batchId: string) => {
     setPreviewError(null);
     setIsPreviewLoading(true);
     setPreviewBatchId(batchId);
     setPreview(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/settlement-posting/${batchId}/preview`, {
-        headers: getAuthHeaders(tokenOverride),
-      });
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${batchId}/preview`);
       const payload = await response.json();
       if (!response.ok || !payload?.ok) {
         setPreviewError(payload?.error || "Failed to load preview.");
@@ -288,9 +278,9 @@ export default function AmazonSettlementPostingPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/settlement-posting/${batchId}/post`, {
+      const response = await fetch(`/api/erp/finance/amazon/settlements/${batchId}/post`, {
         method: "POST",
-        headers: getAuthHeaders(),
+        headers: getJsonHeaders(),
         body: JSON.stringify({ batchId }),
       });
 
@@ -308,40 +298,6 @@ export default function AmazonSettlementPostingPage() {
       setError(message);
     } finally {
       setPostingBatchId(null);
-    }
-  };
-
-  const handleNormalize = async (batchId: string, reportId: string) => {
-    if (!canWrite) {
-      setError("Only finance, admin, or owner can normalize Amazon settlements.");
-      return;
-    }
-
-    setNormalizingBatchId(batchId);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/erp/finance/amazon/settlements/${reportId}/normalize`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-
-      const payload = await response.json();
-      if (!response.ok || !payload?.ok) {
-        setError(payload?.error || "Failed to normalize Amazon settlement batch.");
-        return;
-      }
-
-      await loadBatches();
-      await loadSummary({ fromDate, toDate });
-      if (previewBatchId === batchId) {
-        await loadPreview(batchId);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to normalize Amazon settlement batch.";
-      setError(message);
-    } finally {
-      setNormalizingBatchId(null);
     }
   };
 
@@ -543,15 +499,6 @@ export default function AmazonSettlementPostingPage() {
                           </button>
                           {Number(row.txn_count ?? 0) > 0 ? (
                             <span style={{ ...badgeStyle, background: "#dcfce7", color: "#166534" }}>Normalized</span>
-                          ) : row.report_id ? (
-                            <button
-                              type="button"
-                              style={secondaryButtonStyle}
-                              disabled={normalizingBatchId === row.batch_id || !canWrite}
-                              onClick={() => handleNormalize(row.batch_id, row.report_id as string)}
-                            >
-                              {normalizingBatchId === row.batch_id ? "Normalizing…" : "Normalize"}
-                            </button>
                           ) : null}
                           <button
                             type="button"
