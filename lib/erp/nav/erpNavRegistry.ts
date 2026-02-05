@@ -548,6 +548,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["finance"],
   },
   {
+    id: "finance-amazon-settlement-posting",
+    label: "Amazon Settlement Posting",
+    href: "/erp/finance/sales/amazon-settlements",
+    icon: "AP",
+    groupId: "finance",
+    requiredGuard: "finance_reader",
+    status: "active",
+    moduleKeys: ["finance"],
+  },
+  {
     id: "finance-amazon-settlements",
     label: "Marketplace Settlements",
     href: "/erp/finance/amazon/settlements",
