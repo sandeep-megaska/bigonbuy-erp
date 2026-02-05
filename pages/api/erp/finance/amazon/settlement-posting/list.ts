@@ -29,16 +29,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // TEMP DEBUG (remove after fix)
+  if (req.query.debug === "auth") {
+    return res.status(200).json({
+      ok: true,
+      data: {
+        hit: "amazon/settlement-posting/list",
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
+        authorizationPrefix: typeof req.headers.authorization === "string" ? req.headers.authorization.slice(0, 16) : null,
+      },
+    });
+  }
+
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || missing.length > 0) {
     return res.status(500).json({
       ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
 
-  // Shopify-style: Bearer token is required
   const accessToken = getBearerToken(req);
   if (!accessToken) {
     return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
@@ -67,6 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ ok: false, error: permissionError.message || "Finance access required" });
     }
 
+    // Canonical list RPC (already used in your uploaded file)
     const { data, error } = await userClient.rpc("erp_amazon_settlement_batches_list_with_posting", {
       p_from: from,
       p_to: to,
