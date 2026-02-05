@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -30,11 +30,12 @@ type CompanyContext = {
   roleKey: string | null;
   membershipError: string | null;
   email: string | null;
+  // IMPORTANT: required for Bearer header
+  session?: { access_token?: string | null } | null;
 };
 
 const formatLocalDate = (date: Date) => date.toLocaleDateString("en-CA");
 const today = () => formatLocalDate(new Date());
-
 const startOfPreviousMonth = () => {
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -53,10 +54,7 @@ const loadStoredRange = (companyId: string) => {
     const raw = window.localStorage.getItem(`erp_amazon_settlement_posting_range_${companyId}`);
     if (!raw) return null;
     const parsed = z
-      .object({
-        from: z.string(),
-        to: z.string(),
-      })
+      .object({ from: z.string(), to: z.string() })
       .safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
   } catch {
@@ -67,7 +65,10 @@ const loadStoredRange = (companyId: string) => {
 const persistStoredRange = (companyId: string, from: string, to: string) => {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(`erp_amazon_settlement_posting_range_${companyId}`, JSON.stringify({ from, to }));
+    window.localStorage.setItem(
+      `erp_amazon_settlement_posting_range_${companyId}`,
+      JSON.stringify({ from, to })
+    );
   } catch {
     return;
   }
@@ -75,10 +76,7 @@ const persistStoredRange = (companyId: string, from: string, to: string) => {
 
 export default function AmazonSettlementPostingPage() {
   const router = useRouter();
-
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
-  const accessTokenRef = useRef<string | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -89,19 +87,19 @@ export default function AmazonSettlementPostingPage() {
 
   const [batches, setBatches] = useState<AmazonSettlementPostingRow[]>([]);
   const [postingSummary, setPostingSummary] = useState<AmazonSettlementPostingSummary | null>(null);
-
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-
   const [preview, setPreview] = useState<AmazonSettlementPostingPreview | null>(null);
   const [previewBatchId, setPreviewBatchId] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
 
-  const canWrite = useMemo(() => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)), [ctx]);
+  const canWrite = useMemo(
+    () => Boolean(ctx?.roleKey && ["owner", "admin", "finance"].includes(ctx.roleKey)),
+    [ctx]
+  );
 
   const readErrorResponse = async (response: Response, fallback: string) => {
     const text = await response.text();
@@ -114,25 +112,20 @@ export default function AmazonSettlementPostingPage() {
       return text;
     }
   };
-const accessToken = ctx?.session?.access_token ?? null;
-
-// TEMP UI DEBUG
-console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken?.slice(0, 12));
 
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => {
-  const accessToken = ctx?.session?.access_token ?? null;
+    const accessToken = ctx?.session?.access_token ?? null;
 
-  return {
-    method,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+    return {
+      method,
+      credentials: "include",
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    };
   };
-};
-
 
   useEffect(() => {
     let active = true;
@@ -143,13 +136,11 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
-      // IMPORTANT: store token in ref immediately (avoids setState race)
-      accessTokenRef.current = session.access_token ?? null;
-
       const context = await getCompanyContext(session);
       if (!active) return;
 
-      setCtx(context);
+      // IMPORTANT: keep session inside ctx so fetch() adds Authorization header
+      setCtx({ ...context, session });
 
       if (!context.companyId) {
         setError(context.membershipError || "No active company membership found.");
@@ -164,8 +155,9 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       setFromDate(initialFrom);
       setToDate(initialTo);
 
-      // Load AFTER token ref is set
-      await Promise.all([loadBatches({ fromDate: initialFrom, toDate: initialTo }), loadSummary({ fromDate: initialFrom, toDate: initialTo })]);
+      // load after ctx is set; we’ll call directly with overrides anyway
+      await loadBatches({ fromDate: initialFrom, toDate: initialTo });
+      await loadSummary({ fromDate: initialFrom, toDate: initialTo });
 
       if (active) setLoading(false);
     })();
@@ -188,9 +180,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       );
 
       if (response.status === 401) {
-        const msg = await readErrorResponse(response, "Not authenticated");
-        setAuthError(msg);
-        setSummaryError(msg);
+        setAuthError("Not authenticated");
+        setSummaryError("Not authenticated");
         setPostingSummary(null);
         return;
       }
@@ -246,9 +237,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       );
 
       if (response.status === 401) {
-        const msg = await readErrorResponse(response, "Not authenticated");
-        setAuthError(msg);
-        setError(msg);
+        setAuthError("Not authenticated");
+        setError("Not authenticated");
         setBatches([]);
         return;
       }
@@ -297,9 +287,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       );
 
       if (response.status === 401) {
-        const msg = await readErrorResponse(response, "Not authenticated");
-        setAuthError(msg);
-        setPreviewError(msg);
+        setAuthError("Not authenticated");
+        setPreviewError("Not authenticated");
         setPreview(null);
         setPreviewBatchId(null);
         return;
@@ -342,7 +331,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
 
   const handleApplyFilters = async () => {
     if (ctx?.companyId) persistStoredRange(ctx.companyId, fromDate, toDate);
-    await Promise.all([loadBatches(), loadSummary({ fromDate, toDate })]);
+    await loadBatches();
+    await loadSummary({ fromDate, toDate });
   };
 
   const handlePost = async (batchId: string) => {
@@ -368,9 +358,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
       );
 
       if (response.status === 401) {
-        const msg = await readErrorResponse(response, "Not authenticated");
-        setAuthError(msg);
-        setError(msg);
+        setAuthError("Not authenticated");
+        setError("Not authenticated");
         return;
       }
 
@@ -385,7 +374,9 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
         return;
       }
 
-      await Promise.all([loadBatches(), loadSummary({ fromDate, toDate }), loadPreview(batchId)]);
+      await loadBatches();
+      await loadSummary({ fromDate, toDate });
+      await loadPreview(batchId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to post Amazon settlement batch.";
       setError(message);
@@ -394,7 +385,10 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
     }
   };
 
-  const totalNetPayout = useMemo(() => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0), [batches]);
+  const totalNetPayout = useMemo(
+    () => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0),
+    [batches]
+  );
 
   if (loading) return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
 
@@ -410,7 +404,7 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
         {authError ? (
           <section style={{ ...cardStyle, marginBottom: 16, border: "1px solid #fca5a5", background: "#fef2f2" }}>
             <div style={{ color: "#b91c1c", fontWeight: 600 }}>Not authenticated</div>
-            <div style={{ color: "#991b1b", marginTop: 4 }}>{authError}</div>
+            <div style={{ color: "#991b1b", marginTop: 4 }}>Please sign in again and refresh this page.</div>
           </section>
         ) : null}
 
@@ -464,6 +458,7 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
             <div style={{ fontWeight: 600 }}>Posting coverage</div>
             {isLoadingSummary ? <div style={{ fontSize: 12 }}>Loading…</div> : null}
           </div>
+
           {summaryError ? (
             <div style={{ marginTop: 8, color: "#b91c1c" }}>{summaryError}</div>
           ) : postingSummary ? (
@@ -543,8 +538,8 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
                             ...(row.posting_state === "posted"
                               ? { background: "#dcfce7", color: "#166534" }
                               : row.posting_state === "missing"
-                              ? { background: "#fee2e2", color: "#991b1b" }
-                              : { background: "#fef3c7", color: "#92400e" }),
+                                ? { background: "#fee2e2", color: "#991b1b" }
+                                : { background: "#fef3c7", color: "#92400e" }),
                           }}
                         >
                           {row.posting_state}
@@ -575,7 +570,6 @@ console.log("settlement-posting accessToken?", Boolean(accessToken), accessToken
                             disabled={
                               !canWrite ||
                               row.posting_state !== "missing" ||
-                              Number(row.txn_count ?? 0) === 0 ||
                               postingBatchId === row.batch_id ||
                               previewBatchId !== row.batch_id ||
                               preview?.can_post === false
