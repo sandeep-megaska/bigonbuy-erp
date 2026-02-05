@@ -23,6 +23,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+  if (req.query.debug === "1") {
+    return res.status(200).json({
+      ok: true,
+      data: {
+        hit: "api/erp/finance/amazon/settlement-posting/[batchId]/preview.ts",
+        method: req.method,
+        batchId: req.query.batchId,
+        hasAuthHeader: Boolean(req.headers.authorization),
+        cookieKeys: Object.keys(req.cookies ?? {}).slice(0, 20),
+      },
+    });
+  }
+
+  // ...normal logic
+}
 
   const accessToken = getBearerToken(req);
   if (!accessToken) {
