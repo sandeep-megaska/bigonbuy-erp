@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
 import ErpShell from "../../../../components/erp/ErpShell";
@@ -73,6 +73,153 @@ const persistStoredRange = (companyId: string, from: string, to: string) => {
   }
 };
 
+const roleLabelByKey: Record<string, string> = {
+  amazon_settlement_sales_account: "Amazon Sales (Net of tax if that’s your policy)",
+  amazon_settlement_fees_account: "Amazon Marketplace Fees",
+  amazon_settlement_refunds_account: "Amazon Sales Returns",
+  amazon_settlement_adjustments_account: "Amazon Adjustments",
+  amazon_settlement_clearing_account: "Amazon Settlement Clearing",
+};
+
+const formatAmount = (value: number | null | undefined) => `₹${Number(value || 0).toFixed(2)}`;
+
+const previewPanelStyle = {
+  margin: "8px 0 12px",
+  border: "1px solid #e5e7eb",
+  borderRadius: 10,
+  background: "#f8fafc",
+  padding: 12,
+};
+
+type InlinePreviewPanelProps = {
+  row: AmazonSettlementPostingRow;
+  preview?: AmazonSettlementPostingPreview;
+  loading: boolean;
+  canWrite: boolean;
+  postingBatchId: string | null;
+  panelError?: string;
+  onClose: () => void;
+  onPost: () => void;
+};
+
+function InlinePreviewPanel({ row, preview, loading, canWrite, postingBatchId, panelError, onClose, onPost }: InlinePreviewPanelProps) {
+  const period = [preview?.period_start, preview?.period_end].filter(Boolean).join(" → ") || "—";
+
+  return (
+    <div style={previewPanelStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>Journal preview</div>
+          <div style={{ fontSize: 12, color: "#4b5563", marginTop: 2 }}>
+            Batch {row.batch_ref || row.batch_id} · Period {period} · Currency {preview?.currency || row.currency || "—"}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" style={secondaryButtonStyle} onClick={onClose}>
+            Close
+          </button>
+          <button
+            type="button"
+            title={!preview?.can_post ? "Resolve warnings or account mappings before posting." : undefined}
+            style={primaryButtonStyle}
+            disabled={!canWrite || row.posting_state !== "missing" || Number(row.txn_count ?? 0) === 0 || postingBatchId === row.batch_id || !preview || preview.can_post === false}
+            onClick={onPost}
+          >
+            {postingBatchId === row.batch_id ? "Posting…" : "Post to Finance"}
+          </button>
+        </div>
+      </div>
+
+      {loading ? <div style={{ marginTop: 12, fontSize: 13 }}>Loading preview…</div> : null}
+      {panelError ? (
+        <div style={{ marginTop: 12, padding: "8px 10px", borderRadius: 8, background: "#fee2e2", color: "#991b1b" }}>{panelError}</div>
+      ) : null}
+
+      {!loading && preview ? (
+        <>
+          <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "#eef2ff", color: "#3730a3", fontSize: 12 }}>
+            Posting settings: use Sales, Fees, Returns, Adjustments, and Settlement Clearing control-role mappings to align Amazon posting practice.
+          </div>
+
+          {!preview.can_post ? (
+            <div style={{ marginTop: 10, color: "#92400e", fontSize: 12 }}>Posting is disabled for this batch until warnings/mappings are resolved.</div>
+          ) : null}
+
+          {preview.warnings?.length ? (
+            <div style={{ marginTop: 10, color: "#b45309" }}>
+              <div style={{ fontWeight: 600 }}>Warnings</div>
+              <ul style={{ marginTop: 4, paddingLeft: 18 }}>
+                {preview.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 12, overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Role</th>
+                  <th style={tableHeaderCellStyle}>Account</th>
+                  <th style={tableHeaderCellStyle}>Debit</th>
+                  <th style={tableHeaderCellStyle}>Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.lines.length === 0 ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={4}>
+                      No journal lines available.
+                    </td>
+                  </tr>
+                ) : (
+                  preview.lines.map((line, idx) => {
+                    const isSalesShippingMap =
+                      line.role_key === "amazon_settlement_sales_account" &&
+                      typeof line.account_name === "string" &&
+                      line.account_name.toLowerCase().includes("shipping");
+
+                    return (
+                      <tr key={`${line.role_key}-${idx}`}>
+                        <td style={tableCellStyle}>
+                          <div style={{ fontWeight: 600 }}>{roleLabelByKey[line.role_key] || line.label || line.role_key}</div>
+                          <div style={{ fontSize: 11, color: "#6b7280" }}>{line.role_key}</div>
+                        </td>
+                        <td style={tableCellStyle}>
+                          <div style={{ fontWeight: 600 }}>{line.account_name || "—"}</div>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>{line.account_code || ""}</div>
+                          {isSalesShippingMap ? (
+                            <div style={{ marginTop: 4, color: "#b45309", fontSize: 12 }}>
+                              Sales role mapped to account '{line.account_name} ({line.account_code || "—"})'. Verify mapping.
+                            </div>
+                          ) : null}
+                        </td>
+                        <td style={tableCellStyle}>{formatAmount(line.dr)}</td>
+                        <td style={tableCellStyle}>{formatAmount(line.cr)}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "#374151" }}>
+            <div>Total debit: {formatAmount(preview.totals?.total_debit)}</div>
+            <div>Total credit: {formatAmount(preview.totals?.total_credit)}</div>
+            <div>Net payout: {formatAmount(preview.totals?.net_payout)}</div>
+            <div>Sales: {formatAmount(preview.totals?.sales)}</div>
+            <div>Fees: {formatAmount(preview.totals?.fees)}</div>
+            <div>Refunds: {formatAmount(preview.totals?.refunds)}</div>
+            <div>Adjustments: {formatAmount(preview.totals?.adjustments)}</div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AmazonSettlementPostingPage() {
   const router = useRouter();
 
@@ -82,6 +229,7 @@ export default function AmazonSettlementPostingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const [fromDate, setFromDate] = useState(startOfPreviousMonth());
   const [toDate, setToDate] = useState(today());
@@ -94,10 +242,10 @@ export default function AmazonSettlementPostingPage() {
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
-  const [preview, setPreview] = useState<AmazonSettlementPostingPreview | null>(null);
-  const [previewBatchId, setPreviewBatchId] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+  const [previewByBatchId, setPreviewByBatchId] = useState<Record<string, AmazonSettlementPostingPreview | undefined>>({});
+  const [loadingPreviewBatchId, setLoadingPreviewBatchId] = useState<string | null>(null);
+  const [errorByBatchId, setErrorByBatchId] = useState<Record<string, string | undefined>>({});
 
   const [postingBatchId, setPostingBatchId] = useState<string | null>(null);
 
@@ -270,6 +418,7 @@ export default function AmazonSettlementPostingPage() {
       }
 
       setBatches(parsed.data);
+      setToast(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Amazon settlement batches.";
       setError(message);
@@ -280,10 +429,9 @@ export default function AmazonSettlementPostingPage() {
   };
 
   const loadPreview = async (batchId: string) => {
-    setPreviewError(null);
-    setIsPreviewLoading(true);
-    setPreviewBatchId(batchId);
-    setPreview(null);
+    setAuthError(null);
+    setErrorByBatchId((prev) => ({ ...prev, [batchId]: undefined }));
+    setLoadingPreviewBatchId(batchId);
 
     try {
       const response = await fetch(
@@ -294,45 +442,52 @@ export default function AmazonSettlementPostingPage() {
       if (response.status === 401) {
         const msg = await readErrorResponse(response, "Not authenticated");
         setAuthError(msg);
-        setPreviewError(msg);
-        setPreview(null);
-        setPreviewBatchId(null);
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: msg }));
+        setToast({ type: "error", message: msg });
         return;
       }
 
       if (!response.ok) {
-        setPreviewError(await readErrorResponse(response, "Failed to load preview."));
-        setPreview(null);
-        setPreviewBatchId(null);
+        const message = await readErrorResponse(response, "Failed to load preview.");
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+        setToast({ type: "error", message });
         return;
       }
 
       const payload = await response.json();
       if (!payload?.ok) {
-        setPreviewError(typeof payload?.error === "string" ? payload.error : "Failed to load preview.");
-        setPreview(null);
-        setPreviewBatchId(null);
+        const message = typeof payload?.error === "string" ? payload.error : "Failed to load preview.";
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+        setToast({ type: "error", message });
         return;
       }
 
       const parsed = amazonSettlementPostingPreviewSchema.safeParse(payload.data);
       if (!parsed.success) {
-        setPreviewError("Failed to parse preview response.");
-        setPreview(null);
-        setPreviewBatchId(null);
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: "Failed to parse preview response." }));
+        setToast({ type: "error", message: "Failed to parse preview response." });
         return;
       }
 
-      setPreview(parsed.data);
-      setPreviewBatchId(batchId);
+      setPreviewByBatchId((prev) => ({ ...prev, [batchId]: parsed.data }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load preview.";
-      setPreviewError(message);
-      setPreview(null);
-      setPreviewBatchId(null);
+      setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+      setToast({ type: "error", message });
     } finally {
-      setIsPreviewLoading(false);
+      setLoadingPreviewBatchId(null);
     }
+  };
+
+  const handleTogglePreview = async (batchId: string) => {
+    if (expandedBatchId === batchId) {
+      setExpandedBatchId(null);
+      return;
+    }
+
+    setExpandedBatchId(batchId);
+    if (previewByBatchId[batchId]) return;
+    await loadPreview(batchId);
   };
 
   const handleApplyFilters = async () => {
@@ -346,12 +501,13 @@ export default function AmazonSettlementPostingPage() {
       return;
     }
 
-    if (!preview || previewBatchId !== batchId || preview.can_post === false) {
+    const preview = previewByBatchId[batchId];
+    if (!preview || preview.can_post === false) {
       setError("Preview the journal and resolve any warnings before posting.");
       return;
     }
 
-    if (!window.confirm("Post this Amazon settlement batch to finance?")) return;
+    if (!window.confirm(`This will create a finance journal for batch ${preview.batch_ref || batchId}. Continue?`)) return;
 
     setPostingBatchId(batchId);
     setError(null);
@@ -366,24 +522,51 @@ export default function AmazonSettlementPostingPage() {
         const msg = await readErrorResponse(response, "Not authenticated");
         setAuthError(msg);
         setError(msg);
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: msg }));
+        setToast({ type: "error", message: msg });
         return;
       }
 
       if (!response.ok) {
-        setError(await readErrorResponse(response, "Failed to post Amazon settlement batch."));
+        const message = await readErrorResponse(response, "Failed to post Amazon settlement batch.");
+        setError(message);
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+        setToast({ type: "error", message });
         return;
       }
 
       const payload = await response.json();
       if (!payload?.ok) {
-        setError(typeof payload?.error === "string" ? payload.error : "Failed to post Amazon settlement batch.");
+        const message = typeof payload?.error === "string" ? payload.error : "Failed to post Amazon settlement batch.";
+        setError(message);
+        setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+        setToast({ type: "error", message });
         return;
       }
+
+      setErrorByBatchId((prev) => ({ ...prev, [batchId]: undefined }));
+      setToast({ type: "success", message: "Amazon settlement posted to Finance." });
+      setPreviewByBatchId((prev) => {
+        const current = prev[batchId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [batchId]: {
+            ...current,
+            posted: {
+              journal_id: payload.journal_id || current.posted?.journal_id || null,
+              journal_no: payload.journal_no || current.posted?.journal_no || null,
+            },
+          },
+        };
+      });
 
       await Promise.all([loadBatches(), loadSummary({ fromDate, toDate }), loadPreview(batchId)]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to post Amazon settlement batch.";
       setError(message);
+      setErrorByBatchId((prev) => ({ ...prev, [batchId]: message }));
+      setToast({ type: "error", message });
     } finally {
       setPostingBatchId(null);
     }
@@ -401,6 +584,19 @@ export default function AmazonSettlementPostingPage() {
           title="Amazon Settlement Posting"
           description="Monitor Amazon settlement batches and post missing journals."
         />
+
+        {toast ? (
+          <section
+            style={{
+              ...cardStyle,
+              marginBottom: 12,
+              border: toast.type === "success" ? "1px solid #86efac" : "1px solid #fca5a5",
+              background: toast.type === "success" ? "#f0fdf4" : "#fef2f2",
+            }}
+          >
+            <div style={{ color: toast.type === "success" ? "#166534" : "#b91c1c", fontWeight: 600 }}>{toast.message}</div>
+          </section>
+        ) : null}
 
         {authError ? (
           <section style={{ ...cardStyle, marginBottom: 16, border: "1px solid #fca5a5", background: "#fef2f2" }}>
@@ -497,6 +693,11 @@ export default function AmazonSettlementPostingPage() {
             </Link>
           </div>
 
+          <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
+            Recommended control roles: amazon_settlement_sales_account, amazon_settlement_fees_account,
+            amazon_settlement_refunds_account, amazon_settlement_adjustments_account, and amazon_settlement_clearing_account.
+          </div>
+
           {error ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{error}</div> : null}
 
           <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -521,7 +722,8 @@ export default function AmazonSettlementPostingPage() {
                   </tr>
                 ) : (
                   batches.map((row) => (
-                    <tr key={row.batch_id}>
+                    <Fragment key={row.batch_id}>
+                    <tr>
                       <td style={tableCellStyle}>
                         <div style={{ fontWeight: 600 }}>{row.batch_ref || "—"}</div>
                         <div style={{ fontSize: 12, color: "#6b7280" }}>{row.batch_id}</div>
@@ -559,93 +761,36 @@ export default function AmazonSettlementPostingPage() {
                           <button
                             type="button"
                             style={secondaryButtonStyle}
-                            disabled={isPreviewLoading && previewBatchId === row.batch_id}
-                            onClick={() => void loadPreview(row.batch_id)}
+                            disabled={loadingPreviewBatchId === row.batch_id}
+                            onClick={() => void handleTogglePreview(row.batch_id)}
                           >
-                            {isPreviewLoading && previewBatchId === row.batch_id ? "Loading…" : "Preview"}
-                          </button>
-                          <button
-                            type="button"
-                            style={primaryButtonStyle}
-                            disabled={
-                              !canWrite ||
-                              row.posting_state !== "missing" ||
-                              Number(row.txn_count ?? 0) === 0 ||
-                              postingBatchId === row.batch_id ||
-                              previewBatchId !== row.batch_id ||
-                              preview?.can_post === false
-                            }
-                            onClick={() => handlePost(row.batch_id)}
-                          >
-                            {postingBatchId === row.batch_id ? "Posting…" : "Post to Finance"}
+                            {loadingPreviewBatchId === row.batch_id ? "Loading…" : expandedBatchId === row.batch_id ? "Close Preview" : "Preview"}
                           </button>
                         </div>
                       </td>
                     </tr>
+                    {expandedBatchId === row.batch_id ? (
+                      <tr key={`${row.batch_id}-preview`}>
+                        <td style={{ ...tableCellStyle, background: "#fff" }} colSpan={7}>
+                          <InlinePreviewPanel
+                            row={row}
+                            preview={previewByBatchId[row.batch_id]}
+                            loading={loadingPreviewBatchId === row.batch_id}
+                            panelError={errorByBatchId[row.batch_id]}
+                            canWrite={canWrite}
+                            postingBatchId={postingBatchId}
+                            onClose={() => setExpandedBatchId(null)}
+                            onPost={() => void handlePost(row.batch_id)}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   ))
                 )}
               </tbody>
             </table>
           </div>
-
-          {previewError ? (
-            <div style={{ marginTop: 12, padding: "8px 10px", borderRadius: 8, background: "#fee2e2", color: "#991b1b" }}>
-              {previewError}
-            </div>
-          ) : null}
-
-          {previewBatchId && preview ? (
-            <div style={{ marginTop: 16, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontWeight: 600 }}>Journal preview</div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Batch {preview.batch_ref || preview.batch_id}</div>
-              </div>
-              {preview.warnings?.length ? (
-                <div style={{ marginTop: 8, color: "#b45309" }}>
-                  <div style={{ fontWeight: 600 }}>Warnings</div>
-                  <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-                    {preview.warnings.map((w) => (
-                      <li key={w}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              <div style={{ marginTop: 12, overflowX: "auto" }}>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={tableHeaderCellStyle}>Role</th>
-                      <th style={tableHeaderCellStyle}>Account</th>
-                      <th style={tableHeaderCellStyle}>Debit</th>
-                      <th style={tableHeaderCellStyle}>Credit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.lines.length === 0 ? (
-                      <tr>
-                        <td style={tableCellStyle} colSpan={4}>
-                          No journal lines available.
-                        </td>
-                      </tr>
-                    ) : (
-                      preview.lines.map((line, idx) => (
-                        <tr key={`${line.role_key}-${idx}`}>
-                          <td style={tableCellStyle}>{line.role_key}</td>
-                          <td style={tableCellStyle}>
-                            <div style={{ fontWeight: 600 }}>{line.account_name || "—"}</div>
-                            <div style={{ fontSize: 12, color: "#6b7280" }}>{line.account_code || ""}</div>
-                          </td>
-                          <td style={tableCellStyle}>₹{Number(line.dr || 0).toFixed(2)}</td>
-                          <td style={tableCellStyle}>₹{Number(line.cr || 0).toFixed(2)}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
         </section>
       </div>
     </ErpShell>
