@@ -17,9 +17,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  // TEMP DEBUG (remove after confirming correct handler)
-  if (req.query.debug === "1") {
-    return res.status(200).json({ ok: true, data: { debug: "settlements/summary.ts HIT" } });
+    // TEMP DEBUG (remove after fix)
+  if (req.query.debug === "auth") {
+    const cookieKeys = Object.keys(req.cookies ?? {});
+    return res.status(200).json({
+      ok: true,
+      data: {
+        debug: "auth-probe",
+        hasCookieHeader: Boolean(req.headers.cookie),
+        cookieCount: cookieKeys.length,
+        cookieKeys: cookieKeys.slice(0, 30),
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
+      },
+    });
   }
 
   const auth = await requireErpFinanceApiAuth(req, "finance_reader");
