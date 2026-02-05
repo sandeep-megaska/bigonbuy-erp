@@ -8,7 +8,7 @@ import {
   amazonGetReport,
   amazonGetReportDocument,
 } from "lib/oms/adapters/amazonSpApi";
-import { requireErpFinanceApiAuth } from "lib/erp/financeApiAuth";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = {
@@ -48,11 +48,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const auth = await requireErpFinanceApiAuth(req, "marketplace_writer");
-  if (!auth.ok) {
-    return res.status(auth.status).json({ ok: false, error: auth.error });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error:
+        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
   }
 
+  const accessToken = getBearerToken(req);
+  if (!accessToken) {
+    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
+  }
 
   const reportId = getEventIdParam(req.query.eventId) || (req.body?.eventId as string | undefined);
   if (!reportId) {
@@ -60,6 +68,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
+    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+    const { data: userData, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const { error: permissionError } = await userClient.rpc("erp_require_marketplace_writer");
+    if (permissionError) {
+      return res
+        .status(403)
+        .json({ ok: false, error: permissionError.message || "Marketplace write access required" });
+    }
 
     const report = await amazonGetReport({ reportId });
     const processingStatus = report.processingStatus ?? "UNKNOWN";
@@ -194,7 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         return rowPayload;
       });
 
-    const { error: payloadError } = await auth.client
+    const { error: payloadError } = await userClient
       .from("erp_marketplace_settlement_report_payloads")
       .upsert(
         {
@@ -215,11 +235,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const { data: upsertResult, error: upsertError } = await auth.client.rpc(
+    const { data: upsertResult, error: upsertError } = await userClient.rpc(
       "erp_marketplace_settlement_batch_upsert_from_amazon_report",
       {
         p_report_id: reportId,
-        p_actor_user_id: auth.actorUserId,
+        p_actor_user_id: userData.user.id,
       }
     );
 
@@ -231,22 +251,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    const batchId = upsertResult.batch_id as string;
-    const { error: backfillError } = await auth.client.rpc("erp_amazon_settlement_txns_backfill_amounts", {
-      p_batch_id: batchId,
-    });
-
-    if (backfillError) {
-      return res.status(400).json({
-        ok: false,
-        error: backfillError.message || "Unable to backfill Amazon settlement transaction amounts",
-        details: backfillError.details || backfillError.hint || backfillError.code,
-      });
-    }
-
     return res.status(200).json({
       ok: true,
-      batch_id: batchId,
+      batch_id: upsertResult.batch_id as string,
       attempted_rows: upsertResult.attempted_rows as number,
       inserted_rows: upsertResult.inserted_rows as number,
     });
