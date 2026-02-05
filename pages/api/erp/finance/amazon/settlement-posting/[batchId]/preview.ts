@@ -11,8 +11,7 @@ const getPathParam = (value: string | string[] | undefined): string | null => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
- 
-  if (req.query.debug === "1") {
+   if (req.query.debug === "1") {
     return res.status(200).json({
       ok: true,
       data: {
@@ -24,9 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       },
     });
   }
-
-  // ...normal logic
-
+  
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -39,7 +36,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
- }
 
   const accessToken = getBearerToken(req);
   if (!accessToken) {
