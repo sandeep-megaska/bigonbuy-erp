@@ -1,23 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import {
-  createUserClient,
-  getBearerToken,
-  getCookieAccessToken,
-  getSupabaseEnv,
-} from "../../../../../../../lib/serverSupabase";
-
-type PostingSummary = {
-  posted: boolean;
-  journal_id: string | null;
-  journal_no: string | null;
-  link: string | null;
-};
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../../../lib/serverSupabase";
 
 type ErrorResponse = { ok: false; error: string; details?: string | null };
-type SuccessResponse = PostingSummary & { ok: true };
+type SuccessResponse = { ok: true; journal_id: string | null; journal_no: string | null; link: string | null };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
-const getBatchIdParam = (value: string | string[] | undefined): string | null => {
+const getPathParam = (value: string | string[] | undefined): string | null => {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
 };
@@ -32,23 +20,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!supabaseUrl || !anonKey || missing.length > 0) {
     return res.status(500).json({
       ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
 
-  const accessToken = getBearerToken(req) ?? getCookieAccessToken(req);
+  const accessToken = getBearerToken(req);
   if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization token" });
+    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
   }
 
-  const batchId = getBatchIdParam(req.query.batchId) || (req.body?.batchId as string | undefined);
+  const batchId =
+    getPathParam(req.query.batchId) ??
+    getPathParam(req.query.eventId) ??
+    (req.body?.batchId as string | undefined) ??
+    null;
+
   if (!batchId) {
     return res.status(400).json({ ok: false, error: "batchId is required" });
   }
 
   try {
     const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+
     const { data: userData, error: sessionError } = await userClient.auth.getUser();
     if (sessionError || !userData?.user) {
       return res.status(401).json({ ok: false, error: "Not authenticated" });
@@ -59,44 +52,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(403).json({ ok: false, error: permissionError.message || "Finance write access required" });
     }
 
-    const { data: journalId, error: postError } = await userClient.rpc("erp_amazon_settlement_post_to_finance", {
+    const { data, error } = await userClient.rpc("erp_amazon_settlement_post_to_finance", {
       p_batch_id: batchId,
     });
 
-    if (postError) {
+    if (error) {
       return res.status(400).json({
         ok: false,
-        error: postError.message || "Failed to post Amazon settlement journal",
-        details: postError.details || postError.hint || postError.code,
+        error: error.message || "Failed to post Amazon settlement journal",
+        details: error.details || error.hint || error.code,
       });
     }
 
-    if (!journalId) {
-      return res.status(400).json({ ok: false, error: "No journal created" });
-    }
+    const first = Array.isArray(data) ? data[0] : data;
+    const journalId = first?.journal_id ?? null;
+    const journalNo = first?.journal_no ?? null;
 
-    const { data: journal, error: journalError } = await userClient
-      .from("erp_fin_journals")
-      .select("id, doc_no")
-      .eq("id", journalId)
-      .maybeSingle();
-
-    if (journalError) {
-      return res.status(400).json({
-        ok: false,
-        error: journalError.message || "Failed to load journal details",
-        details: journalError.details || journalError.hint || journalError.code,
-      });
-    }
-
-    const summary: PostingSummary = {
-      posted: true,
-      journal_id: journal?.id ?? journalId,
-      journal_no: journal?.doc_no ?? null,
-      link: journal?.id ? `/erp/finance/journals/${journal.id}` : null,
-    };
-
-    return res.status(200).json({ ok: true, ...summary });
+    return res.status(200).json({
+      ok: true,
+      journal_id: journalId,
+      journal_no: journalNo,
+      link: journalId ? `/erp/finance/journals/${journalId}` : null,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ ok: false, error: message });
