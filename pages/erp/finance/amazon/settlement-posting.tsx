@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-
 import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
@@ -16,7 +15,6 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../components/erp/uiStyles";
-
 import {
   amazonSettlementPostingListSchema,
   amazonSettlementPostingPreviewSchema,
@@ -25,7 +23,6 @@ import {
   type AmazonSettlementPostingRow,
   type AmazonSettlementPostingSummary,
 } from "../../../../lib/erp/amazonSettlementPosting";
-
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type CompanyContext = {
@@ -35,12 +32,8 @@ type CompanyContext = {
   email: string | null;
 };
 
-// We keep session separately to avoid mutating CompanyContext type.
-type SessionLike = { access_token?: string | null } | null;
-
 const formatLocalDate = (date: Date) => date.toLocaleDateString("en-CA");
 const today = () => formatLocalDate(new Date());
-
 const startOfPreviousMonth = () => {
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -70,12 +63,9 @@ const loadStoredRange = (companyId: string) => {
 const persistStoredRange = (companyId: string, from: string, to: string) => {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      `erp_amazon_settlement_posting_range_${companyId}`,
-      JSON.stringify({ from, to })
-    );
+    window.localStorage.setItem(`erp_amazon_settlement_posting_range_${companyId}`, JSON.stringify({ from, to }));
   } catch {
-    // ignore
+    return;
   }
 };
 
@@ -83,7 +73,7 @@ const readErrorResponse = async (response: Response, fallback: string) => {
   const text = await response.text();
   if (!text) return fallback;
   try {
-    const parsed = JSON.parse(text) as { error?: unknown; details?: unknown };
+    const parsed = JSON.parse(text) as { error?: unknown };
     if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
     return text;
   } catch {
@@ -95,10 +85,10 @@ export default function AmazonSettlementPostingPage() {
   const router = useRouter();
 
   const [ctx, setCtx] = useState<CompanyContext | null>(null);
-  const [session, setSession] = useState<SessionLike>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const [fromDate, setFromDate] = useState(startOfPreviousMonth());
@@ -125,11 +115,8 @@ export default function AmazonSettlementPostingPage() {
   );
 
   const getJsonRequestOptions = (method: "GET" | "POST" = "GET", body?: unknown): RequestInit => {
-    const accessToken = session?.access_token ?? null;
-
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-
     return {
       method,
       credentials: "include",
@@ -144,23 +131,18 @@ export default function AmazonSettlementPostingPage() {
     (async () => {
       if (!router.isReady) return;
 
-      setLoading(true);
-      setPageError(null);
-      setAuthError(null);
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
 
-      const s = await requireAuthRedirectHome(router);
-      if (!active) return;
-      if (!s) return;
+      setAccessToken((session as any)?.access_token ?? null);
 
-      setSession(s);
-
-      const context = await getCompanyContext(s);
+      const context = await getCompanyContext(session);
       if (!active) return;
 
       setCtx(context);
 
       if (!context.companyId) {
-        setPageError(context.membershipError || "No active company membership found.");
+        setError(context.membershipError || "No active company membership found.");
         setLoading(false);
         return;
       }
@@ -172,10 +154,8 @@ export default function AmazonSettlementPostingPage() {
       setFromDate(initialFrom);
       setToDate(initialTo);
 
-      await Promise.all([
-        loadBatches({ fromDate: initialFrom, toDate: initialTo }),
-        loadSummary({ fromDate: initialFrom, toDate: initialTo }),
-      ]);
+      await loadBatches({ fromDate: initialFrom, toDate: initialTo, postingFilter: "all" });
+      await loadSummary({ fromDate: initialFrom, toDate: initialTo });
 
       if (active) setLoading(false);
     })();
@@ -241,7 +221,7 @@ export default function AmazonSettlementPostingPage() {
     postingFilter?: "all" | "posted" | "missing" | "excluded";
   }) => {
     setIsLoadingList(true);
-    setPageError(null);
+    setError(null);
     setAuthError(null);
 
     const effectiveFrom = overrides?.fromDate ?? fromDate;
@@ -256,20 +236,20 @@ export default function AmazonSettlementPostingPage() {
 
       if (response.status === 401) {
         setAuthError("Not authenticated");
-        setPageError("Not authenticated");
+        setError("Not authenticated");
         setBatches([]);
         return;
       }
 
       if (!response.ok) {
-        setPageError(await readErrorResponse(response, "Failed to load Amazon settlement batches."));
+        setError(await readErrorResponse(response, "Failed to load Amazon settlement batches."));
         setBatches([]);
         return;
       }
 
       const payload = await response.json();
       if (!payload?.ok) {
-        setPageError(typeof payload?.error === "string" ? payload.error : "Failed to load Amazon settlement batches.");
+        setError(typeof payload?.error === "string" ? payload.error : "Failed to load Amazon settlement batches.");
         setBatches([]);
         return;
       }
@@ -277,7 +257,7 @@ export default function AmazonSettlementPostingPage() {
       const parsed = amazonSettlementPostingListSchema.safeParse(payload.data);
       if (!parsed.success) {
         console.error("Failed to parse Amazon settlement posting list.", { payload, error: parsed.error });
-        setPageError("Failed to parse Amazon settlement posting list (see console).");
+        setError("Failed to parse Amazon settlement posting list (see console).");
         setBatches([]);
         return;
       }
@@ -285,7 +265,7 @@ export default function AmazonSettlementPostingPage() {
       setBatches(parsed.data);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load Amazon settlement batches.";
-      setPageError(message);
+      setError(message);
       setBatches([]);
     } finally {
       setIsLoadingList(false);
@@ -297,7 +277,6 @@ export default function AmazonSettlementPostingPage() {
     setIsPreviewLoading(true);
     setPreviewBatchId(batchId);
     setPreview(null);
-    setAuthError(null);
 
     try {
       const response = await fetch(
@@ -350,25 +329,25 @@ export default function AmazonSettlementPostingPage() {
 
   const handleApplyFilters = async () => {
     if (ctx?.companyId) persistStoredRange(ctx.companyId, fromDate, toDate);
-    await Promise.all([loadBatches(), loadSummary({ fromDate, toDate })]);
+    await loadBatches();
+    await loadSummary({ fromDate, toDate });
   };
 
   const handlePost = async (batchId: string) => {
     if (!canWrite) {
-      setPageError("Only finance, admin, or owner can post Amazon settlements.");
+      setError("Only finance, admin, or owner can post Amazon settlements.");
       return;
     }
 
     if (!preview || previewBatchId !== batchId || preview.can_post === false) {
-      setPageError("Preview the journal and resolve any warnings before posting.");
+      setError("Preview the journal and resolve any warnings before posting.");
       return;
     }
 
     if (!window.confirm("Post this Amazon settlement batch to finance?")) return;
 
     setPostingBatchId(batchId);
-    setPageError(null);
-    setAuthError(null);
+    setError(null);
 
     try {
       const response = await fetch(
@@ -378,36 +357,37 @@ export default function AmazonSettlementPostingPage() {
 
       if (response.status === 401) {
         setAuthError("Not authenticated");
-        setPageError("Not authenticated");
+        setError("Not authenticated");
         return;
       }
 
       if (!response.ok) {
-        setPageError(await readErrorResponse(response, "Failed to post Amazon settlement batch."));
+        setError(await readErrorResponse(response, "Failed to post Amazon settlement batch."));
         return;
       }
 
       const payload = await response.json();
       if (!payload?.ok) {
-        setPageError(typeof payload?.error === "string" ? payload.error : "Failed to post Amazon settlement batch.");
+        setError(typeof payload?.error === "string" ? payload.error : "Failed to post Amazon settlement batch.");
         return;
       }
 
-      await Promise.all([loadBatches(), loadSummary({ fromDate, toDate }), loadPreview(batchId)]);
+      await loadBatches();
+      await loadSummary({ fromDate, toDate });
+      await loadPreview(batchId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to post Amazon settlement batch.";
-      setPageError(message);
+      setError(message);
     } finally {
       setPostingBatchId(null);
     }
   };
 
-  const totalNetPayout = useMemo(
-    () => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0),
-    [batches]
-  );
+  const totalNetPayout = useMemo(() => batches.reduce((sum, row) => sum + Number(row.net_payout || 0), 0), [batches]);
 
-  if (loading) return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
+  if (loading) {
+    return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
+  }
 
   return (
     <ErpShell>
@@ -424,8 +404,6 @@ export default function AmazonSettlementPostingPage() {
             <div style={{ color: "#991b1b", marginTop: 4 }}>Please sign in again and refresh this page.</div>
           </section>
         ) : null}
-
-        {pageError ? <div style={{ marginBottom: 12, color: "#b91c1c" }}>{pageError}</div> : null}
 
         <section style={{ ...cardStyle, marginBottom: 16 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
@@ -516,6 +494,8 @@ export default function AmazonSettlementPostingPage() {
             </Link>
           </div>
 
+          {error ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{error}</div> : null}
+
           <div style={{ overflowX: "auto", marginTop: 12 }}>
             <table style={tableStyle}>
               <thead>
@@ -529,7 +509,6 @@ export default function AmazonSettlementPostingPage() {
                   <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
               </thead>
-
               <tbody>
                 {batches.length === 0 ? (
                   <tr>
@@ -548,9 +527,7 @@ export default function AmazonSettlementPostingPage() {
                       <td style={tableCellStyle}>
                         {[row.settlement_start_date, row.settlement_end_date].filter(Boolean).join(" → ") || "—"}
                       </td>
-                      <td style={tableCellStyle}>
-                        <span>₹{Number(row.net_payout || 0).toFixed(2)}</span>
-                      </td>
+                      <td style={tableCellStyle}>₹{Number(row.net_payout || 0).toFixed(2)}</td>
                       <td style={tableCellStyle}>
                         <span
                           style={{
@@ -584,14 +561,12 @@ export default function AmazonSettlementPostingPage() {
                           >
                             {isPreviewLoading && previewBatchId === row.batch_id ? "Loading…" : "Preview"}
                           </button>
-
                           <button
                             type="button"
                             style={primaryButtonStyle}
                             disabled={
                               !canWrite ||
                               row.posting_state !== "missing" ||
-                              Number(row.txn_count ?? 0) === 0 ||
                               postingBatchId === row.batch_id ||
                               previewBatchId !== row.batch_id ||
                               preview?.can_post === false
@@ -618,12 +593,12 @@ export default function AmazonSettlementPostingPage() {
 
               {previewError ? <div style={{ marginTop: 8, color: "#b91c1c" }}>{previewError}</div> : null}
 
-              {preview.warnings?.length ? (
+              {preview.warnings && preview.warnings.length > 0 ? (
                 <div style={{ marginTop: 8, color: "#b45309" }}>
                   <div style={{ fontWeight: 600 }}>Warnings</div>
                   <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-                    {preview.warnings.map((w) => (
-                      <li key={w}>{w}</li>
+                    {preview.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
                     ))}
                   </ul>
                 </div>
@@ -661,23 +636,6 @@ export default function AmazonSettlementPostingPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
-
-              <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center" }}>
-                <button
-                  type="button"
-                  style={primaryButtonStyle}
-                  disabled={!canWrite || preview.can_post === false || postingBatchId === previewBatchId}
-                  onClick={() => handlePost(previewBatchId)}
-                >
-                  {postingBatchId === previewBatchId ? "Posting…" : "Post to Finance"}
-                </button>
-
-                {preview.posted?.journal_id ? (
-                  <Link href={`/erp/finance/journals/${preview.posted.journal_id}`} style={secondaryButtonStyle}>
-                    {preview.posted.journal_no || "View journal"}
-                  </Link>
-                ) : null}
               </div>
             </div>
           ) : null}
