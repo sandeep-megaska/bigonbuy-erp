@@ -29,15 +29,9 @@ export function getBearerToken(req: NextApiRequest): string | null {
 }
 
 export function getCookieAccessToken(req: NextApiRequest): string | null {
-  const token = req.cookies?.["sb-access-token"];
-  if (token) return token;
-
-  const supabaseAuthCookie = Object.entries(req.cookies ?? {}).find(
-    ([name]) => name.startsWith("sb-") && name.endsWith("-auth-token")
-  )?.[1];
-  if (supabaseAuthCookie) {
+  const parseSupabaseAuthCookieValue = (value: string): string | null => {
     try {
-      const parsed = JSON.parse(decodeURIComponent(supabaseAuthCookie));
+      const parsed = JSON.parse(decodeURIComponent(value));
       if (Array.isArray(parsed) && typeof parsed[0] === "string" && parsed[0]) {
         return parsed[0];
       }
@@ -53,11 +47,69 @@ export function getCookieAccessToken(req: NextApiRequest): string | null {
     } catch {
       // ignore malformed auth cookie and continue fallbacks
     }
+    return null;
+  };
+
+  const token = req.cookies?.["sb-access-token"];
+  if (token) return token;
+
+  const supabaseAuthCookie = Object.entries(req.cookies ?? {}).find(
+    ([name]) => name.startsWith("sb-") && name.endsWith("-auth-token")
+  )?.[1];
+  if (supabaseAuthCookie) {
+    const parsedToken = parseSupabaseAuthCookieValue(supabaseAuthCookie);
+    if (parsedToken) return parsedToken;
+  }
+
+  const chunkedSupabaseAuthCookieEntries = Object.entries(req.cookies ?? {})
+    .map(([name, value]) => {
+      const match = name.match(/^sb-.*-auth-token\.(\d+)$/);
+      if (!match) return null;
+      return { index: Number.parseInt(match[1], 10), value };
+    })
+    .filter((entry): entry is { index: number; value: string } => entry !== null)
+    .sort((a, b) => a.index - b.index);
+
+  if (chunkedSupabaseAuthCookieEntries.length > 0) {
+    // Supabase may split large auth payloads into numbered cookie chunks.
+    const combined = chunkedSupabaseAuthCookieEntries.map((entry) => entry.value).join("");
+    const parsedToken = parseSupabaseAuthCookieValue(combined);
+    if (parsedToken) return parsedToken;
   }
 
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return null;
+
   const parts = cookieHeader.split(";").map((part) => part.trim());
+
+  const authTokenPart = parts.find(
+    (part) => part.startsWith("sb-") && part.includes("-auth-token=")
+  );
+  if (authTokenPart) {
+    const value = authTokenPart.slice(authTokenPart.indexOf("=") + 1);
+    const parsedToken = parseSupabaseAuthCookieValue(value);
+    if (parsedToken) return parsedToken;
+  }
+
+  const chunkedAuthTokenParts = parts
+    .map((part) => {
+      const separatorIndex = part.indexOf("=");
+      if (separatorIndex <= 0) return null;
+      const name = part.slice(0, separatorIndex);
+      const value = part.slice(separatorIndex + 1);
+      const match = name.match(/^sb-.*-auth-token\.(\d+)$/);
+      if (!match) return null;
+      return { index: Number.parseInt(match[1], 10), value };
+    })
+    .filter((entry): entry is { index: number; value: string } => entry !== null)
+    .sort((a, b) => a.index - b.index);
+
+  if (chunkedAuthTokenParts.length > 0) {
+    const combined = chunkedAuthTokenParts.map((entry) => entry.value).join("");
+    const parsedToken = parseSupabaseAuthCookieValue(combined);
+    if (parsedToken) return parsedToken;
+  }
+
   const tokenPart = parts.find((part) => part.startsWith("sb-access-token="));
   if (!tokenPart) return null;
   const value = tokenPart.slice("sb-access-token=".length);
