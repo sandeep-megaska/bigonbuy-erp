@@ -4,6 +4,9 @@ import { requireErpFinanceApiAuth } from "../../../../../../lib/erp/financeApiAu
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
 type ApiResponse = ErrorResponse | SuccessResponse;
+if (req.query.debug === "1") {
+  return res.status(200).json({ ok: true, data: { debug: "settlements/summary.ts HIT" } });
+}
 
 const parseDateParam = (value: string | string[] | undefined) => {
   if (!value) return null;
