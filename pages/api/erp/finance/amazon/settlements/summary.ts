@@ -4,9 +4,6 @@ import { requireErpFinanceApiAuth } from "../../../../../../lib/erp/financeApiAu
 type ErrorResponse = { ok: false; error: string; details?: string | null };
 type SuccessResponse = { ok: true; data: unknown };
 type ApiResponse = ErrorResponse | SuccessResponse;
-if (req.query.debug === "1") {
-  return res.status(200).json({ ok: true, data: { debug: "settlements/summary.ts HIT" } });
-}
 
 const parseDateParam = (value: string | string[] | undefined) => {
   if (!value) return null;
@@ -20,6 +17,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
+  // TEMP DEBUG (remove after confirming correct handler)
+  if (req.query.debug === "1") {
+    return res.status(200).json({ ok: true, data: { debug: "settlements/summary.ts HIT" } });
+  }
+
   const auth = await requireErpFinanceApiAuth(req, "finance_reader");
   if (!auth.ok) {
     return res.status(auth.status).json({ ok: false, error: auth.error });
@@ -27,7 +29,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
-  if (!from || !to) return res.status(400).json({ ok: false, error: "from/to dates are required" });
+  if (!from || !to) {
+    return res.status(400).json({ ok: false, error: "from/to dates are required" });
+  }
 
   try {
     const { data, error } = await auth.client.rpc("erp_amazon_settlement_posting_summary", {
