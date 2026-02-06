@@ -163,6 +163,16 @@ type LoanPaymentEvent = {
   posted_journal_id?: string | null;
 };
 
+type PayoutEventRow = {
+  event_id: string;
+  event_ref: string;
+  payout_date: string;
+  amount: number;
+  currency: string | null;
+  source: PayoutSource;
+  status: "unmatched" | "suggested" | "matched" | string;
+};
+
 const defaultSummary: ReconSummary = {
   counters: {
     bank_unmatched_count: 0,
@@ -223,6 +233,9 @@ export default function FinanceReconDashboardPage() {
   const [loanMatchModal, setLoanMatchModal] = useState<{ open: boolean; row?: LoanRepaymentSuggestion }>({ open: false });
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [previewByEventId, setPreviewByEventId] = useState<Record<string, any>>({});
+  const [payoutEvents, setPayoutEvents] = useState<PayoutEventRow[]>([]);
+  const [isRunningPayoutSuggestions, setIsRunningPayoutSuggestions] = useState(false);
+  const [isRunningLoanSuggestions, setIsRunningLoanSuggestions] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -320,7 +333,8 @@ export default function FinanceReconDashboardPage() {
     const payload = await response.json();
     if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to load payout event summary.");
 
-    const rows = (payload.data || []) as Array<{ status?: string }>;
+    const rows = (payload.data || []) as PayoutEventRow[];
+    setPayoutEvents(rows);
     const unmatched = rows.filter((row) => row.status === "unmatched").length;
     const suggested = rows.filter((row) => row.status === "suggested").length;
     const matched = rows.filter((row) => row.status === "matched").length;
@@ -341,15 +355,6 @@ export default function FinanceReconDashboardPage() {
     const effectiveTo = range?.toDate ?? toDate;
 
     try {
-      const suggestResponse = await apiFetch("/api/finance/loans/repayments/run-suggestions", {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ company_id: ctx?.companyId, from: effectiveFrom, to: effectiveTo }),
-      });
-      const suggestPayload = await suggestResponse.json();
-      if (!suggestResponse.ok || !suggestPayload?.ok) {
-        throw new Error(suggestPayload?.error || "Failed to run loan repayment suggestions.");
-      }
       const eventsResponse = await apiFetch(
         `/api/finance/loans/repayments/events?company_id=${ctx?.companyId}&from=${effectiveFrom}&to=${effectiveTo}&status=suggested`,
         { method: "GET", headers: getAuthHeaders() }
@@ -484,6 +489,50 @@ export default function FinanceReconDashboardPage() {
 
   const loanSuggestedCount = loanEvents.filter((row) => row.status === "suggested").length;
   const loanMatchedNotPostedCount = loanEvents.filter((row) => row.status === "matched").length;
+  const loanNeedsAttention = loanSuggestions.slice(0, 20);
+  const payoutNeedsAttention = payoutEvents
+    .filter((row) => row.status === "suggested" || row.status === "unmatched")
+    .slice(0, 20);
+
+  const handleRunLoanSuggestions = async () => {
+    setIsRunningLoanSuggestions(true);
+    try {
+      const response = await apiFetch("/api/finance/loans/repayments/run-suggestions", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ company_id: ctx?.companyId, from: fromDate, to: toDate }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Failed to run loan repayment suggestions.");
+      }
+      setToast({ type: "success", message: "Loan repayment suggestions refreshed." });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to run loan repayment suggestions." });
+    } finally {
+      setIsRunningLoanSuggestions(false);
+    }
+  };
+
+  const handleRunPayoutSuggestions = async () => {
+    setIsRunningPayoutSuggestions(true);
+    try {
+      const response = await apiFetch("/api/finance/recon/payout-events", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ action: "suggest", from: fromDate, to: toDate }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to run payout suggestions.");
+      setToast({ type: "success", message: "Marketplace payout suggestions refreshed." });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to run payout suggestions." });
+    } finally {
+      setIsRunningPayoutSuggestions(false);
+    }
+  };
 
   const loadPayoutSuggestions = async (event: PayoutEvent) => {
     setIsLoadingSuggestions(true);
@@ -761,6 +810,102 @@ export default function FinanceReconDashboardPage() {
           </section>
         )}
 
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>Marketplace payouts</h2>
+              <p style={subtitleStyle}>Status snapshot and top payout events needing attention.</p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => void handleRunPayoutSuggestions()} disabled={isRunningPayoutSuggestions}>
+                Run suggestions
+              </button>
+              <Link href="/erp/finance/recon/payouts" style={primaryButtonStyle as any}>Go to details</Link>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span style={badgeStyle}>unmatched: {summary.counters.payouts_unmatched_count || 0}</span>
+            <span style={badgeStyle}>suggested: {summary.counters.payouts_suggested_count || 0}</span>
+            <span style={badgeStyle}>matched: {summary.counters.payouts_matched_count || 0}</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Source</th>
+                  <th style={tableHeaderCellStyle}>Date</th>
+                  <th style={tableHeaderCellStyle}>Ref</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payoutNeedsAttention.length === 0 ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>No suggested/unmatched payout events.</td></tr>
+                ) : (
+                  payoutNeedsAttention.map((row) => (
+                    <tr key={`${row.source}-${row.event_id}`}>
+                      <td style={tableCellStyle}><span style={badgeStyle}>{row.status}</span></td>
+                      <td style={tableCellStyle}>{PAYOUT_SOURCE_LABELS[row.source]}</td>
+                      <td style={tableCellStyle}>{formatDate(row.payout_date)}</td>
+                      <td style={tableCellStyle}>{row.event_ref || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.amount, row.currency || "INR")}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>Loan repayments</h2>
+              <p style={subtitleStyle}>Status snapshot and top suggested repayment matches.</p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={secondaryButtonStyle} onClick={() => void handleRunLoanSuggestions()} disabled={isRunningLoanSuggestions}>
+                Run suggestions
+              </button>
+              <Link href="/erp/finance/loans" style={primaryButtonStyle as any}>Go to details</Link>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span style={badgeStyle}>suggested: {loanSuggestedCount}</span>
+            <span style={badgeStyle}>matched: {loanMatchedNotPostedCount}</span>
+            <span style={badgeStyle}>overdue schedules: {loanOverdueCount}</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Date</th>
+                  <th style={tableHeaderCellStyle}>Description</th>
+                  <th style={tableHeaderCellStyle}>Loan</th>
+                  <th style={tableHeaderCellStyle}>Score</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loanNeedsAttention.length === 0 ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>No suggested loan repayments.</td></tr>
+                ) : (
+                  loanNeedsAttention.map((row) => (
+                    <tr key={row.bank_txn_id}>
+                      <td style={tableCellStyle}>{formatDate(row.txn_date)}</td>
+                      <td style={tableCellStyle}>{row.description || "—"}</td>
+                      <td style={tableCellStyle}>{row.loan_id || "—"}</td>
+                      <td style={tableCellStyle}>{row.score}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.amount)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
