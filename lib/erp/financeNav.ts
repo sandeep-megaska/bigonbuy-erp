@@ -41,8 +41,8 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   {
     id: "finance-invoices",
     label: "Sales Posting",
-    href: "/erp/finance/invoices",
-    description: "Create draft invoices and issue FY-based document numbers.",
+    href: "/erp/finance/sales-posting",
+    description: "Open channel-specific sales posting workflows and invoice links.",
     group: "Operations",
     sidebarIcon: "IN",
     cardIcon: "🧾",
@@ -80,7 +80,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SP",
     cardIcon: "🛒",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: true,
   },
   {
@@ -92,7 +92,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "AZ",
     cardIcon: "🧾",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: true,
   },
   {
@@ -108,7 +108,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-ap-outstanding",
-    label: "Vendor Bills",
+    label: "AP Outstanding",
     href: "/erp/finance/ap/outstanding",
     description: "Review vendor outstanding balances and aging buckets.",
     group: "Operations",
@@ -152,11 +152,23 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-recon",
-    label: "Reconciliation",
+    label: "Recon Dashboard",
     href: "/erp/finance/recon",
     description: "Monitor bank matches, vendor payments, and AP allocations.",
-    group: "Operations",
+    group: "Recon",
     sidebarIcon: "RC",
+    cardIcon: "🧭",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
+    id: "finance-recon-payouts",
+    label: "Payout Reconciliation",
+    href: "/erp/finance/recon/payouts",
+    description: "Review payout-level matching and reconciliation status.",
+    group: "Recon",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "PR",
     cardIcon: "🧭",
     showInSidebar: true,
     showInCards: false,
@@ -328,9 +340,9 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-razorpay-settlements-ledger",
-    label: "Settlements Ledger",
-    href: "/erp/finance/razorpay/settlements-ledger",
-    description: "Review Razorpay settlements and finance posting status.",
+    label: "Settlement Ledger",
+    href: "/erp/finance/settlements",
+    description: "Review marketplace settlement events and bank matching status.",
     group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SL",
@@ -370,7 +382,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SM",
     cardIcon: "🏷️",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -416,7 +428,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "ST",
     cardIcon: "⚙️",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -428,7 +440,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "PP",
     cardIcon: "🧾",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -440,7 +452,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SP",
     cardIcon: "🧾",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -452,7 +464,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "CR",
     cardIcon: "🧩",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -464,7 +476,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "CO",
     cardIcon: "📚",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
   {
@@ -487,7 +499,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     group: "Operations",
     sidebarIcon: "ST",
     cardIcon: "🧾",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: true,
   },
   {
@@ -499,7 +511,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "LN",
     cardIcon: "⚙️",
-    showInSidebar: true,
+    showInSidebar: false,
     showInCards: false,
   },
 ];
@@ -507,6 +519,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
 const FINANCE_GROUP_ORDER = [
   "Dashboard",
   "Operations",
+  "Recon",
   "Control",
   "Compliance",
   "Reports",
