@@ -16,6 +16,8 @@ import {
   tableStyle,
 } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
+import { PAYOUT_ENTITY_TYPES, PAYOUT_SOURCE_LABELS, type PayoutEvent, type PayoutSource } from "../../../../lib/erp/finance/payoutRecon";
 import { supabase } from "../../../../lib/supabaseClient";
 
 const last30Days = () => {
@@ -86,6 +88,8 @@ type ReconCounters = {
   invoices_outstanding_count: number;
   invoices_outstanding_total: number;
   payments_unallocated_total: number;
+  payouts_unmatched_count?: number;
+  bank_credit_unmatched_count?: number;
 };
 
 type ReconSummary = {
@@ -97,6 +101,33 @@ type ReconSummary = {
 };
 
 type ToastState = { type: "success" | "error"; message: string } | null;
+
+type BankCreditUnmatchedRow = {
+  bank_txn_id: string;
+  txn_date: string | null;
+  description: string | null;
+  reference_no: string | null;
+  credit: number;
+  currency: string | null;
+};
+
+type SuggestionRow = {
+  id?: string;
+  bank_txn_id?: string;
+  txn_date?: string | null;
+  value_date?: string | null;
+  description?: string | null;
+  reference_no?: string | null;
+  credit?: number;
+  amount?: number;
+  score?: number;
+  reason?: string;
+  entity_id?: string;
+  entity_type?: string;
+  source?: PayoutSource;
+  event_ref?: string;
+  payout_date?: string | null;
+};
 
 const defaultSummary: ReconSummary = {
   counters: {
@@ -142,6 +173,14 @@ export default function FinanceReconDashboardPage() {
   const [query, setQuery] = useState("");
   const [summary, setSummary] = useState<ReconSummary>(defaultSummary);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [payoutsUnmatched, setPayoutsUnmatched] = useState<PayoutEvent[]>([]);
+  const [bankCreditsUnmatched, setBankCreditsUnmatched] = useState<BankCreditUnmatchedRow[]>([]);
+  const [payoutModal, setPayoutModal] = useState<{ open: boolean; event?: PayoutEvent }>({ open: false });
+  const [bankModal, setBankModal] = useState<{ open: boolean; txn?: BankCreditUnmatchedRow }>({ open: false });
+  const [suggestions, setSuggestions] = useState<SuggestionRow[]>([]);
+  const [stubSuggestions, setStubSuggestions] = useState<Array<{ source: string; message: string }>>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -197,6 +236,36 @@ export default function FinanceReconDashboardPage() {
     };
   }, [ctx?.companyId]);
 
+  const getAuthHeaders = (): HeadersInit => {
+    const token = ctx?.session?.access_token;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return headers;
+  };
+
+  const loadPayoutData = async (range?: { fromDate?: string; toDate?: string }) => {
+    const effectiveFrom = range?.fromDate ?? fromDate;
+    const effectiveTo = range?.toDate ?? toDate;
+    const response = await apiFetch(`/api/finance/recon/payouts?from=${effectiveFrom}&to=${effectiveTo}`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.error || "Failed to load payout reconciliation data.");
+    }
+    setPayoutsUnmatched(payload.data?.payouts_unmatched || []);
+    setBankCreditsUnmatched(payload.data?.bank_credit_unmatched || []);
+    setSummary((prev) => ({
+      ...prev,
+      counters: {
+        ...prev.counters,
+        payouts_unmatched_count: payload.data?.counts?.payouts_unmatched_count || 0,
+        bank_credit_unmatched_count: payload.data?.counts?.bank_credit_unmatched_count || 0,
+      },
+    }));
+  };
+
   const loadSummary = async (overrides?: {
     fromDate?: string;
     toDate?: string;
@@ -229,6 +298,11 @@ export default function FinanceReconDashboardPage() {
     }
 
     setSummary((data as ReconSummary) || defaultSummary);
+    try {
+      await loadPayoutData({ fromDate: effectiveFrom, toDate: effectiveTo });
+    } catch (payoutError) {
+      setToast({ type: "error", message: payoutError instanceof Error ? payoutError.message : "Failed to load payout data." });
+    }
     setIsLoadingData(false);
   };
 
@@ -263,6 +337,86 @@ export default function FinanceReconDashboardPage() {
 
   const handleRowNavigate = (href: string) => {
     router.push(href);
+  };
+
+  const loadPayoutSuggestions = async (event: PayoutEvent) => {
+    setIsLoadingSuggestions(true);
+    setSuggestions([]);
+    setStubSuggestions([]);
+    try {
+      const response = await apiFetch(`/api/finance/recon/payout-suggestions?source=${event.source}&event_id=${event.event_id}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to load bank suggestions.");
+      setSuggestions((payload.data?.candidates || []) as SuggestionRow[]);
+      setStubSuggestions(payload.data?.stubs || []);
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to load suggestions." });
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  const loadBankSuggestions = async (txn: BankCreditUnmatchedRow) => {
+    setIsLoadingSuggestions(true);
+    setSuggestions([]);
+    setStubSuggestions([]);
+    try {
+      const response = await apiFetch(`/api/finance/recon/payout-suggestions?bank_txn_id=${txn.bank_txn_id}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to load payout suggestions.");
+      setSuggestions((payload.data?.payouts || []) as SuggestionRow[]);
+      setStubSuggestions(payload.data?.stubs || []);
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to load suggestions." });
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  };
+
+  const handleMatch = async (bankTxnId: string, entityType: string, entityId: string) => {
+    setIsSubmittingMatch(true);
+    try {
+      const response = await apiFetch("/api/finance/recon/match", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ bank_txn_id: bankTxnId, entity_type: entityType, entity_id: entityId, confidence: "manual" }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to match payout.");
+      setToast({ type: "success", message: "Payout matched successfully." });
+      setPayoutModal({ open: false });
+      setBankModal({ open: false });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to match payout." });
+    } finally {
+      setIsSubmittingMatch(false);
+    }
+  };
+
+  const handleUnmatch = async (bankTxnId: string) => {
+    setIsSubmittingMatch(true);
+    try {
+      const response = await apiFetch("/api/finance/recon/unmatch", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ bank_txn_id: bankTxnId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to unmatch payout.");
+      setToast({ type: "success", message: "Payout unmatched successfully." });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to unmatch payout." });
+    } finally {
+      setIsSubmittingMatch(false);
+    }
   };
 
   if (loading) {
@@ -389,6 +543,16 @@ export default function FinanceReconDashboardPage() {
             <div style={summaryHintStyle}>
               {formatAmount(summary.counters.invoices_outstanding_total)} outstanding
             </div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Payouts Unmatched</div>
+            <div style={summaryValueStyle}>{summary.counters.payouts_unmatched_count || 0}</div>
+            <div style={summaryHintStyle}>Amazon + Razorpay payout events pending bank match</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Bank Credits Unmatched (Payout candidates)</div>
+            <div style={summaryValueStyle}>{summary.counters.bank_credit_unmatched_count || 0}</div>
+            <div style={summaryHintStyle}>Credits likely to be payout inflows</div>
           </div>
         </section>
 
@@ -610,6 +774,116 @@ export default function FinanceReconDashboardPage() {
         <section style={cardStyle}>
           <div style={sectionHeaderStyle}>
             <div>
+              <h2 style={sectionTitleStyle}>Payouts Unmatched</h2>
+              <p style={subtitleStyle}>Marketplace/PG payout events not yet linked to bank credits.</p>
+            </div>
+            <span style={badgeStyle}>{summary.counters.payouts_unmatched_count || 0} items</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Source</th>
+                  <th style={tableHeaderCellStyle}>Payout date</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                  <th style={tableHeaderCellStyle}>Reference</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoadingData ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>Loading unmatched payouts…</td></tr>
+                ) : payoutsUnmatched.length === 0 ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>No unmatched payouts found.</td></tr>
+                ) : (
+                  payoutsUnmatched.map((row) => (
+                    <tr key={`${row.source}-${row.event_id}`}>
+                      <td style={tableCellStyle}>{PAYOUT_SOURCE_LABELS[row.source]}</td>
+                      <td style={tableCellStyle}>{formatDate(row.payout_date)}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.amount, row.currency || "INR")}</td>
+                      <td style={tableCellStyle}>{row.event_ref}</td>
+                      <td style={tableCellStyle}>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={() => {
+                            setPayoutModal({ open: true, event: row });
+                            void loadPayoutSuggestions(row);
+                          }}
+                        >
+                          Match
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>Bank Credits Unmatched</h2>
+              <p style={subtitleStyle}>Unmatched bank credits that may represent payout inflows.</p>
+            </div>
+            <span style={badgeStyle}>{summary.counters.bank_credit_unmatched_count || 0} items</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Date</th>
+                  <th style={tableHeaderCellStyle}>Description</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                  <th style={tableHeaderCellStyle}>Reference</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoadingData ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>Loading unmatched bank credits…</td></tr>
+                ) : bankCreditsUnmatched.length === 0 ? (
+                  <tr><td style={tableCellStyle} colSpan={5}>No unmatched bank credits found.</td></tr>
+                ) : (
+                  bankCreditsUnmatched.map((row) => (
+                    <tr key={row.bank_txn_id}>
+                      <td style={tableCellStyle}>{formatDate(row.txn_date)}</td>
+                      <td style={tableCellStyle}>{row.description || "—"}</td>
+                      <td style={tableCellStyle}>{formatAmount(row.credit, row.currency || "INR")}</td>
+                      <td style={tableCellStyle}>{row.reference_no || "—"}</td>
+                      <td style={tableCellStyle}>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={() => {
+                            setBankModal({ open: true, txn: row });
+                            void loadBankSuggestions(row);
+                          }}
+                        >
+                          Suggest payouts
+                        </button>
+                        <button
+                          type="button"
+                          style={{ ...secondaryButtonStyle, marginLeft: 8 }}
+                          onClick={() => void handleUnmatch(row.bank_txn_id)}
+                          disabled={isSubmittingMatch}
+                        >
+                          Unmatch
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
               <h2 style={sectionTitleStyle}>Invoices Outstanding</h2>
               <p style={subtitleStyle}>Open purchase invoices still awaiting allocations.</p>
             </div>
@@ -664,6 +938,75 @@ export default function FinanceReconDashboardPage() {
             </table>
           </div>
         </section>
+
+        {payoutModal.open && payoutModal.event ? (
+          <section style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Match payout · {PAYOUT_SOURCE_LABELS[payoutModal.event.source]}</h3>
+              <p style={subtitleStyle}>Select an unmatched bank credit for {payoutModal.event.event_ref}.</p>
+              {isLoadingSuggestions ? <p>Loading suggestions…</p> : null}
+              {!isLoadingSuggestions && suggestions.length === 0 ? <p>No bank credit suggestions found.</p> : null}
+              <div style={{ display: "grid", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+                {suggestions.map((row) => (
+                  <button
+                    key={String(row.id || row.bank_txn_id)}
+                    type="button"
+                    style={{ ...secondaryButtonStyle, textAlign: "left" as const }}
+                    onClick={() =>
+                      void handleMatch(
+                        String(row.id || row.bank_txn_id),
+                        PAYOUT_ENTITY_TYPES[payoutModal.event!.source],
+                        payoutModal.event!.event_id
+                      )
+                    }
+                    disabled={isSubmittingMatch}
+                  >
+                    {formatDate((row.txn_date as string | null) || null)} · {formatAmount(Number(row.credit || 0))} · {row.reference_no || row.description || "—"}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setPayoutModal({ open: false })}>Close</button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {bankModal.open && bankModal.txn ? (
+          <section style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Suggest payouts for bank credit</h3>
+              <p style={subtitleStyle}>Review payout candidates and match to this bank credit.</p>
+              {isLoadingSuggestions ? <p>Loading suggestions…</p> : null}
+              {!isLoadingSuggestions && suggestions.length === 0 ? <p>No payout suggestions found.</p> : null}
+              <div style={{ display: "grid", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+                {suggestions.map((row, index) => (
+                  <button
+                    key={`${row.entity_id || row.id || index}`}
+                    type="button"
+                    style={{ ...secondaryButtonStyle, textAlign: "left" as const }}
+                    onClick={() => void handleMatch(bankModal.txn!.bank_txn_id, String(row.entity_type), String(row.entity_id))}
+                    disabled={isSubmittingMatch || !row.entity_id || !row.entity_type}
+                  >
+                    {(row.source ? PAYOUT_SOURCE_LABELS[row.source] : "Suggestion")} · {row.event_ref || row.reason || ""} · {formatAmount(Number(row.amount || 0))}
+                  </button>
+                ))}
+              </div>
+              {stubSuggestions.length ? (
+                <div style={{ marginTop: 12 }}>
+                  {stubSuggestions.map((stub) => (
+                    <div key={stub.source} style={{ fontSize: 13, color: "#64748b" }}>
+                      {stub.source}: {stub.message}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div style={{ marginTop: 12 }}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setBankModal({ open: false })}>Close</button>
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
     </ErpShell>
   );
@@ -725,4 +1068,23 @@ const sectionTitleStyle = {
   margin: 0,
   fontSize: 18,
   color: "#0f172a",
+};
+
+
+const modalOverlayStyle = {
+  position: "fixed" as const,
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+  zIndex: 60,
+};
+
+const modalCardStyle = {
+  ...cardStyle,
+  width: "min(760px, 96vw)",
+  maxHeight: "90vh",
+  overflowY: "auto" as const,
 };
