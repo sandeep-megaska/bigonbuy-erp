@@ -338,6 +338,11 @@ export default function VendorAdvancesPage() {
 
   const handleApproveAdvance = async (advanceId: string) => {
     if (!ctx?.companyId) return;
+    const approvalId = approvalMap[advanceId]?.id;
+    if (!approvalId) {
+      setError("Approval record not found. Submit for approval first.");
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setPostingId(advanceId);
     setError("");
@@ -346,9 +351,8 @@ export default function VendorAdvancesPage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "ap_advance",
-          entityId: advanceId,
+          company_id: ctx.companyId,
+          approval_id: approvalId,
           comment,
         },
         { headers: getAuthHeaders() }

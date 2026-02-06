@@ -7,8 +7,13 @@ type ApiResponse = ErrorResponse | SuccessResponse;
 
 type ApprovePayload = {
   companyId?: string | null;
+  company_id?: string | null;
+  approval_id?: string | null;
+  approvalId?: string | null;
   entityType?: string | null;
   entityId?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
   comment?: string | null;
 };
 
@@ -33,8 +38,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const payload = (req.body ?? {}) as ApprovePayload;
-  if (!payload.companyId || !payload.entityType || !payload.entityId) {
-    return res.status(400).json({ ok: false, error: "companyId, entityType, and entityId are required" });
+  const companyId = payload.company_id ?? payload.companyId ?? null;
+  const approvalId = payload.approval_id ?? payload.approvalId ?? null;
+  const hasLegacyEntityFields = Boolean(
+    payload.entity_id ?? payload.entityId ?? payload.entity_type ?? payload.entityType
+  );
+
+  if (!companyId) {
+    return res.status(400).json({ ok: false, error: "company_id is required" });
+  }
+
+  if (!approvalId) {
+    return res.status(400).json({
+      ok: false,
+      error: hasLegacyEntityFields
+        ? "approval_id is required. This endpoint no longer accepts entity_id/entity_type."
+        : "approval_id is required",
+    });
   }
 
   try {
@@ -45,9 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     const { data, error } = await userClient.rpc("erp_fin_approve", {
-      p_company_id: payload.companyId,
-      p_entity_type: payload.entityType,
-      p_entity_id: payload.entityId,
+      p_company_id: companyId,
+      p_approval_id: approvalId,
       p_comment: payload.comment ?? null,
     });
 

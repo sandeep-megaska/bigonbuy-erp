@@ -627,6 +627,10 @@ export default function VendorBillDetailPage() {
 
   const handleApprove = async () => {
     if (!header.id || !ctx?.companyId) return;
+    if (!approval?.id) {
+      reportError("Approval record not found. Submit for approval first.");
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setError(null);
     setNotice("");
@@ -634,9 +638,8 @@ export default function VendorBillDetailPage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "ap_bill",
-          entityId: header.id,
+          company_id: ctx.companyId,
+          approval_id: approval.id,
           comment,
         },
         { headers: getAuthHeaders() }

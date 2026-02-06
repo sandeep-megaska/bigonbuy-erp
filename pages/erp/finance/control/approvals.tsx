@@ -163,9 +163,8 @@ export default function ApprovalsPage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: approval.entity_type,
-          entityId: approval.entity_id,
+          company_id: ctx.companyId,
+          approval_id: approval.id,
           comment,
         },
         { headers: getAuthHeaders() }
