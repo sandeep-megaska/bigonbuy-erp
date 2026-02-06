@@ -270,7 +270,7 @@ export default function VendorBillDetailPage() {
 
   const loadVariants = async (companyId: string) => {
     const { data, error: loadError } = await supabase
-      .from("erp_variants")
+      .from("erp_variants_ui")
       .select("id, sku, title")
       .eq("company_id", companyId)
       .order("sku")
