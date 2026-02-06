@@ -117,9 +117,28 @@ export default function NotesListPage() {
       return;
     }
 
-    const parsed = noteListResponseSchema.safeParse(data ?? []);
+    const payload = data as
+      | NoteListRow[]
+      | { rows?: NoteListRow[]; data?: NoteListRow[]; error?: string | null }
+      | null;
+
+    if (payload && typeof payload === "object" && !Array.isArray(payload) && payload.error) {
+      setError(payload.error || "Failed to load note list.");
+      setIsLoading(false);
+      return;
+    }
+
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.rows)
+        ? payload.rows
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : [];
+
+    const parsed = noteListResponseSchema.safeParse(rows);
     if (!parsed.success) {
-      setError("Failed to parse note list.");
+      setError("Failed to parse note list response.");
       setIsLoading(false);
       return;
     }

@@ -283,6 +283,11 @@ export default function PeriodLockPage() {
       reportError("Only finance admins can approve unlocks.");
       return;
     }
+    const approvalId = approvalMap[lockId]?.id;
+    if (!approvalId) {
+      reportError("Approval record not found. Submit unlock request first.");
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setError(null);
     setNotice("");
@@ -290,9 +295,8 @@ export default function PeriodLockPage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "period_unlock",
-          entityId: lockId,
+          company_id: ctx.companyId,
+          approval_id: approvalId,
           comment,
         },
         { headers: getAuthHeaders() }

@@ -285,6 +285,10 @@ export default function MonthClosePage() {
       reportError("Only finance admins can approve month close.");
       return;
     }
+    if (!approval?.id) {
+      reportError("Approval record not found. Submit for approval first.");
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setError(null);
     setNotice("");
@@ -292,9 +296,8 @@ export default function MonthClosePage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "month_close",
-          entityId: closeRecord.id,
+          company_id: ctx.companyId,
+          approval_id: approval.id,
           comment,
         },
         { headers: getAuthHeaders() }
@@ -348,6 +351,10 @@ export default function MonthClosePage() {
       reportError("Only finance admins can approve month close.");
       return;
     }
+    if (!approval?.id) {
+      reportError("Approval record not found. Submit for approval first.");
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setError(null);
     setNotice("");
@@ -355,9 +362,8 @@ export default function MonthClosePage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "month_close",
-          entityId: closeRecord.id,
+          company_id: ctx.companyId,
+          approval_id: approval.id,
           comment,
         },
         { headers: getAuthHeaders() }

@@ -368,6 +368,11 @@ export default function VendorPaymentsListPage() {
 
   const handleApprove = async (paymentId: string) => {
     if (!ctx?.companyId) return;
+    const approvalId = approvalMap[paymentId]?.id;
+    if (!approvalId) {
+      setToast({ type: "error", message: "Approval record not found. Submit for approval first." });
+      return;
+    }
     const comment = window.prompt("Approval note (optional):")?.trim() || null;
     setIsPosting(paymentId);
     setToast(null);
@@ -375,9 +380,8 @@ export default function VendorPaymentsListPage() {
       await apiPost(
         "/api/finance/approvals/approve",
         {
-          companyId: ctx.companyId,
-          entityType: "ap_payment",
-          entityId: paymentId,
+          company_id: ctx.companyId,
+          approval_id: approvalId,
           comment,
         },
         { headers: getAuthHeaders() }
