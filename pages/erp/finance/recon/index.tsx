@@ -154,6 +154,7 @@ type LoanPaymentEvent = {
   match_score: number | null;
   matched_bank_transaction_id: string | null;
   source: string;
+  notes?: string | null;
   bank_txn_id?: string;
   principal_amount?: number | null;
   interest_amount?: number | null;
