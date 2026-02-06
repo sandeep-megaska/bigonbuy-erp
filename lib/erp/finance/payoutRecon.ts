@@ -1,5 +1,7 @@
 export type PayoutSource = "amazon" | "razorpay" | "delhivery_cod" | "flipkart" | "myntra" | "snapdeal";
 
+export type MarketplaceCreditSource = "delhivery_cod" | "flipkart" | "myntra" | "snapdeal";
+
 export type PayoutEvent = {
   source: PayoutSource;
   event_id: string;
@@ -31,3 +33,39 @@ export const PAYOUT_ENTITY_TYPES: Record<PayoutSource, string> = {
 
 export const isPayoutSource = (value: string): value is PayoutSource =>
   ["amazon", "razorpay", "delhivery_cod", "flipkart", "myntra", "snapdeal"].includes(value);
+
+export const detectMarketplaceCreditSource = (description: string | null): MarketplaceCreditSource | null => {
+  const text = (description || "").toUpperCase();
+  if (text.includes("DELHIVERY")) return "delhivery_cod";
+  if (text.includes("FLIPKART")) return "flipkart";
+  if (text.includes("MYNTRA")) return "myntra";
+  if (text.includes("SNAPDEAL")) return "snapdeal";
+  return null;
+};
+
+const extractFirstMatch = (value: string, patterns: RegExp[]): string | null => {
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+};
+
+export const extractMarketplaceCreditRef = (source: MarketplaceCreditSource, description: string | null): string | null => {
+  const text = (description || "").toUpperCase();
+  if (!text) return null;
+
+  if (source === "myntra") {
+    return extractFirstMatch(text, [/\b(DIB[0-9A-Z\/-]{4,})\b/, /\b(DI[0-9A-Z\/-]{5,})\b/]);
+  }
+
+  if (source === "flipkart") {
+    return extractFirstMatch(text, [/\b((?:DID|DIE)[-_/]?[0-9A-Z\/-]{4,})\b/, /\b(DI[34][0-9A-Z\/-]{4,})\b/]);
+  }
+
+  if (source === "delhivery_cod") {
+    return extractFirstMatch(text, [/\b([0-9]{8,})\b/]);
+  }
+
+  return extractFirstMatch(text, [/\b([A-Z0-9][A-Z0-9\/-]{5,})\b/]);
+};

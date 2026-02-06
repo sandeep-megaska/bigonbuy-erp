@@ -109,6 +109,8 @@ type BankCreditUnmatchedRow = {
   reference_no: string | null;
   credit: number;
   currency: string | null;
+  source: "delhivery_cod" | "flipkart" | "myntra" | "snapdeal";
+  extracted_ref: string | null;
 };
 
 type SuggestionRow = {
@@ -395,6 +397,31 @@ export default function FinanceReconDashboardPage() {
       await loadSummary();
     } catch (e) {
       setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to match payout." });
+    } finally {
+      setIsSubmittingMatch(false);
+    }
+  };
+
+  const handleMarketplaceCreditMatch = async (txn: BankCreditUnmatchedRow) => {
+    setIsSubmittingMatch(true);
+    try {
+      const response = await apiFetch("/api/finance/recon/match", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          bank_txn_id: txn.bank_txn_id,
+          entity_type: "payout_placeholder",
+          source: txn.source,
+          extracted_ref: txn.extracted_ref,
+          confidence: "manual",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to reconcile marketplace/COD credit.");
+      setToast({ type: "success", message: "Marketplace/COD credit reconciled." });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to reconcile marketplace/COD credit." });
     } finally {
       setIsSubmittingMatch(false);
     }
@@ -825,8 +852,8 @@ export default function FinanceReconDashboardPage() {
         <section style={cardStyle}>
           <div style={sectionHeaderStyle}>
             <div>
-              <h2 style={sectionTitleStyle}>Bank Credits Unmatched</h2>
-              <p style={subtitleStyle}>Unmatched bank credits that may represent payout inflows.</p>
+              <h2 style={sectionTitleStyle}>Marketplace / COD Credits (unmatched)</h2>
+              <p style={subtitleStyle}>Unmatched marketplace/COD credits detected from NEFT narration (Myntra, Flipkart, Delhivery, Snapdeal).</p>
             </div>
             <span style={badgeStyle}>{summary.counters.bank_credit_unmatched_count || 0} items</span>
           </div>
@@ -836,23 +863,29 @@ export default function FinanceReconDashboardPage() {
                 <tr>
                   <th style={tableHeaderCellStyle}>Date</th>
                   <th style={tableHeaderCellStyle}>Description</th>
-                  <th style={tableHeaderCellStyle}>Amount</th>
-                  <th style={tableHeaderCellStyle}>Reference</th>
+                  <th style={tableHeaderCellStyle}>Credit</th>
+                  <th style={tableHeaderCellStyle}>Detected Source</th>
+                  <th style={tableHeaderCellStyle}>Extracted Ref</th>
                   <th style={tableHeaderCellStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoadingData ? (
-                  <tr><td style={tableCellStyle} colSpan={5}>Loading unmatched bank credits…</td></tr>
+                  <tr><td style={tableCellStyle} colSpan={6}>Loading unmatched bank credits…</td></tr>
                 ) : bankCreditsUnmatched.length === 0 ? (
-                  <tr><td style={tableCellStyle} colSpan={5}>No unmatched bank credits found.</td></tr>
+                  <tr><td style={tableCellStyle} colSpan={6}>No unmatched bank credits found.</td></tr>
                 ) : (
                   bankCreditsUnmatched.map((row) => (
                     <tr key={row.bank_txn_id}>
                       <td style={tableCellStyle}>{formatDate(row.txn_date)}</td>
                       <td style={tableCellStyle}>{row.description || "—"}</td>
                       <td style={tableCellStyle}>{formatAmount(row.credit, row.currency || "INR")}</td>
-                      <td style={tableCellStyle}>{row.reference_no || "—"}</td>
+                      <td style={tableCellStyle}>
+                        <span style={badgeStyle}>{PAYOUT_SOURCE_LABELS[row.source]}</span>
+                      </td>
+                      <td style={tableCellStyle}>
+                        <span style={badgeStyle}>{row.extracted_ref || "—"}</span>
+                      </td>
                       <td style={tableCellStyle}>
                         <button
                           type="button"
@@ -866,11 +899,11 @@ export default function FinanceReconDashboardPage() {
                         </button>
                         <button
                           type="button"
-                          style={{ ...secondaryButtonStyle, marginLeft: 8 }}
-                          onClick={() => void handleUnmatch(row.bank_txn_id)}
+                          style={{ ...primaryButtonStyle, marginLeft: 8 }}
+                          onClick={() => void handleMarketplaceCreditMatch(row)}
                           disabled={isSubmittingMatch}
                         >
-                          Unmatch
+                          Mark Reconciled
                         </button>
                       </td>
                     </tr>

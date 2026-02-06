@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getBearerToken, getSupabaseEnv } from "lib/serverSupabase";
-import type { PayoutEvent } from "lib/erp/finance/payoutRecon";
+import { detectMarketplaceCreditSource, extractMarketplaceCreditRef, type PayoutEvent } from "lib/erp/finance/payoutRecon";
 
 type BankCreditUnmatchedRow = {
   bank_txn_id: string;
@@ -9,16 +9,14 @@ type BankCreditUnmatchedRow = {
   reference_no: string | null;
   credit: number;
   currency: string | null;
+  source: "delhivery_cod" | "flipkart" | "myntra" | "snapdeal";
+  extracted_ref: string | null;
 };
 
 type ApiResponse =
   | { ok: true; data: { payouts_unmatched: PayoutEvent[]; bank_credit_unmatched: BankCreditUnmatchedRow[]; counts: { payouts_unmatched_count: number; bank_credit_unmatched_count: number } } }
   | { ok: false; error: string; details?: string | null };
 
-const likelyPayoutDescription = (value: string | null) => {
-  const text = (value || "").toLowerCase();
-  return /(amazon|razorpay|delhivery|flipkart|myntra|snapdeal|settlement|payout|remittance|cod)/.test(text);
-};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "GET") {
@@ -72,7 +70,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       .from("erp_bank_transactions")
       .select("id,txn_date,description,reference_no,credit,currency")
       .eq("is_void", false)
-      .eq("is_matched", false)
       .gt("credit", 0)
       .order("txn_date", { ascending: false })
       .limit(200);
@@ -152,16 +149,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       .filter((row) => row.amount > 0 && !row.linked_bank_txn_id)
       .sort((a, b) => (a.payout_date < b.payout_date ? 1 : -1));
 
-    const bankCreditUnmatched = ((bankCreditsResult.data || []) as Array<{ id: string; txn_date: string | null; description: string | null; reference_no: string | null; credit: number | null; currency: string | null }>)
-      .filter((row) => likelyPayoutDescription(`${row.description || ""} ${row.reference_no || ""}`) || Number(row.credit || 0) > 0)
-      .map((row) => ({
-        bank_txn_id: row.id,
-        txn_date: row.txn_date,
-        description: row.description,
-        reference_no: row.reference_no,
-        credit: Number(row.credit || 0),
-        currency: row.currency || "INR",
-      }));
+    const bankCreditRows = (bankCreditsResult.data || []) as Array<{ id: string; txn_date: string | null; description: string | null; reference_no: string | null; credit: number | null; currency: string | null }>;
+
+    const bankTxnIds = bankCreditRows.map((row) => row.id);
+    const activeLinksByTxn = new Set<string>();
+    if (bankTxnIds.length) {
+      const { data: activeLinks, error: activeLinksError } = await userClient
+        .from("erp_bank_recon_links")
+        .select("bank_txn_id")
+        .eq("status", "matched")
+        .eq("is_void", false)
+        .in("bank_txn_id", bankTxnIds);
+
+      if (activeLinksError) {
+        return res.status(400).json({ ok: false, error: activeLinksError.message, details: activeLinksError.details });
+      }
+
+      for (const row of (activeLinks || []) as Array<{ bank_txn_id: string }>) {
+        activeLinksByTxn.add(row.bank_txn_id);
+      }
+    }
+
+    const bankCreditUnmatched = bankCreditRows
+      .map((row) => {
+        const combined = `${row.description || ""} ${row.reference_no || ""}`;
+        const source = detectMarketplaceCreditSource(combined);
+        if (!source) return null;
+        if (activeLinksByTxn.has(row.id)) return null;
+        return {
+          bank_txn_id: row.id,
+          txn_date: row.txn_date,
+          description: row.description,
+          reference_no: row.reference_no,
+          credit: Number(row.credit || 0),
+          currency: row.currency || "INR",
+          source,
+          extracted_ref: extractMarketplaceCreditRef(source, combined),
+        };
+      })
+      .filter((row): row is BankCreditUnmatchedRow => Boolean(row));
 
     return res.status(200).json({
       ok: true,

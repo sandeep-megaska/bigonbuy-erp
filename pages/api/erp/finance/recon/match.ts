@@ -27,10 +27,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     entity_id?: string;
     confidence?: string | null;
     notes?: string | null;
+    source?: string | null;
+    extracted_ref?: string | null;
   };
 
-  if (!payload.bank_txn_id || !payload.entity_type || !payload.entity_id) {
-    return res.status(400).json({ ok: false, error: "bank_txn_id, entity_type and entity_id are required" });
+  if (!payload.bank_txn_id || !payload.entity_type) {
+    return res.status(400).json({ ok: false, error: "bank_txn_id and entity_type are required" });
+  }
+
+  if (payload.entity_type !== "payout_placeholder" && !payload.entity_id) {
+    return res.status(400).json({ ok: false, error: "entity_id is required" });
   }
 
   try {
@@ -40,12 +46,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(401).json({ ok: false, error: "Not authenticated" });
     }
 
+
+    let entityType = payload.entity_type;
+    let entityId = payload.entity_id;
+    let notes = payload.notes ?? null;
+
+    if (payload.entity_type === "payout_placeholder") {
+      const source = (payload.source || "").trim().toLowerCase();
+      if (!["myntra", "flipkart", "delhivery_cod", "snapdeal"].includes(source)) {
+        return res.status(400).json({ ok: false, error: "source is required for payout_placeholder" });
+      }
+
+      const { data: placeholderId, error: placeholderError } = await userClient.rpc("erp_payout_placeholder_upsert_from_bank_txn", {
+        p_bank_txn_id: payload.bank_txn_id,
+        p_source: source,
+        p_extracted_ref: payload.extracted_ref ?? null,
+      });
+
+      if (placeholderError || !placeholderId) {
+        return res.status(400).json({
+          ok: false,
+          error: placeholderError?.message || "Failed to create payout placeholder",
+          details: placeholderError?.details || placeholderError?.hint || placeholderError?.code || null,
+        });
+      }
+
+      entityType = "payout_placeholder";
+      entityId = String(placeholderId);
+      const details = [source, payload.extracted_ref].filter(Boolean).join(" ").trim();
+      notes = details || notes;
+    }
+
     const { data, error } = await userClient.rpc("erp_bank_recon_match", {
       p_bank_txn_id: payload.bank_txn_id,
-      p_entity_type: payload.entity_type,
-      p_entity_id: payload.entity_id,
+      p_entity_type: entityType,
+      p_entity_id: entityId,
       p_confidence: payload.confidence ?? "manual",
-      p_notes: payload.notes ?? null,
+      p_notes: notes,
     });
 
     if (error) {
