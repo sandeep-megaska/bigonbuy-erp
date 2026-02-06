@@ -22,7 +22,7 @@ export default function LoanListPage() {
     (async () => {
       const session = await requireAuthRedirectHome(router as any);
       if (!session) return;
-      const res = await fetch("/api/erp/finance/loans", {
+      const res = await fetch("/api/finance/loans", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const json = await res.json();

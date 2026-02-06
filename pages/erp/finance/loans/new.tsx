@@ -64,7 +64,7 @@ export default function NewLoanPage() {
         payload.notes = upsertCustomTypeNote(form.notes, customLoanType);
       }
 
-      const res = await fetch("/api/erp/finance/loans", {
+      const res = await fetch("/api/finance/loans", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

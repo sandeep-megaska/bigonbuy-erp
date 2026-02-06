@@ -307,7 +307,7 @@ export default function ExpenseEditPage() {
     setFinanceLoading(true);
     setFinanceError(null);
     try {
-      const response = await fetch(`/api/erp/finance/expenses/${expenseId}/post`, {
+      const response = await fetch(`/api/finance/expenses/${expenseId}/post`, {
         method: "GET",
         headers: getAuthHeaders(accessToken),
       });
@@ -430,7 +430,7 @@ export default function ExpenseEditPage() {
     setFinanceError(null);
     setFinanceNotice(null);
     try {
-      const response = await fetch(`/api/erp/finance/expenses/${id}/post`, {
+      const response = await fetch(`/api/finance/expenses/${id}/post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ expenseId: id }),

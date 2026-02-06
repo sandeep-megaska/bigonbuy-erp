@@ -33,7 +33,7 @@ export default function LoanPostingSettingsPage() {
       try {
         const session = await requireAuthRedirectHome(router as any);
         if (!session || !active) return;
-        const res = await fetch("/api/erp/finance/loan-posting-config", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const res = await fetch("/api/finance/loan-posting-config", { headers: { Authorization: `Bearer ${session.access_token}` } });
         const json = await res.json();
         if (!res.ok) throw new Error(json?.error || "Failed to load loan posting config.");
         if (!active) return;
@@ -74,7 +74,7 @@ export default function LoanPostingSettingsPage() {
     try {
       const session = await requireAuthRedirectHome(router as any);
       if (!session) return;
-      const res = await fetch("/api/erp/finance/loan-posting-config", {
+      const res = await fetch("/api/finance/loan-posting-config", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify(form),

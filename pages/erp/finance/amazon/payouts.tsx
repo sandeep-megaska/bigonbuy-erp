@@ -683,7 +683,7 @@ export default function AmazonSettlementReportsPage() {
     try {
       const params = new URLSearchParams();
       if (token) params.set("nextToken", token);
-      const response = await fetch(`/api/erp/finance/amazon/payouts?${params.toString()}`, {
+      const response = await fetch(`/api/finance/amazon/payouts?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
       const json = (await response.json()) as {
@@ -718,7 +718,7 @@ export default function AmazonSettlementReportsPage() {
     setPreview(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/payouts/${eventId}`, {
+      const response = await fetch(`/api/finance/amazon/payouts/${eventId}`, {
         headers: getAuthHeaders(),
       });
       const json = (await response.json()) as { ok: boolean; error?: string } & SettlementPreview;
@@ -780,7 +780,7 @@ export default function AmazonSettlementReportsPage() {
     setNormalizingReportId(eventId);
 
     try {
-      const response = await fetch(`/api/erp/finance/amazon/payouts/${eventId}/normalize`, {
+      const response = await fetch(`/api/finance/amazon/payouts/${eventId}/normalize`, {
         method: "POST",
         headers: getAuthHeaders(),
       });
