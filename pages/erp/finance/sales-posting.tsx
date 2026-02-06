@@ -12,7 +12,14 @@ import {
 import { supabase } from "../../../lib/supabaseClient";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 
-const postingLinks = [
+type PostingLink = {
+  title: string;
+  description: string;
+  href: string;
+  disabled?: boolean;
+};
+
+const postingLinks: PostingLink[] = [
   {
     title: "Shopify Sales Posting",
     description: "Review Shopify order posting coverage and post missing journals.",
@@ -34,7 +41,7 @@ const postingLinks = [
     description: "Open invoices separately from channel posting workflows.",
     href: "/erp/finance/invoices",
   },
-] as const;
+];
 
 export default function FinanceSalesPostingHubPage() {
   const router = useRouter();
