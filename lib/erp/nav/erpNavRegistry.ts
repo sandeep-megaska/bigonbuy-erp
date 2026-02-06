@@ -800,14 +800,22 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["admin"],
   },
   {
+    id: "settings-finance",
+    label: "Finance Settings",
+    href: "/erp/finance/settings",
+    icon: "FI",
+    groupId: "settings",
+    requiredGuard: "finance_reader",
+    status: "active",
+  },
+  {
     id: "settings-company",
-    label: "Company Settings Hub",
-    href: "/erp/company",
+    label: "Company Settings",
+    href: "/erp/company/settings",
     icon: "CS",
     groupId: "settings",
     requiredGuard: "admin",
     status: "active",
-    moduleKeys: ["admin"],
   },
 ];
 

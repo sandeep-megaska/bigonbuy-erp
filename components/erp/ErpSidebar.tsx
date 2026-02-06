@@ -50,6 +50,12 @@ export default function ErpSidebar({
     });
   }, [activeModule, companyContext]);
 
+  const mainGroups = useMemo(() => groups.filter((group) => group.label !== "Settings"), [groups]);
+  const settingsGroups = useMemo(
+    () => groups.filter((group) => group.label === "Settings"),
+    [groups]
+  );
+
   const isActiveRoute = (href: string) => {
     if (href === "/erp") {
       return router.asPath === "/erp";
@@ -63,7 +69,7 @@ export default function ErpSidebar({
         {collapsed ? "→" : "←"}
       </button>
       <div style={groupStackStyle}>
-        {groups.map((group) => (
+        {mainGroups.map((group) => (
           <div key={group.label} style={groupStyle}>
             {!collapsed ? <div style={groupLabelStyle}>{group.label}</div> : null}
             <div style={itemStackStyle}>
@@ -84,9 +90,48 @@ export default function ErpSidebar({
           </div>
         ))}
       </div>
+      {settingsGroups.length > 0 ? (
+        <div style={settingsDockStyle}>
+          {settingsGroups.map((group) => (
+            <div key={group.label} style={groupStyle}>
+              {!collapsed ? <div style={groupLabelStyle}>{group.label}</div> : null}
+              <div style={itemStackStyle}>
+                {group.items.map((item) => {
+                  const isActive = isActiveRoute(item.href);
+                  const isDisabled = item.href === "#";
+                  return (
+                    <Link
+                      key={item.href + item.label}
+                      href={item.href}
+                      aria-disabled={isDisabled}
+                      style={{
+                        ...navItemStyle,
+                        ...(isActive ? activeNavItemStyle : null),
+                        ...(isDisabled ? disabledNavItemStyle : null),
+                      }}
+                    >
+                      <span style={iconBadgeStyle}>{item.icon || item.label.slice(0, 2)}</span>
+                      {!collapsed ? <span>{item.label}</span> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </aside>
   );
 }
+
+const settingsDockStyle: CSSProperties = {
+  marginTop: "auto",
+  paddingTop: 12,
+  borderTop: "1px solid rgba(255,255,255,0.12)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
 
 const sidebarStyle: CSSProperties = {
   position: "fixed",
@@ -158,6 +203,11 @@ const navItemStyle: CSSProperties = {
 const activeNavItemStyle: CSSProperties = {
   backgroundColor: "rgba(59,130,246,0.2)",
   color: "#ffffff",
+};
+
+const disabledNavItemStyle: CSSProperties = {
+  opacity: 0.65,
+  pointerEvents: "none",
 };
 
 const iconBadgeStyle: CSSProperties = {
