@@ -8,7 +8,7 @@ type BankCreditUnmatchedRow = {
   description: string | null;
   reference_no: string | null;
   credit: number;
-  currency: string | null;
+  currency: string;
   source: "delhivery_cod" | "flipkart" | "myntra" | "snapdeal";
   extracted_ref: string | null;
 };
