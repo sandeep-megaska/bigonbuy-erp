@@ -66,11 +66,11 @@ for (const file of files) {
 }
 
 if (violations.length > 0) {
-  console.error('Forbidden ERP API route references found. Use /api/finance/** for finance operational APIs and keep UI at /erp/**.');
+  console.error('Forbidden ERP API route references found. Use module-scoped operational APIs under /api/<module>/** and keep UI at /erp/**.');
   for (const violation of violations) {
     console.error(`- ${violation.file}: ${violation.reason}`);
   }
   process.exit(1);
 }
 
-console.log('Route lint passed: no forbidden /api/erp route references found.');
+console.log('Route lint passed: no forbidden ERP API route references found.');
