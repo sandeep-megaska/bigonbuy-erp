@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     // Stage-1 posting RPC (idempotent). If your DB function name differs, change it here only.
-    const { data: journalId, error: postError } = await userClient.rpc("erp_amazon_settlement_batch_post_to_finance", {
+    const { data: postData, error: postError } = await userClient.rpc("erp_amazon_settlement_batch_post_to_finance", {
       p_batch_id: batchId,
       p_actor_user_id: userData.user.id,
     });
@@ -58,22 +58,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       });
     }
 
-    if (!journalId) {
+    const payload = postData && typeof postData === "object" ? (postData as Record<string, unknown>) : null;
+    const postedJournalId = typeof payload?.journal_id === "string" ? payload.journal_id : null;
+    const postedJournalNo = typeof payload?.journal_no === "string" ? payload.journal_no : null;
+
+    if (!postedJournalId) {
       return res.status(200).json({ ok: true, journal_id: null, journal_no: null, link: null });
     }
 
     const { data: journalRow, error: journalError } = await userClient
       .from("erp_fin_journals")
       .select("id, doc_no")
-      .eq("id", journalId as string)
+      .eq("id", postedJournalId)
       .maybeSingle();
 
     if (journalError || !journalRow) {
       return res.status(200).json({
         ok: true,
-        journal_id: journalId as string,
-        journal_no: null,
-        link: `/erp/finance/journals/${journalId}`,
+        journal_id: postedJournalId,
+        journal_no: postedJournalNo,
+        link: `/erp/finance/journals/${postedJournalId}`,
       });
     }
 
