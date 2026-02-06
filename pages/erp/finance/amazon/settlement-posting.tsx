@@ -326,7 +326,7 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/summary?from=${params.fromDate}&to=${params.toDate}`,
+        `/api/finance/amazon/settlement-posting/summary?from=${params.fromDate}&to=${params.toDate}`,
         getJsonRequestOptions()
       );
 
@@ -384,7 +384,7 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`,
+        `/api/finance/amazon/settlement-posting/list?from=${effectiveFrom}&to=${effectiveTo}&status=${effectivePostingFilter}`,
         getJsonRequestOptions()
       );
 
@@ -435,7 +435,7 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/${batchId}/preview`,
+        `/api/finance/amazon/settlement-posting/${batchId}/preview`,
         getJsonRequestOptions()
       );
 
@@ -514,7 +514,7 @@ export default function AmazonSettlementPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/amazon/settlement-posting/${batchId}/post`,
+        `/api/finance/amazon/settlement-posting/${batchId}/post`,
         getJsonRequestOptions("POST", { batchId })
       );
 

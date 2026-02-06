@@ -145,7 +145,7 @@ export default function ShopifySalesPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/sales/shopify/summary?from=${params.fromDate}&to=${params.toDate}`,
+        `/api/finance/sales/shopify/summary?from=${params.fromDate}&to=${params.toDate}`,
         { headers: getAuthHeaders(params.token) }
       );
       const payload = await response.json();
@@ -192,7 +192,7 @@ export default function ShopifySalesPostingPage() {
 
     try {
       const response = await fetch(
-        `/api/erp/finance/sales/shopify/list?from=${effectiveFrom}&to=${effectiveTo}&posting=${effectivePostingFilter}&search=${encodeURIComponent(
+        `/api/finance/sales/shopify/list?from=${effectiveFrom}&to=${effectiveTo}&posting=${effectivePostingFilter}&search=${encodeURIComponent(
           effectiveSearch
         )}`,
         { headers: getAuthHeaders(overrides?.token) }
@@ -252,7 +252,7 @@ export default function ShopifySalesPostingPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/erp/finance/sales/shopify/${orderId}/post`, {
+      const response = await fetch(`/api/finance/sales/shopify/${orderId}/post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId }),
@@ -290,7 +290,7 @@ export default function ShopifySalesPostingPage() {
 
     try {
       const previewResponse = await fetch(
-        `/api/erp/finance/sales/shopify/day/preview?day=${fromDate}`,
+        `/api/finance/sales/shopify/day/preview?day=${fromDate}`,
         { headers: getAuthHeaders() }
       );
       const previewPayload = await previewResponse.json();
@@ -316,7 +316,7 @@ export default function ShopifySalesPostingPage() {
         return;
       }
 
-      const postResponse = await fetch(`/api/erp/finance/sales/shopify/day/post`, {
+      const postResponse = await fetch(`/api/finance/sales/shopify/day/post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ day: preview.day }),

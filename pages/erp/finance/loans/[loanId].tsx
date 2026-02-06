@@ -55,7 +55,7 @@ export default function LoanDetailPage() {
     if (!loanId) return;
     const token = await withAuth();
     if (!token) return;
-    const res = await fetch(`/api/erp/finance/loans/${loanId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/finance/loans/${loanId}`, { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json();
     if (!res.ok) return setError(json.error || "Failed to load loan");
     const nextLoan = json.data?.loan;
@@ -92,7 +92,7 @@ export default function LoanDetailPage() {
     if (!loanId) return;
     const token = await withAuth();
     if (!token) return;
-    const res = await fetch(`/api/erp/finance/loans/${loanId}/schedules`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/finance/loans/${loanId}/schedules`, { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json();
     if (!res.ok) return setError(json.error || "Failed to load schedules");
     setSchedules(json.data || []);
@@ -128,7 +128,7 @@ export default function LoanDetailPage() {
       if (form.loan_type === "other" && legacyLoanType && customLoanType.trim() === legacyLoanType.trim()) payload.loan_type = legacyLoanType;
       if (form.loan_type === "other") payload.notes = upsertCustomTypeNote(form.notes, customLoanType);
 
-      const res = await fetch(`/api/erp/finance/loans/${loanId}`, {
+      const res = await fetch(`/api/finance/loans/${loanId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -148,7 +148,7 @@ export default function LoanDetailPage() {
     setNotice("");
     const token = await withAuth();
     if (!token) return;
-    const res = await fetch(`/api/erp/finance/loans/${loanId}/schedule/generate`, {
+    const res = await fetch(`/api/finance/loans/${loanId}/schedule/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(generateForm),
@@ -174,7 +174,7 @@ export default function LoanDetailPage() {
     };
     const token = await withAuth();
     if (!token) return;
-    const res = await fetch(`/api/erp/finance/loans/schedules/${row.id}/upsert`, {
+    const res = await fetch(`/api/finance/loans/schedules/${row.id}/upsert`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
@@ -193,7 +193,7 @@ export default function LoanDetailPage() {
   const previewRow = async (scheduleId: string) => {
     const token = await withAuth();
     if (!token) return;
-    const res = await fetch(`/api/erp/finance/loans/schedules/${scheduleId}/preview`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/finance/loans/schedules/${scheduleId}/preview`, { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json();
     if (!res.ok) return setError(json.error || "Preview failed");
     setPreview({ scheduleId, ...json.data });
@@ -205,7 +205,7 @@ export default function LoanDetailPage() {
     setPostingId(scheduleId);
     setError("");
     try {
-      const res = await fetch(`/api/erp/finance/loans/schedules/${scheduleId}/post`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/finance/loans/schedules/${scheduleId}/post`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       if (!res.ok) return setError(json.error || "Post failed");
       setNotice(`Posted to journal ${json.data?.journal_no || json.data?.journal_id}.`);

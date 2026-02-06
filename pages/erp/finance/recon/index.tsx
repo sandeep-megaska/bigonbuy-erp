@@ -307,7 +307,7 @@ export default function FinanceReconDashboardPage() {
 
     try {
       const suggestResponse = await apiFetch(
-        `/api/erp/finance/loans/repayments/suggest?from=${effectiveFrom}&to=${effectiveTo}&limit=100&offset=0`,
+        `/api/finance/loans/repayments/suggest?from=${effectiveFrom}&to=${effectiveTo}&limit=100&offset=0`,
         { method: "GET", headers: getAuthHeaders() }
       );
       const suggestPayload = await suggestResponse.json();
@@ -530,7 +530,7 @@ export default function FinanceReconDashboardPage() {
   }, [loanEvents]);
 
   const saveLoanSplit = async (eventId: string, principalAmount: number, interestAmount: number) => {
-    const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}`, {
+    const response = await apiFetch(`/api/finance/loans/repayments/${eventId}`, {
       method: "PATCH",
       headers: getAuthHeaders(),
       body: JSON.stringify({ principal_amount: principalAmount, interest_amount: interestAmount }),
@@ -544,7 +544,7 @@ export default function FinanceReconDashboardPage() {
     if (!loanMatchModal.row?.bank_txn_id || !selectedLoanId) return;
     setIsSubmittingMatch(true);
     try {
-      const response = await apiFetch("/api/erp/finance/loans/repayments/from-bank", {
+      const response = await apiFetch("/api/finance/loans/repayments/from-bank", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ bank_txn_id: loanMatchModal.row.bank_txn_id, loan_id: selectedLoanId }),
@@ -563,7 +563,7 @@ export default function FinanceReconDashboardPage() {
   };
 
   const previewLoanEvent = async (eventId: string) => {
-    const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}/preview`, {
+    const response = await apiFetch(`/api/finance/loans/repayments/${eventId}/preview`, {
       method: "GET",
       headers: getAuthHeaders(),
     });
@@ -575,7 +575,7 @@ export default function FinanceReconDashboardPage() {
   const postLoanEvent = async (eventId: string) => {
     setIsSubmittingMatch(true);
     try {
-      const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}/post`, {
+      const response = await apiFetch(`/api/finance/loans/repayments/${eventId}/post`, {
         method: "POST",
         headers: getAuthHeaders(),
       });
