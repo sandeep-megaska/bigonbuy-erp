@@ -37,7 +37,7 @@ export default function EmployeeProfilePage() {
       }
       setSession(current);
 
-      const res = await fetch("/api/erp/employee/profile");
+      const res = await fetch("/api/hr/employee/profile");
       if (!res.ok) {
         setError("Unable to load profile.");
         setLoading(false);
@@ -57,7 +57,7 @@ export default function EmployeeProfilePage() {
   }, [router]);
 
   async function handleLogout() {
-    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    await fetch("/api/hr/employee/auth/logout", { method: "POST" });
     router.replace("/erp/employee/login");
   }
 

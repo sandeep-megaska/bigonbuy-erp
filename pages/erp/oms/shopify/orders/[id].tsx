@@ -205,7 +205,7 @@ export default function ShopifyOrderDetailPage() {
     setFinanceError(null);
     setFinanceNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-preview`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-preview`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId }),
@@ -240,7 +240,7 @@ export default function ShopifyOrderDetailPage() {
     setFinanceError(null);
     setFinanceNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-post`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId, idempotencyKey: orderId }),
@@ -270,7 +270,7 @@ export default function ShopifyOrderDetailPage() {
     setCogsError(null);
     setCogsNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-cogs-preview`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-cogs-preview`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId }),
@@ -305,7 +305,7 @@ export default function ShopifyOrderDetailPage() {
     setCogsError(null);
     setCogsNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-cogs-post`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-cogs-post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId, idempotencyKey: orderId }),
@@ -335,7 +335,7 @@ export default function ShopifyOrderDetailPage() {
     setRefundError(null);
     setRefundNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-refund-preview`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-refund-preview`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ orderId }),
@@ -363,7 +363,7 @@ export default function ShopifyOrderDetailPage() {
     setRefundError(null);
     setRefundNotice(null);
     try {
-      const response = await fetch(`/api/erp/oms/shopify/orders/${orderId}/finance-refund-post`, {
+      const response = await fetch(`/api/oms/shopify/orders/${orderId}/finance-refund-post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ refund_source_id: refundSourceId }),

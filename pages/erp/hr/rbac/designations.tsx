@@ -82,7 +82,7 @@ export default function HrRbacDesignationsPage() {
       return;
     }
 
-    const resp = await fetch("/api/erp/hr/rbac/designations", {
+    const resp = await fetch("/api/hr/rbac/designations", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -109,7 +109,7 @@ export default function HrRbacDesignationsPage() {
       return;
     }
 
-    const resp = await fetch(`/api/erp/hr/rbac/designations/${hrDesignationId}`, {
+    const resp = await fetch(`/api/hr/rbac/designations/${hrDesignationId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -169,7 +169,7 @@ export default function HrRbacDesignationsPage() {
     }
 
     for (const ch of changes) {
-      const resp = await fetch(`/api/erp/hr/rbac/designations/${selectedId}`, {
+      const resp = await fetch(`/api/hr/rbac/designations/${selectedId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

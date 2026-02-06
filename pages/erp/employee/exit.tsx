@@ -68,7 +68,7 @@ export default function EmployeeExitPage() {
   }, [router]);
 
   async function loadMeta() {
-    const res = await fetch("/api/erp/employee/exits/meta");
+    const res = await fetch("/api/hr/employee/exits/meta");
     const data = await res.json();
     if (!res.ok || !data.ok) {
       setError(data.error || "Unable to load exit metadata.");
@@ -82,7 +82,7 @@ export default function EmployeeExitPage() {
   }
 
   async function loadExits() {
-    const res = await fetch("/api/erp/employee/exits/list");
+    const res = await fetch("/api/hr/employee/exits/list");
     const data = await res.json();
     if (!res.ok || !data.ok) {
       setError(data.error || "Unable to load exit requests.");
@@ -103,7 +103,7 @@ export default function EmployeeExitPage() {
       return;
     }
     setSaving(true);
-    const res = await fetch("/api/erp/employee/exits/submit", {
+    const res = await fetch("/api/hr/employee/exits/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -128,7 +128,7 @@ export default function EmployeeExitPage() {
   }
 
   async function handleLogout() {
-    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    await fetch("/api/hr/employee/auth/logout", { method: "POST" });
     router.replace("/erp/employee/login");
   }
 

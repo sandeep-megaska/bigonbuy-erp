@@ -4,7 +4,7 @@
 
 ### Payroll runs
 - **Table:** `public.erp_payroll_runs` (table referenced across payroll RPCs/UI).
-- **Key columns (observed):** `id`, `company_id`, `year`, `month`, `status`, `notes`, `finalized_at`, `finalized_by`, `attendance_period_status`, `attendance_snapshot_at`. These are used by the run APIs and finalize workflow. 【F:pages/api/erp/payroll/runs/get.ts†L4-L67】【F:supabase/migrations/0074_payroll_finalize_and_lock.sql†L8-L141】【F:supabase/migrations/0062_fix_payroll_run_create_columns.sql†L1-L48】
+- **Key columns (observed):** `id`, `company_id`, `year`, `month`, `status`, `notes`, `finalized_at`, `finalized_by`, `attendance_period_status`, `attendance_snapshot_at`. These are used by the run APIs and finalize workflow. 【F:pages/api/hr/payroll/runs/get.ts†L4-L67】【F:supabase/migrations/0074_payroll_finalize_and_lock.sql†L8-L141】【F:supabase/migrations/0062_fix_payroll_run_create_columns.sql†L1-L48】
 - **Lifecycle/status:** `draft → generated → finalized`, enforced by `erp_payroll_runs_status_check` and `erp_payroll_run_finalize` which sets `finalized_at/finalized_by`. Finalized runs are locked from edits. 【F:supabase/migrations/0074_payroll_finalize_and_lock.sql†L8-L226】
 
 ### Payroll items + lines

@@ -64,7 +64,7 @@ export default function MyPayslipDetailPage() {
   async function handleDownload() {
     if (!ctx?.session?.access_token || !id) return;
     try {
-      const response = await fetch(`/api/erp/payslips/${id}/pdf`, {
+      const response = await fetch(`/api/hr/payslips/${id}/pdf`, {
         headers: { Authorization: `Bearer ${ctx.session.access_token}` },
       });
       if (!response.ok) {

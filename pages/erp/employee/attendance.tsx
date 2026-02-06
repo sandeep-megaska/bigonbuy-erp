@@ -70,7 +70,7 @@ export default function EmployeeAttendancePage() {
 
   async function loadAttendance(range: { start: string; end: string } | null) {
     if (!range) return;
-    const res = await fetch(`/api/erp/employee/attendance?start=${range.start}&end=${range.end}`);
+    const res = await fetch(`/api/hr/employee/attendance?start=${range.start}&end=${range.end}`);
     const data = await res.json();
     if (!res.ok || !data.ok) {
       setToast({ type: "error", message: data.error || "Unable to load attendance" });
@@ -80,7 +80,7 @@ export default function EmployeeAttendancePage() {
   }
 
   async function handleLogout() {
-    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    await fetch("/api/hr/employee/auth/logout", { method: "POST" });
     router.replace("/erp/employee/login");
   }
 

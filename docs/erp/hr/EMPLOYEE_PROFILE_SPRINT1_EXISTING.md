@@ -35,12 +35,12 @@
 
 ## API Routes
 - **Existing routes:**
-  - `pages/api/erp/hr/employees/[id]/contacts.ts`
-  - `pages/api/erp/hr/employees/[id]/addresses.ts`
+  - `pages/api/hr/employees/[id]/contacts.ts`
+  - `pages/api/hr/employees/[id]/addresses.ts`
 - **Missing for Sprint 1 tabs:**
   - No API routes found for statutory, bank, or emergency contact profile data.
 
 ## Gaps Identified
 - **RPCs:** Need new security-definer get + upsert RPCs for statutory, bank account, and emergency contact.
 - **UI:** Need new Employee Profile tabs and forms for statutory, bank, emergency contact data.
-- **API:** Need `/api/erp/hr/employees/[id]/statutory`, `/bank`, `/emergency` routes to read/write data via RPCs.
+- **API:** Need `/api/hr/employees/[id]/statutory`, `/bank`, `/emergency` routes to read/write data via RPCs.

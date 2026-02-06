@@ -37,7 +37,7 @@ export default function EmployeeLoginPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const res = await fetch("/api/erp/employee/auth/me");
+      const res = await fetch("/api/hr/employee/auth/me");
       if (!active) return;
       if (res.ok) {
         const data = await res.json();
@@ -59,7 +59,7 @@ export default function EmployeeLoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/erp/employee/auth/login", {
+      const res = await fetch("/api/hr/employee/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employee_code: employeeCode, password }),

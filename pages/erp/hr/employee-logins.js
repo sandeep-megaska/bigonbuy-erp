@@ -123,7 +123,7 @@ export default function EmployeeLogins() {
 
     // Load employees via RPC-backed API
     const accessToken = session.access_token || "";
-    const res = await fetch("/api/erp/hr/employees", {
+    const res = await fetch("/api/hr/employees", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const body = await res.json();
@@ -159,7 +159,7 @@ export default function EmployeeLogins() {
     setMappings(maps || []);
 
     try {
-      const portalRes = await fetch("/api/erp/hr/employee-auth/list", {
+      const portalRes = await fetch("/api/hr/employee-auth/list", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const portalData = await portalRes.json();
@@ -222,7 +222,7 @@ export default function EmployeeLogins() {
 
       const accessToken = sessionData.session.access_token;
 
-      const res = await fetch("/api/erp/hr/link-employee-user", {
+      const res = await fetch("/api/hr/link-employee-user", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -290,7 +290,7 @@ export default function EmployeeLogins() {
         throw new Error("Session expired. Please sign in again.");
       }
 
-      const res = await fetch("/api/erp/hr/employee-auth/upsert", {
+      const res = await fetch("/api/hr/employee-auth/upsert", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

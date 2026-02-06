@@ -71,7 +71,7 @@ export default function EmployeeChangePasswordPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/erp/employee/auth/change-password", {
+      const res = await fetch("/api/hr/employee/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
