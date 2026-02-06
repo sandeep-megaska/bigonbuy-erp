@@ -63,9 +63,10 @@ const sectionTitleStyle = {
 
 const lineGridStyle = {
   display: "grid",
-  gridTemplateColumns: "160px 180px 1fr 1fr 1fr 120px 120px 120px 80px",
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
   gap: 10,
-  alignItems: "center",
+  alignItems: "end",
+  width: "100%",
 };
 
 const lineHeaderStyle = {
@@ -78,6 +79,12 @@ const lineHeaderStyle = {
 const lineRowStyle = {
   padding: "10px 0",
   borderBottom: "1px solid #e5e7eb",
+  width: "100%",
+  overflowX: "hidden" as const,
+};
+
+const lineFieldStyle = {
+  minWidth: 0,
 };
 
 const totalsRowStyle = {
@@ -140,6 +147,7 @@ export default function NoteForm({
   const [placeOfSupply, setPlaceOfSupply] = useState(initialValues.place_of_supply ?? "");
   const [lines, setLines] = useState<NoteLineState[]>(initialValues.lines ?? [emptyLine()]);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isCompactLineLayout, setIsCompactLineLayout] = useState(false);
 
   const isReadOnly = readOnly || !canWrite;
 
@@ -158,6 +166,20 @@ export default function NoteForm({
     setPlaceOfSupply(initialValues.place_of_supply ?? "");
     setLines(initialValues.lines && initialValues.lines.length > 0 ? initialValues.lines : [emptyLine()]);
   }, [initialValues]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const updateLayout = () => {
+      setIsCompactLineLayout(window.innerWidth < 900);
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    return () => window.removeEventListener("resize", updateLayout);
+  }, []);
 
   const totals = useMemo(() => {
     return lines.reduce(
@@ -411,19 +433,21 @@ export default function NoteForm({
           </div>
         </div>
 
-        <div>
+        <div style={{ width: "100%", overflowX: "hidden" }}>
           <h3 style={sectionTitleStyle}>Line Items</h3>
-          <div style={{ ...lineGridStyle, ...lineHeaderStyle, padding: "8px 0" }}>
-            <span>Item Type</span>
-            <span>Variant</span>
-            <span>SKU</span>
-            <span>Title</span>
-            <span>HSN</span>
-            <span>Qty</span>
-            <span>Unit Rate</span>
-            <span>Tax %</span>
-            <span>Action</span>
-          </div>
+          {!isCompactLineLayout ? (
+            <div style={{ ...lineGridStyle, ...lineHeaderStyle, padding: "8px 0" }}>
+              <span style={{ gridColumn: "span 2", minWidth: 0 }}>Item Type</span>
+              <span style={{ gridColumn: "span 4", minWidth: 0 }}>Variant</span>
+              <span style={{ gridColumn: "span 3", minWidth: 0 }}>SKU</span>
+              <span style={{ gridColumn: "span 3", minWidth: 0 }}>Title</span>
+              <span style={{ gridColumn: "span 3", minWidth: 0 }}>HSN</span>
+              <span style={{ gridColumn: "span 2", minWidth: 0 }}>Qty</span>
+              <span style={{ gridColumn: "span 3", minWidth: 0 }}>Unit Rate</span>
+              <span style={{ gridColumn: "span 2", minWidth: 0 }}>Tax %</span>
+              <span style={{ gridColumn: "span 2", minWidth: 0 }}>Action</span>
+            </div>
+          ) : null}
           {lines.map((line, index) => (
             <div key={`line-${index}`} style={{ ...lineGridStyle, ...lineRowStyle }}>
               <select
@@ -436,12 +460,12 @@ export default function NoteForm({
                   })
                 }
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 2" }}
               >
                 <option value="manual">Manual</option>
                 <option value="variant">Variant</option>
               </select>
-              <div style={{ minWidth: 180 }}>
+              <div style={{ ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 4" }}>
                 <VariantTypeahead
                   value={line.variant}
                   onSelect={(variant) => handleVariantSelect(index, variant)}
@@ -454,7 +478,7 @@ export default function NoteForm({
                 value={line.sku}
                 onChange={(event) => handleLineChange(index, { sku: event.target.value })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 3" }}
                 placeholder="SKU"
               />
               <input
@@ -462,7 +486,7 @@ export default function NoteForm({
                 value={line.title}
                 onChange={(event) => handleLineChange(index, { title: event.target.value })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 3" }}
                 placeholder="Title"
               />
               <input
@@ -470,7 +494,7 @@ export default function NoteForm({
                 value={line.hsn}
                 onChange={(event) => handleLineChange(index, { hsn: event.target.value })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 3" }}
                 placeholder="HSN"
               />
               <input
@@ -480,7 +504,7 @@ export default function NoteForm({
                 value={line.qty}
                 onChange={(event) => handleLineChange(index, { qty: ensureNumber(event.target.value) })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 2" }}
               />
               <input
                 type="number"
@@ -489,7 +513,7 @@ export default function NoteForm({
                 value={line.unit_rate}
                 onChange={(event) => handleLineChange(index, { unit_rate: ensureNumber(event.target.value) })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 3" }}
               />
               <input
                 type="number"
@@ -498,9 +522,9 @@ export default function NoteForm({
                 value={line.tax_rate}
                 onChange={(event) => handleLineChange(index, { tax_rate: ensureNumber(event.target.value) })}
                 disabled={isReadOnly}
-                style={inputStyle}
+                style={{ ...inputStyle, ...lineFieldStyle, gridColumn: isCompactLineLayout ? "1 / -1" : "span 2" }}
               />
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, minWidth: 0, gridColumn: isCompactLineLayout ? "1 / -1" : "span 2" }}>
                 <button type="button" style={secondaryButtonStyle} disabled={isReadOnly || lines.length === 1} onClick={() => handleRemoveLine(index)}>
                   Remove
                 </button>
