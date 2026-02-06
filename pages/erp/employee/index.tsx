@@ -52,7 +52,7 @@ export default function EmployeeHomePage() {
   }, [router]);
 
   async function handleLogout() {
-    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    await fetch("/api/hr/employee/auth/logout", { method: "POST" });
     router.replace("/erp/employee/login");
   }
 

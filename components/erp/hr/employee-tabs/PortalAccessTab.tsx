@@ -45,7 +45,7 @@ export default function PortalAccessTab({ employeeId, accessToken, canManage }: 
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/portal-access`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/portal-access`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = (await res.json()) as ApiResponse;
@@ -69,7 +69,7 @@ export default function PortalAccessTab({ employeeId, accessToken, canManage }: 
     setToast(null);
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/portal-reset-password`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/portal-reset-password`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

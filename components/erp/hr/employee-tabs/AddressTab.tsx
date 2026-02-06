@@ -104,7 +104,7 @@ export default function AddressTab({ employeeId, accessToken, canManage }: Props
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/addresses`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/addresses`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
@@ -140,7 +140,7 @@ export default function AddressTab({ employeeId, accessToken, canManage }: Props
     };
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/addresses`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/addresses`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

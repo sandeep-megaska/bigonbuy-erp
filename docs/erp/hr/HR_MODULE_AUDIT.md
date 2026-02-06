@@ -36,8 +36,8 @@
 | `/erp/hr/calendars/new` | `pages/erp/hr/calendars/new.tsx` | Create a calendar | Save calendar; set default | `erp_hr_calendar_upsert`, `erp_hr_calendar_set_default` |
 | `/erp/hr/calendars/[id]` | `pages/erp/hr/calendars/[id].tsx` | Edit calendar | Update calendar; add/remove holidays; map locations; set default | `erp_hr_calendar_upsert`, `erp_hr_calendar_set_default`, `erp_hr_calendar_holiday_create`, `erp_hr_calendar_holiday_delete`, `erp_hr_calendar_location_add`, `erp_hr_calendar_location_delete` |
 | `/erp/hr/employee-logins` | `pages/erp/hr/employee-logins.js` | Link employees to auth users | Invite/link employee login via email | `/api/hr/link-employee-user` → `erp_link_employee_login` |
-| `/erp/hr/employees` | `pages/erp/hr/employees.js` | Employee directory | Create/edit employee; assign manager; assign role; link user | RPCs: `erp_hr_employees_list`, `erp_hr_employees_managers_list`, `erp_hr_employee_upsert`, `erp_hr_employee_assign_manager`, `erp_hr_assign_user_role`, `erp_hr_employee_link_user`, `erp_hr_employee_profile_update`; API: `/api/erp/hr/employees/job` |
-| `/erp/hr/employees/[id]` | `pages/erp/hr/employees/[id]/index.js` | Employee profile (tabs) | Overview; Job; Contacts; Addresses; Documents; Exit; Salary | APIs: `/api/erp/hr/employees/[id]`, `/api/erp/hr/employees/job-history`, `/api/erp/hr/masters`, `/api/erp/hr/employees/documents`, `/api/erp/employees/documents/upload-url`; RPCs: `erp_employee_profile`, `erp_employee_salary_current`, `erp_employee_salary_assign`, `erp_hr_employee_activate`, `erp_hr_employee_exit_finalize` |
+| `/erp/hr/employees` | `pages/erp/hr/employees.js` | Employee directory | Create/edit employee; assign manager; assign role; link user | RPCs: `erp_hr_employees_list`, `erp_hr_employees_managers_list`, `erp_hr_employee_upsert`, `erp_hr_employee_assign_manager`, `erp_hr_assign_user_role`, `erp_hr_employee_link_user`, `erp_hr_employee_profile_update`; API: `/api/hr/employees/job` |
+| `/erp/hr/employees/[id]` | `pages/erp/hr/employees/[id]/index.js` | Employee profile (tabs) | Overview; Job; Contacts; Addresses; Documents; Exit; Salary | APIs: `/api/hr/employees/[id]`, `/api/hr/employees/job-history`, `/api/hr/masters`, `/api/hr/employees/documents`, `/api/hr/employees/documents/upload-url`; RPCs: `erp_employee_profile`, `erp_employee_salary_current`, `erp_employee_salary_assign`, `erp_hr_employee_activate`, `erp_hr_employee_exit_finalize` |
 | `/erp/hr/exits` | `pages/erp/hr/exits/index.tsx` | Exit requests list | Filter by status; approve/reject/complete exits | RPC: `erp_hr_exit_set_status` (via `supabase.rpc`) |
 | `/erp/hr/exits/[id]` | `pages/erp/hr/exits/[id].tsx` | Exit request detail | View exit; set status transitions | RPCs: `erp_hr_exit_get`, `erp_hr_exit_set_status` |
 | `/erp/hr/leave` | `pages/erp/hr/leave.js` | Legacy leave management | Create leave types & requests; approve/reject | RPCs: `erp_leave_type_upsert`, `erp_leave_request_submit`, `erp_leave_request_set_status` |
@@ -50,9 +50,9 @@
 | `/erp/hr/masters/employee-exit-types` | `pages/erp/hr/masters/employee-exit-types.tsx` | Exit types master | Create/activate exit types | RPCs: `erp_hr_employee_exit_type_upsert`, `erp_hr_employee_exit_type_set_active` |
 | `/erp/hr/masters/employee-exit-reasons` | `pages/erp/hr/masters/employee-exit-reasons.tsx` | Exit reasons master | Create/activate exit reasons | RPCs: `erp_hr_employee_exit_reason_upsert`, `erp_hr_employee_exit_reason_set_active` |
 | `/erp/hr/payroll` | `pages/erp/hr/payroll.js` | Redirect to payroll runs | Redirect | None |
-| `/erp/hr/payroll/runs` | `pages/erp/hr/payroll/runs/index.js` | Payroll run list | Create payroll runs | `/api/erp/payroll/runs/list`, `/api/erp/payroll/runs/create` (RPC-backed) |
-| `/erp/hr/payroll/runs/[id]` | `pages/erp/hr/payroll/runs/[id].js` | Payroll run detail | Generate items, OT overrides, attendance attach, finalize | API: `/api/erp/payroll/runs/get`, `/api/erp/payroll/items/list`, `/api/erp/payroll/item-lines/list`, `/api/erp/payroll/item-lines/upsert`; RPCs: `erp_payroll_run_items_status`, `erp_payroll_run_payslips`, `erp_payroll_run_attach_attendance`, `erp_payroll_item_override_update`, `erp_payroll_run_finalize` |
-| `/erp/hr/payroll/payslips/[id]` | `pages/erp/hr/payroll/payslips/[id].js` | Payslip detail | View payslip; download PDF | RPC: `erp_payslip_get`; API: `/api/erp/payslips/[id]/pdf` |
+| `/erp/hr/payroll/runs` | `pages/erp/hr/payroll/runs/index.js` | Payroll run list | Create payroll runs | `/api/hr/payroll/runs/list`, `/api/hr/payroll/runs/create` (RPC-backed) |
+| `/erp/hr/payroll/runs/[id]` | `pages/erp/hr/payroll/runs/[id].js` | Payroll run detail | Generate items, OT overrides, attendance attach, finalize | API: `/api/hr/payroll/runs/get`, `/api/hr/payroll/items/list`, `/api/hr/payroll/item-lines/list`, `/api/hr/payroll/item-lines/upsert`; RPCs: `erp_payroll_run_items_status`, `erp_payroll_run_payslips`, `erp_payroll_run_attach_attendance`, `erp_payroll_item_override_update`, `erp_payroll_run_finalize` |
+| `/erp/hr/payroll/payslips/[id]` | `pages/erp/hr/payroll/payslips/[id].js` | Payslip detail | View payslip; download PDF | RPC: `erp_payslip_get`; API: `/api/hr/payslips/[id]/pdf` |
 | `/erp/hr/payslips/[runId]/[employeeId]` | `pages/erp/hr/payslips/[runId]/[employeeId].js` | Payslip view (run/employee) | View printable payslip | `supabase.from('erp_payroll_runs')`, `supabase.from('erp_employees')`, `supabase.from('erp_payroll_items')` |
 | `/erp/hr/reports/attendance-exceptions` | `pages/erp/hr/reports/attendance-exceptions.tsx` | Attendance exceptions report | Filter exceptions | RPC: `erp_report_attendance_exceptions` |
 | `/erp/hr/reports/attendance-payroll-summary` | `pages/erp/hr/reports/attendance-payroll-summary.tsx` | Attendance/payroll summary | Summarize attendance vs payroll | RPC: `erp_report_attendance_payroll_summary` |
@@ -155,8 +155,8 @@
 | `erp_hr_employee_link_user` | `(p_employee_id uuid, p_user_id uuid)` | Link employee to user | `/erp/hr/employees` | HR writer |
 | `erp_hr_assign_user_role` | `(p_user_id uuid, p_role_key text)` | Assign user role | `/erp/hr/employees` | HR writer |
 | `erp_hr_employee_profile_update` | `(p_employee_id uuid, p_joining_date date, p_title_id uuid, p_gender_id uuid)` | Update profile fields | `/erp/hr/employees` | HR writer |
-| `erp_employee_profile` | `(p_employee_id uuid)` | Fetch employee profile + contacts | `/api/erp/hr/employees/[id]` | Company scope + RLS |
-| `erp_employee_job_upsert` | `(p_employee_id uuid, p_effective_from date, p_department_id uuid, p_designation_id uuid, p_manager_employee_id uuid, p_location_id uuid, p_grade_id uuid, p_cost_center_id uuid, p_notes text)` | Upsert job history | `/api/erp/hr/employees/job` | HR writer |
+| `erp_employee_profile` | `(p_employee_id uuid)` | Fetch employee profile + contacts | `/api/hr/employees/[id]` | Company scope + RLS |
+| `erp_employee_job_upsert` | `(p_employee_id uuid, p_effective_from date, p_department_id uuid, p_designation_id uuid, p_manager_employee_id uuid, p_location_id uuid, p_grade_id uuid, p_cost_center_id uuid, p_notes text)` | Upsert job history | `/api/hr/employees/job` | HR writer |
 | `erp_hr_employee_title_upsert` | `(p_id uuid, p_code text, p_name text, p_is_active boolean, p_sort_order int)` | Upsert employee title | `/erp/hr/masters/employee-titles` | HR writer |
 | `erp_hr_employee_title_set_active` | `(p_id uuid, p_is_active boolean)` | Activate/deactivate title | `/erp/hr/masters/employee-titles` | HR writer |
 | `erp_hr_employee_gender_upsert` | `(p_id uuid, p_code text, p_name text, p_is_active boolean, p_sort_order int)` | Upsert employee gender | `/erp/hr/masters/employee-genders` | HR writer |
@@ -190,15 +190,15 @@
 | `erp_hr_calendar_holiday_delete` | `(p_calendar_holiday_id uuid)` | Remove holiday | `/erp/hr/calendars/[id]` | HR writer |
 | `erp_hr_calendar_location_add` | `(p_calendar_id uuid, p_location_id uuid)` | Map location | `/erp/hr/calendars/[id]` | HR writer |
 | `erp_hr_calendar_location_delete` | `(p_calendar_location_id uuid)` | Unmap location | `/erp/hr/calendars/[id]` | HR writer |
-| `erp_hr_employee_document_create` | `(p_employee_id uuid, p_doc_type text, p_file_name text, p_storage_path text, p_notes text)` | Save document metadata | `/api/erp/hr/employees/documents` | HR writer |
-| `erp_hr_employee_document_delete` | `(p_document_id uuid)` | Delete document metadata | `/api/erp/hr/employees/documents` | HR writer |
+| `erp_hr_employee_document_create` | `(p_employee_id uuid, p_doc_type text, p_file_name text, p_storage_path text, p_notes text)` | Save document metadata | `/api/hr/employees/documents` | HR writer |
+| `erp_hr_employee_document_delete` | `(p_document_id uuid)` | Delete document metadata | `/api/hr/employees/documents` | HR writer |
 | `erp_salary_structure_upsert` | `(p_name text, p_is_active bool, p_notes text, p_basic_pct numeric, p_hra_pct_of_basic numeric, p_allowances_mode text, p_effective_from date, p_id uuid)` | Upsert salary structure | `/erp/hr/salary` | Payroll/HR writer |
 | `erp_salary_structure_component_upsert` | `(p_structure_id uuid, p_code text, p_name text, p_component_type text, p_calc_mode text, p_value numeric, p_is_active bool)` | Upsert salary component | `/erp/hr/salary` | Payroll/HR writer |
 | `erp_salary_structure_ot_rule_upsert` | `(p_structure_id uuid, p_ot_type text, p_multiplier numeric, p_base text, p_is_active bool, p_hours_per_day numeric)` | Upsert OT rules | `/erp/hr/salary` | Payroll/HR writer |
 | `erp_employee_salary_current` | `(p_employee_id uuid)` | Fetch salary assignment history | `/erp/hr/employees/[id]` | Payroll/HR reader |
 | `erp_employee_salary_assign` | `(p_employee_id uuid, p_salary_structure_id uuid, p_effective_from date, p_ctc_monthly numeric, p_notes text)` | Assign salary | `/erp/hr/employees/[id]` | Payroll/HR writer |
-| `erp_payroll_run_create` | `(p_year int, p_month int, p_notes text)` | Create payroll run | `/api/erp/payroll/runs/create` | Payroll writer |
-| `erp_payroll_run_generate` | `(p_run_id uuid)` | Generate run items | `/api/erp/payroll/runs/generate` | Payroll writer |
+| `erp_payroll_run_create` | `(p_year int, p_month int, p_notes text)` | Create payroll run | `/api/hr/payroll/runs/create` | Payroll writer |
+| `erp_payroll_run_generate` | `(p_run_id uuid)` | Generate run items | `/api/hr/payroll/runs/generate` | Payroll writer |
 | `erp_payroll_run_items_status` | `(p_payroll_run_id uuid)` | Run readiness/status check | `/erp/hr/payroll/runs/[id]` | Payroll writer |
 | `erp_payroll_item_override_update` | `(p_payroll_item_id uuid, p_payable_days_override numeric, p_lop_days_override numeric)` | Override payable/LOP | `/erp/hr/payroll/runs/[id]` | Payroll writer |
 | `erp_payroll_run_attach_attendance` | `(p_payroll_run_id uuid)` | Attach attendance snapshot | `/erp/hr/payroll/runs/[id]` | Payroll writer |
@@ -218,21 +218,21 @@
 | `/api/hr/roles/create` | Create role | `erp_hr_role_create` |
 | `/api/hr/roles/update` | Update role | `erp_hr_role_update` |
 | `/api/hr/roles/delete` | Delete role | `erp_hr_role_delete` |
-| `/api/erp/hr/masters` | HR masters list/upsert | `erp_hr_designations_list`, `erp_hr_designation_upsert` + table queries |
-| `/api/erp/hr/employees/[id]` | Employee profile RPC wrapper | `erp_employee_profile` |
-| `/api/erp/hr/employees/job` | Job history upsert | `erp_employee_job_upsert` |
-| `/api/erp/hr/employees/job-history` | Job history list | `erp_employee_jobs` |
-| `/api/erp/hr/employees/[id]/contacts` | Contact upsert | `erp_hr_employee_contact_upsert` |
-| `/api/erp/hr/employees/[id]/addresses` | Address upsert | `erp_hr_employee_address_upsert` |
-| `/api/erp/hr/employees/documents` | Document create/delete | `erp_hr_employee_document_create`, `erp_hr_employee_document_delete` |
-| `/api/erp/employees/documents/upload-url` | Pre-signed upload URL | Storage bucket `erp-employee-docs` |
-| `/api/erp/payroll/runs/list` | Payroll runs list | `erp_payroll_runs` |
-| `/api/erp/payroll/runs/create` | Payroll run create | `erp_payroll_run_create` |
-| `/api/erp/payroll/runs/get` | Payroll run detail | `erp_payroll_runs` |
-| `/api/erp/payroll/items/list` | Payroll item list | `erp_payroll_items` |
-| `/api/erp/payroll/item-lines/list` | Payroll item lines list | `erp_payroll_item_line_list` |
-| `/api/erp/payroll/item-lines/upsert` | Payroll item line upsert | `erp_payroll_item_line_upsert` |
-| `/api/erp/payslips/[id]/pdf` | Payslip PDF generation | `erp_payslip_get` + PDF render |
+| `/api/hr/masters` | HR masters list/upsert | `erp_hr_designations_list`, `erp_hr_designation_upsert` + table queries |
+| `/api/hr/employees/[id]` | Employee profile RPC wrapper | `erp_employee_profile` |
+| `/api/hr/employees/job` | Job history upsert | `erp_employee_job_upsert` |
+| `/api/hr/employees/job-history` | Job history list | `erp_employee_jobs` |
+| `/api/hr/employees/[id]/contacts` | Contact upsert | `erp_hr_employee_contact_upsert` |
+| `/api/hr/employees/[id]/addresses` | Address upsert | `erp_hr_employee_address_upsert` |
+| `/api/hr/employees/documents` | Document create/delete | `erp_hr_employee_document_create`, `erp_hr_employee_document_delete` |
+| `/api/hr/employees/documents/upload-url` | Pre-signed upload URL | Storage bucket `erp-employee-docs` |
+| `/api/hr/payroll/runs/list` | Payroll runs list | `erp_payroll_runs` |
+| `/api/hr/payroll/runs/create` | Payroll run create | `erp_payroll_run_create` |
+| `/api/hr/payroll/runs/get` | Payroll run detail | `erp_payroll_runs` |
+| `/api/hr/payroll/items/list` | Payroll item list | `erp_payroll_items` |
+| `/api/hr/payroll/item-lines/list` | Payroll item lines list | `erp_payroll_item_line_list` |
+| `/api/hr/payroll/item-lines/upsert` | Payroll item line upsert | `erp_payroll_item_line_upsert` |
+| `/api/hr/payslips/[id]/pdf` | Payslip PDF generation | `erp_payslip_get` + PDF render |
 
 
 ## 5) Employee Lifecycle — “How ERP currently works”
@@ -241,7 +241,7 @@
 1. **Create employee** via `/erp/hr/employees` using `erp_hr_employee_upsert` (insert into `erp_employees`).
 2. **Employee code** is auto-generated via `erp_next_employee_code()` and trigger `erp_employees_set_code` when an employee is inserted without a code.
 3. **Profile update**: joining date, title, and gender are stored via `erp_hr_employee_profile_update`.
-4. **Job assignment**: the UI posts to `/api/erp/hr/employees/job`, which invokes `erp_employee_job_upsert` and writes effective-dated rows in `erp_employee_jobs`.
+4. **Job assignment**: the UI posts to `/api/hr/employees/job`, which invokes `erp_employee_job_upsert` and writes effective-dated rows in `erp_employee_jobs`.
 
 ### HR Masters setup (required before full onboarding)
 - Departments, designations, locations, employment types are managed under `/erp/hr/masters`.
@@ -323,8 +323,8 @@
 ### Search index (high-level files scanned)
 - `pages/erp/hr/**`
 - `pages/api/hr/**`
-- `pages/api/erp/hr/**`
-- `pages/api/erp/payroll/**`
+- `pages/api/hr/**`
+- `pages/api/hr/payroll/**`
 - `lib/hrEmployeesApi.ts`, `lib/hrMastersApi.ts`, `lib/hrRoleApi.js`
 - `supabase/migrations/**` (HR-related tables, RPCs, views)
 

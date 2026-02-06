@@ -143,7 +143,7 @@ export default function EmployeeLeavesPage() {
 
     (async () => {
       setPreviewLoading(true);
-      const res = await fetch("/api/erp/employee/leaves/preview", {
+      const res = await fetch("/api/hr/employee/leaves/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -183,7 +183,7 @@ export default function EmployeeLeavesPage() {
   ]);
 
   async function loadLeaveTypes() {
-    const res = await fetch("/api/erp/employee/leaves/types");
+    const res = await fetch("/api/hr/employee/leaves/types");
     const data = await res.json();
     if (!res.ok || !data.ok) {
       setToast({ type: "error", message: data.error || "Unable to load leave types." });
@@ -198,7 +198,7 @@ export default function EmployeeLeavesPage() {
   }
 
   async function loadRequests() {
-    const res = await fetch("/api/erp/employee/leaves/requests");
+    const res = await fetch("/api/hr/employee/leaves/requests");
     const data = await res.json();
     if (!res.ok || !data.ok) {
       setToast({ type: "error", message: data.error || "Unable to load leave requests." });
@@ -217,7 +217,7 @@ export default function EmployeeLeavesPage() {
     }
 
     setSaving(true);
-    const res = await fetch("/api/erp/employee/leaves/draft", {
+    const res = await fetch("/api/hr/employee/leaves/draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -262,7 +262,7 @@ export default function EmployeeLeavesPage() {
     }
 
     setSaving(true);
-    const res = await fetch("/api/erp/employee/leaves/submit", {
+    const res = await fetch("/api/hr/employee/leaves/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_id: requestId }),
@@ -291,7 +291,7 @@ export default function EmployeeLeavesPage() {
 
   async function submitRequest(requestId: string) {
     setSaving(true);
-    const res = await fetch("/api/erp/employee/leaves/submit", {
+    const res = await fetch("/api/hr/employee/leaves/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_id: requestId }),
@@ -313,7 +313,7 @@ export default function EmployeeLeavesPage() {
     const confirmed = window.confirm("Cancel this leave request?");
     if (!confirmed) return;
 
-    const res = await fetch("/api/erp/employee/leaves/cancel", {
+    const res = await fetch("/api/hr/employee/leaves/cancel", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_id: requestId }),
@@ -330,7 +330,7 @@ export default function EmployeeLeavesPage() {
   }
 
   const handleSignOut = async () => {
-    await fetch("/api/erp/employee/auth/logout", { method: "POST" });
+    await fetch("/api/hr/employee/auth/logout", { method: "POST" });
     router.replace("/erp/employee/login");
   };
 

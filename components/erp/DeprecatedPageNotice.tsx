@@ -38,7 +38,7 @@ export default function DeprecatedPageNotice({
         const accessToken = sessionData?.session?.access_token;
         if (!accessToken) return;
         const route = router.asPath.split("?")[0] || router.asPath;
-        await fetch("/api/erp/ui/route-hit", {
+        await fetch("/api/ops/ui/route-hit", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,

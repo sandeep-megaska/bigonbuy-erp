@@ -8,7 +8,7 @@ export type EmployeeSessionContext = {
 };
 
 export async function fetchEmployeeSession(): Promise<EmployeeSessionContext | null> {
-  const res = await fetch("/api/erp/employee/auth/me");
+  const res = await fetch("/api/hr/employee/auth/me");
   if (!res.ok) {
     return null;
   }

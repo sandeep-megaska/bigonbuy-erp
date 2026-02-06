@@ -63,7 +63,7 @@ export default function EmergencyTab({ employeeId, accessToken, canManage }: Pro
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/emergency`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/emergency`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
@@ -101,7 +101,7 @@ export default function EmergencyTab({ employeeId, accessToken, canManage }: Pro
     };
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/emergency`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/emergency`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

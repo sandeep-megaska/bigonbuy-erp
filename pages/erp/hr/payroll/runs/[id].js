@@ -130,12 +130,12 @@ export default function PayrollRunDetailPage() {
       setErr("");
       const companyId = ctx.companyId;
       const [runResponse, itemsResponse, employeesResponse, statusResponse] = await Promise.all([
-        fetch("/api/erp/payroll/runs/get", {
+        fetch("/api/hr/payroll/runs/get", {
           method: "POST",
           headers: getAuthHeaders(),
           body: JSON.stringify({ runId }),
         }),
-        fetch("/api/erp/payroll/items/list", {
+        fetch("/api/hr/payroll/items/list", {
           method: "POST",
           headers: getAuthHeaders(),
           body: JSON.stringify({ payrollRunId: runId }),
@@ -236,7 +236,7 @@ export default function PayrollRunDetailPage() {
     if (!currentRunId || !ctx?.session?.access_token) return;
     setFinancePostError("");
     try {
-      const response = await fetch(`/api/erp/payroll/runs/${currentRunId}/finance-post`, {
+      const response = await fetch(`/api/hr/payroll/runs/${currentRunId}/finance-post`, {
         method: "GET",
         headers: getAuthHeaders(),
       });
@@ -307,7 +307,7 @@ export default function PayrollRunDetailPage() {
     if (!item?.id) return;
     setOtLoading(true);
     try {
-      const response = await fetch("/api/erp/payroll/item-lines/list", {
+      const response = await fetch("/api/hr/payroll/item-lines/list", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ payrollItemId: item.id }),
@@ -369,7 +369,7 @@ export default function PayrollRunDetailPage() {
     setFinancePostLoading(true);
     setFinancePostError("");
     try {
-      const response = await fetch(`/api/erp/payroll/runs/${runId}/finance-post`, {
+      const response = await fetch(`/api/hr/payroll/runs/${runId}/finance-post`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -404,7 +404,7 @@ export default function PayrollRunDetailPage() {
     setOtError("");
     try {
       const otCode = otCodeMap[otType] || (otType === "holiday" ? "OT_HOLIDAY" : "OT_NORMAL");
-      const response = await fetch("/api/erp/payroll/item-lines/upsert", {
+      const response = await fetch("/api/hr/payroll/item-lines/upsert", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -421,7 +421,7 @@ export default function PayrollRunDetailPage() {
         throw new Error(payload?.error || "Failed to save OT");
       }
 
-      const recalcResponse = await fetch("/api/erp/payroll/item/recalculate", {
+      const recalcResponse = await fetch("/api/hr/payroll/item/recalculate", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ payrollItemId: otItem.id }),
@@ -445,7 +445,7 @@ export default function PayrollRunDetailPage() {
   async function refreshItems() {
     if (!ctx?.companyId || !runId) return;
     const [itemsResponse, statusResponse] = await Promise.all([
-      fetch("/api/erp/payroll/items/list", {
+      fetch("/api/hr/payroll/items/list", {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({ payrollRunId: runId }),
@@ -571,7 +571,7 @@ export default function PayrollRunDetailPage() {
 
   async function refreshRun() {
     if (!ctx?.companyId || !runId) return;
-    const response = await fetch("/api/erp/payroll/runs/get", {
+    const response = await fetch("/api/hr/payroll/runs/get", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ runId }),
@@ -596,7 +596,7 @@ export default function PayrollRunDetailPage() {
     }
     setIsGenerating(true);
     setErr("");
-    const response = await fetch("/api/erp/payroll/runs/generate", {
+    const response = await fetch("/api/hr/payroll/runs/generate", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ payrollRunId: runId }),

@@ -17,7 +17,7 @@ export type EmployeeModulesContext = {
 };
 
 export async function fetchEmployeeModules(): Promise<EmployeeModulesContext | null> {
-  const res = await fetch("/api/erp/employee/modules");
+  const res = await fetch("/api/hr/employee/modules");
   if (!res.ok) {
     return null;
   }

@@ -71,7 +71,7 @@ export default function BankTab({ employeeId, accessToken, canManage }: Props) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/bank`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/bank`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json();
@@ -116,7 +116,7 @@ export default function BankTab({ employeeId, accessToken, canManage }: Props) {
     };
 
     try {
-      const res = await fetch(`/api/erp/hr/employees/${employeeId}/bank`, {
+      const res = await fetch(`/api/hr/employees/${employeeId}/bank`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
