@@ -15,3 +15,6 @@ jobs:
 
       - name: Run migration safety check
         run: npm run check:migrations
+
+      - name: Run route lint
+        run: npm run lint:routes
