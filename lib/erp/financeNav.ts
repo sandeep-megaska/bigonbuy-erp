@@ -16,15 +16,23 @@ type FinanceNavGroup = {
   items: { label: string; href: string; icon?: string }[];
 };
 
+type FinanceGlobalSettingsItem = {
+  label: string;
+  href?: string;
+  icon?: string;
+  roles?: string[];
+  disabled?: boolean;
+};
+
 const FINANCE_ROLE_KEYS = ["owner", "admin", "finance"];
 
 const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   {
     id: "finance-home",
-    label: "Finance Home",
+    label: "Finance Dashboard",
     href: "/erp/finance",
     description: "Track spend, categories, and simple month totals.",
-    group: "Finance",
+    group: "Dashboard",
     sidebarIcon: "FI",
     cardIcon: "🏦",
     showInSidebar: true,
@@ -32,10 +40,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-invoices",
-    label: "Invoices",
+    label: "Sales Posting",
     href: "/erp/finance/invoices",
     description: "Create draft invoices and issue FY-based document numbers.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "IN",
     cardIcon: "🧾",
     showInSidebar: true,
@@ -46,7 +54,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Credit / Debit Notes",
     href: "/erp/finance/notes",
     description: "Issue customer and vendor credit/debit notes.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "NT",
     cardIcon: "📝",
     showInSidebar: true,
@@ -57,7 +65,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Expenses",
     href: "/erp/finance/expenses",
     description: "Record expenses, categories, and monthly totals.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "EX",
     cardIcon: "🧾",
     showInSidebar: true,
@@ -68,7 +76,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Shopify Sales Posting",
     href: "/erp/finance/sales/shopify",
     description: "Review Shopify order posting coverage and post missing journals.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SP",
     cardIcon: "🛒",
@@ -80,7 +88,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Amazon Settlement Posting",
     href: "/erp/finance/amazon/settlement-posting",
     description: "Review Amazon settlement batch posting coverage and post missing journals.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "AZ",
     cardIcon: "🧾",
@@ -92,7 +100,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Recurring Expenses",
     href: "/erp/finance/expenses/recurring",
     description: "Template recurring expense records and auto-generate runs.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "RE",
     cardIcon: "🔁",
     showInSidebar: true,
@@ -100,10 +108,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-ap-outstanding",
-    label: "AP Outstanding",
+    label: "Vendor Bills",
     href: "/erp/finance/ap/outstanding",
     description: "Review vendor outstanding balances and aging buckets.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "AP",
     cardIcon: "🧾",
     showInSidebar: true,
@@ -114,7 +122,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Vendor Ledger",
     href: "/erp/finance/ap/vendor-ledger",
     description: "Review vendor ledger timelines across bills, advances, and payments.",
-    group: "Finance",
+    group: "Reports",
     sidebarIcon: "VL",
     cardIcon: "📒",
     showInSidebar: true,
@@ -125,7 +133,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Vendor Bills",
     href: "/erp/finance/ap/vendor-bills",
     description: "Capture vendor bills, apply advances, and post AP journals.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "VB",
     cardIcon: "🧾",
     showInSidebar: true,
@@ -136,7 +144,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Vendor Advances",
     href: "/erp/finance/ap/vendor-advances",
     description: "Record vendor advances and post AP prepayments.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "VA",
     cardIcon: "💸",
     showInSidebar: true,
@@ -144,10 +152,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-recon",
-    label: "Recon Dashboard",
+    label: "Reconciliation",
     href: "/erp/finance/recon",
     description: "Monitor bank matches, vendor payments, and AP allocations.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "RC",
     cardIcon: "🧭",
     showInSidebar: true,
@@ -158,7 +166,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Vendor Payments",
     href: "/erp/finance/vendor-payments",
     description: "Create, match, and void vendor payments.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "VP",
     cardIcon: "💸",
     showInSidebar: true,
@@ -169,7 +177,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Journals",
     href: "/erp/finance/journals",
     description: "Review payroll-posted finance journals and void if needed.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "JR",
     cardIcon: "📒",
@@ -178,10 +186,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-loans",
-    label: "Loans",
+    label: "Loan Payments",
     href: "/erp/finance/loans",
     description: "Manage loan masters, EMI setup, and repayment tracking.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "LN",
     cardIcon: "🏦",
@@ -193,7 +201,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Period Lock",
     href: "/erp/finance/control/period-lock",
     description: "Lock fiscal months to prevent new finance postings.",
-    group: "Finance Control",
+    group: "Control",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "PL",
     cardIcon: "🔒",
@@ -205,7 +213,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Approvals",
     href: "/erp/finance/control/approvals",
     description: "Review submitted finance approvals.",
-    group: "Finance Control",
+    group: "Control",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "AP",
     cardIcon: "✅",
@@ -217,7 +225,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Month Close",
     href: "/erp/finance/control/month-close",
     description: "Run the month close checklist and lock the period.",
-    group: "Finance Control",
+    group: "Control",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "MC",
     cardIcon: "✅",
@@ -289,7 +297,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Expense Reports",
     href: "/erp/finance/expenses/reports",
     description: "Analyze expense totals by vendor, category, or month.",
-    group: "Finance",
+    group: "Reports",
     sidebarIcon: "ER",
     cardIcon: "📈",
     showInSidebar: true,
@@ -300,7 +308,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Finance Bridge",
     href: "/erp/finance/bridge",
     description: "Inventory + GRN exports ready for CA/GST review.",
-    group: "Finance",
+    group: "Control",
     sidebarIcon: "FB",
     cardIcon: "🧩",
     showInSidebar: true,
@@ -311,7 +319,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Razorpay Settlements",
     href: "/erp/finance/razorpay/settlements",
     description: "Sync Razorpay settlements and post bank clearing journals.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "RZ",
     cardIcon: "💳",
@@ -323,7 +331,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Settlements Ledger",
     href: "/erp/finance/razorpay/settlements-ledger",
     description: "Review Razorpay settlements and finance posting status.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SL",
     cardIcon: "📒",
@@ -346,7 +354,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "GST (Shopify)",
     href: "/erp/finance/gst",
     description: "Generate GST register rows and export reports.",
-    group: "GST",
+    group: "Compliance",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "GS",
     cardIcon: "🧾",
@@ -358,7 +366,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "SKU Master",
     href: "/erp/finance/gst/sku-master",
     description: "Maintain style → HSN + GST rate mappings.",
-    group: "GST",
+    group: "Compliance",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SM",
     cardIcon: "🏷️",
@@ -367,10 +375,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-gst-purchases",
-    label: "Purchases",
+    label: "GST Purchase",
     href: "/erp/finance/gst/purchases",
     description: "Import vendor GST invoices and export purchase registers.",
-    group: "GST",
+    group: "Compliance",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "PU",
     cardIcon: "🧾",
@@ -382,29 +390,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Marketplace Margin",
     href: "/erp/finance/marketplace-margin",
     description: "Upload settlement files and analyze SKU/order profitability.",
-    group: "Finance",
+    group: "Reports",
     sidebarIcon: "MM",
     cardIcon: "📊",
     showInSidebar: true,
     showInCards: true,
   },
   {
-    id: "finance-amazon-settlement-posting",
-    label: "Amazon Settlement Posting",
-    href: "/erp/finance/amazon/settlement-posting",
-    description: "Post normalized Amazon settlement batches to finance journals.",
-    group: "Finance",
-    sidebarIcon: "AP",
-    cardIcon: "🧾",
-    showInSidebar: true,
-    showInCards: false,
-  },
-  {
     id: "finance-amazon-settlements",
     label: "Amazon Payouts",
     href: "/erp/finance/amazon/payouts",
     description: "Preview Amazon payout flat-file reports without importing data.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "AS",
     cardIcon: "🧾",
     showInSidebar: true,
@@ -412,10 +409,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-settings",
-    label: "Settings",
+    label: "Finance Settings",
     href: "/erp/finance/settings",
     description: "Configure finance posting and controls.",
-    group: "Settings",
+    group: "Finance Settings",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "ST",
     cardIcon: "⚙️",
@@ -424,10 +421,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-payroll-posting-settings",
-    label: "Payroll Posting",
+    label: "Posting Settings · Payroll",
     href: "/erp/finance/settings/payroll-posting",
     description: "Configure accounts for payroll finance posting previews.",
-    group: "Settings",
+    group: "Finance Settings",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "PP",
     cardIcon: "🧾",
@@ -436,10 +433,10 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
   },
   {
     id: "finance-sales-posting-settings",
-    label: "Sales Posting",
+    label: "Posting Settings · Sales",
     href: "/erp/finance/settings/sales-posting",
     description: "Configure accounts for Shopify sales revenue posting.",
-    group: "Settings",
+    group: "Finance Settings",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "SP",
     cardIcon: "🧾",
@@ -451,7 +448,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "COA Control Roles",
     href: "/erp/finance/settings/coa-roles",
     description: "Map chart of accounts control roles for finance posting.",
-    group: "Settings",
+    group: "Finance Settings",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "CR",
     cardIcon: "🧩",
@@ -463,7 +460,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Chart of Accounts",
     href: "/erp/finance/masters/gl-accounts",
     description: "Maintain ledger accounts for payroll and finance workflows.",
-    group: "Masters",
+    group: "Finance Settings",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "CO",
     cardIcon: "📚",
@@ -475,7 +472,7 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Bank Import",
     href: "/erp/finance/bank/import",
     description: "Import bank transactions from XLS files.",
-    group: "Finance",
+    group: "Operations",
     roles: FINANCE_ROLE_KEYS,
     sidebarIcon: "BI",
     cardIcon: "🏦",
@@ -487,11 +484,42 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     label: "Settlements",
     href: "/erp/finance/settlements",
     description: "Reconcile Amazon settlements through Indifi to bank credits.",
-    group: "Finance",
+    group: "Operations",
     sidebarIcon: "ST",
     cardIcon: "🧾",
-    showInSidebar: false,
+    showInSidebar: true,
     showInCards: true,
+  },
+  {
+    id: "finance-loan-settings",
+    label: "Loan Settings",
+    href: "/erp/finance/settings/loan-posting",
+    description: "Configure account mappings for finance loan posting entries.",
+    group: "Finance Settings",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "LN",
+    cardIcon: "⚙️",
+    showInSidebar: true,
+    showInCards: false,
+  },
+];
+
+const FINANCE_GROUP_ORDER = [
+  "Dashboard",
+  "Operations",
+  "Control",
+  "Compliance",
+  "Reports",
+  "Finance Settings",
+  "Settings",
+];
+
+const GLOBAL_SETTINGS_ITEMS: FinanceGlobalSettingsItem[] = [
+  {
+    label: "Finance Settings",
+    href: "/erp/finance/settings",
+    icon: "FI",
+    roles: FINANCE_ROLE_KEYS,
   },
 ];
 
@@ -513,6 +541,25 @@ export const getFinanceNavGroups = (roleKey?: string | null): FinanceNavGroup[] 
     }
     target.items.push({ label: item.label, href: item.href, icon: item.sidebarIcon });
   });
+
+  const globalSettings = GLOBAL_SETTINGS_ITEMS.filter(
+    (item) => !item.roles || Boolean(roleKey && item.roles.includes(roleKey))
+  );
+
+  if (globalSettings.length > 0) {
+    groups.push({
+      label: "Settings",
+      items: globalSettings.map((item) => ({
+        label: item.disabled ? `${item.label} (Coming soon)` : item.label,
+        href: item.href ?? "#",
+        icon: item.icon,
+      })),
+    });
+  }
+
+  groups.sort(
+    (a, b) => FINANCE_GROUP_ORDER.indexOf(a.label) - FINANCE_GROUP_ORDER.indexOf(b.label)
+  );
 
   return groups;
 };
