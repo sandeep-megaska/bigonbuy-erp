@@ -131,6 +131,31 @@ type SuggestionRow = {
   payout_date?: string | null;
 };
 
+type LoanOption = { id: string; lender_name: string | null; loan_ref: string | null; emi_amount: number | null };
+
+type LoanRepaymentSuggestion = {
+  bank_txn_id: string;
+  txn_date: string | null;
+  description: string | null;
+  amount: number;
+  loan_id: string | null;
+  confidence: "high" | "medium" | "low";
+  score: number;
+  reason: string | null;
+};
+
+type LoanPaymentEvent = {
+  id: string;
+  bank_txn_id: string;
+  loan_id: string;
+  amount: number;
+  event_date: string;
+  principal_amount: number | null;
+  interest_amount: number | null;
+  status: string;
+  posted_journal_id: string | null;
+};
+
 const defaultSummary: ReconSummary = {
   counters: {
     bank_unmatched_count: 0,
@@ -183,6 +208,13 @@ export default function FinanceReconDashboardPage() {
   const [stubSuggestions, setStubSuggestions] = useState<Array<{ source: string; message: string }>>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
+  const [loanSuggestions, setLoanSuggestions] = useState<LoanRepaymentSuggestion[]>([]);
+  const [loanSuggestionsError, setLoanSuggestionsError] = useState<string | null>(null);
+  const [loanOptions, setLoanOptions] = useState<LoanOption[]>([]);
+  const [loanEvents, setLoanEvents] = useState<LoanPaymentEvent[]>([]);
+  const [loanMatchModal, setLoanMatchModal] = useState<{ open: boolean; row?: LoanRepaymentSuggestion }>({ open: false });
+  const [selectedLoanId, setSelectedLoanId] = useState<string>("");
+  const [previewByEventId, setPreviewByEventId] = useState<Record<string, any>>({});
 
   useEffect(() => {
     let active = true;
@@ -268,6 +300,49 @@ export default function FinanceReconDashboardPage() {
     }));
   };
 
+
+  const loadLoanRepaymentData = async (range?: { fromDate?: string; toDate?: string }) => {
+    const effectiveFrom = range?.fromDate ?? fromDate;
+    const effectiveTo = range?.toDate ?? toDate;
+
+    try {
+      const suggestResponse = await apiFetch(
+        `/api/erp/finance/loans/repayments/suggest?from=${effectiveFrom}&to=${effectiveTo}&limit=100&offset=0`,
+        { method: "GET", headers: getAuthHeaders() }
+      );
+      const suggestPayload = await suggestResponse.json();
+      if (!suggestResponse.ok || !suggestPayload?.ok) {
+        throw new Error(suggestPayload?.error || "Failed to load loan repayment suggestions.");
+      }
+      setLoanSuggestions((suggestPayload.data || []) as LoanRepaymentSuggestion[]);
+      setLoanSuggestionsError(null);
+    } catch (err) {
+      setLoanSuggestions([]);
+      setLoanSuggestionsError(err instanceof Error ? err.message : "Failed to load loan repayment suggestions.");
+    }
+
+    const { data: loansData } = await supabase
+      .from("erp_loans")
+      .select("id,lender_name,loan_ref,emi_amount")
+      .eq("company_id", ctx?.companyId)
+      .eq("is_void", false)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    setLoanOptions((loansData || []) as LoanOption[]);
+
+    const { data: eventRows } = await supabase
+      .from("erp_loan_payment_events")
+      .select("id,bank_txn_id:source_id,loan_id,amount,event_date,principal_amount,interest_amount,status,posted_journal_id")
+      .eq("source_type", "bank_txn")
+      .eq("is_void", false)
+      .gte("event_date", effectiveFrom)
+      .lte("event_date", effectiveTo)
+      .order("event_date", { ascending: false })
+      .limit(200);
+
+    setLoanEvents((eventRows || []) as LoanPaymentEvent[]);
+  };
+
   const loadSummary = async (overrides?: {
     fromDate?: string;
     toDate?: string;
@@ -305,6 +380,7 @@ export default function FinanceReconDashboardPage() {
     } catch (payoutError) {
       setToast({ type: "error", message: payoutError instanceof Error ? payoutError.message : "Failed to load payout data." });
     }
+    await loadLoanRepaymentData({ fromDate: effectiveFrom, toDate: effectiveTo });
     setIsLoadingData(false);
   };
 
@@ -441,6 +517,74 @@ export default function FinanceReconDashboardPage() {
       await loadSummary();
     } catch (e) {
       setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to unmatch payout." });
+    } finally {
+      setIsSubmittingMatch(false);
+    }
+  };
+
+
+  const eventByBankTxnId = useMemo(() => {
+    const map = new Map<string, LoanPaymentEvent>();
+    for (const row of loanEvents) map.set(row.bank_txn_id, row);
+    return map;
+  }, [loanEvents]);
+
+  const saveLoanSplit = async (eventId: string, principalAmount: number, interestAmount: number) => {
+    const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ principal_amount: principalAmount, interest_amount: interestAmount }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to save split.");
+    await loadSummary();
+  };
+
+  const createLoanRepaymentEvent = async () => {
+    if (!loanMatchModal.row?.bank_txn_id || !selectedLoanId) return;
+    setIsSubmittingMatch(true);
+    try {
+      const response = await apiFetch("/api/erp/finance/loans/repayments/from-bank", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ bank_txn_id: loanMatchModal.row.bank_txn_id, loan_id: selectedLoanId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to create repayment event.");
+      setToast({ type: "success", message: "Loan repayment event created and matched." });
+      setLoanMatchModal({ open: false });
+      setSelectedLoanId("");
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to create repayment event." });
+    } finally {
+      setIsSubmittingMatch(false);
+    }
+  };
+
+  const previewLoanEvent = async (eventId: string) => {
+    const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}/preview`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to preview posting.");
+    setPreviewByEventId((prev) => ({ ...prev, [eventId]: payload.data }));
+  };
+
+  const postLoanEvent = async (eventId: string) => {
+    setIsSubmittingMatch(true);
+    try {
+      const response = await apiFetch(`/api/erp/finance/loans/repayments/${eventId}/post`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to post loan repayment.");
+      setToast({ type: "success", message: `Posted: ${payload.data?.journal_no || payload.data?.journal_id || "journal created"}` });
+      await loadSummary();
+    } catch (e) {
+      setToast({ type: "error", message: e instanceof Error ? e.message : "Failed to post loan repayment." });
     } finally {
       setIsSubmittingMatch(false);
     }
@@ -914,6 +1058,106 @@ export default function FinanceReconDashboardPage() {
           </div>
         </section>
 
+
+        <section style={cardStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={sectionTitleStyle}>Loan Repayments</h2>
+              <p style={subtitleStyle}>Suggested EMI/loan debits, split capture, and finance posting.</p>
+            </div>
+            <span style={badgeStyle}>{loanSuggestions.length} suggestions</span>
+          </div>
+          {loanSuggestionsError ? (
+            <div style={{ ...cardStyle, borderColor: "#fecaca", backgroundColor: "#fff1f2", color: "#b91c1c", marginBottom: 12 }}>
+              {loanSuggestionsError}
+            </div>
+          ) : null}
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Date</th>
+                  <th style={tableHeaderCellStyle}>Description</th>
+                  <th style={tableHeaderCellStyle}>Amount</th>
+                  <th style={tableHeaderCellStyle}>Suggestion</th>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loanSuggestions.length === 0 ? (
+                  <tr><td style={tableCellStyle} colSpan={6}>No loan repayment suggestions found.</td></tr>
+                ) : (
+                  loanSuggestions.map((row) => {
+                    const event = eventByBankTxnId.get(row.bank_txn_id);
+                    const splitOk = event && Math.abs(Number(event.principal_amount || 0) + Number(event.interest_amount || 0) - Number(event.amount || 0)) <= 0.01;
+                    return (
+                      <tr key={row.bank_txn_id}>
+                        <td style={tableCellStyle}>{formatDate(row.txn_date)}</td>
+                        <td style={tableCellStyle}>{row.description || "—"}</td>
+                        <td style={tableCellStyle}>{formatAmount(row.amount)}</td>
+                        <td style={tableCellStyle}>loan: {row.loan_id || "—"} · {row.confidence} ({row.score})</td>
+                        <td style={tableCellStyle}>
+                          {!event ? "unmatched" : event.posted_journal_id ? "posted" : splitOk ? "ready to post" : "split missing"}
+                        </td>
+                        <td style={tableCellStyle}>
+                          {!event ? (
+                            <button
+                              type="button"
+                              style={secondaryButtonStyle}
+                              onClick={() => {
+                                setSelectedLoanId(row.loan_id || "");
+                                setLoanMatchModal({ open: true, row });
+                              }}
+                            >
+                              Match to loan
+                            </button>
+                          ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <input
+                                  style={{ ...inputStyle, width: 120 }}
+                                  type="number"
+                                  step="0.01"
+                                  defaultValue={String(event.principal_amount ?? "")}
+                                  placeholder="Principal"
+                                  onBlur={(e) => void saveLoanSplit(event.id, Number(e.currentTarget.value || 0), Number(event.interest_amount || 0))}
+                                />
+                                <input
+                                  style={{ ...inputStyle, width: 120 }}
+                                  type="number"
+                                  step="0.01"
+                                  defaultValue={String(event.interest_amount ?? "")}
+                                  placeholder="Interest"
+                                  onBlur={(e) => void saveLoanSplit(event.id, Number(event.principal_amount || 0), Number(e.currentTarget.value || 0))}
+                                />
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button type="button" style={secondaryButtonStyle} onClick={() => void previewLoanEvent(event.id)}>Preview</button>
+                                <button
+                                  type="button"
+                                  style={primaryButtonStyle}
+                                  onClick={() => void postLoanEvent(event.id)}
+                                  disabled={Boolean(event.posted_journal_id) || isSubmittingMatch}
+                                >
+                                  Post
+                                </button>
+                              </div>
+                              {previewByEventId[event.id] ? (
+                                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{JSON.stringify(previewByEventId[event.id], null, 2)}</pre>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section style={cardStyle}>
           <div style={sectionHeaderStyle}>
             <div>
@@ -971,6 +1215,30 @@ export default function FinanceReconDashboardPage() {
             </table>
           </div>
         </section>
+
+
+        {loanMatchModal.open && loanMatchModal.row ? (
+          <section style={modalOverlayStyle}>
+            <div style={modalCardStyle}>
+              <h3 style={{ marginTop: 0 }}>Match loan repayment</h3>
+              <p style={subtitleStyle}>{loanMatchModal.row.description || "Select loan"}</p>
+              <select value={selectedLoanId} style={inputStyle} onChange={(e) => setSelectedLoanId(e.target.value)}>
+                <option value="">Select loan</option>
+                {loanOptions.map((loan) => (
+                  <option key={loan.id} value={loan.id}>
+                    {(loan.loan_ref || loan.lender_name || loan.id)} {loan.emi_amount ? `· EMI ${formatAmount(loan.emi_amount)}` : ""}
+                  </option>
+                ))}
+              </select>
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <button type="button" style={primaryButtonStyle} onClick={() => void createLoanRepaymentEvent()} disabled={!selectedLoanId || isSubmittingMatch}>
+                  Confirm Match
+                </button>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setLoanMatchModal({ open: false })}>Close</button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {payoutModal.open && payoutModal.event ? (
           <section style={modalOverlayStyle}>
