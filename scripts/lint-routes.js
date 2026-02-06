@@ -7,8 +7,7 @@ const { resolve } = require('node:path');
 const repoRoot = process.cwd();
 const selfPath = 'scripts/lint-routes.js';
 
-const forbiddenApiSegment = `/api/${'erp'}/`;
-const forbiddenPathSegments = [`pages/api/${'erp'}/`, `app/api/${'erp'}/`];
+const forbiddenStrings = ['/api/erp/', 'pages/api/erp/', 'app/api/erp/'];
 
 const ignoredExtensions = new Set(['.md', '.mdx', '.txt']);
 const ignoredPrefixes = ['docs/', 'public/'];
@@ -45,9 +44,9 @@ const violations = [];
 for (const file of files) {
   if (shouldIgnore(file)) continue;
 
-  for (const forbiddenPath of forbiddenPathSegments) {
-    if (file.includes(forbiddenPath)) {
-      violations.push({ file, reason: `forbidden route file path contains "${forbiddenPath}"` });
+  for (const forbiddenString of forbiddenStrings) {
+    if (file.includes(forbiddenString)) {
+      violations.push({ file, reason: `forbidden path contains "${forbiddenString}"` });
     }
   }
 
@@ -59,9 +58,11 @@ for (const file of files) {
     continue;
   }
 
-  const lines = lineNumbersWithNeedle(content, forbiddenApiSegment);
-  for (const line of lines) {
-    violations.push({ file, reason: `forbidden route string "${forbiddenApiSegment}" on line ${line}` });
+  for (const forbiddenString of forbiddenStrings) {
+    const lines = lineNumbersWithNeedle(content, forbiddenString);
+    for (const line of lines) {
+      violations.push({ file, reason: `forbidden string "${forbiddenString}" on line ${line}` });
+    }
   }
 }
 
