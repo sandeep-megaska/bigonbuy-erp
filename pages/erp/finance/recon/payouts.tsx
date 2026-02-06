@@ -117,7 +117,7 @@ export default function PayoutReconPage() {
   return (
     <ErpShell>
       <div style={pageContainerStyle}>
-        <ErpPageHeader title="Payout Reconciliation" subtitle="Unified payout events for Amazon and Razorpay" />
+        <ErpPageHeader title="Payout Reconciliation" description="Unified payout events for Amazon and Razorpay" />
         <div style={{ ...cardStyle, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
           <div><label>From</label><input style={inputStyle} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></div>
           <div><label>To</label><input style={inputStyle} type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></div>
