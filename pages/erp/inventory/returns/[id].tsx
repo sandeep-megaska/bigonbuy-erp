@@ -20,6 +20,7 @@ import { getCompanyContext, isInventoryWriter, requireAuthRedirectHome } from ".
 import { supabase } from "../../../../lib/supabaseClient";
 import type { VariantSearchResult } from "../../../../components/inventory/VariantTypeahead";
 import { resolveVariantBySku } from "../../../../components/inventory/variantLookup";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 
 type CompanyContext = {
   companyId: string | null;
@@ -42,6 +43,9 @@ type ReturnHeader = {
   reference: string | null;
   notes: string | null;
   posted_at: string | null;
+  party_type: "vendor" | "customer" | null;
+  party_id: string | null;
+  party_name: string | null;
 };
 
 type ReturnLineRow = {
@@ -84,6 +88,7 @@ export default function ReturnReceiptDetailPage() {
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [creatingNote, setCreatingNote] = useState(false);
 
   const canWrite = useMemo(() => (ctx ? isInventoryWriter(ctx.roleKey) : false), [ctx]);
   const isDraft = receipt?.status === "draft";
@@ -131,7 +136,7 @@ export default function ReturnReceiptDetailPage() {
     const [receiptRes, lineRes, warehouseRes] = await Promise.all([
       supabase
         .from("erp_return_receipts")
-        .select("id, status, warehouse_id, receipt_date, receipt_type, reference, notes, posted_at")
+        .select("id, status, warehouse_id, receipt_date, receipt_type, reference, notes, posted_at, party_type, party_id, party_name")
         .eq("company_id", companyId)
         .eq("id", receiptId)
         .single(),
@@ -295,6 +300,16 @@ export default function ReturnReceiptDetailPage() {
       return;
     }
 
+    await supabase
+      .from("erp_return_receipts")
+      .update({
+        party_type: receipt.party_type,
+        party_id: receipt.party_id,
+        party_name: receipt.party_name,
+      })
+      .eq("id", receipt.id)
+      .eq("company_id", ctx.companyId);
+
     setNotice("Draft saved.");
     setSaving(false);
     await loadReceipt(ctx.companyId, receipt.id, true);
@@ -349,6 +364,16 @@ export default function ReturnReceiptDetailPage() {
       return;
     }
 
+    await supabase
+      .from("erp_return_receipts")
+      .update({
+        party_type: receipt.party_type,
+        party_id: receipt.party_id,
+        party_name: receipt.party_name,
+      })
+      .eq("id", receipt.id)
+      .eq("company_id", ctx.companyId);
+
     const { data, error: postError } = await supabase.rpc("erp_return_receipt_post", {
       p_receipt_id: receipt.id,
     });
@@ -377,6 +402,45 @@ export default function ReturnReceiptDetailPage() {
     },
     []
   );
+
+  const handleCreateFinanceNote = useCallback(async () => {
+    if (!ctx?.companyId || !receipt) return;
+    const accessToken = (await supabase.auth.getSession()).data.session?.access_token || null;
+    if (!accessToken) {
+      setError("Not authenticated.");
+      return;
+    }
+
+    setCreatingNote(true);
+    setError(null);
+    const partyType = receipt.party_type || (receipt.receipt_type === "return" || receipt.receipt_type === "rto" ? "customer" : "vendor");
+    const noteKind = partyType === "vendor" ? "debit" : "credit";
+
+    const response = await apiFetch("/api/finance/notes/from-return-receipt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        companyId: ctx.companyId,
+        returnReceiptId: receipt.id,
+        partyType,
+        noteKind,
+        reason: receipt.notes,
+      }),
+    });
+
+    const payload = (await response.json()) as { ok: true; noteId: string } | { ok: false; error: string };
+    if (!payload.ok) {
+      setCreatingNote(false);
+      setError(payload.error || "Failed to create finance note.");
+      return;
+    }
+
+    setCreatingNote(false);
+    router.push(`/erp/finance/notes/${payload.noteId}`);
+  }, [ctx?.companyId, receipt, router]);
 
   if (loading) {
     return (
@@ -458,6 +522,29 @@ export default function ReturnReceiptDetailPage() {
                 disabled={!isDraft}
               />
             </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              Party Type
+              <select
+                style={inputStyle}
+                value={receipt.party_type ?? ""}
+                onChange={(event) => updateHeader({ party_type: (event.target.value || null) as "vendor" | "customer" | null })}
+                disabled={!isDraft}
+              >
+                <option value="">Select</option>
+                <option value="customer">Customer</option>
+                <option value="vendor">Vendor</option>
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              Party Name
+              <input
+                style={inputStyle}
+                value={receipt.party_name ?? ""}
+                onChange={(event) => updateHeader({ party_name: event.target.value || null })}
+                placeholder="Customer / Vendor"
+                disabled={!isDraft}
+              />
+            </label>
           </div>
           <label style={{ display: "grid", gap: 6, marginTop: 16 }}>
             Notes
@@ -506,6 +593,13 @@ export default function ReturnReceiptDetailPage() {
             disabled={!canWrite || !isDraft || posting}
           >
             {posting ? "Posting…" : "Post Receipt"}
+          </button>
+          <button type="button" style={secondaryButtonStyle} onClick={handleCreateFinanceNote} disabled={creatingNote}>
+            {creatingNote
+              ? "Creating…"
+              : receipt.receipt_type === "return" || receipt.receipt_type === "rto"
+                ? "Create Customer Credit Note"
+                : "Create Vendor Debit Note"}
           </button>
         </div>
       </div>
