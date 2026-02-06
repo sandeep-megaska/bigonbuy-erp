@@ -16,13 +16,13 @@ import {
 } from "../../../../components/erp/uiStyles";
 import { noteListResponseSchema, type NoteListRow } from "../../../../lib/erp/notes";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
-import { supabase } from "../../../../lib/supabaseClient";
 
 type CompanyContext = {
   companyId: string | null;
   roleKey: string | null;
   membershipError: string | null;
   email: string | null;
+  session?: { access_token?: string | null } | null;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -84,6 +84,7 @@ export default function NotesListPage() {
       await loadNotes({
         initialFrom: startOfMonth(),
         initialTo: today(),
+        accessToken: context.session?.access_token || null,
       });
       if (active) setLoading(false);
     })();
@@ -93,57 +94,87 @@ export default function NotesListPage() {
     };
   }, [router.isReady]);
 
-  const loadNotes = async (overrides?: { initialFrom?: string; initialTo?: string }) => {
+  const loadNotes = async (overrides?: { initialFrom?: string; initialTo?: string; accessToken?: string | null }) => {
     setIsLoading(true);
     setError(null);
 
     const effectiveFrom = overrides?.initialFrom ?? fromDate;
     const effectiveTo = overrides?.initialTo ?? toDate;
 
-    const { data, error: listError } = await supabase.rpc("erp_notes_list", {
-      p_party_type: partyType || null,
-      p_note_kind: noteKind || null,
-      p_status: status || null,
-      p_from: effectiveFrom || null,
-      p_to: effectiveTo || null,
-      p_doc_no: docNoQuery || null,
-      p_limit: 200,
-      p_offset: 0,
-    });
+    try {
+      const token = overrides?.accessToken ?? ctx?.session?.access_token;
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/erp_notes_list`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          p_party_type: partyType || null,
+          p_note_kind: noteKind || null,
+          p_status: status || null,
+          p_from: effectiveFrom || null,
+          p_to: effectiveTo || null,
+          p_doc_no: docNoQuery || null,
+          p_limit: 200,
+          p_offset: 0,
+        }),
+      });
 
-    if (listError) {
-      setError(listError.message);
-      setIsLoading(false);
-      return;
+      const responseText = await response.text();
+      let payload: unknown = null;
+      try {
+        payload = responseText ? JSON.parse(responseText) : null;
+      } catch {
+        throw new Error(
+          `Failed to load note list (HTTP ${response.status}). Response: ${responseText.slice(0, 500) || "<empty>"}`
+        );
+      }
+
+      if (!response.ok) {
+        const message =
+          payload && typeof payload === "object"
+            ? (payload as { error?: string; message?: string }).error ||
+              (payload as { error?: string; message?: string }).message
+            : null;
+        throw new Error(message || `Failed to load note list (HTTP ${response.status}).`);
+      }
+
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const payloadError = (payload as { error?: string; message?: string }).error ||
+          (payload as { error?: string; message?: string }).message;
+        if (payloadError) {
+          setError(payloadError);
+          setNotes([]);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const rows = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object" && Array.isArray((payload as { rows?: unknown[] }).rows)
+          ? (payload as { rows: unknown[] }).rows
+          : payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown[] }).data)
+            ? (payload as { data: unknown[] }).data
+            : [];
+
+      const parsed = noteListResponseSchema.safeParse(rows);
+      if (!parsed.success) {
+        const payloadMessage =
+          payload && typeof payload === "object"
+            ? (payload as { message?: string; error?: string }).message ||
+              (payload as { message?: string; error?: string }).error
+            : null;
+        throw new Error(payloadMessage || "Failed to parse note list response rows.");
+      }
+
+      setNotes(parsed.data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load note list.");
+      setNotes([]);
     }
-
-    const payload = data as
-      | NoteListRow[]
-      | { rows?: NoteListRow[]; data?: NoteListRow[]; error?: string | null }
-      | null;
-
-    if (payload && typeof payload === "object" && !Array.isArray(payload) && payload.error) {
-      setError(payload.error || "Failed to load note list.");
-      setIsLoading(false);
-      return;
-    }
-
-    const rows = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.rows)
-        ? payload.rows
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : [];
-
-    const parsed = noteListResponseSchema.safeParse(rows);
-    if (!parsed.success) {
-      setError("Failed to parse note list response.");
-      setIsLoading(false);
-      return;
-    }
-
-    setNotes(parsed.data);
     setIsLoading(false);
   };
 
