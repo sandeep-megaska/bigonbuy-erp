@@ -118,6 +118,7 @@ export default function HrEmployeesPage() {
     employee_code: "",
     is_active: true,
     join_date: "",
+    dob: "",
     employment_type: "",
     title_id: "",
     gender_id: "",
@@ -240,6 +241,7 @@ useEffect(() => {
       employee_code: "",
       is_active: true,
       join_date: "",
+      dob: "",
       employment_type: "",
       title_id: "",
       gender_id: "",
@@ -258,6 +260,7 @@ useEffect(() => {
       employee_code: employee.employee_code || "",
       is_active: employee.is_active ?? true,
       join_date: employee.joining_date ? employee.joining_date.split("T")[0] : "",
+      dob: employee.dob ? employee.dob.split("T")[0] : "",
       employment_type: employee.employment_type || "",
       title_id: employee.title_id || "",
       gender_id: employee.gender_id || "",
@@ -269,13 +272,14 @@ useEffect(() => {
     try {
       const { data, error } = await supabase
         .from("erp_employees")
-        .select("joining_date, employment_type, title_id, gender_id")
+        .select("joining_date, dob, employment_type, title_id, gender_id")
         .eq("id", employee.id)
         .single();
       if (error || !data) return;
       setEmployeeForm((prev) => ({
         ...prev,
         join_date: data.joining_date ? data.joining_date.split("T")[0] : prev.join_date,
+        dob: data.dob ? data.dob.split("T")[0] : "",
         employment_type: data.employment_type || prev.employment_type,
         title_id: data.title_id || "",
         gender_id: data.gender_id || "",
@@ -335,6 +339,14 @@ useEffect(() => {
       });
       if (joinDateError) {
         setError(joinDateError.message || "Employee saved, but profile update failed.");
+      } else {
+        const { error: dobError } = await supabase
+          .from("erp_employees")
+          .update({ dob: employeeForm.dob || null })
+          .eq("id", employeeId);
+        if (dobError) {
+          setError(dobError.message || "Employee saved, but date of birth update failed.");
+        }
       }
     }
     if (employeeId && accessToken) {
@@ -674,6 +686,15 @@ useEffect(() => {
                   type="date"
                   value={employeeForm.join_date}
                   onChange={(event) => setEmployeeForm({ ...employeeForm, join_date: event.target.value })}
+                  style={inputStyle}
+                />
+              </label>
+              <label style={labelStyle}>
+                Date of Birth
+                <input
+                  type="date"
+                  value={employeeForm.dob}
+                  onChange={(event) => setEmployeeForm({ ...employeeForm, dob: event.target.value })}
                   style={inputStyle}
                 />
               </label>

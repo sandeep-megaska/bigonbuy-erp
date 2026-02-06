@@ -990,6 +990,7 @@ export default function EmployeeProfilePage() {
             <OverviewItem label="Employment Type" value={overviewEmploymentType} />
             <OverviewItem label="Lifecycle" value={employee.lifecycle_status || "preboarding"} />
             <OverviewItem label="Joining Date" value={formatDate(employee.joining_date)} />
+            <OverviewItem label="Date of Birth" value={formatDate(employee.dob)} />
           </div>
         </div>
       ) : null}
