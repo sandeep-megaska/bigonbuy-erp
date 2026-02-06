@@ -89,6 +89,8 @@ type ReconCounters = {
   invoices_outstanding_total: number;
   payments_unallocated_total: number;
   payouts_unmatched_count?: number;
+  payouts_suggested_count?: number;
+  payouts_matched_count?: number;
   bank_credit_unmatched_count?: number;
 };
 
@@ -307,6 +309,33 @@ export default function FinanceReconDashboardPage() {
   };
 
 
+
+  const loadPayoutEventSummary = async (range?: { fromDate?: string; toDate?: string }) => {
+    const effectiveFrom = range?.fromDate ?? fromDate;
+    const effectiveTo = range?.toDate ?? toDate;
+    const response = await apiFetch(`/api/finance/recon/payout-events?from=${effectiveFrom}&to=${effectiveTo}`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Failed to load payout event summary.");
+
+    const rows = (payload.data || []) as Array<{ status?: string }>;
+    const unmatched = rows.filter((row) => row.status === "unmatched").length;
+    const suggested = rows.filter((row) => row.status === "suggested").length;
+    const matched = rows.filter((row) => row.status === "matched").length;
+
+    setSummary((prev) => ({
+      ...prev,
+      counters: {
+        ...prev.counters,
+        payouts_unmatched_count: unmatched,
+        payouts_suggested_count: suggested,
+        payouts_matched_count: matched,
+      },
+    }));
+  };
+
   const loadLoanRepaymentData = async (range?: { fromDate?: string; toDate?: string }) => {
     const effectiveFrom = range?.fromDate ?? fromDate;
     const effectiveTo = range?.toDate ?? toDate;
@@ -412,6 +441,7 @@ export default function FinanceReconDashboardPage() {
     setSummary((data as ReconSummary) || defaultSummary);
     try {
       await loadPayoutData({ fromDate: effectiveFrom, toDate: effectiveTo });
+      await loadPayoutEventSummary({ fromDate: effectiveFrom, toDate: effectiveTo });
     } catch (payoutError) {
       setToast({ type: "error", message: payoutError instanceof Error ? payoutError.message : "Failed to load payout data." });
     }
@@ -731,6 +761,17 @@ export default function FinanceReconDashboardPage() {
           </section>
         )}
 
+
+        <section style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h2 style={sectionTitleStyle}>Unified Payout Recon</h2>
+              <p style={subtitleStyle}>Use the dedicated payout events workspace for imports and suggestions.</p>
+            </div>
+            <Link href="/erp/finance/recon/payouts" style={primaryButtonStyle as any}>Open payout recon</Link>
+          </div>
+        </section>
+
         <section style={summaryGridStyle}>
           <div style={summaryCardStyle}>
             <div style={summaryLabelStyle}>Bank Unmatched</div>
@@ -759,7 +800,17 @@ export default function FinanceReconDashboardPage() {
           <div style={summaryCardStyle}>
             <div style={summaryLabelStyle}>Payouts Unmatched</div>
             <div style={summaryValueStyle}>{summary.counters.payouts_unmatched_count || 0}</div>
-            <div style={summaryHintStyle}>Amazon + Razorpay payout events pending bank match</div>
+            <div style={summaryHintStyle}>Unified payout events pending bank match</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Payouts Suggested</div>
+            <div style={summaryValueStyle}>{summary.counters.payouts_suggested_count || 0}</div>
+            <div style={summaryHintStyle}>Ready for quick reviewer linking</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Payouts Matched</div>
+            <div style={summaryValueStyle}>{summary.counters.payouts_matched_count || 0}</div>
+            <div style={summaryHintStyle}>Linked to bank transactions</div>
           </div>
           <div style={summaryCardStyle}>
             <div style={summaryLabelStyle}>Bank Credits Unmatched (Payout candidates)</div>
