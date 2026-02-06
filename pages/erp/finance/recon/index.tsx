@@ -146,14 +146,18 @@ type LoanRepaymentSuggestion = {
 
 type LoanPaymentEvent = {
   id: string;
-  bank_txn_id: string;
   loan_id: string;
   amount: number;
   event_date: string;
-  principal_amount: number | null;
-  interest_amount: number | null;
+  expected_due_date: string | null;
   status: string;
-  posted_journal_id: string | null;
+  match_score: number | null;
+  matched_bank_transaction_id: string | null;
+  source: string;
+  bank_txn_id?: string;
+  principal_amount?: number | null;
+  interest_amount?: number | null;
+  posted_journal_id?: string | null;
 };
 
 const defaultSummary: ReconSummary = {
@@ -212,6 +216,7 @@ export default function FinanceReconDashboardPage() {
   const [loanSuggestionsError, setLoanSuggestionsError] = useState<string | null>(null);
   const [loanOptions, setLoanOptions] = useState<LoanOption[]>([]);
   const [loanEvents, setLoanEvents] = useState<LoanPaymentEvent[]>([]);
+  const [loanOverdueCount, setLoanOverdueCount] = useState(0);
   const [loanMatchModal, setLoanMatchModal] = useState<{ open: boolean; row?: LoanRepaymentSuggestion }>({ open: false });
   const [selectedLoanId, setSelectedLoanId] = useState<string>("");
   const [previewByEventId, setPreviewByEventId] = useState<Record<string, any>>({});
@@ -306,15 +311,36 @@ export default function FinanceReconDashboardPage() {
     const effectiveTo = range?.toDate ?? toDate;
 
     try {
-      const suggestResponse = await apiFetch(
-        `/api/finance/loans/repayments/suggest?from=${effectiveFrom}&to=${effectiveTo}&limit=100&offset=0`,
-        { method: "GET", headers: getAuthHeaders() }
-      );
+      const suggestResponse = await apiFetch("/api/finance/loans/repayments/run-suggestions", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ company_id: ctx?.companyId, from: effectiveFrom, to: effectiveTo }),
+      });
       const suggestPayload = await suggestResponse.json();
       if (!suggestResponse.ok || !suggestPayload?.ok) {
-        throw new Error(suggestPayload?.error || "Failed to load loan repayment suggestions.");
+        throw new Error(suggestPayload?.error || "Failed to run loan repayment suggestions.");
       }
-      setLoanSuggestions((suggestPayload.data || []) as LoanRepaymentSuggestion[]);
+      const eventsResponse = await apiFetch(
+        `/api/finance/loans/repayments/events?company_id=${ctx?.companyId}&from=${effectiveFrom}&to=${effectiveTo}&status=suggested`,
+        { method: "GET", headers: getAuthHeaders() }
+      );
+      const eventsPayload = await eventsResponse.json();
+      if (!eventsResponse.ok || !eventsPayload?.ok) {
+        throw new Error(eventsPayload?.error || "Failed to load loan repayment suggestions.");
+      }
+      const suggestedEvents = (eventsPayload.data || []) as LoanPaymentEvent[];
+      setLoanSuggestions(
+        suggestedEvents.map((row) => ({
+          bank_txn_id: row.matched_bank_transaction_id || "",
+          txn_date: row.event_date,
+          description: row.source,
+          amount: Number(row.amount || 0),
+          loan_id: row.loan_id,
+          confidence: "medium",
+          score: Number(row.match_score || 0),
+          reason: row.notes || null,
+        }))
+      );
       setLoanSuggestionsError(null);
     } catch (err) {
       setLoanSuggestions([]);
@@ -330,17 +356,25 @@ export default function FinanceReconDashboardPage() {
       .limit(200);
     setLoanOptions((loansData || []) as LoanOption[]);
 
-    const { data: eventRows } = await supabase
-      .from("erp_loan_payment_events")
-      .select("id,bank_txn_id:source_id,loan_id,amount,event_date,principal_amount,interest_amount,status,posted_journal_id")
-      .eq("source_type", "bank_txn")
-      .eq("is_void", false)
-      .gte("event_date", effectiveFrom)
-      .lte("event_date", effectiveTo)
-      .order("event_date", { ascending: false })
-      .limit(200);
+    const eventsRes = await apiFetch(
+      `/api/finance/loans/repayments/events?company_id=${ctx?.companyId}&from=${effectiveFrom}&to=${effectiveTo}`,
+      { method: "GET", headers: getAuthHeaders() }
+    );
+    const eventsPayload = await eventsRes.json();
+    if (!eventsRes.ok || !eventsPayload?.ok) {
+      setLoanEvents([]);
+    } else {
+      setLoanEvents((eventsPayload.data || []) as LoanPaymentEvent[]);
+    }
 
-    setLoanEvents((eventRows || []) as LoanPaymentEvent[]);
+    const { count: overdueCount } = await supabase
+      .from("erp_loan_schedules")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", ctx?.companyId)
+      .eq("status", "due")
+      .lt("due_date", new Date().toISOString().slice(0, 10))
+      .eq("is_void", false);
+    setLoanOverdueCount(overdueCount || 0);
   };
 
   const loadSummary = async (overrides?: {
@@ -416,6 +450,9 @@ export default function FinanceReconDashboardPage() {
   const handleRowNavigate = (href: string) => {
     router.push(href);
   };
+
+  const loanSuggestedCount = loanEvents.filter((row) => row.status === "suggested").length;
+  const loanMatchedNotPostedCount = loanEvents.filter((row) => row.status === "matched").length;
 
   const loadPayoutSuggestions = async (event: PayoutEvent) => {
     setIsLoadingSuggestions(true);
@@ -525,7 +562,10 @@ export default function FinanceReconDashboardPage() {
 
   const eventByBankTxnId = useMemo(() => {
     const map = new Map<string, LoanPaymentEvent>();
-    for (const row of loanEvents) map.set(row.bank_txn_id, row);
+    for (const row of loanEvents) {
+      const key = row.bank_txn_id || row.matched_bank_transaction_id || "";
+      if (key) map.set(key, row);
+    }
     return map;
   }, [loanEvents]);
 
@@ -724,6 +764,21 @@ export default function FinanceReconDashboardPage() {
             <div style={summaryLabelStyle}>Bank Credits Unmatched (Payout candidates)</div>
             <div style={summaryValueStyle}>{summary.counters.bank_credit_unmatched_count || 0}</div>
             <div style={summaryHintStyle}>Credits likely to be payout inflows</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Loan EMIs Overdue</div>
+            <div style={summaryValueStyle}>{loanOverdueCount}</div>
+            <div style={summaryHintStyle}>Due schedule lines pending repayment</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Loan Suggestions</div>
+            <div style={summaryValueStyle}>{loanSuggestedCount}</div>
+            <div style={summaryHintStyle}>Repayments pending bank linking</div>
+          </div>
+          <div style={summaryCardStyle}>
+            <div style={summaryLabelStyle}>Loan Matched Not Posted</div>
+            <div style={summaryValueStyle}>{loanMatchedNotPostedCount}</div>
+            <div style={summaryHintStyle}>Matched events awaiting posting</div>
           </div>
         </section>
 

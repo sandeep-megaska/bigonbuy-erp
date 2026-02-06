@@ -5,6 +5,7 @@ import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { cardStyle, inputStyle, pageContainerStyle, secondaryButtonStyle, tableCellStyle, tableHeaderCellStyle, tableStyle } from "../../../../components/erp/uiStyles";
 import { requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { apiFetch } from "../../../../lib/erp/apiFetch";
 import LoanForm, { LoanFormErrors, LoanFormValues, LOAN_TYPE_OPTIONS, upsertCustomTypeNote, validateLoanForm } from "../../../../components/finance/LoanForm";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -20,6 +21,26 @@ type ScheduleRow = {
   notes: string | null;
   journal_id: string | null;
   journal_no: string | null;
+};
+
+type RepaymentEvent = {
+  id: string;
+  event_date: string;
+  expected_due_date: string | null;
+  amount: number;
+  status: string;
+  match_score: number | null;
+  matched_bank_transaction_id: string | null;
+  source: string;
+  notes: string | null;
+};
+
+type BankCandidate = {
+  id: string;
+  txn_date: string;
+  description: string;
+  reference_no: string | null;
+  debit: number;
 };
 
 export default function LoanDetailPage() {
@@ -38,6 +59,10 @@ export default function LoanDetailPage() {
   const [preview, setPreview] = useState<any>(null);
   const [editing, setEditing] = useState<Record<string, Partial<ScheduleRow>>>({});
   const [generateForm, setGenerateForm] = useState({ start_date: "", months: "", emi_amount: "", principal_total: "" });
+  const [repaymentEvents, setRepaymentEvents] = useState<RepaymentEvent[]>([]);
+  const [bankCandidates, setBankCandidates] = useState<BankCandidate[]>([]);
+  const [isRunningSuggestions, setIsRunningSuggestions] = useState(false);
+  const [linkingEventId, setLinkingEventId] = useState<string | null>(null);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
 
   const registerFieldRef = (name: string) => (node: HTMLInputElement | HTMLSelectElement | null) => {
@@ -98,10 +123,90 @@ export default function LoanDetailPage() {
     setSchedules(json.data || []);
   };
 
+  const loadRepaymentEvents = async () => {
+    if (!loanId || !loan?.company_id) return;
+    const token = await withAuth();
+    if (!token) return;
+    const from = new Date();
+    from.setMonth(from.getMonth() - 2);
+    const to = new Date();
+    to.setMonth(to.getMonth() + 2);
+    const res = await apiFetch(
+      `/api/finance/loans/repayments/events?company_id=${loan.company_id}&loan_id=${loanId}&from=${from.toISOString().slice(0, 10)}&to=${to.toISOString().slice(0, 10)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const json = await res.json();
+    if (res.ok && json.ok) setRepaymentEvents(json.data || []);
+  };
+
+  const loadBankCandidates = async () => {
+    if (!loan?.company_id) return;
+    const token = await withAuth();
+    if (!token) return;
+    const res = await apiFetch(`/api/finance/loans/repayments/bank-candidates?company_id=${loan.company_id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json();
+    if (res.ok && json.ok) setBankCandidates(json.data || []);
+  };
+
   useEffect(() => {
     loadLoan();
     loadSchedules();
   }, [loanId]);
+
+  useEffect(() => {
+    loadRepaymentEvents();
+    loadBankCandidates();
+  }, [loan?.company_id, loanId]);
+
+  const runRepaymentSuggestions = async () => {
+    if (!loan?.company_id) return;
+    setIsRunningSuggestions(true);
+    try {
+      const token = await withAuth();
+      if (!token) return;
+      const from = new Date();
+      from.setMonth(from.getMonth() - 2);
+      const to = new Date();
+      to.setMonth(to.getMonth() + 2);
+      const res = await apiFetch("/api/finance/loans/repayments/run-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ company_id: loan.company_id, from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error || "Failed to run repayment suggestions");
+      } else {
+        setNotice(`Suggestions run complete. Suggested ${json.data?.suggested ?? 0}, auto-matched ${json.data?.auto_matched ?? 0}.`);
+      }
+      await loadRepaymentEvents();
+      await loadBankCandidates();
+    } finally {
+      setIsRunningSuggestions(false);
+    }
+  };
+
+  const linkBankTxn = async (eventId: string, bankTxnId: string) => {
+    if (!loan?.company_id || !bankTxnId) return;
+    setLinkingEventId(eventId);
+    try {
+      const token = await withAuth();
+      if (!token) return;
+      const res = await apiFetch(`/api/finance/loans/repayments/${eventId}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ company_id: loan.company_id, bank_transaction_id: bankTxnId, score: 90 }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) setError(json.error || "Failed to link bank transaction");
+      await loadRepaymentEvents();
+      await loadBankCandidates();
+    } finally {
+      setLinkingEventId(null);
+    }
+  };
 
   const applyPatch = (patch: Partial<LoanFormValues>) => {
     if (!form) return;
@@ -294,6 +399,60 @@ export default function LoanDetailPage() {
             <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(preview.lines || [], null, 2)}</pre>
           </div>
         ) : null}
+
+        <div style={{ ...cardStyle, display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0 }}>Repayments</h3>
+            <button style={secondaryButtonStyle} onClick={runRepaymentSuggestions} disabled={isRunningSuggestions}>
+              {isRunningSuggestions ? "Running…" : "Run suggestions"}
+            </button>
+          </div>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={tableHeaderCellStyle}>Event Date</th>
+                <th style={tableHeaderCellStyle}>Expected Due</th>
+                <th style={tableHeaderCellStyle}>Amount</th>
+                <th style={tableHeaderCellStyle}>Status</th>
+                <th style={tableHeaderCellStyle}>Score</th>
+                <th style={tableHeaderCellStyle}>Link Bank Txn</th>
+              </tr>
+            </thead>
+            <tbody>
+              {repaymentEvents.map((event) => (
+                <tr key={event.id}>
+                  <td style={tableCellStyle}>{event.event_date}</td>
+                  <td style={tableCellStyle}>{event.expected_due_date || "—"}</td>
+                  <td style={tableCellStyle}>{event.amount.toFixed(2)}</td>
+                  <td style={tableCellStyle}>{event.status}</td>
+                  <td style={tableCellStyle}>{event.match_score ?? "—"}</td>
+                  <td style={tableCellStyle}>
+                    {event.matched_bank_transaction_id ? (
+                      "Linked"
+                    ) : (
+                      <select
+                        style={inputStyle}
+                        defaultValue=""
+                        onChange={(e) => linkBankTxn(event.id, e.target.value)}
+                        disabled={linkingEventId === event.id}
+                      >
+                        <option value="">Select unmatched debit…</option>
+                        {bankCandidates.map((txn) => (
+                          <option key={txn.id} value={txn.id}>
+                            {txn.txn_date} | {txn.debit.toFixed(2)} | {txn.reference_no || txn.description}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {repaymentEvents.length === 0 ? (
+                <tr><td style={tableCellStyle} colSpan={6}>No repayment events yet.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </ErpShell>
   );
