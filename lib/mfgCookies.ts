@@ -1,58 +1,55 @@
+// lib/mfgCookies.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-
-const MFG_SESSION_COOKIE = "mfg_session";
 
 export function getCookieLast(req: NextApiRequest, name: string): string | null {
   const raw = req.headers.cookie || "";
-  const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
-
-  let cookieValue: string | null = null;
-  for (const part of parts) {
-    if (part.startsWith(`${name}=`)) {
-      cookieValue = decodeURIComponent(part.slice(name.length + 1));
+  const parts = raw.split(";").map((p) => p.trim());
+  let found: string | null = null;
+  for (const p of parts) {
+    if (p.startsWith(name + "=")) {
+      found = decodeURIComponent(p.slice(name.length + 1));
     }
   }
-
-  return cookieValue;
+  return found;
 }
 
-export function setCookie(res: NextApiResponse, cookieString: string): void {
-  const previous = res.getHeader("Set-Cookie");
-  const next =
-    typeof previous === "string"
-      ? [previous, cookieString]
-      : Array.isArray(previous)
-        ? [...previous, cookieString]
-        : [cookieString];
-
-  res.setHeader("Set-Cookie", next);
+export function appendSetCookie(res: NextApiResponse, cookie: string) {
+  const prev = res.getHeader("Set-Cookie");
+  const prevArr = typeof prev === "string" ? [prev] : Array.isArray(prev) ? prev : [];
+  res.setHeader("Set-Cookie", [...prevArr, cookie]);
 }
 
-export function clearMfgSessionCookies(res: NextApiResponse): void {
-  const secure = process.env.NODE_ENV === "production";
+export function appendSetCookies(res: NextApiResponse, cookies: string[]) {
+  const prev = res.getHeader("Set-Cookie");
+  const prevArr = typeof prev === "string" ? [prev] : Array.isArray(prev) ? prev : [];
+  res.setHeader("Set-Cookie", [...prevArr, ...cookies]);
+}
 
-  const rootCookie = [
-    `${MFG_SESSION_COOKIE}=`,
-    "Path=/",
+export function buildHttpOnlyCookie(opts: {
+  name: string;
+  value: string;
+  path: string;
+  maxAge: number;
+  secure: boolean;
+}) {
+  return [
+    `${opts.name}=${opts.value}`,
+    `Path=${opts.path}`,
     "HttpOnly",
     "SameSite=Lax",
-    "Max-Age=0",
-    secure ? "Secure" : "",
-  ]
-    .filter(Boolean)
-    .join("; ");
+    `Max-Age=${opts.maxAge}`,
+    opts.secure ? "Secure" : "",
+  ].filter(Boolean).join("; ");
+}
 
-  const mfgCookie = [
-    `${MFG_SESSION_COOKIE}=`,
-    "Path=/mfg",
-    "HttpOnly",
-    "SameSite=Lax",
-    "Max-Age=0",
-    secure ? "Secure" : "",
-  ]
-    .filter(Boolean)
-    .join("; ");
-
-  setCookie(res, rootCookie);
-  setCookie(res, mfgCookie);
+/**
+ * Clears mfg_session cookie on BOTH paths:
+ * - Path=/    (current standard)
+ * - Path=/mfg (legacy)
+ */
+export function clearMfgSessionCookies(res: NextApiResponse, secure: boolean) {
+  appendSetCookies(res, [
+    buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/", maxAge: 0, secure }),
+    buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/mfg", maxAge: 0, secure }),
+  ]);
 }
