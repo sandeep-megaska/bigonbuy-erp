@@ -26,8 +26,7 @@ const currentMonthRange = () => {
   return { start: formatDateInput(start), end: formatDateInput(end) };
 };
 
-const formatDate = (value: string | null) =>
-  value ? new Date(value).toLocaleDateString("en-GB") : "—";
+const formatDate = (value: string | null) => (value ? new Date(value).toLocaleDateString("en-GB") : "—");
 
 const formatAmount = (value: number | string | null) => {
   if (value === null || value === undefined) return "—";
@@ -47,9 +46,19 @@ type JournalRow = {
   reference_id: string | null;
 };
 
+type ManualLine = {
+  account_code: string;
+  account_name: string;
+  debit: string;
+  credit: string;
+  memo: string;
+};
+
 type ToastState = { type: "success" | "error"; message: string } | null;
 
 type StatusFilter = "all" | "posted" | "void";
+
+const blankLine = (): ManualLine => ({ account_code: "", account_name: "", debit: "", credit: "", memo: "" });
 
 export default function FinanceJournalsListPage() {
   const router = useRouter();
@@ -64,6 +73,16 @@ export default function FinanceJournalsListPage() {
   const [search, setSearch] = useState("");
   const [journals, setJournals] = useState<JournalRow[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [showManualModal, setShowManualModal] = useState(false);
+  const [savingManual, setSavingManual] = useState(false);
+  const [manualDate, setManualDate] = useState(formatDateInput(new Date()));
+  const [manualMemo, setManualMemo] = useState("");
+  const [manualLines, setManualLines] = useState<ManualLine[]>([blankLine()]);
+  const [showVoidModal, setShowVoidModal] = useState(false);
+  const [voidJournalId, setVoidJournalId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidDate, setVoidDate] = useState(formatDateInput(new Date()));
+  const [voiding, setVoiding] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -141,6 +160,97 @@ export default function FinanceJournalsListPage() {
     await loadJournals();
   };
 
+  const manualTotals = useMemo(() => {
+    const debit = manualLines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+    const credit = manualLines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+    return { debit, credit, balanced: debit > 0 && debit === credit };
+  }, [manualLines]);
+
+  const updateLine = (index: number, patch: Partial<ManualLine>) => {
+    setManualLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  };
+
+  const handleCreateManual = async () => {
+    if (!ctx?.companyId || !ctx?.session?.access_token || savingManual) return;
+    const parsed = manualLines.map((line) => ({
+      account_code: line.account_code.trim() || null,
+      account_name: line.account_name.trim() || null,
+      debit: Number(line.debit || 0),
+      credit: Number(line.credit || 0),
+      memo: line.memo.trim() || null,
+    }));
+    const hasInvalid = parsed.some(
+      (line) => (!line.account_code && !line.account_name) || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0)
+    );
+    if (hasInvalid || !manualTotals.balanced) {
+      setError("Manual journal lines are invalid or totals are not balanced.");
+      return;
+    }
+
+    setSavingManual(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/finance/journals/manual/create", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          companyId: ctx.companyId,
+          journalDate: manualDate,
+          memo: manualMemo,
+          lines: parsed,
+          clientKey: `manual-${Date.now()}`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setError(payload?.error || "Failed to create manual journal.");
+        setSavingManual(false);
+        return;
+      }
+      setToast({ type: "success", message: "Manual journal posted." });
+      setShowManualModal(false);
+      setManualMemo("");
+      setManualLines([blankLine()]);
+      await loadJournals();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create manual journal.");
+    } finally {
+      setSavingManual(false);
+    }
+  };
+
+  const handleVoidManual = async () => {
+    if (!ctx?.companyId || !ctx?.session?.access_token || !voidJournalId || voiding) return;
+    if (!voidReason.trim()) {
+      setError("Void reason is required.");
+      return;
+    }
+    setVoiding(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/finance/journals/manual/void", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ companyId: ctx.companyId, journalId: voidJournalId, reason: voidReason.trim(), voidDate }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setError(payload?.error || "Failed to void manual journal.");
+        setVoiding(false);
+        return;
+      }
+      setToast({ type: "success", message: "Manual journal voided with reversal." });
+      setShowVoidModal(false);
+      setVoidJournalId(null);
+      setVoidReason("");
+      await loadJournals();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to void manual journal.");
+    } finally {
+      setVoiding(false);
+    }
+  };
+
   if (loading) {
     return (
       <ErpShell activeModule="finance">
@@ -155,11 +265,16 @@ export default function FinanceJournalsListPage() {
         <ErpPageHeader
           eyebrow="Finance"
           title="Journals"
-          description="Review journal entries posted by payroll."
+          description="Review posted journal entries across payroll, settlements, AP, and manual entries."
           rightActions={
-            <Link href="/erp/finance" style={{ ...secondaryButtonStyle, textDecoration: "none" }}>
-              Back to Finance
-            </Link>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" style={primaryButtonStyle} onClick={() => setShowManualModal(true)}>
+                New Manual Journal
+              </button>
+              <Link href="/erp/finance" style={{ ...secondaryButtonStyle, textDecoration: "none" }}>
+                Back to Finance
+              </Link>
+            </div>
           }
         />
 
@@ -205,21 +320,11 @@ export default function FinanceJournalsListPage() {
         >
           <label style={filterLabelStyle}>
             Date from
-            <input
-              type="date"
-              value={dateStart}
-              onChange={(event) => setDateStart(event.target.value)}
-              style={inputStyle}
-            />
+            <input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} style={inputStyle} />
           </label>
           <label style={filterLabelStyle}>
             Date to
-            <input
-              type="date"
-              value={dateEnd}
-              onChange={(event) => setDateEnd(event.target.value)}
-              style={inputStyle}
-            />
+            <input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} style={inputStyle} />
           </label>
           <label style={filterLabelStyle}>
             Status
@@ -255,22 +360,19 @@ export default function FinanceJournalsListPage() {
                 <th style={tableHeaderCellStyle}>Total Credit</th>
                 <th style={tableHeaderCellStyle}>Reference Type</th>
                 <th style={tableHeaderCellStyle}>Reference ID</th>
+                <th style={tableHeaderCellStyle}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {journals.length === 0 ? (
                 <tr>
-                  <td style={tableCellStyle} colSpan={7}>
+                  <td style={tableCellStyle} colSpan={8}>
                     {isLoadingData ? "Loading journals…" : "No journals found for this range."}
                   </td>
                 </tr>
               ) : (
                 journals.map((row) => (
-                  <tr
-                    key={row.id}
-                    onClick={() => router.push(`/erp/finance/journals/${row.id}`)}
-                    style={tableRowStyle}
-                  >
+                  <tr key={row.id} onClick={() => router.push(`/erp/finance/journals/${row.id}`)} style={tableRowStyle}>
                     <td style={tableCellStyle}>{row.doc_no || "—"}</td>
                     <td style={tableCellStyle}>{formatDate(row.journal_date)}</td>
                     <td style={tableCellStyle}>
@@ -288,12 +390,137 @@ export default function FinanceJournalsListPage() {
                     <td style={tableCellStyle}>{formatAmount(row.total_credit)}</td>
                     <td style={tableCellStyle}>{row.reference_type || "—"}</td>
                     <td style={tableCellStyle}>{row.reference_id || "—"}</td>
+                    <td style={tableCellStyle}>
+                      {row.reference_type === "manual_journal" && row.status === "posted" ? (
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setVoidJournalId(row.id);
+                            setVoidReason("");
+                            setVoidDate(formatDateInput(new Date()));
+                            setShowVoidModal(true);
+                          }}
+                        >
+                          Void
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
+
+        {showManualModal ? (
+          <div style={modalBackdropStyle}>
+            <div style={{ ...cardStyle, maxWidth: 980, width: "100%" }}>
+              <h3 style={{ marginTop: 0 }}>New Manual Journal</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(220px, 1fr))", gap: 12 }}>
+                <label style={filterLabelStyle}>
+                  Date
+                  <input type="date" value={manualDate} onChange={(event) => setManualDate(event.target.value)} style={inputStyle} />
+                </label>
+                <label style={filterLabelStyle}>
+                  Memo
+                  <input type="text" value={manualMemo} onChange={(event) => setManualMemo(event.target.value)} style={inputStyle} />
+                </label>
+              </div>
+              <div style={{ marginTop: 12, overflowX: "auto" }}>
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderCellStyle}>Account Code</th>
+                      <th style={tableHeaderCellStyle}>Account Name</th>
+                      <th style={tableHeaderCellStyle}>Debit</th>
+                      <th style={tableHeaderCellStyle}>Credit</th>
+                      <th style={tableHeaderCellStyle}>Line Memo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manualLines.map((line, index) => (
+                      <tr key={`line-${index}`}>
+                        <td style={tableCellStyle}>
+                          <input style={inputStyle} value={line.account_code} onChange={(event) => updateLine(index, { account_code: event.target.value })} />
+                        </td>
+                        <td style={tableCellStyle}>
+                          <input style={inputStyle} value={line.account_name} onChange={(event) => updateLine(index, { account_name: event.target.value })} />
+                        </td>
+                        <td style={tableCellStyle}>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.debit}
+                            onChange={(event) => updateLine(index, { debit: event.target.value })}
+                          />
+                        </td>
+                        <td style={tableCellStyle}>
+                          <input
+                            style={inputStyle}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.credit}
+                            onChange={(event) => updateLine(index, { credit: event.target.value })}
+                          />
+                        </td>
+                        <td style={tableCellStyle}>
+                          <input style={inputStyle} value={line.memo} onChange={(event) => updateLine(index, { memo: event.target.value })} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setManualLines((current) => [...current, blankLine()])}>
+                  Add Line
+                </button>
+                <div style={{ fontSize: 13, color: manualTotals.balanced ? "#166534" : "#b91c1c" }}>
+                  Debit {formatAmount(manualTotals.debit)} · Credit {formatAmount(manualTotals.credit)}
+                </div>
+              </div>
+              <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setShowManualModal(false)}>
+                  Cancel
+                </button>
+                <button type="button" style={primaryButtonStyle} onClick={handleCreateManual} disabled={savingManual || !manualTotals.balanced}>
+                  {savingManual ? "Saving…" : "Save Journal"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showVoidModal ? (
+          <div style={modalBackdropStyle}>
+            <div style={{ ...cardStyle, width: "100%", maxWidth: 480 }}>
+              <h3 style={{ marginTop: 0 }}>Void Manual Journal</h3>
+              <label style={filterLabelStyle}>
+                Void date
+                <input type="date" value={voidDate} onChange={(event) => setVoidDate(event.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ ...filterLabelStyle, marginTop: 8 }}>
+                Reason
+                <textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} style={textAreaStyle} rows={3} />
+              </label>
+              <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button type="button" style={secondaryButtonStyle} onClick={() => setShowVoidModal(false)} disabled={voiding}>
+                  Cancel
+                </button>
+                <button type="button" style={primaryButtonStyle} onClick={handleVoidManual} disabled={voiding || !voidReason.trim()}>
+                  {voiding ? "Voiding…" : "Confirm Void"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </ErpShell>
   );
@@ -311,4 +538,25 @@ const filterLabelStyle = {
 const tableRowStyle = {
   cursor: "pointer",
   backgroundColor: "#fff",
+};
+
+const modalBackdropStyle = {
+  position: "fixed" as const,
+  inset: 0,
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 24,
+  zIndex: 50,
+};
+
+const textAreaStyle = {
+  width: "100%",
+  minHeight: 90,
+  resize: "vertical" as const,
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  padding: "8px 10px",
+  fontSize: 14,
 };
