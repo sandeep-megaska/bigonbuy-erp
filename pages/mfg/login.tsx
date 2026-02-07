@@ -36,11 +36,7 @@ export default function ManufacturerLoginPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Unable to sign in");
-      if (data.must_reset_password) {
-        router.replace("/mfg/reset-password");
-      } else {
-        router.replace(`/mfg/v/${data.vendor_code}`);
-      }
+      router.replace(typeof data.redirect_to === "string" && data.redirect_to ? data.redirect_to : (data.must_reset_password ? "/mfg/reset-password" : `/mfg/v/${data.vendor_code}`));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to sign in");
     } finally {
