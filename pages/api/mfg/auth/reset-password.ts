@@ -1,16 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
+import { getCookieLast } from "../../../../lib/mfgCookies";
 
 type ApiResponse = { ok: true } | { ok: false; error: string; details?: string | null };
-
-function getCookie(req: NextApiRequest, name: string): string | null {
-  const raw = req.headers.cookie || "";
-  const parts = raw.split(";").map((p) => p.trim());
-  for (const p of parts) {
-    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
-  }
-  return null;
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
@@ -23,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: "Server misconfigured" });
   }
 
-  const token = getCookie(req, "mfg_session");
+  const token = getCookieLast(req, "mfg_session");
   if (!token) {
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }

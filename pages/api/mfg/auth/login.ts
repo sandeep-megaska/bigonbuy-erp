@@ -1,24 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
+import { setCookie } from "../../../../lib/mfgCookies";
 
 type ApiResponse =
   | { ok: true; vendor_code: string; must_reset_password: boolean; redirect_to: string }
   | { ok: false; error: string; details?: string | null };
-
-function getCookie(req: NextApiRequest, name: string): string | null {
-  const raw = req.headers.cookie || "";
-  const parts = raw.split(";").map((p) => p.trim());
-  for (const p of parts) {
-    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
-  }
-  return null;
-}
-
-function setCookie(res: NextApiResponse, cookie: string) {
-  const prev = res.getHeader("Set-Cookie");
-  const next = typeof prev === "string" ? [prev, cookie] : Array.isArray(prev) ? [...prev, cookie] : [cookie];
-  res.setHeader("Set-Cookie", next);
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
@@ -57,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const sessionToken = String(payload.session_token || "");
   if (!sessionToken) {
-    return res.status(500).json({ ok: false, error: "Unable to create session" });
+    return res.status(500).json({ ok: false, error: "Unable to create session token" });
   }
 
   const vendorCode = String(payload.vendor_code || code);
