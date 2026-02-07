@@ -13,13 +13,12 @@ type SuccessResponse = {
   vendor_code: string;
   user_id: string;
   role_key: string;
-  temp_password?: string;
+  temp_password: string;
 };
 type ApiResponse = ErrorResponse | SuccessResponse;
 
 function generateTempPassword(): string {
-  const alphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@#$%^&*";
   const chars = [];
   for (let i = 0; i < 16; i += 1) {
     const idx = Math.floor(Math.random() * alphabet.length);
@@ -77,18 +76,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const existingUser = (listData?.users || []).find(
-    (u) => u.email?.toLowerCase() === normalizedEmail,
-  );
+  const existingUser = (listData?.users || []).find((u) => u.email?.toLowerCase() === normalizedEmail);
 
   let authUserId = existingUser?.id ?? null;
-  let tempPassword: string | undefined;
-
   if (!authUserId) {
-    tempPassword = generateTempPassword();
+    const provisioningPassword = generateTempPassword();
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({
       email: normalizedEmail,
-      password: tempPassword,
+      password: provisioningPassword,
       email_confirm: true,
     });
 
@@ -103,7 +98,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     authUserId = created.user.id;
   }
 
-  const { data, error } = await userClient.rpc("erp_grant_vendor_portal_access", {
+  const { data, error } = await userClient.rpc("erp_grant_vendor_portal_access_v2", {
     p_vendor_id: vendorId,
     p_email: normalizedEmail,
     p_role_key: normalizedRole,
@@ -118,17 +113,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const payload: SuccessResponse = {
-    ok: true,
-    vendor_id: data?.vendor_id ?? vendorId,
-    vendor_code: data?.vendor_code ?? "",
-    user_id: data?.user_id ?? authUserId,
-    role_key: data?.role_key ?? normalizedRole,
-  };
-
-  if (tempPassword) {
-    payload.temp_password = tempPassword;
+  const companyId = typeof data?.company_id === "string" ? data.company_id : "";
+  if (!companyId) {
+    return res.status(400).json({ ok: false, error: "Missing company_id from vendor portal grant RPC" });
   }
 
-  return res.status(200).json(payload);
+  const { data: resetData, error: resetError } = await userClient.rpc("erp_vendor_portal_reset_password_v1", {
+    p_vendor_id: vendorId,
+    p_company_id: companyId,
+    p_auth_user_id: authUserId,
+  });
+
+  if (resetError) {
+    return res.status(400).json({
+      ok: false,
+      error: resetError.message || "Failed to reset vendor portal password",
+      details: resetError.details || resetError.hint || resetError.code,
+    });
+  }
+
+  const tempPassword = typeof resetData?.temp_password === "string" ? resetData.temp_password : "";
+  if (!tempPassword) {
+    return res.status(500).json({
+      ok: false,
+      error: "Temporary password was not returned from reset RPC",
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    vendor_id: data?.vendor_id ?? resetData?.vendor_id ?? vendorId,
+    vendor_code: resetData?.vendor_code ?? data?.vendor_code ?? "",
+    user_id: data?.user_id ?? authUserId,
+    role_key: data?.role_key ?? normalizedRole,
+    temp_password: tempPassword,
+  });
 }

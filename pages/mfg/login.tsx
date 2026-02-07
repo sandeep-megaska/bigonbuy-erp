@@ -16,11 +16,8 @@ export default function ManufacturerLoginPage() {
       if (!active || !res.ok) return;
       const data = await res.json();
       if (!data?.ok) return;
-      if (data.session.kind === "vendor") {
-        const code = data.session.vendor_code || "";
-        router.replace(data.session.must_reset_password ? "/mfg/change-password" : `/mfg/v/${code}`);
-        return;
-      }
+      const code = data.vendor_code || "";
+      router.replace(data.must_reset_password ? "/mfg/reset-password" : `/mfg/v/${code}`);
     })();
     return () => {
       active = false;
@@ -39,10 +36,10 @@ export default function ManufacturerLoginPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Unable to sign in");
-      if (data.session.must_reset_password) {
-        router.replace("/mfg/change-password");
+      if (data.must_reset_password) {
+        router.replace("/mfg/reset-password");
       } else {
-        router.replace(`/mfg/v/${data.session.vendor_code}`);
+        router.replace(`/mfg/v/${data.vendor_code}`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to sign in");
