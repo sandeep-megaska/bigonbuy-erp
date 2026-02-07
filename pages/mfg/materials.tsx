@@ -190,6 +190,7 @@ export default function VendorMaterialsPage() {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => router.push(vendorCode ? `/mfg/v/${vendorCode}` : "/mfg/login")}>Back to Dashboard</button>
+            <button onClick={() => router.push("/mfg/bom")}>Manage BOM</button>
             <button onClick={() => setShowAdd(true)} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>Add Material</button>
             <button onClick={() => setShowLedger(true)} style={{ background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>Stock In / Adjustment</button>
           </div>
