@@ -70,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const secure = process.env.NODE_ENV === "production";
   const cookie = [
     `mfg_session=${encodeURIComponent(sessionToken)}`,
-    "Path=/mfg",
+    "Path=/",
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${maxAge}`,
