@@ -1,64 +1,79 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import jwt from "jsonwebtoken";
-import { createClient } from "@supabase/supabase-js";
+import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
-const COOKIE_NAME = "mfg_session";
+type ApiResponse =
+  | { ok: true; vendor_code: string; must_reset_password: boolean }
+  | { ok: false; error: string; details?: string | null };
 
-function setCookie(res: NextApiResponse, name: string, value: string) {
-  const secure = process.env.NODE_ENV === "production";
-  const parts = [
-    `${name}=${value}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    secure ? "Secure" : "",
-    // 7 days
-    `Max-Age=${7 * 24 * 60 * 60}`,
-  ].filter(Boolean);
-  res.setHeader("Set-Cookie", parts.join("; "));
+function getCookie(req: NextApiRequest, name: string): string | null {
+  const raw = req.headers.cookie || "";
+  const parts = raw.split(";").map((p) => p.trim());
+  for (const p of parts) {
+    if (p.startsWith(name + "=")) return decodeURIComponent(p.slice(name.length + 1));
+  }
+  return null;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+function setCookie(res: NextApiResponse, cookie: string) {
+  const prev = res.getHeader("Set-Cookie");
+  const next = typeof prev === "string" ? [prev, cookie] : Array.isArray(prev) ? [...prev, cookie] : [cookie];
+  res.setHeader("Set-Cookie", next);
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const vendor_code = typeof req.body?.vendor_code === "string" ? req.body.vendor_code.trim() : "";
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
-
-  if (!vendor_code || !password) return res.status(400).json({ ok: false, error: "vendor_code and password required" });
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const mfgSecret = process.env.MFG_SESSION_SECRET!;
-  if (!url || !serviceKey || !mfgSecret) {
-    return res.status(500).json({ ok: false, error: "Server missing env: SUPABASE_SERVICE_ROLE_KEY / MFG_SESSION_SECRET" });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.includes("NEXT_PUBLIC_SUPABASE_URL") || missing.includes("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
+    return res.status(500).json({ ok: false, error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY" });
   }
 
-  const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const { vendor_code, password } = (req.body ?? {}) as Record<string, unknown>;
+  const code = typeof vendor_code === "string" ? vendor_code.trim() : "";
+  const pwd = typeof password === "string" ? password : "";
 
-  const { data, error } = await admin.rpc("erp_mfg_vendor_login_v1", {
-    p_vendor_code: vendor_code,
-    p_password: password,
+  if (!code || !pwd) {
+    return res.status(400).json({ ok: false, error: "vendor_code and password are required" });
+  }
+
+  const anon = createAnonClient(supabaseUrl, anonKey);
+
+  const { data, error } = await anon.rpc("erp_mfg_vendor_login_v2", {
+    p_vendor_code: code,
+    p_password: pwd,
   });
 
-  if (error) return res.status(400).json({ ok: false, error: error.message });
+  if (error) {
+    return res.status(500).json({ ok: false, error: error.message || "Login failed", details: error.details || error.hint || error.code });
+  }
 
-  if (!data?.ok) return res.status(401).json({ ok: false, error: data?.error || "Invalid credentials" });
+  const payload = (data ?? {}) as any;
+  if (!payload.ok) {
+    return res.status(401).json({ ok: false, error: payload.error || "Invalid credentials" });
+  }
 
-  const token = jwt.sign(
-    {
-      vendor_id: data.vendor_id,
-      company_id: data.company_id,
-      vendor_code: data.vendor_code,
-      must_reset_password: data.must_reset_password,
-      typ: "mfg",
-    },
-    mfgSecret,
-    { expiresIn: "7d" }
-  );
+  const sessionToken = String(payload.session_token || "");
+  const expiresAt = payload.expires_at ? new Date(payload.expires_at) : null;
+  const maxAge = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : 60 * 60 * 24 * 30;
 
-  setCookie(res, COOKIE_NAME, token);
-  return res.status(200).json({ ok: true, vendor_code: data.vendor_code, must_reset_password: data.must_reset_password });
+  const secure = process.env.NODE_ENV === "production";
+  const cookie = [
+    `mfg_session=${encodeURIComponent(sessionToken)}`,
+    "Path=/mfg",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`,
+    secure ? "Secure" : "",
+  ].filter(Boolean).join("; ");
+
+  setCookie(res, cookie);
+
+  return res.status(200).json({
+    ok: true,
+    vendor_code: String(payload.vendor_code || code),
+    must_reset_password: Boolean(payload.must_reset_password),
+  });
 }
