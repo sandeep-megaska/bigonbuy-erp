@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
-import { setCookie } from "../../../../lib/mfgCookies";
+import { appendSetCookies, buildHttpOnlyCookie } from "../../../../lib/mfgCookies";
 
 type ApiResponse =
   | { ok: true; vendor_code: string; must_reset_password: boolean; redirect_to: string }
@@ -26,11 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const anon = createAnonClient(supabaseUrl, anonKey);
-
-  const { data, error } = await anon.rpc("erp_mfg_vendor_login_v2", {
-    p_vendor_code: code,
-    p_password: pwd,
-  });
+  const { data, error } = await anon.rpc("erp_mfg_vendor_login_v2", { p_vendor_code: code, p_password: pwd });
 
   if (error) {
     return res.status(500).json({ ok: false, error: error.message || "Login failed", details: error.details || error.hint || error.code });
@@ -41,7 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(401).json({ ok: false, error: payload.error || "Invalid credentials" });
   }
 
-  const sessionToken = String(payload.session_token || "");
+  const sessionToken = String(payload.session_token || "").trim();
   if (!sessionToken) {
     return res.status(500).json({ ok: false, error: "Unable to create session token" });
   }
@@ -54,16 +50,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const maxAge = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : 60 * 60 * 24 * 30;
 
   const secure = process.env.NODE_ENV === "production";
-  const cookie = [
-    `mfg_session=${encodeURIComponent(sessionToken)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${maxAge}`,
-    secure ? "Secure" : "",
-  ].filter(Boolean).join("; ");
 
-  setCookie(res, cookie);
+  // Set new cookie on Path=/ and remove legacy Path=/mfg cookie in same response.
+  appendSetCookies(res, [
+    buildHttpOnlyCookie({ name: "mfg_session", value: sessionToken, path: "/", maxAge, secure }),
+    buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/mfg", maxAge: 0, secure }),
+  ]);
 
   return res.status(200).json({
     ok: true,
