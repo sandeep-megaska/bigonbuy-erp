@@ -259,6 +259,16 @@ export default function InventoryVendorsPage() {
   async function handlePortalEnable() {
     if (!editingId || !ctx?.companyId) return;
 
+    const selectedVendor = vendors.find((vendor) => vendor.id === editingId);
+    const vendorEmail = (email || selectedVendor?.email || "").trim().toLowerCase();
+
+    if (!vendorEmail) {
+      const message = "Vendor email is required to generate portal access.";
+      setError(message);
+      setToast({ type: "error", message });
+      return;
+    }
+
     if (!accessToken) {
       const message = "Not authenticated (missing access token). Please reload and sign in again.";
       setError(message);
@@ -273,13 +283,13 @@ export default function InventoryVendorsPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/mfg/admin/vendor-portal-enable", {
+      const res = await fetch("/api/mfg/admin/grant-vendor-portal-access", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ vendor_id: editingId }),
+        body: JSON.stringify({ vendor_id: editingId, email: vendorEmail, role_key: "vendor" }),
       });
 
       const data = await res.json();
@@ -292,8 +302,8 @@ export default function InventoryVendorsPage() {
         return;
       }
 
-      setPortalVendorCode(data?.data?.vendor_code || null);
-      setPortalTempPassword(data?.data?.temp_password || null);
+      setPortalVendorCode(data?.vendor_code || selectedVendor?.vendor_code || null);
+      setPortalTempPassword(data?.temp_password || null);
       setToast({ type: "success", message: "Vendor portal access generated." });
       await loadVendors(ctx.companyId);
     } catch (err) {
@@ -572,7 +582,7 @@ export default function InventoryVendorsPage() {
                 );
               })()}
 
-              {portalTempPassword ? (
+              {portalVendorCode || portalTempPassword ? (
                 <div
                   style={{
                     marginTop: 12,
@@ -584,24 +594,32 @@ export default function InventoryVendorsPage() {
                 >
                   <div style={{ fontWeight: 600 }}>Portal credentials (shown once):</div>
                   <div style={{ marginTop: 4 }}>Vendor Code: {portalVendorCode || "—"}</div>
-                  <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                    Temporary password: {portalTempPassword}
-                  </div>
-                  <button
-                    type="button"
-                    style={{ ...secondaryButtonStyle, marginTop: 10 }}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(portalTempPassword ?? "");
-                        setToast({ type: "success", message: "Temporary password copied." });
-                      } catch (err) {
-                        const message = err instanceof Error ? err.message : "Failed to copy temporary password";
-                        setToast({ type: "error", message });
-                      }
-                    }}
-                  >
-                    Copy password
-                  </button>
+                  {portalTempPassword ? (
+                    <>
+                      <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                        Temporary password: {portalTempPassword}
+                      </div>
+                      <button
+                        type="button"
+                        style={{ ...secondaryButtonStyle, marginTop: 10 }}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(portalTempPassword ?? "");
+                            setToast({ type: "success", message: "Temporary password copied." });
+                          } catch (err) {
+                            const message = err instanceof Error ? err.message : "Failed to copy temporary password";
+                            setToast({ type: "error", message });
+                          }
+                        }}
+                      >
+                        Copy password
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ marginTop: 4, color: "#4b5563" }}>
+                      Existing auth user linked. Temporary password is only shown for newly created users.
+                    </div>
+                  )}
                 </div>
               ) : null}
             </div>
