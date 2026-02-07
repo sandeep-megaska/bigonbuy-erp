@@ -56,10 +56,11 @@ type TdsProfile = {
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
-
 export default function InventoryVendorsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
+  const [accessToken, setAccessToken] = useState<string>("");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -81,12 +82,14 @@ export default function InventoryVendorsPage() {
   const [paymentTermsDays, setPaymentTermsDays] = useState("0");
   const [notes, setNotes] = useState("");
   const [isActive, setIsActive] = useState(true);
+
   const [tdsProfiles, setTdsProfiles] = useState<TdsProfile[]>([]);
   const [tdsSection, setTdsSection] = useState("194C");
   const [tdsRate, setTdsRate] = useState("");
   const [tdsThreshold, setTdsThreshold] = useState("");
   const [tdsEffectiveFrom, setTdsEffectiveFrom] = useState("");
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
+
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalTempPassword, setPortalTempPassword] = useState<string | null>(null);
   const [portalVendorCode, setPortalVendorCode] = useState<string | null>(null);
@@ -100,6 +103,8 @@ export default function InventoryVendorsPage() {
     (async () => {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
+
+      setAccessToken(session.access_token || "");
 
       const context = await getCompanyContext(session);
       if (!active) return;
@@ -125,7 +130,7 @@ export default function InventoryVendorsPage() {
     const { data, error: loadError } = await supabase
       .from("erp_vendors")
       .select(
-        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, vendor_code, portal_enabled, portal_status, created_at"
+        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, vendor_code, portal_enabled, portal_status, created_at",
       )
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
@@ -168,11 +173,15 @@ export default function InventoryVendorsPage() {
     setPaymentTermsDays("0");
     setNotes("");
     setIsActive(true);
+    setTdsProfiles([]);
+    setPortalTempPassword(null);
+    setPortalVendorCode(null);
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!ctx?.companyId) return;
+
     if (!canWrite) {
       setError("Only owner/admin can manage vendors.");
       return;
@@ -204,18 +213,10 @@ export default function InventoryVendorsPage() {
       p_updated_by: ctx.userId,
     };
 
-    if (editingId) {
-      const { error: updateError } = await supabase.rpc("erp_inventory_vendor_upsert", payload);
-      if (updateError) {
-        setError(updateError.message);
-        return;
-      }
-    } else {
-      const { error: insertError } = await supabase.rpc("erp_inventory_vendor_upsert", payload);
-      if (insertError) {
-        setError(insertError.message);
-        return;
-      }
+    const { error: upsertError } = await supabase.rpc("erp_inventory_vendor_upsert", payload);
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
     }
 
     resetForm();
@@ -240,50 +241,59 @@ export default function InventoryVendorsPage() {
     setPaymentTermsDays(String(vendor.payment_terms_days ?? 0));
     setNotes(vendor.notes || "");
     setIsActive(vendor.is_active);
+
     setTdsSection("194C");
     setTdsRate("");
     setTdsThreshold("");
     setTdsEffectiveFrom("");
     setTdsEffectiveTo("");
+
     setPortalTempPassword(null);
     setPortalVendorCode(null);
+    setToast(null);
+    setError("");
+
     loadTdsProfiles(vendor.id);
   }
 
   async function handlePortalEnable() {
     if (!editingId || !ctx?.companyId) return;
 
+    if (!accessToken) {
+      const message = "Not authenticated (missing access token). Please reload and sign in again.";
+      setError(message);
+      setToast({ type: "error", message });
+      return;
+    }
+
     setPortalLoading(true);
     setPortalTempPassword(null);
     setPortalVendorCode(null);
     setToast(null);
+    setError("");
 
     try {
       const res = await fetch("/api/mfg/admin/vendor-portal-enable", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ vendor_id: editingId }),
       });
+
       const data = await res.json();
 
-      if (!res.ok) {
-        const message = data?.error || `Failed to enable portal access (HTTP ${res.status})`;
+      if (!res.ok || !data?.ok) {
+        const message =
+          data?.error || `Failed to enable portal access (HTTP ${res.status})`;
         setError(message);
         setToast({ type: "error", message });
         return;
       }
 
-      if (!data?.ok) {
-        const message = data?.error || "Failed to enable portal access";
-        setError(message);
-        setToast({ type: "error", message });
-        return;
-      }
-
-      setPortalVendorCode(data.data?.vendor_code || null);
-      setPortalTempPassword(data.data?.temp_password || null);
+      setPortalVendorCode(data?.data?.vendor_code || null);
+      setPortalTempPassword(data?.data?.temp_password || null);
       setToast({ type: "success", message: "Vendor portal access generated." });
       await loadVendors(ctx.companyId);
     } catch (err) {
@@ -298,20 +308,30 @@ export default function InventoryVendorsPage() {
   async function handlePortalDisable() {
     if (!editingId || !ctx?.companyId) return;
 
+    if (!accessToken) {
+      const message = "Not authenticated (missing access token). Please reload and sign in again.";
+      setError(message);
+      setToast({ type: "error", message });
+      return;
+    }
+
     setPortalLoading(true);
     setToast(null);
+    setError("");
 
     try {
       const res = await fetch("/api/mfg/admin/vendor-portal-disable", {
         method: "POST",
         headers: {
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ vendor_id: editingId, reason: "Disabled from vendor master" }),
       });
+
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        const message = data.error || "Failed to disable portal access";
+      if (!res.ok || !data?.ok) {
+        const message = data?.error || "Failed to disable portal access";
         setError(message);
         setToast({ type: "error", message });
         return;
@@ -396,7 +416,10 @@ export default function InventoryVendorsPage() {
           </div>
         </header>
 
-        {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {error ? (
+          <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div>
+        ) : null}
+
         {toast ? (
           <div
             style={{
@@ -475,24 +498,26 @@ export default function InventoryVendorsPage() {
               </label>
               <label style={{ display: "grid", gap: 6 }}>
                 Active
-                <select style={inputStyle} value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                <select
+                  style={inputStyle}
+                  value={isActive ? "yes" : "no"}
+                  onChange={(e) => setIsActive(e.target.value === "yes")}
+                >
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>
               </label>
             </div>
+
             <label style={{ display: "grid", gap: 6 }}>
               Address Notes
-              <textarea
-                style={{ ...inputStyle, minHeight: 80 }}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
+              <textarea style={{ ...inputStyle, minHeight: 80 }} value={address} onChange={(e) => setAddress(e.target.value)} />
             </label>
             <label style={{ display: "grid", gap: 6 }}>
               Notes
               <textarea style={{ ...inputStyle, minHeight: 80 }} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </label>
+
             <div style={{ display: "flex", gap: 12 }}>
               <button type="submit" style={primaryButtonStyle} disabled={!canWrite}>
                 {editingId ? "Update Vendor" : "Create Vendor"}
@@ -524,6 +549,7 @@ export default function InventoryVendorsPage() {
                       <div>Portal Enabled: {vendor?.portal_enabled ? "Yes" : "No"}</div>
                       <div>Status: {vendor?.portal_status || "disabled"}</div>
                     </div>
+
                     <div style={{ display: "flex", gap: 12 }}>
                       <button
                         type="button"
@@ -545,6 +571,7 @@ export default function InventoryVendorsPage() {
                   </>
                 );
               })()}
+
               {portalTempPassword ? (
                 <div
                   style={{
@@ -606,21 +633,11 @@ export default function InventoryVendorsPage() {
                 </label>
                 <label style={{ display: "grid", gap: 6 }}>
                   Effective From
-                  <input
-                    style={inputStyle}
-                    type="date"
-                    value={tdsEffectiveFrom}
-                    onChange={(e) => setTdsEffectiveFrom(e.target.value)}
-                  />
+                  <input style={inputStyle} type="date" value={tdsEffectiveFrom} onChange={(e) => setTdsEffectiveFrom(e.target.value)} />
                 </label>
                 <label style={{ display: "grid", gap: 6 }}>
                   Effective To
-                  <input
-                    style={inputStyle}
-                    type="date"
-                    value={tdsEffectiveTo}
-                    onChange={(e) => setTdsEffectiveTo(e.target.value)}
-                  />
+                  <input style={inputStyle} type="date" value={tdsEffectiveTo} onChange={(e) => setTdsEffectiveTo(e.target.value)} />
                 </label>
               </div>
               <div>
@@ -661,11 +678,7 @@ export default function InventoryVendorsPage() {
                       <td style={tableCellStyle}>{profile.effective_from}</td>
                       <td style={tableCellStyle}>{profile.effective_to ?? "—"}</td>
                       <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                        <button
-                          type="button"
-                          style={secondaryButtonStyle}
-                          onClick={() => handleTdsVoid(profile.profile_id)}
-                        >
+                        <button type="button" style={secondaryButtonStyle} onClick={() => handleTdsVoid(profile.profile_id)}>
                           Void
                         </button>
                       </td>
