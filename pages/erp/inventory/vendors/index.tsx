@@ -89,6 +89,7 @@ export default function InventoryVendorsPage() {
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalTempPassword, setPortalTempPassword] = useState<string | null>(null);
+  const [portalVendorCode, setPortalVendorCode] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
@@ -245,6 +246,7 @@ export default function InventoryVendorsPage() {
     setTdsEffectiveFrom("");
     setTdsEffectiveTo("");
     setPortalTempPassword(null);
+    setPortalVendorCode(null);
     loadTdsProfiles(vendor.id);
   }
 
@@ -253,6 +255,7 @@ export default function InventoryVendorsPage() {
 
     setPortalLoading(true);
     setPortalTempPassword(null);
+    setPortalVendorCode(null);
     setToast(null);
 
     try {
@@ -264,13 +267,22 @@ export default function InventoryVendorsPage() {
         body: JSON.stringify({ vendor_id: editingId }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        const message = data.error || "Failed to enable portal access";
+
+      if (!res.ok) {
+        const message = data?.error || `Failed to enable portal access (HTTP ${res.status})`;
         setError(message);
         setToast({ type: "error", message });
         return;
       }
 
+      if (!data?.ok) {
+        const message = data?.error || "Failed to enable portal access";
+        setError(message);
+        setToast({ type: "error", message });
+        return;
+      }
+
+      setPortalVendorCode(data.data?.vendor_code || null);
       setPortalTempPassword(data.data?.temp_password || null);
       setToast({ type: "success", message: "Vendor portal access generated." });
       await loadVendors(ctx.companyId);
@@ -306,6 +318,7 @@ export default function InventoryVendorsPage() {
       }
 
       setPortalTempPassword(null);
+      setPortalVendorCode(null);
       setToast({ type: "success", message: "Vendor portal access disabled." });
       await loadVendors(ctx.companyId);
     } catch (err) {
@@ -542,9 +555,10 @@ export default function InventoryVendorsPage() {
                     background: "#eff6ff",
                   }}
                 >
-                  <div style={{ fontWeight: 600 }}>Temporary password (shown once):</div>
+                  <div style={{ fontWeight: 600 }}>Portal credentials (shown once):</div>
+                  <div style={{ marginTop: 4 }}>Vendor Code: {portalVendorCode || "—"}</div>
                   <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                    {portalTempPassword}
+                    Temporary password: {portalTempPassword}
                   </div>
                   <button
                     type="button"
