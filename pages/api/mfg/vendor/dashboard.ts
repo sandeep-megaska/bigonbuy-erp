@@ -57,39 +57,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   if (error || !vendor) return res.status(404).json({ ok: false, error: "Vendor not found" });
 
-  const { data: company } = await adminClient
-    .from("erp_companies")
-    .select("id, legal_name, brand_name, secondary_logo_path")
-    .eq("id", sessionCompanyId)
-    .maybeSingle();
+ const { data: companySettings } = await adminClient
+  .from("erp_company_settings")
+  .select("company_id, megaska_logo_path, bigonbuy_logo_path")
+  .eq("company_id", sessionCompanyId)
+  .maybeSingle();
 
-  const { data: vendorLogoPublic } = adminClient.storage
-    .from("erp-assets")
-    .getPublicUrl(vendor.portal_logo_path || "");
-  const { data: companySecondaryLogoPublic } = adminClient.storage
-    .from("erp-assets")
-    .getPublicUrl(company?.secondary_logo_path || "");
 
-  return res.status(200).json({
-    ok: true,
-    data: {
-      vendor,
-      company,
-      branding: {
-        vendor_logo_url: vendor.portal_logo_path ? vendorLogoPublic?.publicUrl ?? null : null,
-        company_secondary_logo_url: company?.secondary_logo_path
-          ? companySecondaryLogoPublic?.publicUrl ?? null
-          : null,
-      },
-      tiles: {
-        open_pos: 12,
-        pending_deliveries: 5,
-        quality_issues: 1,
-      },
-      recent_activity: [
-        { id: "a1", label: "PO #PO-102 acknowledged", at: "Today" },
-        { id: "a2", label: "ASN pending for GRN-778", at: "Yesterday" },
-      ],
+  const BUCKET = "erp-assets";
+const EXPIRES = 60 * 60; // 1 hour
+
+let vendorLogoUrl: string | null = null;
+let companyMegaskaLogoUrl: string | null = null;
+
+if (vendor.portal_logo_path) {
+  const { data, error } = await adminClient.storage
+    .from(BUCKET)
+    .createSignedUrl(vendor.portal_logo_path, EXPIRES);
+  if (!error) vendorLogoUrl = data?.signedUrl ?? null;
+}
+
+const megaskaPath = companySettings?.megaska_logo_path || null;
+if (megaskaPath) {
+  const { data, error } = await adminClient.storage
+    .from(BUCKET)
+    .createSignedUrl(megaskaPath, EXPIRES);
+  if (!error) companyMegaskaLogoUrl = data?.signedUrl ?? null;
+}
+
+
+ return res.status(200).json({
+  ok: true,
+  data: {
+    vendor,
+    company_settings: companySettings ?? null,
+    branding: {
+      vendor_logo_url: vendorLogoUrl,
+      company_megaska_logo_url: companyMegaskaLogoUrl,
     },
-  });
+    tiles: {
+      open_pos: 12,
+      pending_deliveries: 5,
+      quality_issues: 1,
+    },
+    recent_activity: [
+      { id: "a1", label: "PO #PO-102 acknowledged", at: "Today" },
+      { id: "a2", label: "ASN pending for GRN-778", at: "Yesterday" },
+    ],
+  },
+});
 }
