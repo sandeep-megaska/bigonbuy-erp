@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/router";
 
-export default function VendorChangePasswordPage() {
+export default function VendorResetPasswordPage() {
   const router = useRouter();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -13,13 +13,16 @@ export default function VendorChangePasswordPage() {
     e.preventDefault();
     if (newPassword.length < 8) return setError("Password must be at least 8 characters");
     if (newPassword !== confirmPassword) return setError("Passwords do not match");
+
     setLoading(true);
     setError("");
+
     const res = await fetch("/api/mfg/auth/reset-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ new_password: newPassword }),
     });
+
     const data = await res.json();
     setLoading(false);
     if (!res.ok || !data.ok) return setError(data.error || "Unable to change password");

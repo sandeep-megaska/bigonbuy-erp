@@ -304,7 +304,7 @@ export default function InventoryVendorsPage() {
 
       setPortalVendorCode(data?.vendor_code || selectedVendor?.vendor_code || null);
       setPortalTempPassword(data?.temp_password || null);
-      setToast({ type: "success", message: "Vendor portal access generated." });
+      setToast({ type: "success", message: "Vendor portal access/password generated." });
       await loadVendors(ctx.companyId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to enable portal access";
@@ -567,7 +567,7 @@ export default function InventoryVendorsPage() {
                         onClick={handlePortalEnable}
                         disabled={!canWrite || portalLoading}
                       >
-                        {portalLoading ? "Working..." : "Generate Access"}
+                        {portalLoading ? "Working..." : "Generate Access / Reset Portal Password"}
                       </button>
                       <button
                         type="button"
@@ -599,6 +599,7 @@ export default function InventoryVendorsPage() {
                       <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
                         Temporary password: {portalTempPassword}
                       </div>
+                      <div style={{ marginTop: 4 }}>Login URL: /mfg/login</div>
                       <button
                         type="button"
                         style={{ ...secondaryButtonStyle, marginTop: 10 }}
@@ -615,11 +616,7 @@ export default function InventoryVendorsPage() {
                         Copy password
                       </button>
                     </>
-                  ) : (
-                    <div style={{ marginTop: 4, color: "#4b5563" }}>
-                      Existing auth user linked. Temporary password is only shown for newly created users.
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               ) : null}
             </div>

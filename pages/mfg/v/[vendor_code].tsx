@@ -20,8 +20,8 @@ export default function VendorDashboardPage() {
       }
       const meData = await meRes.json();
       if (!active) return;
-      if (meData?.session?.kind === "vendor" && meData.session.must_reset_password) {
-        router.replace("/mfg/change-password");
+      if (meData?.must_reset_password) {
+        router.replace("/mfg/reset-password");
         return;
       }
 
