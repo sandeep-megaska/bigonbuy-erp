@@ -40,6 +40,7 @@ type Vendor = {
   vendor_code: string | null;
   portal_enabled: boolean;
   portal_status: string;
+  portal_logo_path: string | null;
   created_at: string;
 };
 
@@ -91,9 +92,18 @@ export default function InventoryVendorsPage() {
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
 
   const [portalLoading, setPortalLoading] = useState(false);
+  const [portalLogoUploading, setPortalLogoUploading] = useState(false);
+  const [portalLogoFile, setPortalLogoFile] = useState<File | null>(null);
+  const [portalLogoPreview, setPortalLogoPreview] = useState<string | null>(null);
   const [portalTempPassword, setPortalTempPassword] = useState<string | null>(null);
   const [portalVendorCode, setPortalVendorCode] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
+
+  function toPublicUrl(path?: string | null) {
+    if (!path) return null;
+    const { data } = supabase.storage.from("erp-assets").getPublicUrl(path);
+    return data?.publicUrl ?? null;
+  }
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -130,7 +140,7 @@ export default function InventoryVendorsPage() {
     const { data, error: loadError } = await supabase
       .from("erp_vendors")
       .select(
-        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, vendor_code, portal_enabled, portal_status, created_at",
+        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, vendor_code, portal_enabled, portal_status, portal_logo_path, created_at",
       )
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
@@ -176,6 +186,8 @@ export default function InventoryVendorsPage() {
     setTdsProfiles([]);
     setPortalTempPassword(null);
     setPortalVendorCode(null);
+    setPortalLogoFile(null);
+    setPortalLogoPreview(null);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -250,10 +262,103 @@ export default function InventoryVendorsPage() {
 
     setPortalTempPassword(null);
     setPortalVendorCode(null);
+    setPortalLogoFile(null);
+    setPortalLogoPreview(toPublicUrl(vendor.portal_logo_path));
     setToast(null);
     setError("");
 
     loadTdsProfiles(vendor.id);
+  }
+
+  async function fileToBase64(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const value = typeof reader.result === "string" ? reader.result : "";
+        const base64 = value.includes(",") ? value.split(",")[1] : value;
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("Failed to read logo file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePortalLogoUpload() {
+    if (!editingId) return;
+    if (!portalLogoFile) {
+      setToast({ type: "error", message: "Select a vendor logo file first." });
+      return;
+    }
+    if (!accessToken) {
+      setToast({ type: "error", message: "Missing access token. Please sign in again." });
+      return;
+    }
+
+    setPortalLogoUploading(true);
+    setToast(null);
+    setError("");
+    try {
+      const fileBase64 = await fileToBase64(portalLogoFile);
+      const res = await fetch("/api/inventory/vendors/upload-portal-logo", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          vendor_id: editingId,
+          file_base64: fileBase64,
+          filename: portalLogoFile.name,
+          mime_type: portalLogoFile.type || "image/png",
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Failed to upload vendor logo");
+      }
+      setPortalLogoPreview(payload.public_url || null);
+      setPortalLogoFile(null);
+      setToast({ type: "success", message: "Vendor logo uploaded." });
+      if (ctx?.companyId) await loadVendors(ctx.companyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to upload vendor logo";
+      setError(message);
+      setToast({ type: "error", message });
+    } finally {
+      setPortalLogoUploading(false);
+    }
+  }
+
+  async function handlePortalLogoRemove() {
+    if (!editingId || !accessToken) return;
+
+    setPortalLogoUploading(true);
+    setToast(null);
+    setError("");
+    try {
+      const res = await fetch("/api/inventory/vendors/upload-portal-logo", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ vendor_id: editingId, remove: true }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Failed to remove vendor logo");
+      }
+      setPortalLogoPreview(null);
+      setPortalLogoFile(null);
+      setToast({ type: "success", message: "Vendor logo removed." });
+      if (ctx?.companyId) await loadVendors(ctx.companyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to remove vendor logo";
+      setError(message);
+      setToast({ type: "error", message });
+    } finally {
+      setPortalLogoUploading(false);
+    }
   }
 
   async function handlePortalEnable() {
@@ -577,6 +682,56 @@ export default function InventoryVendorsPage() {
                       >
                         Disable Access
                       </button>
+                    </div>
+
+                    <div style={{ marginTop: 16, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 8 }}>Vendor Logo</div>
+                      <div
+                        style={{
+                          width: 240,
+                          height: 80,
+                          borderRadius: 8,
+                          border: "1px dashed #d1d5db",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "#f8fafc",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {portalLogoPreview ? (
+                          <img src={portalLogoPreview} alt="Vendor logo" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+                        ) : (
+                          <span style={{ color: "#6b7280", fontSize: 12 }}>No vendor logo uploaded</span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            setPortalLogoFile(file);
+                            if (file) setPortalLogoPreview(URL.createObjectURL(file));
+                          }}
+                        />
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={handlePortalLogoUpload}
+                          disabled={!canWrite || portalLogoUploading}
+                        >
+                          {portalLogoUploading ? "Uploading..." : "Upload Vendor Logo"}
+                        </button>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          onClick={handlePortalLogoRemove}
+                          disabled={!canWrite || portalLogoUploading}
+                        >
+                          Remove Logo
+                        </button>
+                      </div>
                     </div>
                   </>
                 );

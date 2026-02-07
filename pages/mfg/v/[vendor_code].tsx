@@ -1,6 +1,30 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 
+function LogoBox({ url, fallback }: { url?: string | null; fallback: string }) {
+  return (
+    <div
+      style={{
+        width: 180,
+        height: 56,
+        border: "1px solid #e5e7eb",
+        borderRadius: 10,
+        background: "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {url ? (
+        <img src={url} alt={fallback} style={{ maxWidth: "95%", maxHeight: "90%", objectFit: "contain" }} />
+      ) : (
+        <span style={{ fontSize: 12, color: "#6b7280" }}>{fallback}</span>
+      )}
+    </div>
+  );
+}
+
 export default function VendorDashboardPage() {
   const router = useRouter();
   const { vendor_code } = router.query;
@@ -44,13 +68,17 @@ export default function VendorDashboardPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <LogoBox url={data?.branding?.vendor_logo_url || null} fallback="Vendor Logo" />
+          <div style={{ textAlign: "center", flex: "1 1 280px" }}>
             <div style={{ color: "#6b7280", fontSize: 12 }}>Manufacturer Portal</div>
             <h1 style={{ margin: "4px 0" }}>{data?.vendor?.legal_name || "Vendor Dashboard"}</h1>
             <div style={{ color: "#6b7280" }}>{data?.vendor?.vendor_code || vendorCode}</div>
           </div>
-          <button onClick={async () => { await fetch('/api/mfg/auth/logout', { method: 'POST' }); router.replace('/mfg/login'); }}>Sign Out</button>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <LogoBox url={data?.branding?.company_secondary_logo_url || null} fallback="Company Secondary Logo" />
+            <button onClick={async () => { await fetch('/api/mfg/auth/logout', { method: 'POST' }); router.replace('/mfg/login'); }}>Sign Out</button>
+          </div>
         </header>
 
         {loading ? <div style={{ marginTop: 20 }}>Loading…</div> : null}

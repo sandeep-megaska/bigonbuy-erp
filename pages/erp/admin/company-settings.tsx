@@ -42,6 +42,7 @@ type GstStateOption = {
 export default function CompanySettingsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
+  const [accessToken, setAccessToken] = useState("");
   const [access, setAccess] = useState<ErpAccessState>({
     isAuthenticated: false,
     isManager: false,
@@ -86,6 +87,8 @@ export default function CompanySettingsPage() {
       const session = await requireAuthRedirectHome(router);
       if (!session || !active) return;
 
+      setAccessToken(session.access_token || "");
+
       const [accessState, context] = await Promise.all([
         getCurrentErpAccess(session),
         getCompanyContext(session),
@@ -129,7 +132,7 @@ export default function CompanySettingsPage() {
       const [companyRes, settingsRes, logoRes, designationRes, statesRes, gstRes] = await Promise.all([
         supabase
           .from("erp_companies")
-          .select("id, name, legal_name, brand_name, country_code, currency_code")
+          .select("id, name, legal_name, brand_name, country_code, currency_code, secondary_logo_path")
           .eq("id", companyId)
           .maybeSingle(),
         getCompanySettings(),
@@ -157,7 +160,11 @@ export default function CompanySettingsPage() {
       });
       setDesignationCount(designationRes.count || 0);
       setBigonbuyPreview(logoRes.bigonbuyUrl);
-      setMegaskaPreview(logoRes.megaskaUrl);
+      const companySecondary = (companyRes.data as any)?.secondary_logo_path || null;
+      const companySecondaryUrl = companySecondary
+        ? supabase.storage.from("erp-assets").getPublicUrl(companySecondary).data.publicUrl
+        : null;
+      setMegaskaPreview(companySecondaryUrl);
       setPoLegalName(settingsRes?.legal_name || "");
       const stateOptions = (statesRes.data ?? []) as GstStateOption[];
       const gstProfile = (gstRes.data ?? null) as {
@@ -215,6 +222,18 @@ export default function CompanySettingsPage() {
     }
   }
 
+  async function fileToBase64(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const value = typeof reader.result === "string" ? reader.result : "";
+        resolve(value.includes(",") ? value.split(",")[1] : value);
+      };
+      reader.onerror = () => reject(new Error("Failed to read logo file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handleUpload(kind: "bigonbuy" | "megaska") {
     const file = kind === "bigonbuy" ? bigonbuyFile : megaskaFile;
     if (!file) {
@@ -226,23 +245,37 @@ export default function CompanySettingsPage() {
     setError("");
 
     try {
-      const path = await uploadCompanyLogo(kind, file);
-      const payload =
-        kind === "bigonbuy"
-          ? { bigonbuy_logo_path: path, updated_by: ctx?.userId ?? null }
-          : { megaska_logo_path: path, updated_by: ctx?.userId ?? null };
-      const updated = await updateCompanySettings(payload);
-      const logosRes = await getCompanyLogosSignedUrlsIfNeeded();
-      setSettings(updated || settings);
-      setLogos({
-        bigonbuyUrl: logosRes.bigonbuyUrl,
-        megaskaUrl: logosRes.megaskaUrl,
-      });
       if (kind === "bigonbuy") {
+        const path = await uploadCompanyLogo(kind, file);
+        const updated = await updateCompanySettings({ bigonbuy_logo_path: path, updated_by: ctx?.userId ?? null });
+        const logosRes = await getCompanyLogosSignedUrlsIfNeeded();
+        setSettings(updated || settings);
+        setLogos({
+          bigonbuyUrl: logosRes.bigonbuyUrl,
+          megaskaUrl: logosRes.megaskaUrl,
+        });
         setBigonbuyPreview(logosRes.bigonbuyUrl);
         setBigonbuyFile(null);
       } else {
-        setMegaskaPreview(logosRes.megaskaUrl);
+        if (!accessToken) throw new Error("Missing access token. Please reload.");
+        const fileBase64 = await fileToBase64(file);
+        const response = await fetch("/api/admin/company/upload-secondary-logo", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            file_base64: fileBase64,
+            filename: file.name,
+            mime_type: file.type || "image/png",
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload?.ok) {
+          throw new Error(payload?.error || "Failed to upload secondary logo.");
+        }
+        setMegaskaPreview(payload.public_url || null);
         setMegaskaFile(null);
       }
     } catch (err) {
@@ -468,8 +501,8 @@ export default function CompanySettingsPage() {
           </div>
           <div style={logoCardStyle}>
             <div>
-              <p style={logoLabelStyle}>Megaska Logo</p>
-              <p style={logoHintStyle}>Optional secondary brand mark.</p>
+              <p style={logoLabelStyle}>Secondary Logo</p>
+              <p style={logoHintStyle}>Shown on vendor portal header.</p>
             </div>
             <div style={logoPreviewStyle}>
               {megaskaPreview ? (
@@ -493,7 +526,7 @@ export default function CompanySettingsPage() {
               onClick={() => handleUpload("megaska")}
               disabled={uploading === "megaska"}
             >
-              {uploading === "megaska" ? "Uploading…" : "Upload Megaska Logo"}
+              {uploading === "megaska" ? "Uploading…" : "Upload Secondary Logo"}
             </button>
           </div>
         </div>
