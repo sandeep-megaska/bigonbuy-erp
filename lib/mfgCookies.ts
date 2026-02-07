@@ -13,13 +13,14 @@ export function getCookieLast(req: NextApiRequest, name: string): string | null 
   return found;
 }
 
-export function appendSetCookie(res: NextApiResponse, cookie: string) {
+// Backwards-compatible: many files already import setCookie(...)
+export function setCookie(res: NextApiResponse, cookie: string) {
   const prev = res.getHeader("Set-Cookie");
   const prevArr = typeof prev === "string" ? [prev] : Array.isArray(prev) ? prev : [];
   res.setHeader("Set-Cookie", [...prevArr, cookie]);
 }
 
-export function appendSetCookies(res: NextApiResponse, cookies: string[]) {
+export function setCookies(res: NextApiResponse, cookies: string[]) {
   const prev = res.getHeader("Set-Cookie");
   const prevArr = typeof prev === "string" ? [prev] : Array.isArray(prev) ? prev : [];
   res.setHeader("Set-Cookie", [...prevArr, ...cookies]);
@@ -42,13 +43,8 @@ export function buildHttpOnlyCookie(opts: {
   ].filter(Boolean).join("; ");
 }
 
-/**
- * Clears mfg_session cookie on BOTH paths:
- * - Path=/    (current standard)
- * - Path=/mfg (legacy)
- */
 export function clearMfgSessionCookies(res: NextApiResponse, secure: boolean) {
-  appendSetCookies(res, [
+  setCookies(res, [
     buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/", maxAge: 0, secure }),
     buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/mfg", maxAge: 0, secure }),
   ]);
