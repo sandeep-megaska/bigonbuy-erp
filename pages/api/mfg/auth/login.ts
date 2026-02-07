@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 type ApiResponse =
-  | { ok: true; vendor_code: string; must_reset_password: boolean }
+  | { ok: true; vendor_code: string; must_reset_password: boolean; redirect_to: string }
   | { ok: false; error: string; details?: string | null };
 
 function getCookie(req: NextApiRequest, name: string): string | null {
@@ -56,6 +56,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const sessionToken = String(payload.session_token || "");
+  if (!sessionToken) {
+    return res.status(500).json({ ok: false, error: "Unable to create session" });
+  }
+
+  const vendorCode = String(payload.vendor_code || code);
+  const mustResetPassword = Boolean(payload.must_reset_password);
+  const redirectTo = mustResetPassword ? "/mfg/reset-password" : `/mfg/v/${vendorCode}`;
+
   const expiresAt = payload.expires_at ? new Date(payload.expires_at) : null;
   const maxAge = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : 60 * 60 * 24 * 30;
 
@@ -73,7 +81,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   return res.status(200).json({
     ok: true,
-    vendor_code: String(payload.vendor_code || code),
-    must_reset_password: Boolean(payload.must_reset_password),
+    vendor_code: vendorCode,
+    must_reset_password: mustResetPassword,
+    redirect_to: redirectTo,
   });
 }
