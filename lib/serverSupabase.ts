@@ -7,7 +7,11 @@ type SupabaseEnv = {
   serviceRoleKey: string | null;
   missing: string[];
 };
-
+export function createAnonClient(supabaseUrl: string, anonKey: string) {
+  return createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 export function getSupabaseEnv(): SupabaseEnv {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
