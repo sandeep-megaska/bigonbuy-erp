@@ -1,107 +1,45 @@
 // pages/api/mfg/admin/vendor-portal-enable.ts
-
+// pages/api/mfg/admin/vendor-portal-enable.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../lib/serverSupabase";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
 
-type ErrorResponse = { ok: false; error: string; details?: string | null };
-type SuccessResponse = { ok: true; data: any };
-type ApiResponse = ErrorResponse | SuccessResponse;
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ApiResponse>,
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || (missing?.length ?? 0) > 0) {
-    console.error("[mfg/admin/vendor-portal-enable] Missing Supabase env vars", { missing });
-    return res.status(500).json({
-      ok: false,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY",
-      details: (missing || []).join(", "),
-    });
-  }
+  const supabase = createServerSupabaseClient({ req, res });
 
-  const accessToken = getBearerToken(req);
-  if (!accessToken) {
-    return res
-      .status(401)
-      .json({ ok: false, error: "Missing Authorization: Bearer token" });
-  }
+  const { data: userRes, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userRes?.user) return res.status(401).json({ ok: false, error: "Not authenticated" });
 
-  // User-scoped supabase client (uses Bearer token like existing HR/Finance APIs)
-  const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+  const vendor_id = typeof req.body?.vendor_id === "string" ? req.body.vendor_id : "";
+  if (!vendor_id) return res.status(400).json({ ok: false, error: "vendor_id is required" });
 
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  const user = userData?.user ?? null;
-  if (userError || !user) {
-    console.error("[mfg/admin/vendor-portal-enable] getUser failed", userError);
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
-  }
+  const { data: companyId, error: companyErr } = await supabase.rpc("erp_current_company_id");
+  if (companyErr || !companyId) return res.status(400).json({ ok: false, error: companyErr?.message || "No company" });
 
-  const { vendor_id } = (req.body ?? {}) as Record<string, unknown>;
-  const vendorId = typeof vendor_id === "string" ? vendor_id : "";
-  if (!vendorId) {
-    return res.status(400).json({ ok: false, error: "vendor_id is required" });
-  }
-
-  // Resolve company_id from canonical RPC
-  const { data: companyId, error: companyError } = await userClient.rpc(
-    "erp_current_company_id",
-  );
-  if (companyError || !companyId) {
-    console.error("[mfg/admin/vendor-portal-enable] erp_current_company_id failed", companyError);
-    return res.status(400).json({
-      ok: false,
-      error: companyError?.message || "Failed to determine company",
-      details: companyError?.details || companyError?.hint || companyError?.code || null,
-    });
-  }
-
-  // Owner/Admin only
-  const { data: membership, error: membershipError } = await userClient
+  // membership check
+  const { data: membership, error: memErr } = await supabase
     .from("erp_company_users")
-    .select("role_key, is_active")
-    .eq("user_id", user.id)
+    .select("role_key")
     .eq("company_id", companyId)
+    .eq("user_id", userRes.user.id)
     .eq("is_active", true)
-    .limit(1)
     .maybeSingle();
 
-  if (membershipError) {
-    console.error("[mfg/admin/vendor-portal-enable] membership lookup failed", membershipError);
-    return res.status(500).json({
-      ok: false,
-      error: membershipError.message || "Authorization check failed",
-      details: membershipError.details || membershipError.hint || membershipError.code || null,
-    });
-  }
-
-  const roleKey = (membership?.role_key ?? "").toLowerCase();
-  if (!membership || !["owner", "admin"].includes(roleKey)) {
+  if (memErr) return res.status(500).json({ ok: false, error: memErr.message });
+  if (!membership || !["owner", "admin"].includes(membership.role_key || "")) {
     return res.status(403).json({ ok: false, error: "Not authorized" });
   }
 
-  // Call vendor portal enable RPC
-  const { data, error } = await userClient.rpc("erp_vendor_portal_enable", {
-    p_vendor_id: vendorId,
+  const { data, error } = await supabase.rpc("erp_vendor_portal_enable_v2", {
+    p_vendor_id: vendor_id,
     p_company_id: companyId,
   });
 
-  if (error) {
-    console.error("[mfg/admin/vendor-portal-enable] RPC failed", error);
-    return res.status(400).json({
-      ok: false,
-      error: error.message || "Failed to enable vendor portal",
-      details: error.details || error.hint || error.code || null,
-    });
-  }
+  if (error) return res.status(400).json({ ok: false, error: error.message, details: error.details || error.hint });
 
-  // Supabase RPC returns rows for returns table; use first row.
-  return res.status(200).json({ ok: true, data: Array.isArray(data) ? data[0] ?? null : data });
+  return res.status(200).json({ ok: true, data });
 }
