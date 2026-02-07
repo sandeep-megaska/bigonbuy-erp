@@ -257,6 +257,18 @@ const FINANCE_NAV_ITEMS: FinanceNavItem[] = [
     showInCards: false,
   },
   {
+    id: "finance_ar_outstanding",
+    label: "Outstanding Receivables",
+    href: "/erp/finance/ar/outstanding",
+    description: "Allocate customer credit notes against open customer invoices.",
+    group: "Reports",
+    roles: FINANCE_ROLE_KEYS,
+    sidebarIcon: "ledger",
+    cardIcon: "📒",
+    showInSidebar: true,
+    showInCards: false,
+  },
+  {
     id: "finance-trial-balance",
     label: "Trial Balance",
     href: "/erp/finance/reports/trial-balance",
