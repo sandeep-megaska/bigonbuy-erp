@@ -27,7 +27,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const secure = process.env.NODE_ENV === "production";
   res.setHeader("Set-Cookie", [
-    [`mfg_session=`, "Path=/mfg", "HttpOnly", "SameSite=Lax", "Max-Age=0", secure ? "Secure" : ""].filter(Boolean).join("; "),
+    [`mfg_session=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0", secure ? "Secure" : ""]
+.filter(Boolean).join("; "),
   ]);
 
   return res.status(200).json({ ok: true });
