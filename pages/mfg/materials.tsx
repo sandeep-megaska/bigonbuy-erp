@@ -22,6 +22,9 @@ type AlertRow = {
 
 const baseInputStyle: CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
   padding: 10,
   marginTop: 6,
   border: "1px solid #d1d5db",
