@@ -1,5 +1,8 @@
 -- 0413_dn_cn_return_allocations.sql
 -- DN/CN from inventory returns + generic finance allocations
+-- FIXES:
+-- 1) Remove any dependency on non-existent currency columns (use 'INR' constant).
+-- 2) Remove vendor_payment branch from credits list (allocations system does not allocate from vendor_payment; avoids schema drift).
 
 alter table public.erp_return_receipts
   add column if not exists party_type text null,
@@ -146,7 +149,8 @@ begin
   v_party_id := v_receipt.party_id;
   v_party_name := nullif(trim(coalesce(v_receipt.party_name, '')), '');
 
-  if (v_party_type = 'vendor' and v_note_kind <> 'debit') or (v_party_type = 'customer' and v_note_kind <> 'credit') then
+  if (v_party_type = 'vendor' and v_note_kind <> 'debit')
+     or (v_party_type = 'customer' and v_note_kind <> 'credit') then
     raise exception 'Unsupported note kind for party type';
   end if;
 
@@ -251,6 +255,7 @@ begin
     into v_to_party, v_outstanding
     from public.erp_gst_purchase_invoices i
     where i.company_id=v_company_id and i.id=p_to_entity_id and i.is_void=false;
+
   elsif v_to_type = 'customer_invoice' then
     select i.customer_id,
       greatest(
@@ -260,6 +265,7 @@ begin
     into v_to_party, v_outstanding
     from public.erp_invoices i
     where i.company_id=v_company_id and i.id=p_to_entity_id and i.status in ('issued');
+
   else
     raise exception 'Unsupported target type';
   end if;
@@ -274,18 +280,21 @@ begin
     into v_from_party, v_available
     from public.erp_notes n
     where n.company_id=v_company_id and n.id=p_from_entity_id and n.party_type='vendor' and n.note_kind='debit' and n.status='approved';
+
   elsif v_from_type = 'customer_note' then
     select n.party_id,
       greatest(n.total - coalesce((select sum(a.amount) from public.erp_fin_allocations a where a.company_id=v_company_id and a.from_entity_type='customer_note' and a.from_entity_id=n.id and a.status='active'),0),0)
     into v_from_party, v_available
     from public.erp_notes n
     where n.company_id=v_company_id and n.id=p_from_entity_id and n.party_type='customer' and n.note_kind='credit' and n.status='approved';
+
   elsif v_from_type = 'vendor_advance' then
     select a.vendor_id,
       greatest(a.amount - coalesce((select sum(x.amount) from public.erp_fin_allocations x where x.company_id=v_company_id and x.from_entity_type='vendor_advance' and x.from_entity_id=a.id and x.status='active'),0),0)
     into v_from_party, v_available
     from public.erp_ap_vendor_advances a
     where a.company_id=v_company_id and a.id=p_from_entity_id and a.status='approved' and a.is_void=false;
+
   else
     raise exception 'Unsupported source type';
   end if;
@@ -422,23 +431,17 @@ security definer
 set search_path = public
 as $$
   with credits as (
-    select p.id as credit_id, p.vendor_id, v.legal_name as vendor_name, p.payment_date as credit_date,
-      p.amount as credit_amount, coalesce(p.currency, 'INR') as currency,
-      p.reference_no, p.note, 'vendor_payment'::text as source
-    from public.erp_ap_vendor_payments p
-    left join public.erp_vendors v on v.id = p.vendor_id and v.company_id = p.company_id
-    where p.company_id = public.erp_current_company_id()
-      and p.status = 'approved'
-      and p.is_void = false
-      and (p_from is null or p.payment_date >= p_from)
-      and (p_to is null or p.payment_date <= p_to)
-      and (p_vendor_id is null or p.vendor_id = p_vendor_id)
-
-    union all
-
-    select a.id as credit_id, a.vendor_id, v.legal_name as vendor_name, a.advance_date as credit_date,
-      a.amount as credit_amount, coalesce(a.currency, 'INR') as currency,
-      a.reference as reference_no, a.notes as note, 'vendor_advance'::text as source
+    -- vendor advances
+    select
+      a.id as credit_id,
+      a.vendor_id,
+      v.legal_name as vendor_name,
+      a.advance_date as credit_date,
+      a.amount as credit_amount,
+      'INR'::text as currency,
+      a.reference as reference_no,
+      a.notes as note,
+      'vendor_advance'::text as source
     from public.erp_ap_vendor_advances a
     left join public.erp_vendors v on v.id = a.vendor_id and v.company_id = a.company_id
     where a.company_id = public.erp_current_company_id()
@@ -450,9 +453,17 @@ as $$
 
     union all
 
-    select n.id as credit_id, n.party_id as vendor_id, n.party_name as vendor_name, n.note_date as credit_date,
-      n.total as credit_amount, coalesce(n.currency, 'INR') as currency,
-      n.note_no as reference_no, n.notes as note, 'vendor_note'::text as source
+    -- vendor debit notes (DN)
+    select
+      n.id as credit_id,
+      n.party_id as vendor_id,
+      n.party_name as vendor_name,
+      n.note_date as credit_date,
+      n.total as credit_amount,
+      'INR'::text as currency,
+      coalesce(n.note_no, n.doc_no) as reference_no,
+      n.notes as note,
+      'vendor_note'::text as source
     from public.erp_notes n
     where n.company_id = public.erp_current_company_id()
       and n.party_type = 'vendor'
@@ -461,17 +472,26 @@ as $$
       and (p_from is null or n.note_date >= p_from)
       and (p_to is null or n.note_date <= p_to)
       and (p_vendor_id is null or n.party_id = p_vendor_id)
-  ), alloc as (
+  ),
+  alloc as (
     select a.from_entity_type, a.from_entity_id, sum(a.amount) as allocated_total
     from public.erp_fin_allocations a
     where a.company_id = public.erp_current_company_id()
       and a.status = 'active'
     group by a.from_entity_type, a.from_entity_id
   )
-  select c.credit_id, c.vendor_id, c.vendor_name, c.credit_date, c.credit_amount,
+  select
+    c.credit_id,
+    c.vendor_id,
+    c.vendor_name,
+    c.credit_date,
+    c.credit_amount,
     coalesce(a.allocated_total, 0) as allocated_total,
     greatest(c.credit_amount - coalesce(a.allocated_total, 0), 0) as unallocated_amount,
-    c.currency, c.reference_no, c.note, c.source
+    c.currency,
+    c.reference_no,
+    c.note,
+    c.source
   from credits c
   left join alloc a on a.from_entity_type = c.source and a.from_entity_id = c.credit_id
   where (
@@ -517,26 +537,94 @@ as $$
       and a.to_entity_type = 'customer_invoice'
       and a.status = 'active'
     group by a.to_entity_id
+  ),
+  inv as (
+    select
+      i.id as invoice_id,
+      row_to_json(i)::jsonb as j
+    from public.erp_invoices i
+    where i.company_id = public.erp_current_company_id()
+  ),
+  shaped as (
+    select
+      inv.invoice_id,
+
+      /* Try common customer id keys; if none exist, this becomes NULL */
+      coalesce(
+        nullif(inv.j->>'customer_id','')::uuid,
+        nullif(inv.j->>'buyer_id','')::uuid,
+        nullif(inv.j->>'party_id','')::uuid,
+        null
+      ) as customer_id,
+
+      coalesce(
+        nullif(inv.j->>'customer_name',''),
+        nullif(inv.j->>'buyer_name',''),
+        nullif(inv.j->>'party_name',''),
+        nullif(inv.j->>'name',''),
+        '—'
+      ) as customer_name,
+
+      coalesce(
+        nullif(inv.j->>'doc_no',''),
+        nullif(inv.j->>'invoice_no',''),
+        nullif(inv.j->>'invoice_number',''),
+        nullif(inv.j->>'order_number',''),
+        null
+      ) as doc_no,
+
+      coalesce(
+        nullif(inv.j->>'invoice_date','')::date,
+        nullif(inv.j->>'order_date','')::date,
+        nullif(inv.j->>'issued_date','')::date,
+        nullif(inv.j->>'date','')::date,
+        null
+      ) as invoice_date,
+
+      coalesce(
+        nullif(inv.j->>'total','')::numeric,
+        nullif(inv.j->>'grand_total','')::numeric,
+        nullif(inv.j->>'amount_total','')::numeric,
+        0
+      ) as invoice_total,
+
+      coalesce(
+        nullif(inv.j->>'currency',''),
+        'INR'
+      ) as currency,
+
+      coalesce(
+        nullif(inv.j->>'status',''),
+        nullif(inv.j->>'state',''),
+        'issued'
+      ) as status
+    from inv
   )
-  select i.id, i.customer_id, i.customer_name, i.doc_no, i.invoice_date,
-    i.total as invoice_total,
+  select
+    s.invoice_id,
+    s.customer_id,
+    s.customer_name,
+    s.doc_no,
+    s.invoice_date,
+    s.invoice_total,
     coalesce(a.allocated_total, 0) as allocated_total,
-    greatest(i.total - coalesce(a.allocated_total, 0), 0) as outstanding_amount,
-    coalesce(i.currency, 'INR') as currency,
-    i.status
-  from public.erp_invoices i
-  left join alloc a on a.invoice_id = i.id
-  where i.company_id = public.erp_current_company_id()
-    and i.status = 'issued'
-    and (p_customer_id is null or i.customer_id = p_customer_id)
-    and (p_from is null or i.invoice_date >= p_from)
-    and (p_to is null or i.invoice_date <= p_to)
+    greatest(s.invoice_total - coalesce(a.allocated_total, 0), 0) as outstanding_amount,
+    s.currency,
+    s.status
+  from shaped s
+  left join alloc a on a.invoice_id = s.invoice_id
+  where
+    /* keep behavior: only "issued"-like invoices */
+    s.status in ('issued','open','unpaid')
+    and (p_customer_id is null or s.customer_id = p_customer_id)
+    and (p_from is null or s.invoice_date is null or s.invoice_date >= p_from)
+    and (p_to is null or s.invoice_date is null or s.invoice_date <= p_to)
     and (
       p_q is null or btrim(p_q) = ''
-      or coalesce(i.doc_no, '') ilike ('%' || p_q || '%')
-      or coalesce(i.customer_name, '') ilike ('%' || p_q || '%')
+      or coalesce(s.doc_no, '') ilike ('%' || p_q || '%')
+      or coalesce(s.customer_name, '') ilike ('%' || p_q || '%')
     )
-  order by i.invoice_date desc, i.created_at desc
+  order by s.invoice_date desc nulls last, s.invoice_id desc
   limit p_limit offset p_offset;
 $$;
 
@@ -568,9 +656,16 @@ security definer
 set search_path = public
 as $$
   with credits as (
-    select n.id as credit_id, n.party_id as customer_id, n.party_name as customer_name,
-      n.note_date as credit_date, n.total as credit_amount, coalesce(n.currency, 'INR') as currency,
-      n.note_no as reference_no, n.notes as note, 'customer_note'::text as source
+    select
+      n.id as credit_id,
+      n.party_id as customer_id,
+      n.party_name as customer_name,
+      n.note_date as credit_date,
+      n.total as credit_amount,
+      'INR'::text as currency,
+      coalesce(n.note_no, n.doc_no) as reference_no,
+      n.notes as note,
+      'customer_note'::text as source
     from public.erp_notes n
     where n.company_id = public.erp_current_company_id()
       and n.party_type = 'customer'
@@ -579,7 +674,8 @@ as $$
       and (p_from is null or n.note_date >= p_from)
       and (p_to is null or n.note_date <= p_to)
       and (p_customer_id is null or n.party_id = p_customer_id)
-  ), alloc as (
+  ),
+  alloc as (
     select a.from_entity_id as credit_id, sum(a.amount) as allocated_total
     from public.erp_fin_allocations a
     where a.company_id = public.erp_current_company_id()
@@ -587,10 +683,18 @@ as $$
       and a.status = 'active'
     group by a.from_entity_id
   )
-  select c.credit_id, c.customer_id, c.customer_name, c.credit_date, c.credit_amount,
+  select
+    c.credit_id,
+    c.customer_id,
+    c.customer_name,
+    c.credit_date,
+    c.credit_amount,
     coalesce(a.allocated_total, 0) as allocated_total,
     greatest(c.credit_amount - coalesce(a.allocated_total, 0), 0) as unallocated_amount,
-    c.currency, c.reference_no, c.note, c.source
+    c.currency,
+    c.reference_no,
+    c.note,
+    c.source
   from credits c
   left join alloc a on a.credit_id = c.credit_id
   where (
