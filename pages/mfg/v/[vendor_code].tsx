@@ -76,7 +76,11 @@ export default function VendorDashboardPage() {
             <div style={{ color: "#6b7280" }}>{data?.vendor?.vendor_code || vendorCode}</div>
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <LogoBox url={data?.branding?.company_secondary_logo_url || null} fallback="Company Secondary Logo" />
+          <LogoBox
+  url={data?.branding?.company_megaska_logo_url || null}
+  fallback="Megaska"
+/>
+
             <button onClick={() => router.push('/mfg/materials')}>Materials</button>
             <button onClick={async () => { await fetch('/api/mfg/auth/logout', { method: 'POST' }); router.replace('/mfg/login'); }}>Sign Out</button>
           </div>
