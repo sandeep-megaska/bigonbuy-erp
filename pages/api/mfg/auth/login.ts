@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
-import { appendSetCookies, buildHttpOnlyCookie } from "../../../../lib/mfgCookies";
+import { setCookies, buildHttpOnlyCookie } from "../../../../lib/mfgCookies";
 
 type ApiResponse =
   | { ok: true; vendor_code: string; must_reset_password: boolean; redirect_to: string }
@@ -13,8 +13,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.includes("NEXT_PUBLIC_SUPABASE_URL") || missing.includes("NEXT_PUBLIC_SUPABASE_ANON_KEY")) {
-    return res.status(500).json({ ok: false, error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY" });
+  if (
+    !supabaseUrl ||
+    !anonKey ||
+    missing.includes("NEXT_PUBLIC_SUPABASE_URL") ||
+    missing.includes("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  ) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    });
   }
 
   const { vendor_code, password } = (req.body ?? {}) as Record<string, unknown>;
@@ -26,10 +34,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const anon = createAnonClient(supabaseUrl, anonKey);
-  const { data, error } = await anon.rpc("erp_mfg_vendor_login_v2", { p_vendor_code: code, p_password: pwd });
+  const { data, error } = await anon.rpc("erp_mfg_vendor_login_v2", {
+    p_vendor_code: code,
+    p_password: pwd,
+  });
 
   if (error) {
-    return res.status(500).json({ ok: false, error: error.message || "Login failed", details: error.details || error.hint || error.code });
+    return res.status(500).json({
+      ok: false,
+      error: error.message || "Login failed",
+      details: error.details || error.hint || error.code,
+    });
   }
 
   const payload = (data ?? {}) as any;
@@ -47,12 +62,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const redirectTo = mustResetPassword ? "/mfg/reset-password" : `/mfg/v/${vendorCode}`;
 
   const expiresAt = payload.expires_at ? new Date(payload.expires_at) : null;
-  const maxAge = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000)) : 60 * 60 * 24 * 30;
+  const maxAge = expiresAt
+    ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+    : 60 * 60 * 24 * 30;
 
   const secure = process.env.NODE_ENV === "production";
 
-  // Set new cookie on Path=/ and remove legacy Path=/mfg cookie in same response.
-  appendSetCookies(res, [
+  // Set cookie on Path=/ and delete legacy Path=/mfg cookie in same response
+  setCookies(res, [
     buildHttpOnlyCookie({ name: "mfg_session", value: sessionToken, path: "/", maxAge, secure }),
     buildHttpOnlyCookie({ name: "mfg_session", value: "", path: "/mfg", maxAge: 0, secure }),
   ]);
