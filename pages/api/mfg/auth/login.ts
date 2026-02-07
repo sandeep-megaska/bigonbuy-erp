@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createAnonClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 import { setCookies, buildHttpOnlyCookie } from "../../../../lib/mfgCookies";
 
+
 type ApiResponse =
   | { ok: true; vendor_code: string; must_reset_password: boolean; redirect_to: string }
   | { ok: false; error: string; details?: string | null };
