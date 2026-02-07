@@ -1,9 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import {
-  createUserClient,
-  getCookieAccessToken,
-  getSupabaseEnv,
-} from "../../../../lib/serverSupabase";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 export default async function handler(
   req: NextApiRequest,
@@ -24,14 +21,12 @@ export default async function handler(
     });
   }
 
-  const accessToken = getCookieAccessToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
-  }
-
-  const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
+  const userClient = createServerSupabaseClient({ req, res });
+  const {
+    data: { user },
+    error: userError,
+  } = await userClient.auth.getUser();
+  if (userError || !user) {
     console.error("[vendor-portal-enable] getUser failed", userError);
     return res.status(401).json({ ok: false, error: "Not authenticated" });
   }
@@ -49,7 +44,7 @@ export default async function handler(
   const { data: membership, error: membershipError } = await userClient
     .from("erp_company_users")
     .select("role_key")
-    .eq("user_id", userData.user.id)
+    .eq("user_id", user.id)
     .eq("company_id", companyId)
     .eq("is_active", true)
     .limit(1)
