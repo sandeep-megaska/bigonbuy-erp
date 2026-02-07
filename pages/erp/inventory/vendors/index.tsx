@@ -37,6 +37,9 @@ type Vendor = {
   payment_terms_days: number;
   notes: string | null;
   is_active: boolean;
+  vendor_code: string | null;
+  portal_enabled: boolean;
+  portal_status: string;
   created_at: string;
 };
 
@@ -81,6 +84,8 @@ export default function InventoryVendorsPage() {
   const [tdsThreshold, setTdsThreshold] = useState("");
   const [tdsEffectiveFrom, setTdsEffectiveFrom] = useState("");
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalTempPassword, setPortalTempPassword] = useState<string | null>(null);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -115,7 +120,7 @@ export default function InventoryVendorsPage() {
     const { data, error: loadError } = await supabase
       .from("erp_vendors")
       .select(
-        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, created_at"
+        "id, vendor_type, legal_name, gstin, contact_person, phone, email, address, address_line1, address_line2, city, state, pincode, country, payment_terms_days, notes, is_active, vendor_code, portal_enabled, portal_status, created_at"
       )
       .eq("company_id", companyId)
       .order("created_at", { ascending: false });
@@ -235,7 +240,70 @@ export default function InventoryVendorsPage() {
     setTdsThreshold("");
     setTdsEffectiveFrom("");
     setTdsEffectiveTo("");
+    setPortalTempPassword(null);
     loadTdsProfiles(vendor.id);
+  }
+
+  async function getAccessToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || null;
+  }
+
+  async function handlePortalEnable() {
+    if (!editingId || !ctx?.companyId) return;
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      setError("Authentication expired. Please login again.");
+      return;
+    }
+
+    setPortalLoading(true);
+    setPortalTempPassword(null);
+    const res = await fetch("/api/mfg/admin/vendor-portal-enable", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ vendor_id: editingId }),
+    });
+    const data = await res.json();
+    setPortalLoading(false);
+    if (!res.ok || !data.ok) {
+      setError(data.error || "Failed to enable portal access");
+      return;
+    }
+
+    setPortalTempPassword(data.data?.temp_password || null);
+    await loadVendors(ctx.companyId);
+  }
+
+  async function handlePortalDisable() {
+    if (!editingId || !ctx?.companyId) return;
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      setError("Authentication expired. Please login again.");
+      return;
+    }
+
+    setPortalLoading(true);
+    const res = await fetch("/api/mfg/admin/vendor-portal-disable", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ vendor_id: editingId, reason: "Disabled from vendor master" }),
+    });
+    const data = await res.json();
+    setPortalLoading(false);
+    if (!res.ok || !data.ok) {
+      setError(data.error || "Failed to disable portal access");
+      return;
+    }
+
+    setPortalTempPassword(null);
+    await loadVendors(ctx.companyId);
   }
 
   async function handleTdsProfileSubmit(event: FormEvent) {
@@ -399,6 +467,65 @@ export default function InventoryVendorsPage() {
               ) : null}
             </div>
           </form>
+
+          {editingId ? (
+            <div style={{ marginTop: 18, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+              <h3 style={{ marginTop: 0 }}>Portal Access</h3>
+              {(() => {
+                const vendor = vendors.find((v) => v.id === editingId);
+                return (
+                  <>
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 12,
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <div>Vendor Code: {vendor?.vendor_code || "—"}</div>
+                      <div>Portal Enabled: {vendor?.portal_enabled ? "Yes" : "No"}</div>
+                      <div>Status: {vendor?.portal_status || "disabled"}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <button
+                        type="button"
+                        style={primaryButtonStyle}
+                        onClick={handlePortalEnable}
+                        disabled={!canWrite || portalLoading}
+                      >
+                        {portalLoading ? "Working..." : "Generate Access"}
+                      </button>
+                      <button
+                        type="button"
+                        style={secondaryButtonStyle}
+                        onClick={handlePortalDisable}
+                        disabled={!canWrite || portalLoading}
+                      >
+                        Disable Access
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+              {portalTempPassword ? (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #bfdbfe",
+                    background: "#eff6ff",
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Temporary password (shown once):</div>
+                  <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                    {portalTempPassword}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section style={cardStyle}>
