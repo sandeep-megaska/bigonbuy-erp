@@ -1,0 +1,56 @@
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createUserClient, getBearerToken, getSupabaseEnv } from "../../../../../lib/serverSupabase";
+
+type ApiResponse = { ok: true; journal: unknown } | { ok: false; error: string; details?: string | null };
+
+const queryParam = (value: string | string[] | undefined): string | null => (Array.isArray(value) ? value[0] || null : value || null);
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  const companyId = queryParam(req.query.companyId);
+  const journalId = queryParam(req.query.id);
+  if (!companyId) return res.status(400).json({ ok: false, error: "companyId is required" });
+  if (!journalId) return res.status(400).json({ ok: false, error: "id is required" });
+
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      ok: false,
+      error:
+        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
+  }
+
+  const accessToken = getBearerToken(req);
+  if (!accessToken) return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
+
+  try {
+    const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
+    const { data: userData, error: sessionError } = await userClient.auth.getUser();
+    if (sessionError || !userData?.user) {
+      return res.status(401).json({ ok: false, error: "Not authenticated" });
+    }
+
+    const { data, error } = await userClient.rpc("erp_fin_manual_journal_get", {
+      p_company_id: companyId,
+      p_journal_id: journalId,
+    });
+
+    if (error) {
+      return res.status(400).json({
+        ok: false,
+        error: error.message || "Failed to load manual journal",
+        details: error.details || error.hint || error.code,
+      });
+    }
+
+    return res.status(200).json({ ok: true, journal: data });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ ok: false, error: message });
+  }
+}
