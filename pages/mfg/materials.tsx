@@ -321,7 +321,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 12 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 12 }}>
       <div style={{ width: "100%", maxWidth: 520, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
