@@ -54,6 +54,9 @@ type TdsProfile = {
   is_void: boolean;
 };
 
+type ToastState = { type: "success" | "error"; message: string } | null;
+
+
 export default function InventoryVendorsPage() {
   const router = useRouter();
   const [ctx, setCtx] = useState<any>(null);
@@ -86,6 +89,7 @@ export default function InventoryVendorsPage() {
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalTempPassword, setPortalTempPassword] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
 
@@ -244,66 +248,73 @@ export default function InventoryVendorsPage() {
     loadTdsProfiles(vendor.id);
   }
 
-  async function getAccessToken() {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || null;
-  }
-
   async function handlePortalEnable() {
     if (!editingId || !ctx?.companyId) return;
-    const accessToken = await getAccessToken();
-    if (!accessToken) {
-      setError("Authentication expired. Please login again.");
-      return;
-    }
 
     setPortalLoading(true);
     setPortalTempPassword(null);
-    const res = await fetch("/api/mfg/admin/vendor-portal-enable", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ vendor_id: editingId }),
-    });
-    const data = await res.json();
-    setPortalLoading(false);
-    if (!res.ok || !data.ok) {
-      setError(data.error || "Failed to enable portal access");
-      return;
-    }
+    setToast(null);
 
-    setPortalTempPassword(data.data?.temp_password || null);
-    await loadVendors(ctx.companyId);
+    try {
+      const res = await fetch("/api/mfg/admin/vendor-portal-enable", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ vendor_id: editingId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        const message = data.error || "Failed to enable portal access";
+        setError(message);
+        setToast({ type: "error", message });
+        return;
+      }
+
+      setPortalTempPassword(data.data?.temp_password || null);
+      setToast({ type: "success", message: "Vendor portal access generated." });
+      await loadVendors(ctx.companyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to enable portal access";
+      setError(message);
+      setToast({ type: "error", message });
+    } finally {
+      setPortalLoading(false);
+    }
   }
 
   async function handlePortalDisable() {
     if (!editingId || !ctx?.companyId) return;
-    const accessToken = await getAccessToken();
-    if (!accessToken) {
-      setError("Authentication expired. Please login again.");
-      return;
-    }
 
     setPortalLoading(true);
-    const res = await fetch("/api/mfg/admin/vendor-portal-disable", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ vendor_id: editingId, reason: "Disabled from vendor master" }),
-    });
-    const data = await res.json();
-    setPortalLoading(false);
-    if (!res.ok || !data.ok) {
-      setError(data.error || "Failed to disable portal access");
-      return;
-    }
+    setToast(null);
 
-    setPortalTempPassword(null);
-    await loadVendors(ctx.companyId);
+    try {
+      const res = await fetch("/api/mfg/admin/vendor-portal-disable", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ vendor_id: editingId, reason: "Disabled from vendor master" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        const message = data.error || "Failed to disable portal access";
+        setError(message);
+        setToast({ type: "error", message });
+        return;
+      }
+
+      setPortalTempPassword(null);
+      setToast({ type: "success", message: "Vendor portal access disabled." });
+      await loadVendors(ctx.companyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to disable portal access";
+      setError(message);
+      setToast({ type: "error", message });
+    } finally {
+      setPortalLoading(false);
+    }
   }
 
   async function handleTdsProfileSubmit(event: FormEvent) {
@@ -373,6 +384,19 @@ export default function InventoryVendorsPage() {
         </header>
 
         {error ? <div style={{ ...cardStyle, borderColor: "#fca5a5", color: "#b91c1c" }}>{error}</div> : null}
+        {toast ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: toast.type === "success" ? "#86efac" : "#fecaca",
+              color: toast.type === "success" ? "#166534" : "#b91c1c",
+              background: toast.type === "success" ? "#ecfdf5" : "#fef2f2",
+              fontWeight: 600,
+            }}
+          >
+            {toast.message}
+          </div>
+        ) : null}
 
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0 }}>Add / Edit Vendor</h2>
@@ -522,6 +546,21 @@ export default function InventoryVendorsPage() {
                   <div style={{ marginTop: 4, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
                     {portalTempPassword}
                   </div>
+                  <button
+                    type="button"
+                    style={{ ...secondaryButtonStyle, marginTop: 10 }}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(portalTempPassword ?? "");
+                        setToast({ type: "success", message: "Temporary password copied." });
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : "Failed to copy temporary password";
+                        setToast({ type: "error", message });
+                      }
+                    }}
+                  >
+                    Copy password
+                  </button>
                 </div>
               ) : null}
             </div>
