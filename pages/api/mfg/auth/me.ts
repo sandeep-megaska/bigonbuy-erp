@@ -12,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: "Server misconfigured" });
   }
 
-  const token = getCookieLast(req, "mfg_session");
+const token = (getCookieLast(req, "mfg_session") || "").trim();
   if (!token) return res.status(401).json({ ok: false, error: "Not authenticated" });
 
   const anon = createAnonClient(supabaseUrl, anonKey);
