@@ -5,8 +5,8 @@ import { getVendorSessionFromRequest } from "../../../../lib/mfg/vendorSession";
 type Resp = { ok: boolean; data?: any; error?: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Resp>) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
@@ -15,7 +15,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(auth.status).json({ ok: false, error: auth.error || "Not authenticated" });
   }
 
-  const { sku, status, notes } = req.body ?? {};
+  const sku = String(Array.isArray(req.query.sku) ? req.query.sku[0] : req.query.sku || "").trim();
+  if (!sku) {
+    return res.status(400).json({ ok: false, error: "sku is required" });
+  }
 
   const { supabaseUrl, serviceRoleKey } = getSupabaseEnv();
   if (!supabaseUrl || !serviceRoleKey) {
@@ -23,27 +26,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const admin = createServiceRoleClient(supabaseUrl, serviceRoleKey);
-  const { data: baseBom, error: baseBomError } = await admin.rpc("erp_mfg_bom_get_or_create_v1", {
+  const { data: bom, error: bomError } = await admin.rpc("erp_mfg_bom_get_or_create_v1", {
     p_company_id: auth.session.company_id,
     p_vendor_id: auth.session.vendor_id,
     p_sku: sku,
   });
 
-  if (baseBomError || !baseBom?.id) {
-    return res.status(400).json({ ok: false, error: baseBomError?.message || "Failed to resolve BOM by SKU" });
+  if (bomError || !bom?.id) {
+    return res.status(400).json({ ok: false, error: bomError?.message || "Failed to load BOM" });
   }
 
-  const { data, error } = await admin.rpc("erp_mfg_bom_upsert_v1", {
+  const { data, error } = await admin.rpc("erp_mfg_bom_get_v1", {
     p_company_id: auth.session.company_id,
     p_vendor_id: auth.session.vendor_id,
-    p_bom_id: baseBom.id,
-    p_sku: sku,
-    p_status: status,
-    p_notes: notes,
+    p_bom_id: bom.id,
   });
 
   if (error) {
-    return res.status(400).json({ ok: false, error: error.message || "Failed to save BOM" });
+    return res.status(400).json({ ok: false, error: error.message || "Failed to load BOM" });
   }
 
   return res.status(200).json({ ok: true, data: data ?? null });

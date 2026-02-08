@@ -85,6 +85,11 @@ export default function VendorBomPage() {
     };
   }, [router]);
 
+  function resetFormForNewSku() {
+    setSelectedBomId("");
+    setForm({ sku: "", status: "draft", notes: "", lines: [] });
+  }
+
   async function loadData(active = true) {
     setLoading(true);
     setError("");
@@ -103,12 +108,10 @@ export default function VendorBomPage() {
       if (!active) return;
 
       setMaterials(Array.isArray(matJson?.data?.items) ? matJson.data.items : []);
-      const skuRows = Array.isArray(skuJson?.data?.items) ? skuJson.data.items : [];
-      setAssignedSkus(skuRows);
-      const bomRows = Array.isArray(bomJson?.data?.items) ? bomJson.data.items : [];
-      setBoms(bomRows);
-      if (!selectedBomId) {
-        hydrateFormFromBom(null, bomRows, skuRows);
+      setAssignedSkus(Array.isArray(skuJson?.data?.items) ? skuJson.data.items : []);
+      setBoms(Array.isArray(bomJson?.data?.items) ? bomJson.data.items : []);
+      if (!selectedBomId && !form.sku) {
+        resetFormForNewSku();
       }
     } catch (e) {
       if (!active) return;
@@ -118,24 +121,13 @@ export default function VendorBomPage() {
     }
   }
 
-  async function hydrateFormFromBom(bomId: string | null, sourceBoms?: BomListRow[], sourceSkus?: AssignedSkuRow[]) {
-    setError("");
-    setMessage("");
-    if (!bomId) {
-      setSelectedBomId("");
-      setForm({ sku: sourceSkus?.[0]?.sku || "", status: "draft", notes: "", lines: [] });
+  async function hydrateFromBomPayload(data: any) {
+    const bom = data?.bom;
+    if (!bom?.id) {
+      setError("Failed to load BOM details");
       return;
     }
-
-    const res = await fetch(`/api/mfg/bom/get?bom_id=${encodeURIComponent(bomId)}`);
-    const json = await res.json();
-    if (!res.ok || !json?.ok || !json?.data?.bom) {
-      setError(json?.error || "Failed to load BOM details");
-      return;
-    }
-
-    const bom = json.data.bom;
-    const lines = Array.isArray(json?.data?.lines) ? json.data.lines : [];
+    const lines = Array.isArray(data?.lines) ? data.lines : [];
     setSelectedBomId(String(bom.id));
     setForm({
       sku: String(bom.sku || ""),
@@ -150,8 +142,36 @@ export default function VendorBomPage() {
         notes: String(line.notes || ""),
       })),
     });
+  }
 
-    if (sourceBoms) setBoms(sourceBoms);
+  async function hydrateFormFromBom(bomId: string) {
+    setError("");
+    setMessage("");
+    const res = await fetch(`/api/mfg/bom/get?bom_id=${encodeURIComponent(bomId)}`);
+    const json = await res.json();
+    if (!res.ok || !json?.ok || !json?.data?.bom) {
+      setError(json?.error || "Failed to load BOM details");
+      return;
+    }
+    await hydrateFromBomPayload(json.data);
+  }
+
+  async function hydrateFormFromSku(sku: string) {
+    const trimmedSku = sku.trim();
+    setError("");
+    setMessage("");
+    if (!trimmedSku) {
+      resetFormForNewSku();
+      return;
+    }
+
+    const res = await fetch(`/api/mfg/bom/by-sku?sku=${encodeURIComponent(trimmedSku)}`);
+    const json = await res.json();
+    if (!res.ok || !json?.ok || !json?.data?.bom) {
+      setError(json?.error || "Failed to load BOM details");
+      return;
+    }
+    await hydrateFromBomPayload(json.data);
   }
 
   const materialById = useMemo(() => {
@@ -228,7 +248,6 @@ export default function VendorBomPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bom_id: selectedBomId || null,
           sku: form.sku,
           status: targetStatus,
           notes: form.notes,
@@ -253,10 +272,10 @@ export default function VendorBomPage() {
       setSelectedBomId(bomId);
       setMessage(targetStatus === "active" ? "BOM activated" : "Draft saved");
       await loadData();
-      await hydrateFormFromBom(bomId);
+      await hydrateFormFromSku(form.sku);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to save BOM";
-      setError(message);
+      const msg = e instanceof Error ? e.message : "Failed to save BOM";
+      setError(msg);
     } finally {
       setSaving(false);
     }
@@ -273,7 +292,7 @@ export default function VendorBomPage() {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => router.push("/mfg/materials")}>Back to Materials</button>
-            <button onClick={() => hydrateFormFromBom(null)} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>Create new BOM</button>
+            <button onClick={resetFormForNewSku} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>New SKU BOM</button>
           </div>
         </header>
 
@@ -297,7 +316,7 @@ export default function VendorBomPage() {
           </section>
 
           <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
-            <h3 style={{ marginTop: 0 }}>{selectedBomId ? "Edit BOM" : "New BOM"}</h3>
+            <h3 style={{ marginTop: 0 }}>{selectedBomId ? "Edit BOM" : "New SKU BOM"}</h3>
             {assignedSkus.length === 0 ? (
               <div style={{ marginBottom: 10, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a", borderRadius: 8, padding: 10 }}>
                 No SKUs assigned yet. Please contact Megaska.
@@ -309,7 +328,7 @@ export default function VendorBomPage() {
                   style={inputStyle}
                   value={form.sku}
                   disabled={assignedSkus.length === 0}
-                  onChange={(e) => setForm((prev) => ({ ...prev, sku: e.target.value }))}
+                  onChange={(e) => hydrateFormFromSku(e.target.value)}
                 >
                   <option value="">Select SKU</option>
                   {assignedSkus.map((sku) => (
