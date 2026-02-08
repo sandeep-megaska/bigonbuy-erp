@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { useRouter } from "next/router";
 import MfgLayout from "../../../../components/mfg/MfgLayout";
 
+type StageCode = "CUTTING" | "STITCHING" | "PRESSING" | "PACKING" | "READY_TO_DISPATCH";
+
+const STAGE_CODES: StageCode[] = ["CUTTING", "STITCHING", "PRESSING", "PACKING", "READY_TO_DISPATCH"];
+
 type PoLineListRow = {
   po_id: string;
   po_line_id: string;
@@ -63,7 +67,7 @@ function ProductionContent() {
 
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ po_line_id: "", checkpoint_id: "", qty_done: "", notes: "" });
+  const [form, setForm] = useState({ po_line_id: "", stage_code: "CUTTING" as StageCode, completed_qty_abs: "", notes: "" });
 
   const poList = useMemo(() => {
     const map = new Map<string, { po_id: string; po_number: string; po_date: string; due_date: string | null; po_status: string }>();
@@ -126,7 +130,7 @@ function ProductionContent() {
   }
 
   function openUpdate(line: ProgressLine) {
-    setForm({ po_line_id: line.po_line_id, checkpoint_id: checkpoints[0]?.id || "", qty_done: "", notes: "" });
+    setForm({ po_line_id: line.po_line_id, stage_code: "CUTTING", completed_qty_abs: "", notes: "" });
     setShowModal(true);
   }
 
@@ -134,41 +138,32 @@ function ProductionContent() {
     setError("");
     setMessage("");
 
-    const qty = Number(form.qty_done);
-    if (!form.po_line_id || !form.checkpoint_id || Number.isNaN(qty)) {
-      setError("Checkpoint and qty_done are required");
+    const qty = Number(form.completed_qty_abs);
+    if (!form.po_line_id || Number.isNaN(qty)) {
+      setError("stage_code and completed_qty_abs are required");
       return;
     }
 
     setSaving(true);
     try {
-      const res = await fetch("/api/mfg/prod/progress-set", {
+      const res = await fetch(`/api/mfg/po-lines/${encodeURIComponent(form.po_line_id)}/stages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          po_id: selectedPoId,
-          po_line_id: form.po_line_id,
-          checkpoint_id: form.checkpoint_id,
-          qty_done: qty,
-          notes: form.notes,
+          stageCode: form.stage_code,
+          completedQtyAbs: qty,
+          note: form.notes,
+          clientEventId: crypto.randomUUID(),
         }),
       });
       const json = await res.json();
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to save progress");
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to post stage event");
 
-      const consumed = json?.data?.consumed;
-      if (Number(consumed?.delta_units || 0) > 0 && Number(consumed?.ledger_entries_count || 0) > 0) {
-        setMessage(`Materials consumed for ${Number(consumed.delta_units)} units`);
-      } else if (json?.data?.warning) {
-        setMessage(String(json.data.warning));
-      } else {
-        setMessage("Progress saved");
-      }
-
+      setMessage("Stage event saved. Consumption pending internal posting.");
       setShowModal(false);
       await loadPoProgress(selectedPoId);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to save progress";
+      const msg = e instanceof Error ? e.message : "Failed to post stage event";
       setError(msg);
     } finally {
       setSaving(false);
@@ -222,7 +217,7 @@ function ProductionContent() {
                         const found = line.checkpoint_progress.find((x) => x.checkpoint_id === cp.id);
                         return <td key={cp.id} style={tdStyle}>{found?.qty_done ?? 0}</td>;
                       })}
-                      <td style={tdStyle}><button onClick={() => openUpdate(line)} style={{ border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>Update</button></td>
+                      <td style={tdStyle}><button onClick={() => openUpdate(line)} style={{ border: "1px solid #cbd5e1", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>Post Stage Event</button></td>
                     </tr>
                   ))}
                   {lines.length === 0 ? <tr><td colSpan={3 + checkpoints.length} style={tdStyle}>No PO lines.</td></tr> : null}
@@ -234,14 +229,14 @@ function ProductionContent() {
       </div>
 
       {showModal ? (
-        <Modal title="Update Production Progress" onClose={() => setShowModal(false)}>
-          <label>Checkpoint
-            <select style={inputStyle} value={form.checkpoint_id} onChange={(e) => setForm((prev) => ({ ...prev, checkpoint_id: e.target.value }))}>
-              {checkpoints.map((cp) => <option key={cp.id} value={cp.id}>{cp.name}{cp.is_consumption_point ? " (consumption)" : ""}</option>)}
+        <Modal title="Post Stage Completion" onClose={() => setShowModal(false)}>
+          <label>Stage
+            <select style={inputStyle} value={form.stage_code} onChange={(e) => setForm((prev) => ({ ...prev, stage_code: e.target.value as StageCode }))}>
+              {STAGE_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
             </select>
           </label>
-          <label style={{ display: "block", marginTop: 10 }}>Qty done (cumulative)
-            <input type="number" min="0" style={inputStyle} value={form.qty_done} onChange={(e) => setForm((prev) => ({ ...prev, qty_done: e.target.value }))} />
+          <label style={{ display: "block", marginTop: 10 }}>Completed Qty (absolute)
+            <input type="number" min="0" style={inputStyle} value={form.completed_qty_abs} onChange={(e) => setForm((prev) => ({ ...prev, completed_qty_abs: e.target.value }))} />
           </label>
           <label style={{ display: "block", marginTop: 10 }}>Notes
             <textarea style={{ ...inputStyle, minHeight: 90 }} value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
