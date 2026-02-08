@@ -184,6 +184,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "vendor-readiness",
+    label: "Vendor Readiness",
+    href: "/erp/vendors/readiness",
+    icon: "VR",
+    groupId: "procurement",
+    requiredGuard: "inventory_reader",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "inventory-rfqs",
     label: "RFQs",
     href: "/erp/inventory/rfqs",
