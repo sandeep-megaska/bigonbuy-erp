@@ -82,6 +82,7 @@ export default function VendorDashboardPage() {
 />
 
             <button onClick={() => router.push('/mfg/materials')}>Materials</button>
+            <button onClick={() => router.push('/mfg/production')}>Production</button>
             <button onClick={async () => { await fetch('/api/mfg/auth/logout', { method: 'POST' }); router.replace('/mfg/login'); }}>Sign Out</button>
           </div>
         </header>
