@@ -176,7 +176,48 @@ Success messages:
 
 ---
 
-## 6) Common Errors and What They Mean
+## 6) Production Line Progress
+
+Path: `/mfg/v/[vendor_code]/production`
+
+Page areas:
+- **PO List** (left side)
+- **PO Line Production Progress** table (right side)
+
+### 6.1 Select PO and review line progress
+1. Open the **Production** tab.
+2. In **PO List**, click a PO number.
+3. Check progress table columns:
+   - **SKU**
+   - **Ordered Qty**
+   - Checkpoint columns (for example: Cutting, Stitching, Packing)
+   - **Action**
+
+If you see **BOM required** on a line, activate BOM for that SKU before material consumption can be recorded automatically.
+
+[Screenshot Placeholder: Production page with PO list and checkpoint table]
+
+### 6.2 Update checkpoint progress
+1. In the line row, click **Update**.
+2. In the modal, fill:
+   - **Checkpoint**
+   - **Qty done (cumulative)**
+   - **Notes** (optional)
+3. Click **Save**.
+
+Important:
+- Enter cumulative quantity for that checkpoint (total done so far), not only the latest increment.
+- For consumption checkpoints, system may auto-post material consumption based on active BOM.
+
+Success messages can include:
+- `Progress saved`
+- `Materials consumed for X units`
+
+[Screenshot Placeholder: Update Production Progress modal]
+
+---
+
+## 7) Common Errors and What They Mean
 
 - `Not authenticated`
   - Your session expired or you are signed out.
@@ -190,9 +231,7 @@ Success messages:
   - The requested BOM does not exist for your vendor/company context.
   - Fix: select correct SKU/BOM or create a new BOM.
 
----
-
-## 7) Navigation Summary
+## 8) Navigation Summary
 
 Main header tabs:
 - **Dashboard**
@@ -203,14 +242,12 @@ Main header tabs:
 Header button:
 - **Sign Out**
 
----
-
-## 8) Daily Workflow (Recommended)
+## 9) Daily Workflow (Recommended)
 
 1. Sign in
 2. Check **Dashboard** for urgent items
 3. Update **Materials** stock changes
-4. Review **Alerts** for LOW/OUT stock
-5. Maintain BOMs for assigned SKUs
-6. Sign out when done
-
+4. Update **Production** checkpoint progress for active POs
+5. Review **Alerts** for LOW/OUT stock
+6. Maintain BOMs for assigned SKUs
+7. Sign out when done
