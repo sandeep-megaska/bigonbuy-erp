@@ -206,16 +206,86 @@ begin
     lower(m.vendor_name);
 end;
 $$;
-revoke all on function public.erp_mfg_po_line_stage_post_v1(text, uuid, text, numeric, text, uuid) from public;
-revoke all on function public.erp_mfg_stage_consumption_preview_v1(uuid) from public;
-revoke all on function public.erp_mfg_stage_consumption_post_v1(uuid, uuid, text) from public;
-revoke all on function public.erp_mfg_stage_consumption_reverse_v1(uuid, uuid, text, uuid) from public;
-revoke all on function public.erp_mfg_cutting_stage_events_pending_list_v1(uuid, uuid, integer) from public;
-revoke all on function public.erp_vendor_readiness_list_v2(uuid, date, date) from public;
+-- Safe privilege wiring: only revoke/grant if the exact function signature exists.
+do $$
+begin
+  -- erp_mfg_po_line_stage_post_v1(text, uuid, text, numeric, text, uuid)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_mfg_po_line_stage_post_v1'
+      and pg_get_function_identity_arguments(p.oid) = 'p_session_token text, p_po_line_id uuid, p_stage_code text, p_completed_qty_abs numeric, p_event_note text, p_client_event_id uuid'
+  ) then
+    execute 'revoke all on function public.erp_mfg_po_line_stage_post_v1(text, uuid, text, numeric, text, uuid) from public';
+    execute 'grant execute on function public.erp_mfg_po_line_stage_post_v1(text, uuid, text, numeric, text, uuid) to anon';
+  end if;
 
-grant execute on function public.erp_mfg_po_line_stage_post_v1(text, uuid, text, numeric, text, uuid) to anon;
-grant execute on function public.erp_mfg_stage_consumption_preview_v1(uuid) to authenticated, service_role;
-grant execute on function public.erp_mfg_stage_consumption_post_v1(uuid, uuid, text) to authenticated, service_role;
-grant execute on function public.erp_mfg_stage_consumption_reverse_v1(uuid, uuid, text, uuid) to authenticated, service_role;
-grant execute on function public.erp_mfg_cutting_stage_events_pending_list_v1(uuid, uuid, integer) to authenticated, service_role;
-grant execute on function public.erp_vendor_readiness_list_v2(uuid, date, date) to authenticated;
+  -- erp_mfg_stage_consumption_preview_v1(uuid)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_mfg_stage_consumption_preview_v1'
+      and pg_get_function_identity_arguments(p.oid) = 'p_stage_event_id uuid'
+  ) then
+    execute 'revoke all on function public.erp_mfg_stage_consumption_preview_v1(uuid) from public';
+    execute 'grant execute on function public.erp_mfg_stage_consumption_preview_v1(uuid) to authenticated, service_role';
+  end if;
+
+  -- erp_mfg_stage_consumption_post_v1(uuid, uuid, text)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_mfg_stage_consumption_post_v1'
+      and pg_get_function_identity_arguments(p.oid) = 'p_stage_event_id uuid, p_actor_user_id uuid, p_reason text'
+  ) then
+    execute 'revoke all on function public.erp_mfg_stage_consumption_post_v1(uuid, uuid, text) from public';
+    execute 'grant execute on function public.erp_mfg_stage_consumption_post_v1(uuid, uuid, text) to authenticated, service_role';
+  end if;
+
+  -- erp_mfg_stage_consumption_reverse_v1(uuid, uuid, text, uuid)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_mfg_stage_consumption_reverse_v1'
+      and pg_get_function_identity_arguments(p.oid) = 'p_consumption_batch_id uuid, p_actor_user_id uuid, p_reason text, p_client_reverse_id uuid'
+  ) then
+    execute 'revoke all on function public.erp_mfg_stage_consumption_reverse_v1(uuid, uuid, text, uuid) from public';
+    execute 'grant execute on function public.erp_mfg_stage_consumption_reverse_v1(uuid, uuid, text, uuid) to authenticated, service_role';
+  end if;
+
+  -- erp_mfg_cutting_stage_events_pending_list_v1(uuid, uuid, integer)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_mfg_cutting_stage_events_pending_list_v1'
+      and pg_get_function_identity_arguments(p.oid) = 'p_company_id uuid, p_vendor_id uuid, p_limit integer'
+  ) then
+    execute 'revoke all on function public.erp_mfg_cutting_stage_events_pending_list_v1(uuid, uuid, integer) from public';
+    execute 'grant execute on function public.erp_mfg_cutting_stage_events_pending_list_v1(uuid, uuid, integer) to authenticated, service_role';
+  end if;
+
+  -- readiness list v2 (if you added it)
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'erp_vendor_readiness_list_v2'
+      and pg_get_function_identity_arguments(p.oid) = 'p_company_id uuid, p_from date, p_to date'
+  ) then
+    execute 'revoke all on function public.erp_vendor_readiness_list_v2(uuid, date, date) from public';
+    execute 'grant execute on function public.erp_vendor_readiness_list_v2(uuid, date, date) to authenticated';
+  end if;
+
+end $$;
+
