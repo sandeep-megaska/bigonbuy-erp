@@ -131,7 +131,7 @@ export default function MfgLayout({
     <MfgContext.Provider value={contextValue}>
       <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
         <MfgHeader title={title} subtitle={subtitle} actions={actions} />
-        <main style={{ maxWidth: 1200, margin: "0 auto", padding: "126px 24px 24px" }}>
+        <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px 24px" }}>
           {children}
         </main>
       </div>
