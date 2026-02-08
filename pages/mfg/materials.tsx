@@ -20,6 +20,16 @@ type AlertRow = {
   status: "LOW" | "OUT" | "NEGATIVE";
 };
 
+type CoverageRow = {
+  material_id: string;
+  material_name: string;
+  uom: string;
+  on_hand_qty: number;
+  demand_qty_next: number;
+  projected_balance: number;
+  shortage_flag: boolean;
+};
+
 const baseInputStyle: CSSProperties = {
   width: "100%",
   maxWidth: "100%",
@@ -43,6 +53,8 @@ function MaterialsContent() {
   const { vendorCode } = useMfgContext();
   const [items, setItems] = useState<MaterialRow[]>([]);
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
+  const [coverageRows, setCoverageRows] = useState<CoverageRow[]>([]);
+  const [coverageSummary, setCoverageSummary] = useState({ total_materials: 0, shortage_count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -80,21 +92,30 @@ function MaterialsContent() {
     setLoading(true);
     setError("");
     try {
-      const [listRes, alertsRes] = await Promise.all([
+      const [listRes, alertsRes, coverageRes] = await Promise.all([
         fetch("/api/mfg/materials/list"),
         fetch("/api/mfg/materials/alerts"),
+        fetch("/api/mfg/vendor/material-coverage"),
       ]);
       const listJson = await listRes.json();
       const alertsJson = await alertsRes.json();
+      const coverageJson = await coverageRes.json();
 
       if (!listRes.ok || !listJson?.ok) throw new Error(listJson?.error || "Failed to load materials");
       if (!alertsRes.ok || !alertsJson?.ok) throw new Error(alertsJson?.error || "Failed to load alerts");
+      if (!coverageRes.ok || !coverageJson?.ok) throw new Error(coverageJson?.error || "Failed to load projected coverage");
       if (!active) return;
 
       const rows = Array.isArray(listJson?.data?.items) ? listJson.data.items : [];
       const alertRows = Array.isArray(alertsJson?.data?.items) ? alertsJson.data.items : [];
+      const projectedRows = Array.isArray(coverageJson?.data?.items) ? coverageJson.data.items : [];
       setItems(rows);
       setAlerts(alertRows);
+      setCoverageRows(projectedRows);
+      setCoverageSummary({
+        total_materials: Number(coverageJson?.data?.summary?.total_materials || 0),
+        shortage_count: Number(coverageJson?.data?.summary?.shortage_count || 0),
+      });
       if (!ledgerForm.material_id && rows.length > 0) {
         setLedgerForm((prev) => ({ ...prev, material_id: rows[0].material_id }));
       }
@@ -182,6 +203,42 @@ function MaterialsContent() {
       {vendorCode ? <div style={{ color: "#64748b", fontSize: 12, marginBottom: 6 }}>Vendor {vendorCode}</div> : null}
       {message ? <div style={{ marginTop: 12, background: "#ecfeff", border: "1px solid #99f6e4", color: "#0f766e", borderRadius: 8, padding: 10 }}>{message}</div> : null}
       {error ? <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 8, padding: 10 }}>{error}</div> : null}
+
+      <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+        <h3 style={{ marginTop: 0 }}>Projected Coverage (Open POs)</h3>
+        <div style={{ color: "#64748b", fontSize: 12, marginBottom: 10 }}>
+          Materials: {coverageSummary.total_materials} · Shortages: {coverageSummary.shortage_count}
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Material", "On hand", "Demand (open POs)", "Projected balance", "Status"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#475569", fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {coverageRows.map((row) => (
+                <tr key={row.material_id} style={row.shortage_flag ? { background: "#fef2f2" } : undefined}>
+                  <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{row.material_name}</td>
+                  <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{row.on_hand_qty} {row.uom}</td>
+                  <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{row.demand_qty_next} {row.uom}</td>
+                  <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9", fontWeight: row.shortage_flag ? 700 : 500, color: row.shortage_flag ? "#991b1b" : "inherit" }}>{row.projected_balance} {row.uom}</td>
+                  <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>
+                    {row.shortage_flag ? <StatusBadge status="SHORTAGE" /> : <StatusBadge status="OK" />}
+                  </td>
+                </tr>
+              ))}
+              {coverageRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 10, color: "#6b7280" }}>No projected coverage data available.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
         <h3 style={{ marginTop: 0 }}>Alerts</h3>
@@ -283,6 +340,7 @@ function MaterialsContent() {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string }> = {
     OK: { bg: "#ecfeff", color: "#0e7490" },
+    SHORTAGE: { bg: "#fee2e2", color: "#991b1b" },
     LOW: { bg: "#fef3c7", color: "#92400e" },
     OUT: { bg: "#fee2e2", color: "#991b1b" },
     NEGATIVE: { bg: "#fecaca", color: "#7f1d1d" },
