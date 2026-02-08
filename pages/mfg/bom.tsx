@@ -27,6 +27,12 @@ type BomLine = {
   notes: string;
 };
 
+type AssignedSkuRow = {
+  sku: string;
+  variant_id: string | null;
+  product_title: string | null;
+};
+
 const inputStyle: CSSProperties = {
   width: "100%",
   padding: 8,
@@ -38,6 +44,7 @@ export default function VendorBomPage() {
   const router = useRouter();
   const [vendorCode, setVendorCode] = useState("");
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
+  const [assignedSkus, setAssignedSkus] = useState<AssignedSkuRow[]>([]);
   const [boms, setBoms] = useState<BomListRow[]>([]);
   const [selectedBomId, setSelectedBomId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -82,21 +89,26 @@ export default function VendorBomPage() {
     setLoading(true);
     setError("");
     try {
-      const [matRes, bomRes] = await Promise.all([
+      const [matRes, bomRes, skuRes] = await Promise.all([
         fetch("/api/mfg/materials/list?only_active=true"),
         fetch("/api/mfg/bom/list"),
+        fetch("/api/mfg/vendor/skus"),
       ]);
       const matJson = await matRes.json();
       const bomJson = await bomRes.json();
+      const skuJson = await skuRes.json();
       if (!matRes.ok || !matJson?.ok) throw new Error(matJson?.error || "Failed to load materials");
       if (!bomRes.ok || !bomJson?.ok) throw new Error(bomJson?.error || "Failed to load BOMs");
+      if (!skuRes.ok || !skuJson?.ok) throw new Error(skuJson?.error || "Failed to load assigned SKUs");
       if (!active) return;
 
       setMaterials(Array.isArray(matJson?.data?.items) ? matJson.data.items : []);
+      const skuRows = Array.isArray(skuJson?.data?.items) ? skuJson.data.items : [];
+      setAssignedSkus(skuRows);
       const bomRows = Array.isArray(bomJson?.data?.items) ? bomJson.data.items : [];
       setBoms(bomRows);
       if (!selectedBomId) {
-        hydrateFormFromBom(null, bomRows);
+        hydrateFormFromBom(null, bomRows, skuRows);
       }
     } catch (e) {
       if (!active) return;
@@ -106,12 +118,12 @@ export default function VendorBomPage() {
     }
   }
 
-  async function hydrateFormFromBom(bomId: string | null, sourceBoms?: BomListRow[]) {
+  async function hydrateFormFromBom(bomId: string | null, sourceBoms?: BomListRow[], sourceSkus?: AssignedSkuRow[]) {
     setError("");
     setMessage("");
     if (!bomId) {
       setSelectedBomId("");
-      setForm({ sku: "", status: "draft", notes: "", lines: [] });
+      setForm({ sku: sourceSkus?.[0]?.sku || "", status: "draft", notes: "", lines: [] });
       return;
     }
 
@@ -243,7 +255,8 @@ export default function VendorBomPage() {
       await loadData();
       await hydrateFormFromBom(bomId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save BOM");
+      const message = e instanceof Error ? e.message : "Failed to save BOM";
+      setError(message);
     } finally {
       setSaving(false);
     }
@@ -285,8 +298,27 @@ export default function VendorBomPage() {
 
           <section style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
             <h3 style={{ marginTop: 0 }}>{selectedBomId ? "Edit BOM" : "New BOM"}</h3>
+            {assignedSkus.length === 0 ? (
+              <div style={{ marginBottom: 10, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a", borderRadius: 8, padding: 10 }}>
+                No SKUs assigned yet. Please contact Megaska.
+              </div>
+            ) : null}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-              <label>SKU<input style={inputStyle} value={form.sku} onChange={(e) => setForm((prev) => ({ ...prev, sku: e.target.value }))} /></label>
+              <label>SKU
+                <select
+                  style={inputStyle}
+                  value={form.sku}
+                  disabled={assignedSkus.length === 0}
+                  onChange={(e) => setForm((prev) => ({ ...prev, sku: e.target.value }))}
+                >
+                  <option value="">Select SKU</option>
+                  {assignedSkus.map((sku) => (
+                    <option key={sku.sku} value={sku.sku}>
+                      {sku.product_title ? `${sku.sku} — ${sku.product_title}` : sku.sku}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>Status
                 <select style={inputStyle} value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value === "active" ? "active" : "draft" }))}>
                   <option value="draft">draft</option>
