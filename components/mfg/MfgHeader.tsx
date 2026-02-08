@@ -78,6 +78,10 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
     { label: "BOM", href: "/mfg/bom", active: router.pathname === "/mfg/bom" },
   ];
 
+  const uniqueNavItems = navItems.filter(
+    (item, index, items) => items.findIndex((candidate) => candidate.href === item.href) === index
+  );
+
   return (
     <header
       style={{
@@ -138,7 +142,7 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
         </div>
 
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, marginTop: 2, flexWrap: "wrap" }}>
-          {navItems.map((item) => (
+          {uniqueNavItems.map((item) => (
             <NavButton key={item.href} href={item.href} label={item.label} active={item.active} />
           ))}
         </div>
