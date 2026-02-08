@@ -68,10 +68,13 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
 
   const dashboardPath = vendorCode ? `/mfg/v/${vendorCode}` : "/mfg/login";
 
+  const productionPath = vendorCode ? `/mfg/v/${vendorCode}/production` : "/mfg/login";
+
   const navItems = [
     { label: "Dashboard", href: dashboardPath, active: router.pathname === "/mfg/v/[vendor_code]" },
     { label: "Materials", href: "/mfg/materials", active: router.pathname === "/mfg/materials" },
     { label: "BOM", href: "/mfg/bom", active: router.pathname === "/mfg/bom" },
+    { label: "Production", href: productionPath, active: router.pathname === "/mfg/v/[vendor_code]/production" },
   ];
 
   return (
