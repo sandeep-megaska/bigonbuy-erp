@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { useRouter } from "next/router";
+import MfgLayout, { useMfgContext } from "../../components/mfg/MfgLayout";
 
 type MaterialRow = {
   material_id: string;
@@ -32,8 +32,15 @@ const baseInputStyle: CSSProperties = {
 };
 
 export default function VendorMaterialsPage() {
-  const router = useRouter();
-  const [vendorCode, setVendorCode] = useState("");
+  return (
+    <MfgLayout title="Raw Materials">
+      <MaterialsContent />
+    </MfgLayout>
+  );
+}
+
+function MaterialsContent() {
+  const { vendorCode } = useMfgContext();
   const [items, setItems] = useState<MaterialRow[]>([]);
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,28 +69,12 @@ export default function VendorMaterialsPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const meRes = await fetch("/api/mfg/auth/me");
-      if (!meRes.ok) {
-        router.replace("/mfg/login");
-        return;
-      }
-      const meData = await meRes.json();
-      if (!active) return;
-      if (!meData?.ok) {
-        router.replace("/mfg/login");
-        return;
-      }
-      if (meData?.must_reset_password) {
-        router.replace("/mfg/reset-password");
-        return;
-      }
-      setVendorCode(String(meData.vendor_code || ""));
       await loadData(active);
     })();
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
 
   async function loadData(active = true) {
     setLoading(true);
@@ -183,85 +174,66 @@ export default function VendorMaterialsPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ color: "#6b7280", fontSize: 12 }}>Manufacturer Portal</div>
-            <h1 style={{ margin: "4px 0" }}>Raw Materials</h1>
-            <div style={{ color: "#6b7280" }}>{vendorCode ? `Vendor ${vendorCode}` : ""}</div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => router.push(vendorCode ? `/mfg/v/${vendorCode}` : "/mfg/login")}>Back to Dashboard</button>
-            <button onClick={() => router.push("/mfg/bom")}>Manage BOM</button>
-            <button onClick={() => setShowAdd(true)} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>Add Material</button>
-            <button onClick={() => setShowLedger(true)} style={{ background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>Stock In / Adjustment</button>
-          </div>
-        </header>
-
-        {message ? <div style={{ marginTop: 12, background: "#ecfeff", border: "1px solid #99f6e4", color: "#0f766e", borderRadius: 8, padding: 10 }}>{message}</div> : null}
-        {error ? <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 8, padding: 10 }}>{error}</div> : null}
-
-        <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
-          <h3 style={{ marginTop: 0 }}>Alerts</h3>
-          {alerts.length === 0 ? (
-            <div style={{ color: "#6b7280" }}>No low/out alerts.</div>
-          ) : (
-            <ul style={{ margin: 0, paddingLeft: 16 }}>
-              {alerts.map((alert) => (
-                <li key={alert.material_id}>
-                  <strong>{alert.name}</strong> — {alert.status} ({alert.on_hand_qty} {alert.default_uom})
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
-          <h3 style={{ marginTop: 0 }}>Materials</h3>
-          {loading ? (
-            <div>Loading…</div>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {[
-                      "Material",
-                      "Category",
-                      "UOM",
-                      "On hand",
-                      "Reorder point",
-                      "Lead time (days)",
-                      "Status",
-                    ].map((h) => (
-                      <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#475569", fontWeight: 600 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.material_id}>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.name}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.category || "-"}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.default_uom}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.on_hand_qty}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.reorder_point}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.lead_time_days}</td>
-                      <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}><StatusBadge status={item.status} /></td>
-                    </tr>
-                  ))}
-                  {items.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} style={{ padding: 10, color: "#6b7280" }}>No materials found.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+    <>
+      <div style={{ marginBottom: 12, display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setShowAdd(true)} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "0 12px", height: 36 }}>Add Material</button>
+        <button onClick={() => setShowLedger(true)} style={{ background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "0 12px", height: 36 }}>Stock In / Adjustment</button>
       </div>
+      {vendorCode ? <div style={{ color: "#64748b", fontSize: 12, marginBottom: 6 }}>Vendor {vendorCode}</div> : null}
+      {message ? <div style={{ marginTop: 12, background: "#ecfeff", border: "1px solid #99f6e4", color: "#0f766e", borderRadius: 8, padding: 10 }}>{message}</div> : null}
+      {error ? <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 8, padding: 10 }}>{error}</div> : null}
+
+      <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+        <h3 style={{ marginTop: 0 }}>Alerts</h3>
+        {alerts.length === 0 ? (
+          <div style={{ color: "#6b7280" }}>No low/out alerts.</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
+            {alerts.map((alert) => (
+              <li key={alert.material_id}>
+                <strong>{alert.name}</strong> — {alert.status} ({alert.on_hand_qty} {alert.default_uom})
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section style={{ marginTop: 18, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
+        <h3 style={{ marginTop: 0 }}>Materials</h3>
+        {loading ? (
+          <div>Loading…</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["Material", "Category", "UOM", "On hand", "Reorder point", "Lead time (days)", "Status"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "8px 6px", color: "#475569", fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.material_id}>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.name}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.category || "-"}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.default_uom}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.on_hand_qty}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.reorder_point}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}>{item.lead_time_days}</td>
+                    <td style={{ padding: "10px 6px", borderBottom: "1px solid #f1f5f9" }}><StatusBadge status={item.status} /></td>
+                  </tr>
+                ))}
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 10, color: "#6b7280" }}>No materials found.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {showAdd ? (
         <Modal title="Add material" onClose={() => setShowAdd(false)}>
@@ -304,7 +276,7 @@ export default function VendorMaterialsPage() {
           </div>
         </Modal>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -321,7 +293,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: 12 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 80, padding: 12 }}>
       <div style={{ width: "100%", maxWidth: 520, background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <h3 style={{ margin: 0 }}>{title}</h3>

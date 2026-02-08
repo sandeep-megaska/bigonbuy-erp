@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useRouter } from "next/router";
+import MfgLayout, { useMfgContext } from "../../components/mfg/MfgLayout";
 
 type MaterialRow = {
   material_id: string;
@@ -41,8 +41,15 @@ const inputStyle: CSSProperties = {
 };
 
 export default function VendorBomPage() {
-  const router = useRouter();
-  const [vendorCode, setVendorCode] = useState("");
+  return (
+    <MfgLayout title="BOM Management">
+      <BomContent />
+    </MfgLayout>
+  );
+}
+
+function BomContent() {
+  const { vendorCode } = useMfgContext();
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [assignedSkus, setAssignedSkus] = useState<AssignedSkuRow[]>([]);
   const [boms, setBoms] = useState<BomListRow[]>([]);
@@ -62,28 +69,12 @@ export default function VendorBomPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const meRes = await fetch("/api/mfg/auth/me");
-      if (!meRes.ok) {
-        router.replace("/mfg/login");
-        return;
-      }
-      const meData = await meRes.json();
-      if (!active) return;
-      if (!meData?.ok) {
-        router.replace("/mfg/login");
-        return;
-      }
-      if (meData?.must_reset_password) {
-        router.replace("/mfg/reset-password");
-        return;
-      }
-      setVendorCode(String(meData.vendor_code || ""));
       await loadData(active);
     })();
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
 
   function resetFormForNewSku() {
     setSelectedBomId("");
@@ -282,19 +273,11 @@ export default function VendorBomPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", padding: 24 }}>
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ color: "#6b7280", fontSize: 12 }}>Manufacturer Portal</div>
-            <h1 style={{ margin: "4px 0" }}>BOM Management</h1>
-            <div style={{ color: "#6b7280" }}>{vendorCode ? `Vendor ${vendorCode}` : ""}</div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => router.push("/mfg/materials")}>Back to Materials</button>
-            <button onClick={resetFormForNewSku} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px" }}>New SKU BOM</button>
-          </div>
-        </header>
+    <>
+        <div style={{ marginBottom: 12, display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={resetFormForNewSku} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "0 12px", height: 36 }}>New SKU BOM</button>
+        </div>
+        {vendorCode ? <div style={{ color: "#64748b", fontSize: 12, marginBottom: 6 }}>Vendor {vendorCode}</div> : null}
 
         {message ? <div style={{ marginTop: 12, background: "#ecfeff", border: "1px solid #99f6e4", color: "#0f766e", borderRadius: 8, padding: 10 }}>{message}</div> : null}
         {error ? <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 8, padding: 10 }}>{error}</div> : null}
@@ -392,7 +375,6 @@ export default function VendorBomPage() {
             </div>
           </section>
         </div>
-      </div>
-    </div>
+    </>
   );
 }
