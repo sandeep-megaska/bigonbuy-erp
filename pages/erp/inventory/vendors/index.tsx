@@ -92,6 +92,7 @@ export default function InventoryVendorsPage() {
   const [tdsEffectiveTo, setTdsEffectiveTo] = useState("");
 
   const [portalLoading, setPortalLoading] = useState(false);
+  const [syncingPoSkus, setSyncingPoSkus] = useState(false);
   const [portalLogoUploading, setPortalLogoUploading] = useState(false);
   const [portalLogoFile, setPortalLogoFile] = useState<File | null>(null);
   const [portalLogoPreview, setPortalLogoPreview] = useState<string | null>(null);
@@ -465,6 +466,47 @@ export default function InventoryVendorsPage() {
     }
   }
 
+  async function handleSyncSkuAssignmentsFromPo() {
+    if (!ctx?.companyId || !editingId) return;
+
+    if (!canWrite) {
+      setToast({ type: "error", message: "Only owner/admin can sync vendor SKUs." });
+      return;
+    }
+
+    setSyncingPoSkus(true);
+    setToast(null);
+    setError("");
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc("erp_vendor_sku_assignments_sync_from_pos_v1", {
+        p_company_id: ctx.companyId,
+        p_vendor_id: editingId,
+        p_since: null,
+      });
+
+      if (rpcError) {
+        throw new Error(rpcError.message || "Failed to sync vendor SKUs from PO history");
+      }
+
+      const summary = Array.isArray(data) ? data[0] : data;
+      const insertedCount = Number(summary?.inserted_count || 0);
+      const updatedCount = Number(summary?.updated_count || 0);
+      const totalDistinctSkus = Number(summary?.total_distinct_skus || 0);
+
+      setToast({
+        type: "success",
+        message: `PO SKU sync complete. Inserted: ${insertedCount}, Updated: ${updatedCount}, Distinct SKUs: ${totalDistinctSkus}.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to sync vendor SKUs from PO history";
+      setError(message);
+      setToast({ type: "error", message });
+    } finally {
+      setSyncingPoSkus(false);
+    }
+  }
+
   async function handleTdsProfileSubmit(event: FormEvent) {
     event.preventDefault();
     if (!editingId) {
@@ -681,6 +723,15 @@ export default function InventoryVendorsPage() {
                         disabled={!canWrite || portalLoading}
                       >
                         Disable Access
+                      </button>
+                      <button
+                        type="button"
+                        style={secondaryButtonStyle}
+                        onClick={handleSyncSkuAssignmentsFromPo}
+                        disabled={!canWrite || syncingPoSkus}
+                        title="Populate vendor SKU assignments from historical approved/received POs"
+                      >
+                        {syncingPoSkus ? "Syncing..." : "Sync SKUs from POs"}
                       </button>
                     </div>
 
