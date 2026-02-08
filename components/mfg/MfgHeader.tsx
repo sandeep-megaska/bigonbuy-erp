@@ -39,15 +39,16 @@ function NavButton({ href, label, active }: { href: string; label: string; activ
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        height: 36,
-        borderRadius: 8,
-        border: active ? "1px solid #1d4ed8" : "1px solid #cbd5e1",
-        padding: "0 12px",
+        height: 34,
+        borderRadius: 0,
+        border: "none",
+        borderBottom: active ? "2px solid #1d4ed8" : "2px solid transparent",
+        padding: "0 4px",
         textDecoration: "none",
-        fontSize: 13,
-        fontWeight: 600,
+        fontSize: 14,
+        fontWeight: active ? 700 : 600,
         color: active ? "#1d4ed8" : "#334155",
-        background: active ? "#dbeafe" : "#fff",
+        background: "transparent",
         whiteSpace: "nowrap",
       }}
     >
@@ -72,59 +73,74 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
 
   const navItems = [
     { label: "Dashboard", href: dashboardPath, active: router.pathname === "/mfg/v/[vendor_code]" },
+    { label: "Production", href: productionPath, active: router.pathname === "/mfg/v/[vendor_code]/production" },
     { label: "Materials", href: "/mfg/materials", active: router.pathname === "/mfg/materials" },
     { label: "BOM", href: "/mfg/bom", active: router.pathname === "/mfg/bom" },
-    { label: "Production", href: productionPath, active: router.pathname === "/mfg/v/[vendor_code]/production" },
   ];
 
   return (
     <header
       style={{
-        position: "fixed",
+        position: "sticky",
         top: 0,
-        left: 0,
-        right: 0,
         zIndex: 50,
         borderBottom: "1px solid #e2e8f0",
-        background: "rgba(248, 250, 252, 0.98)",
-        backdropFilter: "blur(3px)",
+        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+        background: "#f8fafc",
       }}
     >
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <LogoBox url={branding.vendor_logo_url} fallback={loading ? "Loading logo..." : "Vendor Logo"} />
+      <div
+        style={{
+          maxWidth: 1200,
+          margin: "0 auto",
+          padding: "12px 24px 8px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          gap: 8,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <LogoBox url={branding.vendor_logo_url} fallback={loading ? "Loading logo..." : "Vendor Logo"} />
 
-        <div style={{ textAlign: "center", flex: "1 1 240px", minWidth: 220 }}>
-          <div style={{ color: "#64748b", fontSize: 12, letterSpacing: 0.4 }}>Manufacturer Portal</div>
-          <div style={{ marginTop: 2, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>
-            {vendorName || (loading ? "Loading vendor..." : title)}
+          <div style={{ textAlign: "center", flex: 1, minWidth: 220 }}>
+            <div style={{ color: "#64748b", fontSize: 12, letterSpacing: 0.4 }}>Manufacturer Portal</div>
+            <div style={{ marginTop: 2, fontSize: 20, fontWeight: 700, color: "#0f172a" }}>
+              {vendorName || (loading ? "Loading vendor..." : title)}
+            </div>
+            <div style={{ color: "#64748b", fontSize: 12 }}>
+              {vendorCode || ""} {subtitle ? `• ${subtitle}` : ""}
+            </div>
           </div>
-          <div style={{ color: "#64748b", fontSize: 12 }}>
-            {vendorCode || ""} {subtitle ? `• ${subtitle}` : ""}
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, minWidth: 230 }}>
+            <LogoBox url={branding.company_megaska_logo_url} fallback={loading ? "Loading logo..." : "Megaska"} />
+            <button
+              onClick={signOut}
+              style={{
+                height: 36,
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                padding: "0 12px",
+                background: "#fff",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                color: "#334155",
+                whiteSpace: "nowrap",
+                marginLeft: "auto",
+              }}
+            >
+              Sign Out
+            </button>
+            {actions}
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", flex: "1 1 360px" }}>
-          <LogoBox url={branding.company_megaska_logo_url} fallback={loading ? "Loading logo..." : "Megaska"} />
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, marginTop: 2, flexWrap: "wrap" }}>
           {navItems.map((item) => (
             <NavButton key={item.href} href={item.href} label={item.label} active={item.active} />
           ))}
-          <button
-            onClick={signOut}
-            style={{
-              height: 36,
-              borderRadius: 8,
-              border: "1px solid #cbd5e1",
-              padding: "0 12px",
-              background: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              color: "#334155",
-            }}
-          >
-            Sign Out
-          </button>
-          {actions}
         </div>
       </div>
     </header>
