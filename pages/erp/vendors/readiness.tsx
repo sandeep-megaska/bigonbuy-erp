@@ -25,6 +25,17 @@ type ReadinessRow = {
   open_po_lines: number;
   bom_missing_skus: number;
   shortage_materials: number;
+  cutting_events_pending_consumption: number;
+};
+
+type PendingStageEvent = {
+  stage_event_id: string;
+  vendor_name: string | null;
+  po_number: string | null;
+  sku: string;
+  completed_qty_delta: number;
+  consumption_status: string;
+  consumption_batch_id: string | null;
 };
 
 export default function VendorReadinessPage() {
@@ -32,6 +43,8 @@ export default function VendorReadinessPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<ReadinessRow[]>([]);
+  const [pendingEvents, setPendingEvents] = useState<PendingStageEvent[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +75,7 @@ export default function VendorReadinessPage() {
       }
 
       setRows((Array.isArray(data) ? data : []) as ReadinessRow[]);
+      await loadPending(active);
       setLoading(false);
     })();
 
@@ -69,6 +83,70 @@ export default function VendorReadinessPage() {
       active = false;
     };
   }, [router]);
+
+  async function loadPending(active = true) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return;
+
+    const res = await fetch("/api/mfg/internal/stage-events/pending?limit=50", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const json = await res.json();
+    if (!active) return;
+    if (!res.ok || !json?.ok) {
+      setError(json?.error || "Failed to load pending cutting events");
+      return;
+    }
+
+    setPendingEvents(Array.isArray(json?.data?.items) ? json.data.items : []);
+  }
+
+  async function postConsumption(stageEventId: string) {
+    setBusyId(stageEventId);
+    setError("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error("Not authenticated");
+
+      const res = await fetch(`/api/mfg/internal/stage-events/${encodeURIComponent(stageEventId)}/post-consumption`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ reason: "ERP readiness posting" }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to post consumption");
+      await loadPending();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to post consumption");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reverseConsumption(batchId: string) {
+    setBusyId(batchId);
+    setError("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error("Not authenticated");
+
+      const res = await fetch(`/api/mfg/internal/consumption-batches/${encodeURIComponent(batchId)}/reverse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ reason: "ERP readiness reversal", clientReverseId: crypto.randomUUID() }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to reverse consumption");
+      await loadPending();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to reverse consumption");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const counts = useMemo(() => {
     return rows.reduce(
@@ -86,7 +164,7 @@ export default function VendorReadinessPage() {
         <header style={pageHeaderStyle}>
           <div>
             <h1 style={h1Style}>Vendor Readiness</h1>
-            <p style={subtitleStyle}>Green / Amber / Red readiness based on open POs, BOM coverage, and projected shortages.</p>
+            <p style={subtitleStyle}>Green / Amber / Red readiness based on open POs, BOM coverage, shortages, and cutting events pending consumption posting.</p>
           </div>
         </header>
 
@@ -109,9 +187,9 @@ export default function VendorReadinessPage() {
                     <th style={tableHeaderCellStyle}>Open PO lines</th>
                     <th style={tableHeaderCellStyle}>BOM missing</th>
                     <th style={tableHeaderCellStyle}>Shortages</th>
+                    <th style={tableHeaderCellStyle}>Cutting pending</th>
                     <th style={tableHeaderCellStyle}>Status</th>
                     <th style={tableHeaderCellStyle}>Reasons</th>
-                    <th style={tableHeaderCellStyle}>View</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -121,24 +199,58 @@ export default function VendorReadinessPage() {
                       <td style={tableCellStyle}>{row.open_po_lines}</td>
                       <td style={tableCellStyle}>{row.bom_missing_skus}</td>
                       <td style={tableCellStyle}>{row.shortage_materials}</td>
+                      <td style={tableCellStyle}>{row.cutting_events_pending_consumption || 0}</td>
                       <td style={tableCellStyle}>
                         <StatusPill status={row.readiness_status} label={row.readiness_status.toUpperCase()} />
                       </td>
                       <td style={tableCellStyle}>{(row.reasons || []).join("; ") || "—"}</td>
-                      <td style={tableCellStyle}>
-                        <button onClick={() => router.push("/erp/inventory/vendors")}>View</button>
-                      </td>
                     </tr>
                   ))}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td style={tableCellStyle} colSpan={7}>No vendors found.</td>
-                    </tr>
-                  ) : null}
                 </tbody>
               </table>
             </div>
           ) : null}
+        </section>
+
+        <section style={{ ...cardStyle, marginTop: 14 }}>
+          <h3 style={{ marginTop: 0 }}>Cutting Events Pending Consumption</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={tableHeaderCellStyle}>Vendor</th>
+                  <th style={tableHeaderCellStyle}>PO</th>
+                  <th style={tableHeaderCellStyle}>SKU</th>
+                  <th style={tableHeaderCellStyle}>Delta Qty</th>
+                  <th style={tableHeaderCellStyle}>Status</th>
+                  <th style={tableHeaderCellStyle}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingEvents.map((evt) => (
+                  <tr key={evt.stage_event_id}>
+                    <td style={tableCellStyle}>{evt.vendor_name || "—"}</td>
+                    <td style={tableCellStyle}>{evt.po_number || "—"}</td>
+                    <td style={tableCellStyle}>{evt.sku}</td>
+                    <td style={tableCellStyle}>{evt.completed_qty_delta}</td>
+                    <td style={tableCellStyle}>{evt.consumption_status}</td>
+                    <td style={tableCellStyle}>
+                      {evt.consumption_status === "pending" ? (
+                        <button disabled={busyId === evt.stage_event_id} onClick={() => void postConsumption(evt.stage_event_id)}>Post Consumption</button>
+                      ) : evt.consumption_batch_id ? (
+                        <button disabled={busyId === evt.consumption_batch_id} onClick={() => void reverseConsumption(evt.consumption_batch_id as string)}>Reverse</button>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                ))}
+                {pendingEvents.length === 0 ? (
+                  <tr>
+                    <td style={tableCellStyle} colSpan={6}>No cutting events found.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
     </ErpShell>
