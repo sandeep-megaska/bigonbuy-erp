@@ -2,11 +2,11 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createUserClient, getSupabaseEnv } from "../../../../../lib/serverSupabase";
 import { resolveInternalApiAuth } from "../../../../../lib/erp/internalApiAuth";
 
-type Resp = { ok: boolean; data?: { items: any[] }; error?: string };
+type Resp = { ok: boolean; data?: any; error?: string };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Resp>) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
@@ -16,16 +16,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const { supabaseUrl, anonKey } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey) return res.status(500).json({ ok: false, error: "Server misconfigured" });
 
-  const userClient = createUserClient(supabaseUrl, anonKey, auth.token);
-  const vendorId = String(req.query.vendor_id || "").trim() || null;
-  const limit = Number(req.query.limit || 100);
+  const stageEventId = String(req.query.stageEventId || "").trim();
+  const reason = req.body?.reason == null ? null : String(req.body.reason);
+  if (!stageEventId) return res.status(400).json({ ok: false, error: "stageEventId is required" });
 
-  const { data, error } = await userClient.rpc("erp_mfg_cutting_stage_events_pending_list_v1", {
-    p_company_id: auth.companyId,
-    p_vendor_id: vendorId,
-    p_limit: Number.isNaN(limit) ? 100 : limit,
+  const userClient = createUserClient(supabaseUrl, anonKey, auth.token);
+  const { data, error } = await userClient.rpc("erp_mfg_stage_consumption_post_v1", {
+    p_stage_event_id: stageEventId,
+    p_actor_user_id: auth.userId,
+    p_reason: reason,
   });
 
-  if (error) return res.status(400).json({ ok: false, error: error.message || "Failed to load pending stage events" });
-  return res.status(200).json({ ok: true, data: { items: Array.isArray(data) ? data : [] } });
+  if (error) return res.status(400).json({ ok: false, error: error.message || "Failed to post consumption" });
+  const row = Array.isArray(data) ? data[0] : data;
+  return res.status(200).json({ ok: true, data: row ?? null });
 }
