@@ -24,17 +24,30 @@ type ApiResponse =
     }
   | { ok: false; error: string; details?: string | null };
 
+function getCronSecret(req: NextApiRequest): string | null {
+  const header = req.headers["x-erp-cron-secret"];
+  return Array.isArray(header) ? header[0] ?? null : header ?? null;
+}
+
+function buildMetaBody(payload: Record<string, unknown>, testEventCode: string | null): Record<string, unknown> {
+  const hasDataEnvelope = Array.isArray(payload.data);
+  const body: Record<string, unknown> = hasDataEnvelope ? { ...payload } : { data: [payload] };
+  if (testEventCode) {
+    body.test_event_code = testEventCode;
+  }
+  return body;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
-  const internalToken = req.headers["x-internal-token"];
-  const tokenValue = Array.isArray(internalToken) ? internalToken[0] : internalToken;
-  const expectedToken = process.env.INTERNAL_ADMIN_TOKEN ?? null;
-  if (!expectedToken || tokenValue !== expectedToken) {
-    return res.status(401).json({ ok: false, error: "Invalid or missing internal token" });
+  const expectedSecret = process.env.ERP_CRON_SECRET ?? null;
+  const providedSecret = getCronSecret(req);
+  if (!expectedSecret || providedSecret !== expectedSecret) {
+    return res.status(401).json({ ok: false, error: "Invalid or missing X-ERP-CRON-SECRET" });
   }
 
   const parsedQuery = querySchema.safeParse(req.query);
@@ -60,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const { data: settings, error: settingsError } = await serviceClient
     .from("erp_mkt_settings")
-    .select("meta_pixel_id, meta_access_token")
+    .select("meta_pixel_id, meta_access_token, meta_test_event_code")
     .eq("company_id", companyId)
     .maybeSingle();
 
@@ -70,6 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const pixelId = settings?.meta_pixel_id ?? process.env.META_PIXEL_ID ?? null;
   const accessToken = settings?.meta_access_token ?? process.env.META_ACCESS_TOKEN ?? null;
+  const testEventCode = settings?.meta_test_event_code ?? null;
 
   if (!pixelId || !accessToken) {
     return res.status(400).json({ ok: false, error: "Missing Meta credentials in erp_mkt_settings or env" });
@@ -77,7 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const { data: events, error: dequeueError } = await serviceClient.rpc("erp_mkt_capi_dequeue_batch", {
     p_company_id: companyId,
-    p_limit: parsedQuery.data.limit ?? 25,
+    p_limit: parsedQuery.data.limit ?? 50,
   });
 
   if (dequeueError) {
@@ -91,14 +105,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const queue = (events ?? []) as CapiEventRow[];
   for (const row of queue) {
     try {
-      const response = await fetch(`https://graph.facebook.com/v18.0/${pixelId}/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data: [row.payload],
-          access_token: accessToken,
-        }),
-      });
+      const response = await fetch(
+        `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}/events?access_token=${encodeURIComponent(accessToken)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildMetaBody(row.payload, testEventCode)),
+        },
+      );
 
       const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
       if (!response.ok || json?.error) {

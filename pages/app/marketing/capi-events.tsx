@@ -22,7 +22,7 @@ import { useRouter } from "next/router";
 
 type CapiEventRow = {
   id: string;
-  event_time: string;
+  created_at: string;
   event_name: string;
   status: string;
   attempt_count: number;
@@ -95,15 +95,15 @@ export default function MarketingCapiEventsPage() {
 
     let query = supabase
       .from("erp_mkt_capi_events")
-      .select("id,event_time,event_name,status,attempt_count,last_error,event_id,payload")
+      .select("id,created_at,event_name,status,attempt_count,last_error,event_id,payload")
       .eq("company_id", companyId)
-      .order("event_time", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(250);
 
     if (status !== "all") query = query.eq("status", status);
     if (eventName !== "all") query = query.eq("event_name", eventName);
-    if (fromDate) query = query.gte("event_time", `${fromDate}T00:00:00Z`);
-    if (toDate) query = query.lte("event_time", `${toDate}T23:59:59Z`);
+    if (fromDate) query = query.gte("created_at", `${fromDate}T00:00:00Z`);
+    if (toDate) query = query.lte("created_at", `${toDate}T23:59:59Z`);
 
     const { data, error: queryError } = await query;
     if (queryError) {
@@ -200,7 +200,7 @@ export default function MarketingCapiEventsPage() {
               <table style={tableStyle}>
                 <thead>
                   <tr>
-                    <th style={tableHeaderCellStyle}>Event Time</th>
+                    <th style={tableHeaderCellStyle}>Created</th>
                     <th style={tableHeaderCellStyle}>Event</th>
                     <th style={tableHeaderCellStyle}>Status</th>
                     <th style={tableHeaderCellStyle}>Attempts</th>
@@ -219,7 +219,7 @@ export default function MarketingCapiEventsPage() {
                   ) : (
                     rows.map((row) => (
                       <tr key={row.id}>
-                        <td style={tableCellStyle}>{new Date(row.event_time).toLocaleString()}</td>
+                        <td style={tableCellStyle}>{new Date(row.created_at).toLocaleString()}</td>
                         <td style={tableCellStyle}>{row.event_name}</td>
                         <td style={tableCellStyle}>{row.status}</td>
                         <td style={tableCellStyle}>{row.attempt_count}</td>
