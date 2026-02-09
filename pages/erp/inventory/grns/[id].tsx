@@ -304,7 +304,7 @@ export default function GrnDetailPage() {
       const expenseIds = expenseRows.map((expense) => expense.id);
       const ledgerRes = await supabase
         .from("erp_inventory_ledger")
-        .select("ref_id, line_value:line_value.sum()")
+        .select("ref_id, line_value")
         .eq("company_id", companyId)
         .eq("ref_type", "expense")
         .like("reference", "EXP/%")
@@ -317,7 +317,8 @@ export default function GrnDetailPage() {
 
       allocationMap = (ledgerRes.data || []).reduce<Record<string, number>>((acc, row) => {
         const record = row as { ref_id: string; line_value: number | string | null };
-        acc[record.ref_id] = Number(record.line_value ?? 0);
+        const current = acc[record.ref_id] ?? 0;
+        acc[record.ref_id] = current + Number(record.line_value ?? 0);
         return acc;
       }, {});
     }
