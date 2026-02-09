@@ -5,7 +5,8 @@ import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupa
 const requestSchema = z.object({
   session_id: z.string().min(1),
   sku: z.string().min(1),
-  qty: z.coerce.number().int().min(1).default(1),
+  quantity: z.coerce.number().int().min(1).optional(),
+  qty: z.coerce.number().int().min(1).optional(),
   value: z.coerce.number().default(0),
   currency: z.string().optional().nullable(),
   event_source_url: z.string().optional().nullable(),
@@ -52,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     p_company_id: companyId,
     p_session_id: body.session_id,
     p_sku: body.sku,
-    p_quantity: body.qty,
+    p_quantity: body.quantity ?? body.qty ?? 1,
     p_value: body.value,
     p_currency: body.currency ?? "INR",
     p_event_source_url: body.event_source_url ?? null,
