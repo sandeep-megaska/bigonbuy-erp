@@ -38,7 +38,14 @@ function buildMetaBody(payload: Record<string, unknown>, testEventCode: string |
   return body;
 }
 
-function getMetaErrorMessage(responseStatus: number, json: Record<string, unknown> | null): string {
+function getMetaErrorMessage(
+  responseStatus: number,
+  json: Record<string, unknown> | null,
+  options?: { includeFullResponse?: boolean },
+): string {
+  if (options?.includeFullResponse && json) {
+    return JSON.stringify(json);
+  }
   if (json?.error) {
     return JSON.stringify(json.error);
   }
@@ -123,7 +130,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
       if (!response.ok || json?.error) {
-        const errMessage = getMetaErrorMessage(response.status, json);
+        const errMessage = getMetaErrorMessage(response.status, json, { includeFullResponse: !response.ok });
         const deadletter = row.attempt_count + 1 >= 8;
         await serviceClient.rpc("erp_mkt_capi_mark_failed", {
           p_company_id: companyId,
