@@ -241,7 +241,8 @@ immutable
 as $$
   select case
     when nullif(trim(coalesce(p_value, '')), '') is null then null
-    else encode(digest(lower(trim(p_value)), 'sha256'), 'hex')
+   else encode(extensions.digest(convert_to(lower(trim(p_value)), 'utf8'), 'sha256'), 'hex')
+
   end;
 $$;
 
