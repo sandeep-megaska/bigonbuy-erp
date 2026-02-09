@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createUserClient, getSupabaseEnv } from "../../../../../../lib/serverSupabase";
-import { resolveInternalApiAuth } from "../../../../../../lib/erp/internalApiAuth";
+import { createUserClient, getSupabaseEnv } from "../../../../../lib/serverSupabase";
+import { resolveInternalApiAuth } from "../../../../../lib/erp/internalApiAuth";
 
 type Resp = { ok: boolean; data?: { reversal_id: string }; error?: string };
 

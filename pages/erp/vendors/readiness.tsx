@@ -89,7 +89,7 @@ export default function VendorReadinessPage() {
     const accessToken = sessionData.session?.access_token;
     if (!accessToken) return;
 
-    const res = await fetch("/api/mfg/internal/stage-events/pending?limit=50", {
+    const res = await fetch("/api/mfg/stage-events/pending?limit=50", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const json = await res.json();
@@ -110,7 +110,7 @@ export default function VendorReadinessPage() {
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error("Not authenticated");
 
-      const res = await fetch(`/api/mfg/internal/stage-events/${encodeURIComponent(stageEventId)}/post-consumption`, {
+      const res = await fetch(`/api/mfg/stage-events/${encodeURIComponent(stageEventId)}/post-consumption`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ reason: "ERP readiness posting" }),
@@ -133,7 +133,7 @@ export default function VendorReadinessPage() {
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error("Not authenticated");
 
-      const res = await fetch(`/api/mfg/internal/consumption-batches/${encodeURIComponent(batchId)}/reverse`, {
+      const res = await fetch(`/api/mfg/consumption-batches/${encodeURIComponent(batchId)}/reverse`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ reason: "ERP readiness reversal", clientReverseId: crypto.randomUUID() }),
