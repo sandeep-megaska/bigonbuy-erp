@@ -74,6 +74,7 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
   const navItems = [
     { label: "Dashboard", href: dashboardPath, active: router.pathname === "/mfg/v/[vendor_code]" },
     { label: "Production", href: productionPath, active: router.pathname === "/mfg/v/[vendor_code]/production" },
+    { label: "Performance", href: "/mfg/performance", active: router.pathname === "/mfg/performance" },
     { label: "Plan", href: "/mfg/plan", active: router.pathname === "/mfg/plan" },
     { label: "Materials", href: "/mfg/materials", active: router.pathname === "/mfg/materials" },
     { label: "BOM", href: "/mfg/bom", active: router.pathname === "/mfg/bom" },
