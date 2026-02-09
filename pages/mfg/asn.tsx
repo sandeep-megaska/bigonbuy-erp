@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import MfgLayout from "../../components/mfg/MfgLayout";
 
@@ -21,12 +22,25 @@ type OpenPoLine = {
   open_qty: number;
 };
 
+type PackingState = {
+  cartons: { id: string; carton_no: number; status: string }[];
+  lines_in_asn: { po_line_id: string; sku: string; qty_packed_total: number }[];
+  applied_scan_count: number;
+};
+
 export default function MfgAsnPage() {
   const [items, setItems] = useState<VendorAsn[]>([]);
   const [poLines, setPoLines] = useState<OpenPoLine[]>([]);
+  const [packing, setPacking] = useState<PackingState>({ cartons: [], lines_in_asn: [], applied_scan_count: 0 });
+  const [cartonLines, setCartonLines] = useState<{ po_line_id: string; sku: string; qty_packed: number }[]>([]);
+  const [selectedCartonId, setSelectedCartonId] = useState("");
+  const [scanInput, setScanInput] = useState("");
+  const [scanStatus, setScanStatus] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [showManual, setShowManual] = useState(false);
 
   const [form, setForm] = useState({ po_id: "", dispatch_date: "", eta_date: "", asn_id: "", po_line_id: "", qty: "", carton_count: "0" });
 
@@ -35,6 +49,8 @@ export default function MfgAsnPage() {
     poLines.forEach((line) => map.set(line.po_id, line.po_number || line.po_id));
     return Array.from(map.entries()).map(([id, number]) => ({ id, number }));
   }, [poLines]);
+
+  const selectedAsn = items.find((item) => item.asn_id === form.asn_id);
 
   async function load() {
     setLoading(true);
@@ -58,11 +74,30 @@ export default function MfgAsnPage() {
     setLoading(false);
   }
 
+  async function loadPackingState(asnId: string) {
+    if (!asnId) {
+      setPacking({ cartons: [], lines_in_asn: [], applied_scan_count: 0 });
+      setSelectedCartonId("");
+      setCartonLines([]);
+      return;
+    }
+    const res = await fetch(`/api/mfg/asn/packing-state?asn_id=${asnId}`);
+    const json = await res.json();
+    if (!res.ok || !json?.ok || !json?.data?.ok) return;
+    const next = json.data as PackingState;
+    setPacking(next);
+    const firstCarton = next.cartons[0]?.id || "";
+    setSelectedCartonId((prev) => (prev && next.cartons.some((c) => c.id === prev) ? prev : firstCarton));
+    if ((next.cartons?.length || 0) > 0) setShowManual(false);
+  }
+
   useEffect(() => {
     load();
   }, []);
 
-  const selectedAsn = items.find((item) => item.asn_id === form.asn_id);
+  useEffect(() => {
+    loadPackingState(form.asn_id);
+  }, [form.asn_id]);
 
   async function createAsn() {
     setError("");
@@ -73,6 +108,7 @@ export default function MfgAsnPage() {
     setForm((prev) => ({ ...prev, asn_id: json.data.id }));
     setMsg("ASN draft created.");
     await load();
+    await loadPackingState(json.data.id);
   }
 
   async function addLine() {
@@ -88,8 +124,9 @@ export default function MfgAsnPage() {
     const res = await fetch("/api/mfg/asn/set-cartons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ asn_id: form.asn_id, carton_count: Number(form.carton_count || 0) }) });
     const json = await res.json();
     if (!res.ok || !json?.ok) return setError(json?.error || "Failed to set cartons");
-    setMsg("Cartons updated.");
+    setMsg("Boxes created.");
     await load();
+    await loadPackingState(form.asn_id);
   }
 
   async function submitAsn() {
@@ -98,46 +135,159 @@ export default function MfgAsnPage() {
     if (!res.ok || !json?.ok) return setError(json?.error || "Failed to submit ASN");
     setMsg("ASN submitted.");
     await load();
+    await loadPackingState(form.asn_id);
+  }
+
+  async function scanPiece() {
+    setError("");
+    if (!selectedCartonId || !scanInput.trim()) return;
+    const res = await fetch("/api/mfg/asn/scan-piece", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ carton_id: selectedCartonId, barcode: scanInput.trim() }) });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) return setError(json?.error || "Failed to scan item");
+    if (!json?.data?.ok) {
+      setScanStatus(`Rejected: ${json?.data?.reason || "UNKNOWN"}`);
+      setError(`Scan rejected (${json?.data?.reason || "UNKNOWN"}).`);
+    } else {
+      setScanStatus("Applied");
+      setCartonLines(json.data.lines_in_carton || []);
+    }
+    setScanInput("");
+    await load();
+    await loadPackingState(form.asn_id);
   }
 
   const poLineOptions = poLines.filter((line) => !form.po_id || line.po_id === form.po_id);
+  const canSubmit = Boolean(form.asn_id && selectedAsn?.status === "DRAFT" && packing.cartons.length > 0 && packing.applied_scan_count > 0);
 
   return (
     <MfgLayout title="ASN Booking">
+      <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, color: "#1e3a8a" }}>
+        Tip: Create ASN → Create Boxes → Scan items into each Box → Submit ASN
+      </div>
       {msg ? <div style={{ marginBottom: 12, color: "#0f766e" }}>{msg}</div> : null}
       {error ? <div style={{ marginBottom: 12, color: "#991b1b" }}>{error}</div> : null}
 
       <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
         <h3 style={{ marginTop: 0 }}>Create ASN Draft</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(120px, 1fr))", gap: 8 }}>
-          <select value={form.po_id} onChange={(e) => setForm((prev) => ({ ...prev, po_id: e.target.value }))}>
-            <option value="">Select PO</option>
-            {poOptions.map((po) => <option key={po.id} value={po.id}>{po.number}</option>)}
-          </select>
-          <input type="date" value={form.dispatch_date} onChange={(e) => setForm((prev) => ({ ...prev, dispatch_date: e.target.value }))} />
-          <input type="date" value={form.eta_date} onChange={(e) => setForm((prev) => ({ ...prev, eta_date: e.target.value }))} />
-          <button onClick={createAsn}>Create</button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px, 1fr))", gap: 12 }}>
+          <div>
+            <label>Purchase Order (PO)</label>
+            <select value={form.po_id} onChange={(e) => setForm((prev) => ({ ...prev, po_id: e.target.value }))} style={{ width: "100%" }}>
+              <option value="">Select PO</option>
+              {poOptions.map((po) => <option key={po.id} value={po.id}>{po.number}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Dispatch Date (When you send the boxes)</label>
+            <input type="date" value={form.dispatch_date} onChange={(e) => setForm((prev) => ({ ...prev, dispatch_date: e.target.value }))} style={{ width: "100%" }} />
+            <small>Use the date the shipment leaves your facility.</small>
+          </div>
+          <div>
+            <label>Expected Arrival Date (ETA)</label>
+            <input type="date" value={form.eta_date} onChange={(e) => setForm((prev) => ({ ...prev, eta_date: e.target.value }))} style={{ width: "100%" }} />
+            <small>Use expected receiving date at destination warehouse.</small>
+          </div>
+          <div style={{ alignSelf: "end" }}>
+            <button onClick={createAsn}>Create ASN Draft</button>
+          </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 8, marginTop: 12 }}>
-          <select value={form.asn_id} onChange={(e) => setForm((prev) => ({ ...prev, asn_id: e.target.value }))}>
-            <option value="">Select ASN</option>
-            {items.filter((item) => item.status === "DRAFT").map((asn) => <option key={asn.asn_id} value={asn.asn_id}>{asn.po_number} • {asn.asn_id.slice(0, 8)}</option>)}
-          </select>
-          <select value={form.po_line_id} onChange={(e) => setForm((prev) => ({ ...prev, po_line_id: e.target.value }))}>
-            <option value="">Select PO line</option>
-            {poLineOptions.map((line) => <option key={line.po_line_id} value={line.po_line_id}>{line.sku} (open {line.open_qty})</option>)}
-          </select>
-          <input type="number" min="0" placeholder="Qty" value={form.qty} onChange={(e) => setForm((prev) => ({ ...prev, qty: e.target.value }))} />
-          <button onClick={addLine} disabled={!form.asn_id}>Add Line</button>
-          <span />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px, 1fr))", gap: 12, marginTop: 14 }}>
+          <div>
+            <label>ASN Draft (Select to continue packing)</label>
+            <select value={form.asn_id} onChange={(e) => setForm((prev) => ({ ...prev, asn_id: e.target.value }))} style={{ width: "100%" }}>
+              <option value="">Select ASN draft</option>
+              {items.filter((item) => item.status === "DRAFT").map((asn) => <option key={asn.asn_id} value={asn.asn_id}>{asn.po_number} • {asn.asn_id.slice(0, 8)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Number of Boxes (Cartons)</label>
+            <input type="number" min="0" value={form.carton_count} onChange={(e) => setForm((prev) => ({ ...prev, carton_count: e.target.value }))} style={{ width: "100%" }} />
+          </div>
+          <div style={{ alignSelf: "end" }}>
+            <button onClick={setCartons} disabled={!form.asn_id}>Create Boxes</button>
+          </div>
+          <div style={{ alignSelf: "end" }}>
+            <button onClick={submitAsn} disabled={!canSubmit}>Submit ASN (Lock Packing List)</button>
+          </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "200px 200px 200px", gap: 8, marginTop: 12 }}>
-          <input type="number" min="0" placeholder="Cartons" value={form.carton_count} onChange={(e) => setForm((prev) => ({ ...prev, carton_count: e.target.value }))} />
-          <button onClick={setCartons} disabled={!form.asn_id}>Set Cartons</button>
-          <button onClick={submitAsn} disabled={!form.asn_id || selectedAsn?.status !== "DRAFT"}>Submit ASN</button>
+        <div style={{ marginTop: 12 }}>
+          <button onClick={() => setShowManual((prev) => !prev)}>{showManual ? "Hide" : "Show"} Advanced/manual entry</button>
         </div>
+
+        {showManual ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px, 1fr))", gap: 12, marginTop: 12 }}>
+            <div>
+              <label>PO Item (SKU/Size)</label>
+              <select value={form.po_line_id} onChange={(e) => setForm((prev) => ({ ...prev, po_line_id: e.target.value }))} style={{ width: "100%" }}>
+                <option value="">Select PO item</option>
+                {poLineOptions.map((line) => <option key={line.po_line_id} value={line.po_line_id}>{line.sku} (open {line.open_qty})</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Qty (Manual entry - will be removed after barcode module is enabled)</label>
+              <input type="number" min="0" value={form.qty} onChange={(e) => setForm((prev) => ({ ...prev, qty: e.target.value }))} style={{ width: "100%" }} />
+            </div>
+            <div style={{ alignSelf: "end" }}>
+              <button onClick={addLine} disabled={!form.asn_id}>Add Item (Manual)</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
+        <h3 style={{ marginTop: 0 }}>Packing (Scan)</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "280px 1fr auto", gap: 10, alignItems: "end" }}>
+          <div>
+            <label>Carton</label>
+            <select value={selectedCartonId} onChange={(e) => setSelectedCartonId(e.target.value)} style={{ width: "100%" }}>
+              <option value="">Select Box</option>
+              {packing.cartons.map((c) => <option key={c.id} value={c.id}>Box-{c.carton_no}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Barcode Scan</label>
+            <input
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void scanPiece(); }}
+              placeholder="Scan barcode and press Enter"
+              style={{ width: "100%", fontSize: 18, padding: 10 }}
+            />
+          </div>
+          <button onClick={scanPiece} disabled={!selectedCartonId || !scanInput.trim()}>Scan Piece</button>
+        </div>
+        {scanStatus ? <div style={{ marginTop: 10 }}>Last scan status: {scanStatus}</div> : null}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+          <div>
+            <h4 style={{ margin: "0 0 8px" }}>Selected Box totals</h4>
+            <table style={{ width: "100%" }}>
+              <thead><tr><th align="left">SKU</th><th align="right">Qty</th></tr></thead>
+              <tbody>
+                {cartonLines.length === 0 ? <tr><td colSpan={2}>No scanned items in selected box.</td></tr> : null}
+                {cartonLines.map((line) => <tr key={line.po_line_id}><td>{line.sku}</td><td align="right">{line.qty_packed}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h4 style={{ margin: "0 0 8px" }}>Overall ASN totals</h4>
+            <table style={{ width: "100%" }}>
+              <thead><tr><th align="left">SKU</th><th align="right">Qty</th></tr></thead>
+              <tbody>
+                {packing.lines_in_asn.length === 0 ? <tr><td colSpan={2}>No scanned items in ASN.</td></tr> : null}
+                {packing.lines_in_asn.map((line) => <tr key={line.po_line_id}><td>{line.sku}</td><td align="right">{line.qty_packed_total}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {form.asn_id ? (
+          <div style={{ marginTop: 10 }}>
+            <Link href={`/mfg/asn/packing-list?asn_id=${form.asn_id}`}>Printable packing list (Box → SKU → Qty)</Link>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12 }}>
