@@ -11,6 +11,9 @@ type AsnRow = {
   status: string;
   dispatch_date: string;
   eta_date: string | null;
+  transporter_name?: string | null;
+  tracking_no?: string | null;
+  dispatched_at?: string | null;
   total_qty: number;
   cartons_count: number;
 };
@@ -58,7 +61,7 @@ export default function ErpVendorAsnsPage() {
         <h1>Vendor ASNs</h1>
         {error ? <div style={{ color: "#991b1b" }}>{error}</div> : null}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(120px, 1fr))", gap: 8, margin: "12px 0" }}>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All Status</option><option value="DRAFT">DRAFT</option><option value="SUBMITTED">SUBMITTED</option><option value="CANCELLED">CANCELLED</option></select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All Status</option><option value="DRAFT">DRAFT</option><option value="SUBMITTED">SUBMITTED</option><option value="DISPATCHED">DISPATCHED</option><option value="IN_TRANSIT">IN_TRANSIT</option><option value="CANCELLED">CANCELLED</option></select>
           <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}><option value="">All Vendors</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.legal_name}</option>)}</select>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
@@ -66,12 +69,12 @@ export default function ErpVendorAsnsPage() {
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff" }}>
-          <thead><tr><th>Vendor</th><th>PO</th><th>Status</th><th>Dispatch</th><th>ETA</th><th>Total Qty</th><th>Cartons</th></tr></thead>
+          <thead><tr><th>Vendor</th><th>PO</th><th>Status</th><th>Dispatch</th><th>ETA</th><th>Transporter</th><th>Tracking</th><th>Total Qty</th><th>Cartons</th></tr></thead>
           <tbody>
             {items.map((row) => (
-              <tr key={row.asn_id}><td>{row.vendor_name}</td><td>{row.po_number}</td><td>{row.status}</td><td>{row.dispatch_date}</td><td>{row.eta_date || "—"}</td><td>{row.total_qty}</td><td>{row.cartons_count}</td></tr>
+              <tr key={row.asn_id}><td>{row.vendor_name}</td><td>{row.po_number}</td><td>{row.status}</td><td>{row.dispatch_date}</td><td>{row.eta_date || "—"}</td><td>{row.transporter_name || "—"}</td><td>{row.tracking_no || "—"}</td><td>{row.total_qty}</td><td>{row.cartons_count}</td></tr>
             ))}
-            {items.length === 0 ? <tr><td colSpan={7}>No ASNs found.</td></tr> : null}
+            {items.length === 0 ? <tr><td colSpan={9}>No ASNs found.</td></tr> : null}
           </tbody>
         </table>
       </div>
