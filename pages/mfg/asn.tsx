@@ -158,6 +158,9 @@ export default function MfgAsnPage() {
 
   const poLineOptions = poLines.filter((line) => !form.po_id || line.po_id === form.po_id);
   const canSubmit = Boolean(form.asn_id && selectedAsn?.status === "DRAFT" && packing.cartons.length > 0 && packing.applied_scan_count > 0);
+  const hasPackingForPrint = packing.cartons.length > 0 && packing.applied_scan_count > 0;
+  const allowReprint = selectedAsn?.status === "SUBMITTED";
+  const canPrint = Boolean(form.asn_id && (hasPackingForPrint || allowReprint));
 
   return (
     <MfgLayout title="ASN Booking">
@@ -210,6 +213,24 @@ export default function MfgAsnPage() {
           <div style={{ alignSelf: "end" }}>
             <button onClick={submitAsn} disabled={!canSubmit}>Submit ASN (Lock Packing List)</button>
           </div>
+        </div>
+
+        <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            onClick={() => window.open(`/api/mfg/asns/${form.asn_id}/packing-slip.pdf?format=slip`, "_blank", "noopener,noreferrer")}
+            disabled={!canPrint}
+          >
+            Print Packing Slip (PDF)
+          </button>
+          <button
+            onClick={() => window.open(`/api/mfg/asns/${form.asn_id}/box-labels.pdf`, "_blank", "noopener,noreferrer")}
+            disabled={!canPrint}
+          >
+            Print Box Labels (PDF)
+          </button>
+          {!canPrint && form.asn_id ? (
+            <small style={{ color: "#7c2d12" }}>Print enabled after at least one scanned item, or any time after ASN is submitted.</small>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 12 }}>
