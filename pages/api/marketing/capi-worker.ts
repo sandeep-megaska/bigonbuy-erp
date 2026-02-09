@@ -32,10 +32,17 @@ function getCronSecret(req: NextApiRequest): string | null {
 function buildMetaBody(payload: Record<string, unknown>, testEventCode: string | null): Record<string, unknown> {
   const hasDataEnvelope = Array.isArray(payload.data);
   const body: Record<string, unknown> = hasDataEnvelope ? { ...payload } : { data: [payload] };
-  if (testEventCode) {
+  if (testEventCode && !("test_event_code" in body)) {
     body.test_event_code = testEventCode;
   }
   return body;
+}
+
+function getMetaErrorMessage(responseStatus: number, json: Record<string, unknown> | null): string {
+  if (json?.error) {
+    return JSON.stringify(json.error);
+  }
+  return JSON.stringify({ message: `Meta API request failed: ${responseStatus}` });
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
@@ -83,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const pixelId = settings?.meta_pixel_id ?? process.env.META_PIXEL_ID ?? null;
   const accessToken = settings?.meta_access_token ?? process.env.META_ACCESS_TOKEN ?? null;
-  const testEventCode = settings?.meta_test_event_code ?? null;
+  const testEventCode = settings?.meta_test_event_code ?? process.env.META_TEST_EVENT_CODE ?? null;
 
   if (!pixelId || !accessToken) {
     return res.status(400).json({ ok: false, error: "Missing Meta credentials in erp_mkt_settings or env" });
@@ -116,10 +123,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
       if (!response.ok || json?.error) {
-        const errMessage =
-          typeof json?.error === "object" && json?.error && "message" in json.error
-            ? String((json.error as { message?: string }).message ?? "Meta API request failed")
-            : `Meta API request failed: ${response.status}`;
+        const errMessage = getMetaErrorMessage(response.status, json);
         const deadletter = row.attempt_count + 1 >= 8;
         await serviceClient.rpc("erp_mkt_capi_mark_failed", {
           p_company_id: companyId,
