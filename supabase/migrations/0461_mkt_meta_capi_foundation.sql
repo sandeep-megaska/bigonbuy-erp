@@ -1,5 +1,5 @@
 begin;
-
+create extension if not exists pgcrypto;
 create table if not exists public.erp_mkt_identity_map (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id) on delete cascade,
