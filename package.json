@@ -7,7 +7,8 @@
     "start": "next start",
     "check:migrations": "bash scripts/check-migrations.sh",
     "erp:routes": "node scripts/erp_route_inventory.js",
-    "lint:routes": "node scripts/lint-routes.js"
+    "lint:routes": "node scripts/lint-routes.js",
+    "lint": "npm run lint:routes"
   },
   "dependencies": {
     "@sparticuz/chromium": "^123.0.1",
