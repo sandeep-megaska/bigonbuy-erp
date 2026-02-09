@@ -5,7 +5,7 @@ import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupa
 const ALLOWED_ORIGINS = new Set([
   "https://megaska.com",
   "https://www.megaska.com",
-  "https://megaska.myshopify.com",
+  "https://bigonbuy-fashions.myshopify.com",
 ]);
 
 function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
