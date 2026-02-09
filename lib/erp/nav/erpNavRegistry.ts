@@ -74,6 +74,26 @@ const isGuardAllowed = (guard: ErpNavGuard | undefined, roleKey?: string | null)
   }
 };
 
+export const canAccessErpNavItem = ({
+  item,
+  roleKey,
+  companyId,
+  activeModule,
+  includeDeprecated = false,
+}: {
+  item: ErpNavItem;
+  roleKey?: string | null;
+  companyId?: string | null;
+  activeModule?: ErpModuleKey;
+  includeDeprecated?: boolean;
+}) => {
+  if (item.status === "hidden") return false;
+  if (item.status === "deprecated" && !includeDeprecated && !item.showDeprecatedInNav) return false;
+  if (item.companyScoped !== false && !companyId) return false;
+  if (activeModule && item.moduleKeys && !item.moduleKeys.includes(activeModule)) return false;
+  return isGuardAllowed(item.requiredGuard, roleKey);
+};
+
 const groupOrder: ErpNavGroupId[] = [
   "analytics",
   "oms",
@@ -845,13 +865,9 @@ export const getErpNavGroups = ({
   companyId,
   activeModule,
 }: ErpNavContext): ErpNavGroupWithItems[] => {
-  const items = ERP_NAV_ITEMS.filter((item) => {
-    if (item.status === "hidden") return false;
-    if (item.status === "deprecated" && !item.showDeprecatedInNav) return false;
-    if (item.companyScoped !== false && !companyId) return false;
-    if (item.moduleKeys && !item.moduleKeys.includes(activeModule)) return false;
-    return isGuardAllowed(item.requiredGuard, roleKey);
-  });
+  const items = ERP_NAV_ITEMS.filter((item) =>
+    canAccessErpNavItem({ item, roleKey, companyId, activeModule })
+  );
 
   const groupsWithItems = ERP_NAV_GROUPS.map((group) => ({
     label: group.label,
@@ -864,3 +880,18 @@ export const getErpNavGroups = ({
 
   return groupsWithItems;
 };
+
+export const getAccessibleErpNavItems = ({
+  roleKey,
+  companyId,
+  activeModule,
+  includeDeprecated,
+}: {
+  roleKey?: string | null;
+  companyId?: string | null;
+  activeModule?: ErpModuleKey;
+  includeDeprecated?: boolean;
+}) =>
+  ERP_NAV_ITEMS.filter((item) =>
+    canAccessErpNavItem({ item, roleKey, companyId, activeModule, includeDeprecated })
+  );
