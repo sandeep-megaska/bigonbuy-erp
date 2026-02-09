@@ -1,6 +1,13 @@
 import { ERP_NAV_ITEMS, type ErpNavItem, type ErpNavGroupId } from "./erpNavRegistry";
 
-export type CommandPaletteGroup = "Inventory" | "Finance" | "HR" | "Ops" | "MFG" | "Analytics";
+export type CommandPaletteGroup =
+  | "Inventory"
+  | "Finance"
+  | "HR"
+  | "Ops"
+  | "MFG"
+  | "Analytics"
+  | "Marketing";
 
 export type CommandPaletteRoute = {
   id: string;
@@ -20,6 +27,7 @@ const groupMap: Partial<Record<ErpNavGroupId, CommandPaletteGroup>> = {
   operations: "Ops",
   oms: "Ops",
   analytics: "Analytics",
+  marketing: "Marketing",
   reports: "Analytics",
   integrations: "Analytics",
 };
