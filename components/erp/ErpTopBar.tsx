@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import CommandPalette from "./CommandPalette";
+import { getCompanyContext } from "../../lib/erpContext";
 import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
@@ -26,6 +28,12 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   const branding = useCompanyBranding();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
+  const [showCompactSearch, setShowCompactSearch] = useState(false);
+  const [paletteOpenNonce, setPaletteOpenNonce] = useState(0);
+  const [companyContext, setCompanyContext] = useState<{ roleKey: string | null; companyId: string | null }>({
+    roleKey: null,
+    companyId: null,
+  });
   const companyMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -36,6 +44,27 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
     return () => {
       active = false;
     };
+  }, []);
+
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const context = await getCompanyContext();
+      if (!active) return;
+      setCompanyContext({ roleKey: context.roleKey ?? null, companyId: context.companyId ?? null });
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateCompact = () => setShowCompactSearch(window.innerWidth < 840);
+    updateCompact();
+    window.addEventListener("resize", updateCompact);
+    return () => window.removeEventListener("resize", updateCompact);
   }, []);
 
   useEffect(() => {
@@ -102,6 +131,11 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       <nav style={navStyle}>{navLinks}</nav>
 
       <div style={rightBlockStyle}>
+        <button type="button" style={searchTriggerStyle} onClick={() => setPaletteOpenNonce((prev) => prev + 1)} aria-label="Open module search">
+          <span style={searchIconButtonStyle}>⌘</span>
+          {!showCompactSearch ? <span>Search modules</span> : null}
+          {!showCompactSearch ? <span style={searchHintStyle}>Ctrl/⌘ K</span> : null}
+        </button>
         <div style={companyMenuWrapperStyle} ref={companyMenuRef}>
           <button
             type="button"
@@ -129,6 +163,11 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           Sign Out
         </button>
       </div>
+      <CommandPalette
+        roleKey={companyContext.roleKey}
+        companyId={companyContext.companyId}
+        openNonce={paletteOpenNonce}
+      />
     </header>
   );
 }
@@ -291,4 +330,34 @@ const signOutStyle: CSSProperties = {
   cursor: "pointer",
   fontWeight: 600,
   fontSize: 13,
+};
+
+const searchTriggerStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "6px 10px",
+  borderRadius: 8,
+  border: "1px solid #dbe3ef",
+  backgroundColor: "#f8fafc",
+  color: "#0f172a",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const searchIconButtonStyle: CSSProperties = {
+  width: 20,
+  height: 20,
+  borderRadius: 6,
+  background: "#e2e8f0",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 11,
+};
+
+const searchHintStyle: CSSProperties = {
+  color: "#64748b",
+  fontSize: 11,
 };
