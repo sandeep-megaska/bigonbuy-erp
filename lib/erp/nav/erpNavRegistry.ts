@@ -13,6 +13,7 @@ export type ErpNavGuard =
 
 export type ErpNavGroupId =
   | "analytics"
+  | "marketing"
   | "oms"
   | "inventory"
   | "procurement"
@@ -96,6 +97,7 @@ export const canAccessErpNavItem = ({
 
 const groupOrder: ErpNavGroupId[] = [
   "analytics",
+  "marketing",
   "oms",
   "inventory",
   "procurement",
@@ -111,6 +113,7 @@ const groupOrder: ErpNavGroupId[] = [
 
 export const ERP_NAV_GROUPS: ErpNavGroup[] = [
   { id: "analytics", label: "Analytics" },
+  { id: "marketing", label: "Marketing" },
   { id: "oms", label: "OMS / Channels" },
   { id: "inventory", label: "Inventory" },
   { id: "procurement", label: "Procurement" },
@@ -330,6 +333,26 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "AN",
     groupId: "analytics",
     requiredGuard: "analytics_reader",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
+    id: "marketing-meta-settings",
+    label: "Meta Settings",
+    href: "/app/marketing/meta-settings",
+    icon: "MT",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
+    id: "marketing-capi-events",
+    label: "CAPI Events",
+    href: "/app/marketing/capi-events",
+    icon: "CE",
+    groupId: "marketing",
+    requiredGuard: "manager",
     status: "active",
     moduleKeys: ["workspace"],
   },
