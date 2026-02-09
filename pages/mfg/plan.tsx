@@ -4,7 +4,7 @@ import MfgLayout from "../../components/mfg/MfgLayout";
 type BucketRow = { bucket_start: string; qty?: number; demand_qty?: number; projected_balance?: number; shortage_qty?: number };
 type SkuRow = {
   sku: string;
-  variant_id: string;
+  variant_id: string | null;
   product: string;
   size: string | null;
   color: string | null;
@@ -104,7 +104,7 @@ export default function VendorPlanPage() {
             <thead><tr>{["SKU", "Total Open", "Overdue", "Next Bucket", "BOM", "WIP"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
             <tbody>
               {filteredSkus.map((row) => (
-                <SkuMainRow key={row.variant_id} row={row} />
+                <SkuMainRow key={row.variant_id || row.sku} row={row} />
               ))}
             </tbody>
           </table>
