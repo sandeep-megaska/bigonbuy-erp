@@ -1,14 +1,25 @@
--- 20260209093000_mfg_asn_dispatch_tracking_v1.sql
+-- 0457_mfg_asn_dispatch_tracking_v1.sql
 -- Vendor dispatch metadata, status progression, ASN docs, and event timeline.
+-- Forward-only numeric migration (NO timestamp migrations).
 
+-- ============================================================
+-- 1) ASN header fields (idempotent)
+-- ============================================================
 alter table public.erp_mfg_asns
   add column if not exists transporter_name text null,
   add column if not exists tracking_no text null,
   add column if not exists dispatched_at timestamptz null,
-  add column if not exists remarks text null,
+  add column if not exists remarks text null;
+
+-- Ensure updated_at exists with default (if column exists already, we won't alter it here to avoid risk).
+alter table public.erp_mfg_asns
   add column if not exists updated_at timestamptz not null default now();
 
--- Expand ASN status domain safely.
+-- ============================================================
+-- 2) Expand/normalize ASN status CHECK constraint safely
+--    - Drop any existing status check constraint (best-effort)
+--    - Add canonical status check
+-- ============================================================
 do $$
 declare
   v_constraint text;
@@ -25,22 +36,45 @@ begin
   if v_constraint is not null then
     execute format('alter table public.erp_mfg_asns drop constraint %I', v_constraint);
   end if;
-
-  alter table public.erp_mfg_asns
-    add constraint erp_mfg_asns_status_chk
-    check (status in ('DRAFT','SUBMITTED','DISPATCHED','IN_TRANSIT','CANCELLED','RECEIVED_PARTIAL','RECEIVED_FULL'));
 end $$;
 
+alter table public.erp_mfg_asns
+  drop constraint if exists erp_mfg_asns_status_chk;
+
+alter table public.erp_mfg_asns
+  add constraint erp_mfg_asns_status_chk
+  check (status in (
+    'DRAFT','SUBMITTED','DISPATCHED','IN_TRANSIT','CANCELLED','RECEIVED_PARTIAL','RECEIVED_FULL'
+  ));
+
+-- ============================================================
+-- 3) Events table upgrades: event_ts + payload + event_type CHECK
+--    Fix legacy event_type values BEFORE adding constraint.
+-- ============================================================
 alter table public.erp_mfg_asn_events
   add column if not exists event_ts timestamptz not null default now(),
   add column if not exists payload jsonb null;
 
+-- Backfill event_ts from created_at when possible (safe)
 update public.erp_mfg_asn_events
 set event_ts = coalesce(created_at, event_ts)
 where event_ts is null;
 
+-- Normalize legacy event types:
+-- Map known legacy type(s)
+update public.erp_mfg_asn_events
+set event_type = 'NOTE_ADDED'
+where event_type = 'CARTONS_SET';
+
+-- Safety net: any other unexpected types -> NOTE_ADDED
+update public.erp_mfg_asn_events
+set event_type = 'NOTE_ADDED'
+where event_type is not null
+  and event_type not in ('CREATED','SUBMITTED','DISPATCHED','IN_TRANSIT','CANCELLED','NOTE_ADDED','DOC_UPLOADED');
+
 alter table public.erp_mfg_asn_events
   drop constraint if exists erp_mfg_asn_events_event_type_chk;
+
 alter table public.erp_mfg_asn_events
   add constraint erp_mfg_asn_events_event_type_chk
   check (event_type in ('CREATED','SUBMITTED','DISPATCHED','IN_TRANSIT','CANCELLED','NOTE_ADDED','DOC_UPLOADED'));
@@ -48,6 +82,9 @@ alter table public.erp_mfg_asn_events
 create index if not exists erp_mfg_asn_events_asn_event_ts_desc_idx
   on public.erp_mfg_asn_events(asn_id, event_ts desc);
 
+-- ============================================================
+-- 4) Documents table (idempotent) + RLS + ERP read policy
+-- ============================================================
 create table if not exists public.erp_mfg_asn_documents (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.erp_companies(id) on delete restrict,
@@ -64,18 +101,32 @@ create index if not exists erp_mfg_asn_documents_asn_uploaded_desc_idx
 alter table public.erp_mfg_asn_documents enable row level security;
 
 drop policy if exists erp_mfg_asn_documents_erp_read_all on public.erp_mfg_asn_documents;
-create policy erp_mfg_asn_documents_erp_read_all on public.erp_mfg_asn_documents
+create policy erp_mfg_asn_documents_erp_read_all
+on public.erp_mfg_asn_documents
 for select to authenticated
 using (public.is_erp_manager(auth.uid()));
 
+-- (Optional) Vendor RLS policies can be added later if you expose docs list in vendor UI via PostgREST directly.
+-- For now vendor access is via SECURITY DEFINER RPCs.
+
+-- ============================================================
+-- 5) Storage bucket (best-effort idempotent)
+-- ============================================================
 do $$
 begin
   if not exists (select 1 from storage.buckets where id = 'mfg-asn-docs') then
-    insert into storage.buckets (id, name, public) values ('mfg-asn-docs', 'mfg-asn-docs', false);
+    insert into storage.buckets (id, name, public)
+    values ('mfg-asn-docs', 'mfg-asn-docs', false);
   end if;
 end $$;
 
-create or replace function public.erp_mfg_asn_mark_dispatched_v1(
+-- ============================================================
+-- 6) DROP + CREATE functions (fixes 42P13 return-type mismatch)
+-- ============================================================
+
+-- Mark Dispatched
+drop function if exists public.erp_mfg_asn_mark_dispatched_v1(text, uuid, text, text, timestamptz, text);
+create function public.erp_mfg_asn_mark_dispatched_v1(
   p_session_token text,
   p_asn_id uuid,
   p_transporter text,
@@ -149,7 +200,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_mfg_asn_mark_in_transit_v1(
+-- Mark In Transit
+drop function if exists public.erp_mfg_asn_mark_in_transit_v1(text, uuid, text);
+create function public.erp_mfg_asn_mark_in_transit_v1(
   p_session_token text,
   p_asn_id uuid,
   p_remarks text default null
@@ -212,7 +265,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_mfg_asn_add_note_v1(
+-- Add Note
+drop function if exists public.erp_mfg_asn_add_note_v1(text, uuid, text);
+create function public.erp_mfg_asn_add_note_v1(
   p_session_token text,
   p_asn_id uuid,
   p_note text
@@ -272,7 +327,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_mfg_asn_document_create_v1(
+-- Document Create
+drop function if exists public.erp_mfg_asn_document_create_v1(text, uuid, text, text);
+create function public.erp_mfg_asn_document_create_v1(
   p_session_token text,
   p_asn_id uuid,
   p_doc_type text,
@@ -349,7 +406,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_mfg_asn_tracking_detail_v1(
+-- Tracking detail (JSON)
+drop function if exists public.erp_mfg_asn_tracking_detail_v1(text, uuid);
+create function public.erp_mfg_asn_tracking_detail_v1(
   p_session_token text,
   p_asn_id uuid
 ) returns jsonb
@@ -405,7 +464,9 @@ begin
 end;
 $$;
 
-create or replace function public.erp_mfg_vendor_asns_list_v1(
+-- Vendor list
+drop function if exists public.erp_mfg_vendor_asns_list_v1(text, text, date, date);
+create function public.erp_mfg_vendor_asns_list_v1(
   p_session_token text,
   p_status text default null,
   p_from date default null,
@@ -466,12 +527,15 @@ begin
     and (p_status is null or upper(a.status) = upper(p_status))
     and (p_from is null or a.dispatch_date >= p_from)
     and (p_to is null or a.dispatch_date <= p_to)
-  group by a.id, a.po_id, po.doc_no, po.po_no, a.status, a.dispatch_date, a.eta_date, a.transporter_name, a.tracking_no, a.dispatched_at, a.remarks, a.created_at
+  group by a.id, a.po_id, po.doc_no, po.po_no, a.status, a.dispatch_date, a.eta_date,
+           a.transporter_name, a.tracking_no, a.dispatched_at, a.remarks, a.created_at
   order by a.created_at desc;
 end;
 $$;
 
-create or replace function public.erp_mfg_erp_asns_list_v1(
+-- ERP list
+drop function if exists public.erp_mfg_erp_asns_list_v1(uuid, text, date, date);
+create function public.erp_mfg_erp_asns_list_v1(
   p_vendor_id uuid default null,
   p_status text default null,
   p_from date default null,
@@ -539,8 +603,22 @@ begin
 end;
 $$;
 
--- keep core fields locked once ASN submitted or beyond
-create or replace function public.erp_mfg_asn_lock_after_submit_v1()
+-- ============================================================
+-- 7) Lock core fields after submit/cancel via trigger
+-- ============================================================
+-- ============================================================
+-- 7) Lock core fields after submit/cancel via trigger
+-- ============================================================
+
+-- Drop trigger first (it depends on the function)
+drop trigger if exists erp_mfg_asns_lock_after_submit_trg on public.erp_mfg_asns;
+-- Some older versions might have used a different trigger name:
+drop trigger if exists erp_mfg_asns_lock_after_submit on public.erp_mfg_asns;
+
+-- Now it's safe to drop/recreate the function
+drop function if exists public.erp_mfg_asn_lock_after_submit_v1();
+
+create function public.erp_mfg_asn_lock_after_submit_v1()
 returns trigger
 language plpgsql
 as $$
@@ -555,23 +633,45 @@ begin
     end if;
   end if;
 
-  new.updated_at := now();
+  -- keep updated_at fresh if column exists
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema='public' and table_name='erp_mfg_asns' and column_name='updated_at'
+  ) then
+    new.updated_at := now();
+  end if;
+
   return new;
 end;
 $$;
 
+create trigger erp_mfg_asns_lock_after_submit_trg
+before update on public.erp_mfg_asns
+for each row
+execute function public.erp_mfg_asn_lock_after_submit_v1();
+
+
+-- ============================================================
+-- 8) Permissions
+-- ============================================================
 revoke all on function public.erp_mfg_asn_mark_dispatched_v1(text, uuid, text, text, timestamptz, text) from public;
 revoke all on function public.erp_mfg_asn_mark_in_transit_v1(text, uuid, text) from public;
 revoke all on function public.erp_mfg_asn_add_note_v1(text, uuid, text) from public;
 revoke all on function public.erp_mfg_asn_document_create_v1(text, uuid, text, text) from public;
 revoke all on function public.erp_mfg_asn_tracking_detail_v1(text, uuid) from public;
+revoke all on function public.erp_mfg_vendor_asns_list_v1(text, text, date, date) from public;
 
+-- Vendor cookie auth commonly uses anon + service_role in your setup
 grant execute on function public.erp_mfg_asn_mark_dispatched_v1(text, uuid, text, text, timestamptz, text) to anon, service_role;
 grant execute on function public.erp_mfg_asn_mark_in_transit_v1(text, uuid, text) to anon, service_role;
 grant execute on function public.erp_mfg_asn_add_note_v1(text, uuid, text) to anon, service_role;
 grant execute on function public.erp_mfg_asn_document_create_v1(text, uuid, text, text) to anon, service_role;
 grant execute on function public.erp_mfg_asn_tracking_detail_v1(text, uuid) to anon, service_role;
+grant execute on function public.erp_mfg_vendor_asns_list_v1(text, text, date, date) to anon, service_role;
 
+-- ERP list is invoker + ERP auth; keep default privileges, but grant to authenticated if needed
 grant select on public.erp_mfg_asn_documents to authenticated, service_role;
 
+-- Reload PostgREST schema cache
 select pg_notify('pgrst', 'reload schema');
