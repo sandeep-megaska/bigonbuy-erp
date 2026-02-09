@@ -2,6 +2,23 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupabase";
 
+const ALLOWED_ORIGINS = new Set([
+  "https://megaska.com",
+  "https://www.megaska.com",
+  "https://megaska.myshopify.com",
+]);
+
+function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+    return null;
+  }
+
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  return origin;
+}
+
 const requestSchema = z.object({
   session_id: z.string().min(1),
   utm_source: z.string().optional().nullable(),
@@ -22,9 +39,25 @@ type ApiResponse =
   | { ok: false; error: string; details?: string | null };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
+  const allowedOrigin = applyCors(req, res);
+
+  if (req.method === "OPTIONS") {
+    if (!allowedOrigin) {
+      return res.status(403).end();
+    }
+
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "content-type");
+    return res.status(200).end();
+  }
+
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", "POST, OPTIONS");
     return res.status(405).json({ ok: false, error: "Method not allowed" });
+  }
+
+  if (!allowedOrigin) {
+    return res.status(403).json({ ok: false, error: "Origin not allowed" });
   }
 
   const companyId = process.env.ERP_SERVICE_COMPANY_ID ?? null;
