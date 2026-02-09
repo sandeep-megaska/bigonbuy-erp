@@ -76,6 +76,7 @@ export default function MfgHeader({ title, subtitle, actions }: MfgHeaderProps) 
     { label: "Production", href: productionPath, active: router.pathname === "/mfg/v/[vendor_code]/production" },
     { label: "Materials", href: "/mfg/materials", active: router.pathname === "/mfg/materials" },
     { label: "BOM", href: "/mfg/bom", active: router.pathname === "/mfg/bom" },
+    { label: "ASN", href: "/mfg/asn", active: router.pathname === "/mfg/asn" },
   ];
 
   const uniqueNavItems = navItems.filter(
