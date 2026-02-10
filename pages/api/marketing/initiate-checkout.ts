@@ -48,35 +48,62 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
+function getUserAgent(req: NextApiRequest, bodyUa?: string | null): string {
+  const fromBody = (bodyUa ?? "").trim();
+  if (fromBody) return fromBody;
+
+  const ua = req.headers["user-agent"];
+  const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
+  return (s || "").trim() || "unknown";
+}
+
+function getClientIp(req: NextApiRequest): string | null {
+  const pickFirst = (value: string | string[] | undefined): string | null => {
+    if (!value) return null;
+    const s = Array.isArray(value) ? value.join(",") : value;
+    const first = s.split(",")[0]?.trim();
+    return first || null;
+  };
+
+  const candidates: Array<string | null> = [
+    pickFirst(req.headers["x-forwarded-for"] as any),
+    pickFirst(req.headers["x-vercel-forwarded-for"] as any),
+    pickFirst(req.headers["x-real-ip"] as any),
+    pickFirst(req.headers["cf-connecting-ip"] as any),
+    pickFirst(req.headers["true-client-ip"] as any),
+    (req.socket?.remoteAddress ?? null) as string | null,
+  ];
+
+  for (const ip of candidates) {
+    if (!ip) continue;
+    const cleaned = ip.replace(/^::ffff:/, "").trim();
+    if (!cleaned) continue;
+    return cleaned;
+  }
+  return null;
+}
+
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
 
-function computeStableEventId(sessionId: string, contents: Array<{ id: string; quantity: number }>, value: number): string {
-  const digest = createHash("sha256")
-    .update(`${sessionId.trim()}|${value}|${contents.map((item) => `${item.id}:${item.quantity}`).join(",")}`)
-    .digest("hex")
-    .slice(0, 24);
-  return `ic_${digest}`;
-}
-
 const requestSchema = z.object({
   session_id: z.string().min(1),
-  event_id: z.string().min(1).optional().nullable(),
+  event_id: z.string().min(1),
   event_source_url: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
-  value: z.coerce.number().min(0),
+  value: z.coerce.number().optional(),
   contents: z
     .array(
       z.object({
         id: z.string().min(1),
         quantity: z.coerce.number().int().min(1),
-        item_price: z.coerce.number().min(0).optional(),
       }),
     )
     .min(1),
   fbp: z.string().optional().nullable(),
   fbc: z.string().optional().nullable(),
+  user_agent: z.string().optional().nullable(),
   user_data: z
     .object({
       fbp: z.string().optional().nullable(),
@@ -130,33 +157,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
   const body = parseResult.data;
 
-  const normalizedContents = body.contents.map((item) => ({
-    id: item.id.trim(),
-    quantity: item.quantity,
-    item_price: item.item_price,
-  }));
-
-  const eventId =
-    body.event_id && body.event_id.trim()
-      ? body.event_id.trim()
-      : computeStableEventId(body.session_id, normalizedContents, body.value);
-
   const rawCookieHeader = Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie;
+
+  // IMPORTANT: prefer body values (from Shopify asset). Cookies are only fallback.
   const fbp = body.fbp ?? body.user_data?.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
 
-  const eventSourceUrl = body.event_source_url ?? null;
-  const userAgentHeader = req.headers["user-agent"];
-  const userAgentValue = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
-  const clientUserAgent = userAgentValue.trim() || "unknown";
-  const xff = req.headers["x-forwarded-for"];
-  const ip = (Array.isArray(xff) ? xff[0] : xff)?.split(",")?.[0]?.trim() ?? null;
+  const clientUserAgent = getUserAgent(req, body.user_agent ?? null);
+  const ip = getClientIp(req);
 
-  if (isBotUserAgent(clientUserAgent || null)) {
+  if (isBotUserAgent(clientUserAgent)) {
     return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
   }
 
   const externalId = hashExternalIdFromSession(body.session_id);
+  const eventSourceUrl = body.event_source_url ?? null;
 
   const userData: {
     fbp: string | null;
@@ -175,18 +190,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const payload = {
     event_name: "InitiateCheckout",
     event_time: Math.floor(Date.now() / 1000),
-    event_id: eventId,
+    event_id: body.event_id,
     action_source: "website",
     event_source_url: eventSourceUrl,
     user_data: userData,
     custom_data: {
       currency: body.currency ?? "INR",
-      value: body.value,
+      value: body.value ?? 0,
       content_type: "product",
-      contents: normalizedContents,
+      contents: body.contents.map((c) => ({ id: String(c.id), quantity: c.quantity })),
     },
   };
-  if (ip) payload.user_data.client_ip_address = ip;
 
   const { data, error } = await serviceClient
     .from("erp_mkt_capi_events")
@@ -195,7 +209,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         company_id: companyId,
         event_name: "InitiateCheckout",
         event_time: new Date().toISOString(),
-        event_id: eventId,
+        event_id: body.event_id,
         action_source: "website",
         event_source_url: eventSourceUrl,
         payload,
@@ -207,20 +221,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     )
     .select("id")
     .single();
-
-  if (data?.id) {
-    await serviceClient.from("erp_mkt_touchpoints").upsert(
-      {
-        company_id: companyId,
-        session_id: body.session_id,
-        fbp,
-        fbc,
-        landing_url: eventSourceUrl,
-        user_agent: clientUserAgent,
-      },
-      { onConflict: "company_id,session_id" },
-    );
-  }
 
   if (error || !data?.id) {
     return res.status(500).json({
