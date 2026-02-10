@@ -357,6 +357,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "marketing-audiences",
+    label: "Audiences",
+    href: "/erp/marketing/audiences",
+    icon: "AU",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "oms-channels",
     label: "Channels",
     href: "/erp/oms/channels",
