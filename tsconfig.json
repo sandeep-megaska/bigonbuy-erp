@@ -17,6 +17,6 @@
     "incremental": true
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"],
-  exclude: "supabase/functions/**"
+  "exclude": ["node_modules","supabase/functions/**"]
+ 
 }
