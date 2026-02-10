@@ -7,7 +7,7 @@ export default function MarketingIntelligenceSkusPage() {
     <IntelligenceTablePage
       title="Marketing Intelligence · Top SKUs"
       description="Read-only SKU performance signals for demand and contribution."
-      endpoint="/api/erp/marketing/intelligence/skus"
+      endpoint="/api/marketing/intelligence/skus"
       defaultSort="profitability_score"
       columns={[
         { key: "sku_code", label: "SKU" },

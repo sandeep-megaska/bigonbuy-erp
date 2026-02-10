@@ -7,7 +7,7 @@ export default function MarketingIntelligenceCitiesPage() {
     <IntelligenceTablePage
       title="Marketing Intelligence · Top Cities"
       description="Read-only city-level targeting signals built from Shopify + Amazon sales data."
-      endpoint="/api/erp/marketing/intelligence/cities"
+      endpoint="/api/marketing/intelligence/cities"
       defaultSort="conversion_index"
       columns={[
         { key: "city", label: "City" },

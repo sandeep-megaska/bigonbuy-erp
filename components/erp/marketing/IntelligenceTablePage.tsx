@@ -94,7 +94,7 @@ export default function IntelligenceTablePage({ title, description, endpoint, de
     setRefreshResult(null);
     setError(null);
     try {
-      const response = await fetch("/api/erp/marketing/intelligence/refresh", {
+      const response = await fetch("/api/marketing/intelligence/refresh", {
         method: "POST",
         headers,
         body: JSON.stringify({ from: fromDate, to: toDate }),

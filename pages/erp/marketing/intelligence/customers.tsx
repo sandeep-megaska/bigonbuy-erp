@@ -7,7 +7,7 @@ export default function MarketingIntelligenceCustomersPage() {
     <IntelligenceTablePage
       title="Marketing Intelligence · Top Customers"
       description="Read-only customer intelligence scores (LTV, repeat propensity, and churn risk)."
-      endpoint="/api/erp/marketing/intelligence/customers"
+      endpoint="/api/marketing/intelligence/customers"
       defaultSort="ltv"
       columns={[
         { key: "customer_key", label: "Customer" },
