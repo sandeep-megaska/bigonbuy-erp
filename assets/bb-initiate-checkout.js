@@ -45,6 +45,8 @@
     return created;
   }
 
+  ensureFbcCookie(getCookie("_fbc"));
+
   async function fetchCart() {
     try {
       const res = await fetch("/cart.js");
@@ -73,8 +75,8 @@
       id: String(item.variant_id),
       quantity: item.quantity,
     }));
-    const fbp = getCookie("_fbp");
-    const fbc = ensureFbcCookie(getCookie("_fbc"));
+    const fbp = getCookie("_fbp") || null;
+    const fbc = ensureFbcCookie(getCookie("_fbc")) || null;
 
     /* Pixel */
     if (window.fbq) {
