@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { parseLimitParam, resolveMarketingApiContext } from "../../../../../lib/erp/marketing/intelligenceApi";
+import { parseLimitParam, resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
 
 type ApiResponse = { ok: true; data: unknown } | { ok: false; error: string; details?: string | null };
 

@@ -3,7 +3,7 @@ import {
   OWNER_ADMIN_ROLE_KEYS,
   parseDateParam,
   resolveMarketingApiContext,
-} from "../../../../../lib/erp/marketing/intelligenceApi";
+} from "../../../../lib/erp/marketing/intelligenceApi";
 
 type ApiResponse = { ok: true; data: unknown } | { ok: false; error: string; details?: string | null };
 
