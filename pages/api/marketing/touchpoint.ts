@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { createHash } from "crypto";
 import { z } from "zod";
 import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupabase";
 
@@ -37,6 +38,31 @@ const requestSchema = z.object({
 type ApiResponse =
   | { ok: true; touchpoint_id: string }
   | { ok: false; error: string; details?: string | null };
+
+function getCookieValue(rawCookieHeader: string | undefined, cookieName: string): string | null {
+  if (!rawCookieHeader) return null;
+  const cookie = rawCookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${cookieName}=`));
+  if (!cookie) return null;
+  const rawValue = cookie.slice(cookieName.length + 1).trim();
+  if (!rawValue) return null;
+  try {
+    return decodeURIComponent(rawValue);
+  } catch {
+    return rawValue;
+  }
+}
+
+function hashExternalIdFromSession(sessionId: string): string {
+  return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
+}
+
+function computeTouchpointEventId(sessionId: string, landingUrl: string | null): string {
+  const digest = createHash("sha256").update([sessionId.trim(), landingUrl ?? ""].join("|")).digest("hex").slice(0, 24);
+  return `tp_${digest}`;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   const allowedOrigin = applyCors(req, res);
@@ -81,7 +107,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
   const body = parseResult.data;
+  const rawCookieHeader = Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie;
   const userAgent = body.user_agent ?? req.headers["user-agent"] ?? null;
+  const fbp = body.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
+  const fbc = body.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
   const ip = body.ip ?? (req.headers["x-forwarded-for"] as string | undefined)?.split(",")?.[0]?.trim() ?? null;
 
   const { data, error } = await serviceClient.rpc("erp_mkt_touchpoint_upsert", {
@@ -92,8 +121,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     p_utm_campaign: body.utm_campaign ?? null,
     p_utm_content: body.utm_content ?? null,
     p_utm_term: body.utm_term ?? null,
-    p_fbp: body.fbp ?? null,
-    p_fbc: body.fbc ?? null,
+    p_fbp: fbp,
+    p_fbc: fbc,
     p_landing_url: body.landing_url ?? null,
     p_referrer: body.referrer ?? null,
     p_user_agent: userAgent,
@@ -107,6 +136,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       details: error?.message ?? null,
     });
   }
+
+  const eventSourceUrl = body.landing_url ?? null;
+  const eventId = computeTouchpointEventId(body.session_id, eventSourceUrl);
+  const externalId = hashExternalIdFromSession(body.session_id);
+  const payload = {
+    event_name: "PageView",
+    event_time: Math.floor(Date.now() / 1000),
+    event_id: eventId,
+    action_source: "website",
+    event_source_url: eventSourceUrl,
+    user_data: {
+      fbp,
+      fbc,
+      external_id: externalId,
+      client_user_agent: userAgent,
+    },
+  };
+
+  await serviceClient.from("erp_mkt_capi_events").upsert(
+    {
+      company_id: companyId,
+      event_name: "PageView",
+      event_time: new Date().toISOString(),
+      event_id: eventId,
+      action_source: "website",
+      event_source_url: eventSourceUrl,
+      touchpoint_id: String(data),
+      payload,
+      status: "queued",
+      attempt_count: 0,
+      last_error: null,
+    },
+    {
+      onConflict: "company_id,event_id",
+    },
+  );
 
   return res.status(200).json({ ok: true, touchpoint_id: String(data) });
 }

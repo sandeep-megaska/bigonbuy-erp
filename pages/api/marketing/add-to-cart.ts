@@ -62,6 +62,26 @@ function computeStableEventId(sessionId: string, itemId: string, quantity: numbe
   return `atc_${digest}`;
 }
 
+function hashExternalIdFromSession(sessionId: string): string {
+  return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
+}
+
+function getCookieValue(rawCookieHeader: string | undefined, cookieName: string): string | null {
+  if (!rawCookieHeader) return null;
+  const cookie = rawCookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${cookieName}=`));
+  if (!cookie) return null;
+  const rawValue = cookie.slice(cookieName.length + 1).trim();
+  if (!rawValue) return null;
+  try {
+    return decodeURIComponent(rawValue);
+  } catch {
+    return rawValue;
+  }
+}
+
 type ApiResponse =
   | { ok: true; capi_event_row_id: string }
   | { ok: false; error: string; details?: string | null };
@@ -117,9 +137,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     body.event_id && body.event_id.trim()
       ? body.event_id.trim()
       : computeStableEventId(body.session_id, itemId, quantity, eventSourceUrl);
-  const fbp = body.fbp ?? body.user_data?.fbp ?? null;
-  const fbc = body.fbc ?? body.user_data?.fbc ?? null;
+  const rawCookieHeader = Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie;
+  const fbp = body.fbp ?? body.user_data?.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
+  const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
   const clientUserAgent = req.headers["user-agent"] ?? null;
+  const externalId = hashExternalIdFromSession(body.session_id);
   const eventTime = new Date().toISOString();
 
   const payload = {
@@ -131,6 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     user_data: {
       fbp,
       fbc,
+      external_id: externalId,
       client_user_agent: clientUserAgent,
     },
     custom_data: {
