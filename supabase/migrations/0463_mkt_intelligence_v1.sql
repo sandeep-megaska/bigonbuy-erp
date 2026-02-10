@@ -2,7 +2,7 @@ begin;
 
 create table if not exists public.erp_mkt_customer_scores (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id) on delete cascade,
+  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id),
   customer_id uuid null,
   customer_key text not null,
   em_hash text null,
@@ -46,7 +46,7 @@ create index if not exists erp_mkt_customer_scores_company_last_order_idx
 
 create table if not exists public.erp_mkt_sku_scores (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id) on delete cascade,
+  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id),
   sku_id uuid null,
   sku_code text not null,
   orders_count int not null default 0,
@@ -86,7 +86,7 @@ create index if not exists erp_mkt_sku_scores_company_velocity_idx
 
 create table if not exists public.erp_mkt_city_scores (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id) on delete cascade,
+  company_id uuid not null default public.erp_current_company_id() references public.erp_companies(id),
   city text not null,
   orders_count int not null default 0,
   revenue numeric not null default 0,
@@ -115,107 +115,156 @@ alter table public.erp_mkt_sku_scores force row level security;
 alter table public.erp_mkt_city_scores enable row level security;
 alter table public.erp_mkt_city_scores force row level security;
 
+-- Policies: create only if missing (migration-guard friendly; no DROP)
+
 do $$
 begin
-  drop policy if exists erp_mkt_customer_scores_select on public.erp_mkt_customer_scores;
-  drop policy if exists erp_mkt_customer_scores_write on public.erp_mkt_customer_scores;
-  drop policy if exists erp_mkt_sku_scores_select on public.erp_mkt_sku_scores;
-  drop policy if exists erp_mkt_sku_scores_write on public.erp_mkt_sku_scores;
-  drop policy if exists erp_mkt_city_scores_select on public.erp_mkt_city_scores;
-  drop policy if exists erp_mkt_city_scores_write on public.erp_mkt_city_scores;
-
-  create policy erp_mkt_customer_scores_select on public.erp_mkt_customer_scores
-    for select using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
+  -- erp_mkt_customer_scores_select
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_customer_scores'
+      and policyname = 'erp_mkt_customer_scores_select'
+  ) then
+    create policy erp_mkt_customer_scores_select on public.erp_mkt_customer_scores
+      for select using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+          )
         )
-      )
-    );
+      );
+  end if;
 
-  create policy erp_mkt_customer_scores_write on public.erp_mkt_customer_scores
-    for all using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
-            and cu.role_key in ('owner', 'admin')
+  -- erp_mkt_customer_scores_write
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_customer_scores'
+      and policyname = 'erp_mkt_customer_scores_write'
+  ) then
+    create policy erp_mkt_customer_scores_write on public.erp_mkt_customer_scores
+      for all using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+              and cu.role_key in ('owner', 'admin')
+          )
         )
-      )
-    ) with check (company_id = public.erp_current_company_id());
+      ) with check (company_id = public.erp_current_company_id());
+  end if;
 
-  create policy erp_mkt_sku_scores_select on public.erp_mkt_sku_scores
-    for select using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
+  -- erp_mkt_sku_scores_select
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_sku_scores'
+      and policyname = 'erp_mkt_sku_scores_select'
+  ) then
+    create policy erp_mkt_sku_scores_select on public.erp_mkt_sku_scores
+      for select using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+          )
         )
-      )
-    );
+      );
+  end if;
 
-  create policy erp_mkt_sku_scores_write on public.erp_mkt_sku_scores
-    for all using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
-            and cu.role_key in ('owner', 'admin')
+  -- erp_mkt_sku_scores_write
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_sku_scores'
+      and policyname = 'erp_mkt_sku_scores_write'
+  ) then
+    create policy erp_mkt_sku_scores_write on public.erp_mkt_sku_scores
+      for all using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+              and cu.role_key in ('owner', 'admin')
+          )
         )
-      )
-    ) with check (company_id = public.erp_current_company_id());
+      ) with check (company_id = public.erp_current_company_id());
+  end if;
 
-  create policy erp_mkt_city_scores_select on public.erp_mkt_city_scores
-    for select using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
+  -- erp_mkt_city_scores_select
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_city_scores'
+      and policyname = 'erp_mkt_city_scores_select'
+  ) then
+    create policy erp_mkt_city_scores_select on public.erp_mkt_city_scores
+      for select using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+          )
         )
-      )
-    );
+      );
+  end if;
 
-  create policy erp_mkt_city_scores_write on public.erp_mkt_city_scores
-    for all using (
-      company_id = public.erp_current_company_id()
-      and (
-        auth.role() = 'service_role'
-        or exists (
-          select 1
-          from public.erp_company_users cu
-          where cu.company_id = public.erp_current_company_id()
-            and cu.user_id = auth.uid()
-            and coalesce(cu.is_active, true)
-            and cu.role_key in ('owner', 'admin')
+  -- erp_mkt_city_scores_write
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'erp_mkt_city_scores'
+      and policyname = 'erp_mkt_city_scores_write'
+  ) then
+    create policy erp_mkt_city_scores_write on public.erp_mkt_city_scores
+      for all using (
+        company_id = public.erp_current_company_id()
+        and (
+          auth.role() = 'service_role'
+          or exists (
+            select 1
+            from public.erp_company_users cu
+            where cu.company_id = public.erp_current_company_id()
+              and cu.user_id = auth.uid()
+              and coalesce(cu.is_active, true)
+              and cu.role_key in ('owner', 'admin')
+          )
         )
-      )
-    ) with check (company_id = public.erp_current_company_id());
+      ) with check (company_id = public.erp_current_company_id());
+  end if;
 end;
 $$;
 
