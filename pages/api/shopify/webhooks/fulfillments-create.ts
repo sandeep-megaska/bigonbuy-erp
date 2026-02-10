@@ -119,5 +119,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(500).json({ ok: false, error: fulfillError.message });
   }
 
+  const { data: shopifyOrderRow } = await serviceClient
+    .from("erp_shopify_orders")
+    .select("raw_order")
+    .eq("company_id", companyRow.id)
+    .eq("shopify_order_id", shopifyOrderId)
+    .maybeSingle();
+
+  const orderPayload = {
+    ...((shopifyOrderRow?.raw_order as Record<string, unknown> | null) || {}),
+    id: shopifyOrderId,
+    order_id: shopifyOrderId,
+    fulfillment_status: "fulfilled",
+    fulfillments: [payload],
+  };
+
+  const { error: capiError } = await serviceClient.rpc("erp_mkt_capi_enqueue_purchase_from_shopify_order", {
+    p_company_id: companyRow.id,
+    p_shopify_order_json: orderPayload,
+  });
+
+  if (capiError) {
+    return res.status(500).json({ ok: false, error: capiError.message });
+  }
+
   return res.status(200).json({ ok: true });
 }
