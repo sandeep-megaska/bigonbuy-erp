@@ -48,6 +48,45 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
+function getUserAgent(req: NextApiRequest, bodyUa?: string | null): string | null {
+  const fromBody = (bodyUa ?? "").trim();
+  if (fromBody) return fromBody;
+
+  const ua = req.headers["user-agent"];
+  const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
+  const cleaned = (s || "").trim();
+  return cleaned || null;
+}
+
+function getClientIp(req: NextApiRequest, bodyIp?: string | null): string | null {
+  const fromBody = (bodyIp ?? "").trim();
+  if (fromBody) return fromBody;
+
+  const pickFirst = (value: string | string[] | undefined): string | null => {
+    if (!value) return null;
+    const s = Array.isArray(value) ? value.join(",") : value;
+    const first = s.split(",")[0]?.trim();
+    return first || null;
+  };
+
+  const candidates: Array<string | null> = [
+    pickFirst(req.headers["x-forwarded-for"] as any),
+    pickFirst(req.headers["x-vercel-forwarded-for"] as any),
+    pickFirst(req.headers["x-real-ip"] as any),
+    pickFirst(req.headers["cf-connecting-ip"] as any),
+    pickFirst(req.headers["true-client-ip"] as any),
+    (req.socket?.remoteAddress ?? null) as string | null,
+  ];
+
+  for (const ip of candidates) {
+    if (!ip) continue;
+    const cleaned = ip.replace(/^::ffff:/, "").trim();
+    if (!cleaned) continue;
+    return cleaned;
+  }
+  return null;
+}
+
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
@@ -119,12 +158,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const rawCookieHeader = Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie;
 
-  const userAgent = body.user_agent ?? ((req.headers["user-agent"] as string | undefined) ?? null);
+  const userAgent = getUserAgent(req, body.user_agent ?? null);
   const fbp = body.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
-  const ip =
-    body.ip ??
-    ((req.headers["x-forwarded-for"] as string | undefined)?.split(",")?.[0]?.trim() ?? null);
+  const ip = getClientIp(req, body.ip ?? null);
 
   // Upsert touchpoint via RPC (existing pattern)
   const { data, error } = await serviceClient.rpc("erp_mkt_touchpoint_upsert", {
@@ -151,7 +188,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  // ✅ Bot filter: do NOT enqueue PageView for bots/crawlers
+  // Bot filter: do NOT enqueue PageView for bots/crawlers
   if (isBotUserAgent(userAgent)) {
     return res.status(200).json({ ok: true, touchpoint_id: String(data) });
   }
@@ -161,18 +198,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const eventId = computeTouchpointEventId(body.session_id, eventSourceUrl);
   const externalId = hashExternalIdFromSession(body.session_id);
 
+  const userData: {
+    fbp: string | null;
+    fbc: string | null;
+    external_id: string[];
+    client_user_agent?: string;
+    client_ip_address?: string;
+  } = {
+    fbp,
+    fbc,
+    external_id: [externalId],
+  };
+
+  if (userAgent) userData.client_user_agent = userAgent;
+  if (ip) userData.client_ip_address = ip;
+
   const payload = {
     event_name: "PageView",
     event_time: Math.floor(Date.now() / 1000),
     event_id: eventId,
     action_source: "website",
     event_source_url: eventSourceUrl,
-    user_data: {
-      fbp,
-      fbc,
-      external_id: [externalId], // ✅ array form
-      client_user_agent: userAgent,
-    },
+    user_data: userData,
   };
 
   await serviceClient.from("erp_mkt_capi_events").upsert(
