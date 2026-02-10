@@ -2,6 +2,15 @@ import { createHash } from "crypto";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupabase";
+import crypto from "crypto";
+
+function buildExternalId(sessionId: string | null | undefined) {
+  if (!sessionId) return null;
+  return crypto
+    .createHash("sha256")
+    .update("bb:" + sessionId)
+    .digest("hex");
+}
 
 const ALLOWED_ORIGINS = new Set([
   "https://megaska.com",
