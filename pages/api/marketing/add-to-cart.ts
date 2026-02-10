@@ -97,6 +97,10 @@ type ApiResponse =
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
   const allowedOrigin = applyCors(req, res);
+const clientUserAgent =
+  req.headers["user-agent"] ||
+  req.headers.get?.("user-agent") ||
+  null;
 
   if (req.method === "OPTIONS") {
     if (!allowedOrigin) {
