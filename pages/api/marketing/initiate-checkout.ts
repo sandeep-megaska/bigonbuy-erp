@@ -18,6 +18,18 @@ function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
   return origin;
 }
 
+function isBotUserAgent(ua: string | null) {
+  if (!ua) return false;
+  const s = ua.toLowerCase();
+  return (
+    s.includes("facebookexternalhit") ||
+    s.includes("meta-externalads") ||
+    s.includes("crawler") ||
+    s.includes("bot") ||
+    s.includes("spider")
+  );
+}
+
 function getCookieValue(rawCookieHeader: string | undefined, cookieName: string): string | null {
   if (!rawCookieHeader) return null;
   const cookie = rawCookieHeader
@@ -52,7 +64,7 @@ const requestSchema = z.object({
   session_id: z.string().min(1),
   event_id: z.string().min(1).optional().nullable(),
   event_source_url: z.string().optional().nullable(),
-  currency: z.string().min(1),
+  currency: z.string().optional().nullable(),
   value: z.coerce.number().min(0),
   contents: z
     .array(
@@ -135,6 +147,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const eventSourceUrl = body.event_source_url ?? null;
   const clientUserAgent = (req.headers["user-agent"] as string | undefined) ?? null;
+
+  if (isBotUserAgent(clientUserAgent)) {
+    return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
+  }
+
   const externalId = hashExternalIdFromSession(body.session_id);
 
   const payload = {
@@ -150,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       client_user_agent: clientUserAgent,
     },
     custom_data: {
-      currency: body.currency,
+      currency: body.currency ?? "INR",
       value: body.value,
       content_type: "product",
       contents: normalizedContents,

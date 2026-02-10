@@ -5,8 +5,6 @@
 
   var API_BASE = "https://erp.bigonbuy.com";
   var SESSION_KEY = "bb_mkt_sid";
-  var CHECKOUT_LOCK_MS = 2000;
-  var checkoutLockedUntil = 0;
 
   function randomHex(len) {
     var chars = "abcdef0123456789";
@@ -74,16 +72,6 @@
     });
   }
 
-  async function fetchCart() {
-    try {
-      var res = await fetch("/cart.js", { credentials: "same-origin" });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (_) {
-      return null;
-    }
-  }
-
   function currentCurrency() {
     return "{{ shop.currency }}" || (window.Shopify && Shopify.currency ? Shopify.currency.active : "INR");
   }
@@ -119,57 +107,6 @@
       fbp: fbp,
       fbc: fbc
     }).catch(function () {});
-  }
-
-  async function sendInitiateCheckout(cart) {
-    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) return;
-
-    var eventId = "ic_" + sid + "_" + Date.now();
-    var contents = cart.items.map(function (item) {
-      return {
-        id: String(item && item.variant_id != null ? item.variant_id : ""),
-        quantity: Number(item && item.quantity ? item.quantity : 1),
-        item_price: Number(item && item.price ? item.price : 0) / 100
-      };
-    }).filter(function (item) {
-      return item.id;
-    });
-
-    var currency = currentCurrency();
-    var value = Number(cart.total_price || 0) / 100;
-
-    var payload = {
-      session_id: sid,
-      event_id: eventId,
-      event_source_url: window.location.href,
-      currency: currency,
-      value: value,
-      contents: contents,
-      fbp: fbp,
-      fbc: fbc
-    };
-
-    postJson("/api/marketing/initiate-checkout", payload).catch(function () {});
-
-    if (typeof window.fbq === "function") {
-      try {
-        window.fbq("track", "InitiateCheckout", {
-          value: value,
-          currency: currency,
-          contents: contents,
-          content_type: "product"
-        }, { eventID: eventId });
-      } catch (_) {}
-    }
-  }
-
-  async function handleCheckoutIntent() {
-    var now = Date.now();
-    if (now < checkoutLockedUntil) return;
-    checkoutLockedUntil = now + CHECKOUT_LOCK_MS;
-
-    var cart = await fetchCart();
-    await sendInitiateCheckout(cart);
   }
 
   var originalFetch = window.fetch;
@@ -242,27 +179,7 @@
         currency: currentCurrency()
       });
     }
-
-    if (action.indexOf("/checkout") !== -1) {
-      handleCheckoutIntent();
-    }
-  }, true);
-
-  function isCheckoutIntentElement(node) {
-    if (!(node instanceof Element)) return false;
-
-    if (node.matches("a[href^='/checkout'],a[href*='/checkout']")) return true;
-    if (node.matches("button[name='checkout'],input[name='checkout']")) return true;
-    if (node.matches("[data-cart-checkout],[data-checkout],.cart__checkout-button")) return true;
-
-    var ancestor = node.closest("a[href^='/checkout'],a[href*='/checkout'],button[name='checkout'],input[name='checkout'],[data-cart-checkout],[data-checkout],.cart__checkout-button");
-    return !!ancestor;
-  }
-
-  document.addEventListener("click", function (event) {
-    if (isCheckoutIntentElement(event.target)) {
-      handleCheckoutIntent();
-    }
   }, true);
 })();
 </script>
+{{ 'bb-initiate-checkout.js' | asset_url | script_tag }}
