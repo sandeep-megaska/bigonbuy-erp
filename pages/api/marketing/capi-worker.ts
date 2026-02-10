@@ -31,11 +31,30 @@ function getCronSecret(req: NextApiRequest): string | null {
 
 function buildMetaBody(payload: Record<string, unknown>, testEventCode: string | null): Record<string, unknown> {
   const hasDataEnvelope = Array.isArray(payload.data);
-  const body: Record<string, unknown> = hasDataEnvelope ? { ...payload } : { data: [payload] };
+  const wrappedData = hasDataEnvelope ? (payload.data as unknown[]) : [payload];
+  const body: Record<string, unknown> = { data: wrappedData };
+  if (hasDataEnvelope) {
+    Object.entries(payload).forEach(([key, value]) => {
+      if (key !== "data") {
+        body[key] = value;
+      }
+    });
+  }
   if (testEventCode && !("test_event_code" in body)) {
     body.test_event_code = testEventCode;
   }
   return body;
+}
+
+function hasUsableMatchKeys(userData: unknown): boolean {
+  if (!userData || typeof userData !== "object") return false;
+  const userDataRecord = userData as Record<string, unknown>;
+  const keys = ["fbp", "fbc", "external_id", "em", "ph", "fn", "ln", "ct", "st", "zp", "country", "client_ip_address"];
+  return keys.some((key) => {
+    const value = userDataRecord[key];
+    if (Array.isArray(value)) return value.some((item) => typeof item === "string" && item.trim().length > 0);
+    return typeof value === "string" && value.trim().length > 0;
+  });
 }
 
 function getMetaErrorMessage(
@@ -119,12 +138,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const queue = (events ?? []) as CapiEventRow[];
   for (const row of queue) {
     try {
+      const body = buildMetaBody(row.payload, testEventCode);
+      const events = Array.isArray(body.data) ? body.data : [];
+      const missingMatchKeys = events.some((event) => {
+        if (!event || typeof event !== "object") return true;
+        return !hasUsableMatchKeys((event as Record<string, unknown>).user_data);
+      });
+
+      if (missingMatchKeys) {
+        const deadletter = row.attempt_count + 1 >= 8;
+        await serviceClient.rpc("erp_mkt_capi_mark_failed", {
+          p_company_id: companyId,
+          p_event_id: row.event_id,
+          p_error: JSON.stringify({ error: "no_match_keys" }),
+          p_deadletter: deadletter,
+        });
+        if (deadletter) deadlettered += 1;
+        else failed += 1;
+        continue;
+      }
+
       const response = await fetch(
         `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}/events?access_token=${encodeURIComponent(accessToken)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildMetaBody(row.payload, testEventCode)),
+          body: JSON.stringify(body),
         },
       );
 
