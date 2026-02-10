@@ -12,7 +12,6 @@ const ALLOWED_ORIGINS = new Set([
 function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
   const origin = req.headers.origin;
   if (!origin || !ALLOWED_ORIGINS.has(origin)) return null;
-
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   return origin;
@@ -48,20 +47,16 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
-function getUserAgent(req: NextApiRequest, bodyUa?: string | null): string | null {
+function getUserAgent(req: NextApiRequest, bodyUa?: string | null): string {
   const fromBody = (bodyUa ?? "").trim();
   if (fromBody) return fromBody;
 
   const ua = req.headers["user-agent"];
   const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
-  const cleaned = (s || "").trim();
-  return cleaned || null;
+  return (s || "").trim() || "unknown";
 }
 
-function getClientIp(req: NextApiRequest, bodyIp?: string | null): string | null {
-  const fromBody = (bodyIp ?? "").trim();
-  if (fromBody) return fromBody;
-
+function getClientIp(req: NextApiRequest): string | null {
   const pickFirst = (value: string | string[] | undefined): string | null => {
     if (!value) return null;
     const s = Array.isArray(value) ? value.join(",") : value;
@@ -161,7 +156,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const userAgent = getUserAgent(req, body.user_agent ?? null);
   const fbp = body.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
-  const ip = getClientIp(req, body.ip ?? null);
+
+  const ip = body.ip ?? getClientIp(req);
 
   // Upsert touchpoint via RPC (existing pattern)
   const { data, error } = await serviceClient.rpc("erp_mkt_touchpoint_upsert", {
@@ -188,12 +184,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  // Bot filter: do NOT enqueue PageView for bots/crawlers
+  // ✅ Bot filter: do NOT enqueue PageView for bots/crawlers
   if (isBotUserAgent(userAgent)) {
     return res.status(200).json({ ok: true, touchpoint_id: String(data) });
   }
 
-  // Queue PageView CAPI event
   const eventSourceUrl = body.landing_url ?? null;
   const eventId = computeTouchpointEventId(body.session_id, eventSourceUrl);
   const externalId = hashExternalIdFromSession(body.session_id);
@@ -202,15 +197,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     fbp: string | null;
     fbc: string | null;
     external_id: string[];
-    client_user_agent?: string;
+    client_user_agent: string;
     client_ip_address?: string;
   } = {
     fbp,
     fbc,
     external_id: [externalId],
+    client_user_agent: userAgent,
   };
-
-  if (userAgent) userData.client_user_agent = userAgent;
   if (ip) userData.client_ip_address = ip;
 
   const payload = {
