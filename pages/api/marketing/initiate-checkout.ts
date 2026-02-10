@@ -48,6 +48,19 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
+function getClientIpAddress(req: NextApiRequest): string | null {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const first = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  if (!first) return null;
+
+  const ip = first
+    .split(",")
+    .map((segment) => segment.trim())
+    .find(Boolean);
+
+  return ip || null;
+}
+
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
@@ -147,7 +160,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const eventSourceUrl = body.event_source_url ?? null;
   const userAgentHeader = req.headers["user-agent"];
-  const clientUserAgent = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
+  const userAgentValue = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
+  const clientUserAgent = userAgentValue.trim() || "unknown";
+  const clientIpAddress = getClientIpAddress(req);
 
   if (isBotUserAgent(clientUserAgent || null)) {
     return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
@@ -166,6 +181,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       fbc,
       external_id: [externalId],
       client_user_agent: clientUserAgent,
+      ...(clientIpAddress ? { client_ip_address: clientIpAddress } : {}),
     },
     custom_data: {
       currency: body.currency ?? "INR",
