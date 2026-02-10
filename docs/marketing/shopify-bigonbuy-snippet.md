@@ -1,0 +1,296 @@
+# Shopify Bigonbuy marketing snippet (touchpoint + AddToCart + InitiateCheckout)
+
+Install `snippets/bigonbuy_mkt.liquid` in your Shopify theme (for example, include it before `</body>` in `theme.liquid`).
+
+## What it does
+
+- Persists a stable browser session ID in localStorage (`bb_mkt_sid`).
+- Sends a touchpoint on page load to `https://erp.bigonbuy.com/api/marketing/touchpoint`.
+- Keeps AddToCart capture for fetch/XHR/form-based cart additions.
+- Captures checkout intent via click and submit listeners (capture phase), fetches `/cart.js`, and posts InitiateCheckout to `https://erp.bigonbuy.com/api/marketing/initiate-checkout`.
+- Optionally fires `fbq('track', 'InitiateCheckout', ...)` when Pixel is present, reusing the exact same `event_id` sent to ERP (dedupe-friendly).
+
+## Snippet
+
+```liquid
+{% raw %}
+<script>
+(function () {
+  if (window.__bb_mkt_loaded) return;
+  window.__bb_mkt_loaded = true;
+
+  var API_BASE = "https://erp.bigonbuy.com";
+  var SESSION_KEY = "bb_mkt_sid";
+  var CHECKOUT_LOCK_MS = 2000;
+  var checkoutLockedUntil = 0;
+
+  function randomHex(len) {
+    var chars = "abcdef0123456789";
+    let out = "";
+    for (var i = 0; i < len; i += 1) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  function getSessionId() {
+    try {
+      var existing = window.localStorage.getItem(SESSION_KEY);
+      if (existing) return existing;
+      var created = "sid_" + Date.now() + "_" + randomHex(10);
+      window.localStorage.setItem(SESSION_KEY, created);
+      return created;
+    } catch (_) {
+      return "sid_" + Date.now() + "_" + randomHex(10);
+    }
+  }
+
+  function getCookie(name) {
+    var escaped = name.replace(/[.$?*|{}()\[\]\\/+^]/g, "\\$&");
+    var match = document.cookie.match(new RegExp("(?:^|; )" + escaped + "=([^;]*)"));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function buildFbcFromFbclid() {
+    var params = new URLSearchParams(window.location.search);
+    var fbclid = params.get("fbclid");
+    if (!fbclid) return null;
+    return "fb.1." + Date.now() + "." + fbclid;
+  }
+
+  function ensureFbcCookie(existingFbc) {
+    if (existingFbc) return existingFbc;
+    var created = buildFbcFromFbclid();
+    if (!created) return null;
+
+    try {
+      var maxAge = 60 * 60 * 24 * 90;
+      document.cookie = "_fbc=" + encodeURIComponent(created) + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+    } catch (_) {}
+
+    return created;
+  }
+
+  function collectUtms() {
+    var params = new URLSearchParams(window.location.search);
+    return {
+      utm_source: params.get("utm_source"),
+      utm_medium: params.get("utm_medium"),
+      utm_campaign: params.get("utm_campaign"),
+      utm_content: params.get("utm_content"),
+      utm_term: params.get("utm_term")
+    };
+  }
+
+  async function postJson(path, body) {
+    return fetch(API_BASE + path, {
+      method: "POST",
+      credentials: "omit",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+
+  async function fetchCart() {
+    try {
+      var res = await fetch("/cart.js", { credentials: "same-origin" });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function currentCurrency() {
+    return "{{ shop.currency }}" || (window.Shopify && Shopify.currency ? Shopify.currency.active : "INR");
+  }
+
+  var sid = getSessionId();
+  var fbp = getCookie("_fbp");
+  var fbc = ensureFbcCookie(getCookie("_fbc"));
+  var utm = collectUtms();
+
+  postJson("/api/marketing/touchpoint", {
+    session_id: sid,
+    utm_source: utm.utm_source,
+    utm_medium: utm.utm_medium,
+    utm_campaign: utm.utm_campaign,
+    utm_content: utm.utm_content,
+    utm_term: utm.utm_term,
+    fbp: fbp,
+    fbc: fbc,
+    landing_url: window.location.href,
+    referrer: document.referrer || null
+  }).catch(function () {});
+
+  function postAddToCart(input) {
+    var eventId = "atc_" + sid + "_" + Date.now();
+    return postJson("/api/marketing/add-to-cart", {
+      session_id: sid,
+      sku: input.sku || input.id || "UNKNOWN-SKU",
+      quantity: Number(input.quantity || 1),
+      value: Number(input.value || 0),
+      currency: input.currency || currentCurrency(),
+      event_source_url: window.location.href,
+      event_id: eventId,
+      fbp: fbp,
+      fbc: fbc
+    }).catch(function () {});
+  }
+
+  async function sendInitiateCheckout(cart) {
+    if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) return;
+
+    var eventId = "ic_" + sid + "_" + Date.now();
+    var contents = cart.items.map(function (item) {
+      return {
+        id: String(item && item.variant_id != null ? item.variant_id : ""),
+        quantity: Number(item && item.quantity ? item.quantity : 1),
+        item_price: Number(item && item.price ? item.price : 0) / 100
+      };
+    }).filter(function (item) {
+      return item.id;
+    });
+
+    var currency = currentCurrency();
+    var value = Number(cart.total_price || 0) / 100;
+
+    var payload = {
+      session_id: sid,
+      event_id: eventId,
+      event_source_url: window.location.href,
+      currency: currency,
+      value: value,
+      contents: contents,
+      fbp: fbp,
+      fbc: fbc
+    };
+
+    postJson("/api/marketing/initiate-checkout", payload).catch(function () {});
+
+    if (typeof window.fbq === "function") {
+      try {
+        window.fbq("track", "InitiateCheckout", {
+          value: value,
+          currency: currency,
+          contents: contents,
+          content_type: "product"
+        }, { eventID: eventId });
+      } catch (_) {}
+    }
+  }
+
+  async function handleCheckoutIntent() {
+    var now = Date.now();
+    if (now < checkoutLockedUntil) return;
+    checkoutLockedUntil = now + CHECKOUT_LOCK_MS;
+
+    var cart = await fetchCart();
+    await sendInitiateCheckout(cart);
+  }
+
+  var originalFetch = window.fetch;
+  window.fetch = function () {
+    var args = arguments;
+    var resource = args[0];
+    var init = args[1] || {};
+    var url = typeof resource === "string" ? resource : (resource && resource.url) || "";
+
+    if (url.indexOf("/cart/add.js") !== -1) {
+      try {
+        var body = typeof init.body === "string" ? init.body : "";
+        var params = new URLSearchParams(body);
+        postAddToCart({
+          sku: params.get("id"),
+          quantity: params.get("quantity") || 1,
+          value: 0,
+          currency: currentCurrency()
+        });
+      } catch (_) {}
+    }
+
+    return originalFetch.apply(this, args);
+  };
+
+  var OriginalXHR = window.XMLHttpRequest;
+  function WrappedXHR() {
+    var xhr = new OriginalXHR();
+    var open = xhr.open;
+    var send = xhr.send;
+    var requestUrl = "";
+
+    xhr.open = function (method, url) {
+      requestUrl = typeof url === "string" ? url : "";
+      return open.apply(xhr, arguments);
+    };
+
+    xhr.send = function (body) {
+      if (requestUrl.indexOf("/cart/add.js") !== -1) {
+        try {
+          var params = new URLSearchParams(typeof body === "string" ? body : "");
+          postAddToCart({
+            sku: params.get("id"),
+            quantity: params.get("quantity") || 1,
+            value: 0,
+            currency: currentCurrency()
+          });
+        } catch (_) {}
+      }
+      return send.apply(xhr, arguments);
+    };
+
+    return xhr;
+  }
+  window.XMLHttpRequest = WrappedXHR;
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    var action = (form.getAttribute("action") || "").toLowerCase();
+
+    if (action.indexOf("/cart/add") !== -1) {
+      var skuInput = form.querySelector("[name='id']");
+      var qtyInput = form.querySelector("[name='quantity']");
+      postAddToCart({
+        sku: skuInput ? skuInput.value : null,
+        quantity: qtyInput ? qtyInput.value : 1,
+        value: 0,
+        currency: currentCurrency()
+      });
+    }
+
+    if (action.indexOf("/checkout") !== -1) {
+      handleCheckoutIntent();
+    }
+  }, true);
+
+  function isCheckoutIntentElement(node) {
+    if (!(node instanceof Element)) return false;
+
+    if (node.matches("a[href^='/checkout'],a[href*='/checkout']")) return true;
+    if (node.matches("button[name='checkout'],input[name='checkout']")) return true;
+    if (node.matches("[data-cart-checkout],[data-checkout],.cart__checkout-button")) return true;
+
+    var ancestor = node.closest("a[href^='/checkout'],a[href*='/checkout'],button[name='checkout'],input[name='checkout'],[data-cart-checkout],[data-checkout],.cart__checkout-button");
+    return !!ancestor;
+  }
+
+  document.addEventListener("click", function (event) {
+    if (isCheckoutIntentElement(event.target)) {
+      handleCheckoutIntent();
+    }
+  }, true);
+})();
+</script>
+{% endraw %}
+```
+
+## InitiateCheckout behavior details
+
+- The listener is capture-phase for both `click` and `submit` so it can handle cart drawers, AJAX cart pages, and custom theme controls.
+- A 2-second lock prevents duplicate InitiateCheckout sends for the same user action path.
+- Each checkout intent loads `/cart.js`, converts Shopify cents to decimal values, and sends:
+  - `currency` from `{{ shop.currency }}`
+  - `value = cart.total_price / 100`
+  - `contents = [{ id: variant_id, quantity, item_price: price/100 }]`
+- If Meta Pixel exists, it emits `InitiateCheckout` with `eventID` equal to the ERP payload `event_id` for deduplication.
