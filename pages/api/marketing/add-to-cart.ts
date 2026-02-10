@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupabase";
@@ -19,20 +20,47 @@ function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
   return origin;
 }
 
-const requestSchema = z.object({
-  session_id: z.string().min(1),
-  sku: z.string().min(1),
-  quantity: z.coerce.number().int().min(1).optional(),
-  qty: z.coerce.number().int().min(1).optional(),
-  value: z.coerce.number().default(0),
-  currency: z.string().optional().nullable(),
-  event_source_url: z.string().optional().nullable(),
-  event_id: z.string().optional().nullable(),
-  fbp: z.string().optional().nullable(),
-  fbc: z.string().optional().nullable(),
-  email: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-});
+const requestSchema = z
+  .object({
+    session_id: z.string().min(1),
+    sku: z.string().min(1).optional().nullable(),
+    shopify_variant_id: z.string().min(1).optional().nullable(),
+    variant_id: z.string().min(1).optional().nullable(),
+    quantity: z.coerce.number().int().min(1).optional(),
+    qty: z.coerce.number().int().min(1).optional(),
+    value: z.coerce.number().optional(),
+    currency: z.string().optional().nullable(),
+    event_source_url: z.string().optional().nullable(),
+    event_id: z.string().optional().nullable(),
+    fbp: z.string().optional().nullable(),
+    fbc: z.string().optional().nullable(),
+    user_data: z
+      .object({
+        fbp: z.string().optional().nullable(),
+        fbc: z.string().optional().nullable(),
+      })
+      .optional(),
+    email: z.string().optional().nullable(),
+    phone: z.string().optional().nullable(),
+  })
+  .superRefine((value, ctx) => {
+    const id = value.sku ?? value.shopify_variant_id ?? value.variant_id;
+    if (!id || !String(id).trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "One of sku, shopify_variant_id, or variant_id is required",
+        path: ["sku"],
+      });
+    }
+  });
+
+function computeStableEventId(sessionId: string, itemId: string, quantity: number, eventSourceUrl: string | null): string {
+  const digest = createHash("sha256")
+    .update([sessionId.trim(), itemId.trim(), String(quantity), eventSourceUrl ?? ""].join("|"))
+    .digest("hex")
+    .slice(0, 24);
+  return `atc_${digest}`;
+}
 
 type ApiResponse =
   | { ok: true; capi_event_row_id: string }
@@ -82,22 +110,81 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
   const body = parseResult.data;
 
-  const { data, error } = await serviceClient.rpc("erp_mkt_capi_enqueue_add_to_cart", {
-    p_company_id: companyId,
-    p_session_id: body.session_id,
-    p_sku: body.sku,
-    p_quantity: body.quantity ?? body.qty ?? 1,
-    p_value: body.value,
-    p_currency: body.currency ?? "INR",
-    p_event_source_url: body.event_source_url ?? null,
-    p_event_id: body.event_id ?? null,
-    p_fbp: body.fbp ?? null,
-    p_fbc: body.fbc ?? null,
-    p_email: body.email ?? null,
-    p_phone: body.phone ?? null,
-  });
+  const itemId = (body.sku ?? body.shopify_variant_id ?? body.variant_id ?? "").trim();
+  const quantity = body.quantity ?? body.qty ?? 1;
+  const eventSourceUrl = body.event_source_url ?? null;
+  const eventId =
+    body.event_id && body.event_id.trim()
+      ? body.event_id.trim()
+      : computeStableEventId(body.session_id, itemId, quantity, eventSourceUrl);
+  const fbp = body.fbp ?? body.user_data?.fbp ?? null;
+  const fbc = body.fbc ?? body.user_data?.fbc ?? null;
+  const clientUserAgent = req.headers["user-agent"] ?? null;
+  const eventTime = new Date().toISOString();
 
-  if (error || !data) {
+  const payload = {
+    event_name: "AddToCart",
+    event_time: Math.floor(Date.now() / 1000),
+    event_id: eventId,
+    action_source: "website",
+    event_source_url: eventSourceUrl,
+    user_data: {
+      fbp,
+      fbc,
+      client_user_agent: clientUserAgent,
+    },
+    custom_data: {
+      currency: body.currency ?? "INR",
+      value: body.value ?? 0,
+      content_type: "product",
+      contents: [
+        {
+          id: itemId,
+          quantity,
+        },
+      ],
+    },
+  };
+
+  const { data, error } = await serviceClient
+    .from("erp_mkt_capi_events")
+    .upsert(
+      {
+        company_id: companyId,
+        event_name: "AddToCart",
+        event_time: eventTime,
+        event_id: eventId,
+        action_source: "website",
+        event_source_url: eventSourceUrl,
+        payload,
+        status: "queued",
+        attempt_count: 0,
+        last_error: null,
+      },
+      {
+        onConflict: "company_id,event_id",
+      }
+    )
+    .select("id")
+    .single();
+
+  if (data?.id) {
+    await serviceClient.from("erp_mkt_touchpoints").upsert(
+      {
+        company_id: companyId,
+        session_id: body.session_id,
+        fbp,
+        fbc,
+        landing_url: eventSourceUrl,
+        user_agent: clientUserAgent,
+      },
+      {
+        onConflict: "company_id,session_id",
+      }
+    );
+  }
+
+  if (error || !data?.id) {
     return res.status(500).json({
       ok: false,
       error: "Failed to enqueue AddToCart event",
@@ -105,5 +192,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  return res.status(200).json({ ok: true, capi_event_row_id: String(data) });
+  return res.status(200).json({ ok: true, capi_event_row_id: String(data.id) });
 }
