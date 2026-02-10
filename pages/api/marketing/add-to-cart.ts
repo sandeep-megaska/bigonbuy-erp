@@ -12,7 +12,6 @@ const ALLOWED_ORIGINS = new Set([
 function applyCors(req: NextApiRequest, res: NextApiResponse): string | null {
   const origin = req.headers.origin;
   if (!origin || !ALLOWED_ORIGINS.has(origin)) return null;
-
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   return origin;
@@ -48,16 +47,15 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
-/**
- * Robust IP extraction for Vercel + proxies.
- * Preference order:
- * - x-forwarded-for (first public-looking IP)
- * - x-vercel-forwarded-for
- * - x-real-ip
- * - cf-connecting-ip
- * - true-client-ip
- * - req.socket.remoteAddress (fallback)
- */
+function getUserAgent(req: NextApiRequest, bodyUa?: string | null): string {
+  const fromBody = (bodyUa ?? "").trim();
+  if (fromBody) return fromBody;
+
+  const ua = req.headers["user-agent"];
+  const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
+  return (s || "").trim() || "unknown";
+}
+
 function getClientIp(req: NextApiRequest): string | null {
   const pickFirst = (value: string | string[] | undefined): string | null => {
     if (!value) return null;
@@ -77,7 +75,6 @@ function getClientIp(req: NextApiRequest): string | null {
 
   for (const ip of candidates) {
     if (!ip) continue;
-    // basic sanitize
     const cleaned = ip.replace(/^::ffff:/, "").trim();
     if (!cleaned) continue;
     return cleaned;
@@ -85,22 +82,11 @@ function getClientIp(req: NextApiRequest): string | null {
   return null;
 }
 
-function getUserAgent(req: NextApiRequest): string {
-  const ua = req.headers["user-agent"];
-  const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
-  return (s || "").trim() || "unknown";
-}
-
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
 
-function computeStableEventId(
-  sessionId: string,
-  itemId: string,
-  quantity: number,
-  eventSourceUrl: string | null,
-): string {
+function computeStableEventId(sessionId: string, itemId: string, quantity: number, eventSourceUrl: string | null): string {
   const digest = createHash("sha256")
     .update([sessionId.trim(), itemId.trim(), String(quantity), eventSourceUrl ?? ""].join("|"))
     .digest("hex")
@@ -122,6 +108,7 @@ const requestSchema = z
     event_id: z.string().optional().nullable(),
     fbp: z.string().optional().nullable(),
     fbc: z.string().optional().nullable(),
+    user_agent: z.string().optional().nullable(),
     user_data: z
       .object({
         fbp: z.string().optional().nullable(),
@@ -198,10 +185,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const rawCookieHeader = Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie;
 
+  // Prefer body values (sent explicitly from Shopify JS); cookies are only fallback.
   const fbp = body.fbp ?? body.user_data?.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
 
-  const clientUserAgent = getUserAgent(req);
+  const clientUserAgent = getUserAgent(req, body.user_agent ?? null);
   const ip = getClientIp(req);
 
   if (isBotUserAgent(clientUserAgent)) {
@@ -235,12 +223,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       currency: body.currency ?? "INR",
       value: body.value ?? 0,
       content_type: "product",
-      contents: [
-        {
-          id: itemId,
-          quantity,
-        },
-      ],
+      contents: [{ id: itemId, quantity }],
     },
   };
 
@@ -264,8 +247,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     .select("id")
     .single();
 
-  if (data?.id) {
-    // best-effort touchpoint update (do not fail ATC if this fails)
+  if (!error && data?.id) {
     await serviceClient.from("erp_mkt_touchpoints").upsert(
       {
         company_id: companyId,
