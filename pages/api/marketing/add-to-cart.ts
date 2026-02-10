@@ -48,6 +48,49 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
+/**
+ * Robust IP extraction for Vercel + proxies.
+ * Preference order:
+ * - x-forwarded-for (first public-looking IP)
+ * - x-vercel-forwarded-for
+ * - x-real-ip
+ * - cf-connecting-ip
+ * - true-client-ip
+ * - req.socket.remoteAddress (fallback)
+ */
+function getClientIp(req: NextApiRequest): string | null {
+  const pickFirst = (value: string | string[] | undefined): string | null => {
+    if (!value) return null;
+    const s = Array.isArray(value) ? value.join(",") : value;
+    const first = s.split(",")[0]?.trim();
+    return first || null;
+  };
+
+  const candidates: Array<string | null> = [
+    pickFirst(req.headers["x-forwarded-for"] as any),
+    pickFirst(req.headers["x-vercel-forwarded-for"] as any),
+    pickFirst(req.headers["x-real-ip"] as any),
+    pickFirst(req.headers["cf-connecting-ip"] as any),
+    pickFirst(req.headers["true-client-ip"] as any),
+    (req.socket?.remoteAddress ?? null) as string | null,
+  ];
+
+  for (const ip of candidates) {
+    if (!ip) continue;
+    // basic sanitize
+    const cleaned = ip.replace(/^::ffff:/, "").trim();
+    if (!cleaned) continue;
+    return cleaned;
+  }
+  return null;
+}
+
+function getUserAgent(req: NextApiRequest): string {
+  const ua = req.headers["user-agent"];
+  const s = Array.isArray(ua) ? ua.join(", ") : (ua ?? "");
+  return (s || "").trim() || "unknown";
+}
+
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
@@ -158,13 +201,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const fbp = body.fbp ?? body.user_data?.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
 
-  const userAgentHeader = req.headers["user-agent"];
-  const userAgentValue = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
-  const clientUserAgent = userAgentValue.trim() || "unknown";
-  const xff = req.headers["x-forwarded-for"];
-  const ip = (Array.isArray(xff) ? xff[0] : xff)?.split(",")?.[0]?.trim() ?? null;
+  const clientUserAgent = getUserAgent(req);
+  const ip = getClientIp(req);
 
-  // ✅ Bot filter (safe)
   if (isBotUserAgent(clientUserAgent)) {
     return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
   }
@@ -180,7 +219,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   } = {
     fbp,
     fbc,
-    external_id: [externalId], // ✅ array form
+    external_id: [externalId],
     client_user_agent: clientUserAgent,
   };
   if (ip) userData.client_ip_address = ip;
@@ -204,7 +243,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       ],
     },
   };
-  if (ip) payload.user_data.client_ip_address = ip;
 
   const { data, error } = await serviceClient
     .from("erp_mkt_capi_events")
@@ -227,6 +265,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     .single();
 
   if (data?.id) {
+    // best-effort touchpoint update (do not fail ATC if this fails)
     await serviceClient.from("erp_mkt_touchpoints").upsert(
       {
         company_id: companyId,
@@ -235,7 +274,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         fbc,
         landing_url: eventSourceUrl,
         user_agent: clientUserAgent,
-      },
+        ip: ip,
+      } as any,
       { onConflict: "company_id,session_id" },
     );
   }
