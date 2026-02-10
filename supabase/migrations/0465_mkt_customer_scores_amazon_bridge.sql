@@ -1,21 +1,19 @@
 begin;
+create extension if not exists pgcrypto;
+create extension if not exists pgcrypto schema extensions;
 
 create or replace view public.erp_mkt_amazon_customer_facts_v1 as
 select
   oi.company_id,
   lower(trim(oi.buyer_email)) as customer_key,
-  encode(digest(lower(trim(oi.buyer_email)), 'sha256'), 'hex') as em_hash,
+  encode(extensions.digest(lower(trim(oi.buyer_email)), 'sha256'), 'hex') as em_hash,
   sum(oi.quantity) as units,
-  sum(oi.item_amount) as revenue,
-  count(distinct oi.amazon_order_id) as orders_count,
-  max(coalesce(oi.purchase_date, o.purchase_date)) as last_order_at
+  sum(oi.item_amount) as revenue
 from public.erp_amazon_order_items oi
-join public.erp_amazon_orders o
-  on o.company_id = oi.company_id
- and o.marketplace_id = oi.marketplace_id
- and o.amazon_order_id = oi.amazon_order_id
 where oi.buyer_email is not null
-group by 1, 2;
+group by
+  oi.company_id,
+  lower(trim(oi.buyer_email));
 
 create or replace function public.erp_mkt_customer_scores_amazon_upsert_v1(
   p_company_id uuid
