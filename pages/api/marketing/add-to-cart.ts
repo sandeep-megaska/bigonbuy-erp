@@ -48,6 +48,19 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
+function getClientIpAddress(req: NextApiRequest): string | null {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const first = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  if (!first) return null;
+
+  const ip = first
+    .split(",")
+    .map((segment) => segment.trim())
+    .find(Boolean);
+
+  return ip || null;
+}
+
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
@@ -158,7 +171,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const fbp = body.fbp ?? body.user_data?.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
 
-  const clientUserAgent = (req.headers["user-agent"] as string | undefined) ?? null;
+  const userAgentHeader = req.headers["user-agent"];
+  const userAgentValue = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
+  const clientUserAgent = userAgentValue.trim() || "unknown";
+  const clientIpAddress = getClientIpAddress(req);
 
   // ✅ Bot filter (safe)
   if (isBotUserAgent(clientUserAgent)) {
@@ -178,6 +194,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       fbc,
       external_id: [externalId], // ✅ array form
       client_user_agent: clientUserAgent,
+      ...(clientIpAddress ? { client_ip_address: clientIpAddress } : {}),
     },
     custom_data: {
       currency: body.currency ?? "INR",
