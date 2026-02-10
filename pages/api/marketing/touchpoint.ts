@@ -109,7 +109,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!supabaseUrl || !serviceRoleKey || missing.length > 0) {
     return res.status(500).json({
       ok: false,
-      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+      error:
+        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     });
   }
 
@@ -121,9 +122,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const userAgent = body.user_agent ?? ((req.headers["user-agent"] as string | undefined) ?? null);
   const fbp = body.fbp ?? getCookieValue(rawCookieHeader, "_fbp") ?? null;
   const fbc = body.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
-  const ip = body.ip ?? ((req.headers["x-forwarded-for"] as string | undefined)?.split(",")?.[0]?.trim() ?? null);
+  const ip =
+    body.ip ??
+    ((req.headers["x-forwarded-for"] as string | undefined)?.split(",")?.[0]?.trim() ?? null);
 
-  // Always upsert touchpoint (keeps analytics), even for bots
+  // Upsert touchpoint via RPC (existing pattern)
   const { data, error } = await serviceClient.rpc("erp_mkt_touchpoint_upsert", {
     p_company_id: companyId,
     p_session_id: body.session_id,
@@ -148,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  // ✅ Bot filter: do NOT enqueue CAPI PageView for bots/crawlers
+  // ✅ Bot filter: do NOT enqueue PageView for bots/crawlers
   if (isBotUserAgent(userAgent)) {
     return res.status(200).json({ ok: true, touchpoint_id: String(data) });
   }
