@@ -10,6 +10,41 @@
     });
   }
 
+  function getCookie(name) {
+    var escaped = name.replace(/[.$?*|{}()\[\]\\/+^]/g, "\\$&");
+    var match = document.cookie.match(new RegExp("(?:^|; )" + escaped + "=([^;]*)"));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function setCookie(name, value, maxAgeSeconds) {
+    try {
+      document.cookie =
+        name +
+        "=" +
+        encodeURIComponent(value) +
+        "; path=/; max-age=" +
+        maxAgeSeconds +
+        "; SameSite=Lax";
+    } catch {}
+  }
+
+  function buildFbcFromFbclid() {
+    var params = new URLSearchParams(window.location.search);
+    var fbclid = params.get("fbclid");
+    if (!fbclid) return null;
+    return "fb.1." + Date.now() + "." + fbclid;
+  }
+
+  function ensureFbcCookie(existingFbc) {
+    if (existingFbc) return existingFbc;
+    var created = buildFbcFromFbclid();
+    if (!created) return null;
+
+    var maxAge = 60 * 60 * 24 * 90;
+    setCookie("_fbc", created, maxAge);
+    return created;
+  }
+
   async function fetchCart() {
     try {
       const res = await fetch("/cart.js");
@@ -38,6 +73,8 @@
       id: String(item.variant_id),
       quantity: item.quantity,
     }));
+    const fbp = getCookie("_fbp");
+    const fbc = ensureFbcCookie(getCookie("_fbc"));
 
     /* Pixel */
     if (window.fbq) {
@@ -53,6 +90,7 @@
     /* Server CAPI */
     fetch("https://erp.bigonbuy.com/api/marketing/initiate-checkout", {
       method: "POST",
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         session_id: sessionId,
@@ -61,6 +99,8 @@
         currency: cart.currency || "INR",
         event_id: eventId,
         event_source_url: window.location.href,
+        fbp: fbp,
+        fbc: fbc,
       }),
     }).catch(() => {});
   }

@@ -146,9 +146,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const fbc = body.fbc ?? body.user_data?.fbc ?? getCookieValue(rawCookieHeader, "_fbc") ?? null;
 
   const eventSourceUrl = body.event_source_url ?? null;
-  const clientUserAgent = (req.headers["user-agent"] as string | undefined) ?? null;
+  const userAgentHeader = req.headers["user-agent"];
+  const clientUserAgent = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
 
-  if (isBotUserAgent(clientUserAgent)) {
+  if (isBotUserAgent(clientUserAgent || null)) {
     return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
   }
 
