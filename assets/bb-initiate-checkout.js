@@ -77,6 +77,7 @@
     }));
     const fbp = getCookie("_fbp") || null;
     const fbc = ensureFbcCookie(getCookie("_fbc")) || null;
+    if (window.__bb_mkt_debug) console.log("[bb] ic keys", { fbp, fbc });
 
     /* Pixel */
     if (window.fbq) {

@@ -48,19 +48,6 @@ function getCookieValue(rawCookieHeader: string | undefined, cookieName: string)
   }
 }
 
-function getClientIpAddress(req: NextApiRequest): string | null {
-  const forwardedFor = req.headers["x-forwarded-for"];
-  const first = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
-  if (!first) return null;
-
-  const ip = first
-    .split(",")
-    .map((segment) => segment.trim())
-    .find(Boolean);
-
-  return ip || null;
-}
-
 function hashExternalIdFromSession(sessionId: string): string {
   return createHash("sha256").update(`bb:${sessionId.trim()}`).digest("hex");
 }
@@ -162,7 +149,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const userAgentHeader = req.headers["user-agent"];
   const userAgentValue = Array.isArray(userAgentHeader) ? userAgentHeader.join(", ") : (userAgentHeader ?? "");
   const clientUserAgent = userAgentValue.trim() || "unknown";
-  const clientIpAddress = getClientIpAddress(req);
+  const xff = req.headers["x-forwarded-for"];
+  const ip = (Array.isArray(xff) ? xff[0] : xff)?.split(",")?.[0]?.trim() ?? null;
 
   if (isBotUserAgent(clientUserAgent || null)) {
     return res.status(200).json({ ok: true, capi_event_row_id: "bot_ignored" });
@@ -170,19 +158,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const externalId = hashExternalIdFromSession(body.session_id);
 
+  const userData: {
+    fbp: string | null;
+    fbc: string | null;
+    external_id: string[];
+    client_user_agent: string;
+    client_ip_address?: string;
+  } = {
+    fbp,
+    fbc,
+    external_id: [externalId],
+    client_user_agent: clientUserAgent,
+  };
+  if (ip) userData.client_ip_address = ip;
+
   const payload = {
     event_name: "InitiateCheckout",
     event_time: Math.floor(Date.now() / 1000),
     event_id: eventId,
     action_source: "website",
     event_source_url: eventSourceUrl,
-    user_data: {
-      fbp,
-      fbc,
-      external_id: [externalId],
-      client_user_agent: clientUserAgent,
-      ...(clientIpAddress ? { client_ip_address: clientIpAddress } : {}),
-    },
+    user_data: userData,
     custom_data: {
       currency: body.currency ?? "INR",
       value: body.value,
@@ -190,6 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       contents: normalizedContents,
     },
   };
+  if (ip) payload.user_data.client_ip_address = ip;
 
   const { data, error } = await serviceClient
     .from("erp_mkt_capi_events")
