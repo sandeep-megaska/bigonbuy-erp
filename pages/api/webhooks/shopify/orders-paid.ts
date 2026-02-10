@@ -3,7 +3,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import crypto from "crypto";
 import { createHash } from "crypto";
-import { createServiceRoleClient, getSupabaseEnv } from "../../../lib/serverSupabase";
+import { createServiceRoleClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 // IMPORTANT: raw body needed for HMAC verification
 export const config = {
