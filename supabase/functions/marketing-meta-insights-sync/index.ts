@@ -39,7 +39,7 @@ serve(async (_req) => {
     `https://graph.facebook.com/v19.0/${AD_ACCOUNT}/insights` +
     `?fields=campaign_id,adset_id,ad_id,date_start,impressions,clicks,spend,reach,frequency,actions,action_values` +
     `&time_increment=1` +
-    `&date_preset=yesterday` +
+    `&date_preset=last_30d` +
     `&access_token=${encodeURIComponent(META_TOKEN)}`;
 
   const resp = await fetch(url);
