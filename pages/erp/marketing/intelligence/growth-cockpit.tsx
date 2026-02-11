@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type ApiResp = {
   company_id: string;
@@ -19,17 +21,23 @@ function formatPct(x: any) {
 }
 
 export default function GrowthCockpitPage() {
+  const router = useRouter();
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ApiResp | null>(null);
 
-  async function load() {
+  async function load(tokenOverride?: string | null) {
     setLoading(true);
     setErr(null);
     try {
+      const authToken = tokenOverride ?? token;
       const r = await fetch("/api/marketing/intelligence/growth-cockpit", {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Authorization: authToken ? `Bearer ${authToken}` : "",
+          "Content-Type": "application/json",
+        },
       });
 
       const j = await r.json().catch(() => null);
@@ -51,8 +59,29 @@ export default function GrowthCockpitPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    let active = true;
+    (async () => {
+      if (!router.isReady) return;
+      const session = await requireAuthRedirectHome(router);
+      if (!session || !active) return;
+
+      const companyContext = await getCompanyContext(session);
+      if (!active) return;
+      if (!companyContext.companyId) {
+        setErr(companyContext.membershipError || "No active company membership found.");
+        setLoading(false);
+        return;
+      }
+
+      const sessionToken = session.access_token ?? null;
+      setToken(sessionToken);
+      await load(sessionToken);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router.isReady]);
 
   const snap = data?.snapshot || {};
   const cards = useMemo(
@@ -75,13 +104,11 @@ export default function GrowthCockpitPage() {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>Growth Cockpit</h1>
-          <div style={{ opacity: 0.75, marginTop: 4 }}>
-            CEO snapshot (from materialized view)
-          </div>
+          <div style={{ opacity: 0.75, marginTop: 4 }}>CEO snapshot (from materialized view)</div>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={load} disabled={loading} style={{ padding: "8px 12px", cursor: "pointer" }}>
+          <button onClick={() => void load()} disabled={loading} style={{ padding: "8px 12px", cursor: "pointer" }}>
             {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
@@ -98,7 +125,6 @@ export default function GrowthCockpitPage() {
         </div>
       ) : null}
 
-      {/* KPI cards */}
       <div
         style={{
           marginTop: 16,
@@ -115,7 +141,6 @@ export default function GrowthCockpitPage() {
         ))}
       </div>
 
-      {/* Tables */}
       <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Top SKUs</div>
@@ -176,7 +201,6 @@ export default function GrowthCockpitPage() {
         </div>
       </div>
 
-      {/* Debug */}
       <details style={{ marginTop: 16 }}>
         <summary style={{ cursor: "pointer" }}>Debug snapshot JSON</summary>
         <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, marginTop: 8 }}>

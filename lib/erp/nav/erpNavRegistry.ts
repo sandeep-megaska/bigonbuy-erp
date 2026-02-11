@@ -367,6 +367,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "marketing-intelligence-growth-cockpit",
+    label: "Growth Cockpit",
+    href: "/erp/marketing/intelligence/growth-cockpit",
+    icon: "GC",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "oms-channels",
     label: "Channels",
     href: "/erp/oms/channels",
