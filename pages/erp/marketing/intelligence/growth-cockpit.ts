@@ -1,52 +1,188 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import React, { useEffect, useMemo, useState } from "react";
 
-type OkResp = {
+type ApiResp = {
   company_id: string;
   refreshed_at: string;
   snapshot: any;
 };
 
-type ErrResp = { error: string; [k: string]: any };
+function formatINR(n: any) {
+  const num = typeof n === "number" ? n : n == null ? null : Number(n);
+  if (num == null || Number.isNaN(num)) return "—";
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(num);
+}
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<OkResp | ErrResp>) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
-    return res.status(405).json({ error: "Method Not Allowed" });
+function formatPct(x: any) {
+  const num = typeof x === "number" ? x : x == null ? null : Number(x);
+  if (num == null || Number.isNaN(num)) return "—";
+  return `${(num * 100).toFixed(1)}%`;
+}
+
+export default function GrowthCockpitPage() {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [data, setData] = useState<ApiResp | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/marketing/intelligence/growth-cockpit", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const j = await r.json().catch(() => null);
+
+      if (!r.ok) {
+        setErr(j?.error || `Request failed (${r.status})`);
+        setData(null);
+        setLoading(false);
+        return;
+      }
+
+      setData(j);
+      setLoading(false);
+    } catch (e: any) {
+      setErr(e?.message || "Network error");
+      setData(null);
+      setLoading(false);
+    }
   }
 
-  const supabase = createServerSupabaseClient({ req, res });
+  useEffect(() => {
+    load();
+  }, []);
 
-  // Auth guard (cookie/session based, same style as your marketing endpoints)
-  const { data: userResp, error: userErr } = await supabase.auth.getUser();
-  if (userErr) return res.status(500).json({ error: userErr.message });
-  if (!userResp?.user) return res.status(401).json({ error: "Unauthorized" });
+  const snap = data?.snapshot || {};
+  const cards = useMemo(
+    () => [
+      { label: "Blended ROAS (7d)", value: snap.blended_roas_7d ?? "—" },
+      { label: "Blended ROAS (30d)", value: snap.blended_roas_30d ?? "—" },
+      { label: "Meta Spend", value: snap.meta_spend == null ? "—" : `₹ ${formatINR(snap.meta_spend)}` },
+      { label: "Shopify Revenue", value: snap.shopify_revenue == null ? "—" : `₹ ${formatINR(snap.shopify_revenue)}` },
+      { label: "Amazon Revenue", value: snap.amazon_revenue == null ? "—" : `₹ ${formatINR(snap.amazon_revenue)}` },
+      { label: "D2C Share", value: snap.d2c_share_pct == null ? "—" : formatPct(snap.d2c_share_pct) },
+    ],
+    [snap]
+  );
 
-  // Company scope via canonical ERP resolver
-  const { data: companyId, error: companyErr } = await supabase.rpc("erp_current_company_id");
-  if (companyErr) return res.status(500).json({ error: companyErr.message });
-  if (!companyId) return res.status(400).json({ error: "Could not resolve company_id" });
+  const topSkus: Array<any> = Array.isArray(snap.top_skus) ? snap.top_skus : [];
+  const topCities: Array<any> = Array.isArray(snap.top_cities) ? snap.top_cities : [];
 
-  // Read snapshot MV created in migration 0485
-  const { data, error } = await supabase
-    .from("erp_growth_cockpit_snapshot_mv")
-    .select("company_id, refreshed_at, snapshot")
-    .eq("company_id", companyId)
-    .maybeSingle();
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Growth Cockpit</h1>
+          <div style={{ opacity: 0.75, marginTop: 4 }}>
+            CEO snapshot (from materialized view)
+          </div>
+        </div>
 
-  if (error) return res.status(500).json({ error: error.message });
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={load} disabled={loading} style={{ padding: "8px 12px", cursor: "pointer" }}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+      </div>
 
-  if (!data) {
-    return res.status(404).json({
-      error: "Growth cockpit snapshot not found for company",
-      company_id: companyId,
-      hint: "Run: select public.erp_growth_cockpit_snapshot_refresh_v1();",
-    });
-  }
+      <div style={{ marginTop: 8, opacity: 0.7, fontSize: 12 }}>
+        {data?.company_id ? <span>Company: {data.company_id}</span> : null}
+        {data?.refreshed_at ? <span> · Refreshed: {new Date(data.refreshed_at).toLocaleString()}</span> : null}
+      </div>
 
-  return res.status(200).json({
-    company_id: data.company_id,
-    refreshed_at: data.refreshed_at,
-    snapshot: data.snapshot,
-  });
+      {err ? (
+        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f5c2c7", background: "#f8d7da" }}>
+          <b>Error:</b> {err}
+        </div>
+      ) : null}
+
+      {/* KPI cards */}
+      <div
+        style={{
+          marginTop: 16,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 12,
+        }}
+      >
+        {cards.map((c) => (
+          <div key={c.label} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+            <div style={{ opacity: 0.7, fontSize: 12 }}>{c.label}</div>
+            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700 }}>{String(c.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tables */}
+      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Top SKUs</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
+                <th style={{ padding: "6px 0" }}>SKU</th>
+                <th style={{ padding: "6px 0" }}>Orders</th>
+                <th style={{ padding: "6px 0" }}>Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topSkus.length === 0 ? (
+                <tr>
+                  <td colSpan={3} style={{ padding: "10px 0", opacity: 0.7 }}>
+                    No data yet
+                  </td>
+                </tr>
+              ) : (
+                topSkus.map((r, idx) => (
+                  <tr key={`${r.sku_code ?? r.sku ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
+                    <td style={{ padding: "8px 0" }}>{r.sku_code ?? r.sku ?? "—"}</td>
+                    <td style={{ padding: "8px 0" }}>{r.orders_count ?? "—"}</td>
+                    <td style={{ padding: "8px 0" }}>₹ {formatINR(r.revenue)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Top Cities</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
+                <th style={{ padding: "6px 0" }}>City</th>
+                <th style={{ padding: "6px 0" }}>Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topCities.length === 0 ? (
+                <tr>
+                  <td colSpan={2} style={{ padding: "10px 0", opacity: 0.7 }}>
+                    No data yet
+                  </td>
+                </tr>
+              ) : (
+                topCities.map((r, idx) => (
+                  <tr key={`${r.city ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
+                    <td style={{ padding: "8px 0" }}>{r.city ?? "—"}</td>
+                    <td style={{ padding: "8px 0" }}>₹ {formatINR(r.revenue)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Debug */}
+      <details style={{ marginTop: 16 }}>
+        <summary style={{ cursor: "pointer" }}>Debug snapshot JSON</summary>
+        <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, marginTop: 8 }}>
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
 }
