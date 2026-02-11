@@ -44,6 +44,8 @@ serve(async (_req) => {
 
   const resp = await fetch(url);
   const json = await resp.json();
+console.log("META_STATUS", resp.status);
+console.log("META_JSON", JSON.stringify(json));
 
   if (!resp.ok || !json?.data) {
     return new Response(JSON.stringify({
