@@ -44,6 +44,9 @@ serve(async (_req) => {
 
   const resp = await fetch(url);
   const json = await resp.json();
+  console.log("META_INSIGHTS_HTTP_STATUS", resp.status);
+console.log("META_INSIGHTS_RESPONSE", JSON.stringify(json));
+
 console.log("META_STATUS", resp.status);
 console.log("META_JSON", JSON.stringify(json));
 
@@ -95,6 +98,15 @@ console.log("META_JSON", JSON.stringify(json));
 
     upserts++;
   }
+if (!resp.ok || !json?.data) {
+  console.log("META_INSIGHTS_FAILED_AD_ACCOUNT", AD_ACCOUNT);
+  return new Response(JSON.stringify({
+    error: "Meta insights fetch failed",
+    http_status: resp.status,
+    response: json,
+    used_ad_account: AD_ACCOUNT,
+  }), { status: 500 });
+}
 
   return new Response(JSON.stringify({ status: "ok", upserts }), { status: 200 });
 });
