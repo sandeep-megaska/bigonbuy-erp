@@ -17,10 +17,18 @@ type ApiResponse =
   | {
       week_start: string | null;
       refreshed_at: string | null;
-      scale_skus: DemandRow[];
-      reduce_skus: DemandRow[];
-      expand_cities: DemandRow[];
-      reduce_cities: DemandRow[];
+      playbook: {
+        scale_skus: DemandRow[];
+        reduce_skus: DemandRow[];
+        expand_cities: DemandRow[];
+        reduce_cities: DemandRow[];
+      };
+      tables: {
+        scale_skus: DemandRow[];
+        reduce_skus: DemandRow[];
+        expand_cities: DemandRow[];
+        reduce_cities: DemandRow[];
+      };
     }
   | { error: string };
 
@@ -35,7 +43,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(context.status).json({ error: context.error });
   }
 
-  const [scaleSkusResp, reduceSkusResp, expandCitiesResp, reduceCitiesResp, skuMetaResp, cityMetaResp] = await Promise.all([
+  const [
+    scaleSkusTop5Resp,
+    reduceSkusTop5Resp,
+    expandCitiesTop5Resp,
+    reduceCitiesTop5Resp,
+    scaleSkusTop20Resp,
+    reduceSkusTop20Resp,
+    expandCitiesTop20Resp,
+    reduceCitiesTop20Resp,
+    skuMetaResp,
+    cityMetaResp,
+  ] = await Promise.all([
+    context.userClient
+      .from("erp_mkt_sku_demand_latest_v1")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .eq("decision", "SCALE")
+      .order("demand_score", { ascending: false })
+      .limit(5),
+    context.userClient
+      .from("erp_mkt_sku_demand_latest_v1")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .eq("decision", "REDUCE")
+      .order("demand_score", { ascending: true })
+      .limit(5),
+    context.userClient
+      .from("erp_mkt_city_demand_latest_v1")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .eq("decision", "EXPAND")
+      .order("demand_score", { ascending: false })
+      .limit(5),
+    context.userClient
+      .from("erp_mkt_city_demand_latest_v1")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .eq("decision", "REDUCE")
+      .order("demand_score", { ascending: true })
+      .limit(5),
     context.userClient
       .from("erp_mkt_sku_demand_latest_v1")
       .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
@@ -77,10 +120,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   ]);
 
   const firstError =
-    scaleSkusResp.error ||
-    reduceSkusResp.error ||
-    expandCitiesResp.error ||
-    reduceCitiesResp.error ||
+    scaleSkusTop5Resp.error ||
+    reduceSkusTop5Resp.error ||
+    expandCitiesTop5Resp.error ||
+    reduceCitiesTop5Resp.error ||
+    scaleSkusTop20Resp.error ||
+    reduceSkusTop20Resp.error ||
+    expandCitiesTop20Resp.error ||
+    reduceCitiesTop20Resp.error ||
     skuMetaResp.error ||
     cityMetaResp.error;
 
@@ -101,9 +148,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   return res.status(200).json({
     week_start: weekStart ? String(weekStart) : null,
     refreshed_at: refreshedAt,
-    scale_skus: scaleSkusResp.data ?? [],
-    reduce_skus: reduceSkusResp.data ?? [],
-    expand_cities: expandCitiesResp.data ?? [],
-    reduce_cities: reduceCitiesResp.data ?? [],
+    playbook: {
+      scale_skus: scaleSkusTop5Resp.data ?? [],
+      reduce_skus: reduceSkusTop5Resp.data ?? [],
+      expand_cities: expandCitiesTop5Resp.data ?? [],
+      reduce_cities: reduceCitiesTop5Resp.data ?? [],
+    },
+    tables: {
+      scale_skus: scaleSkusTop20Resp.data ?? [],
+      reduce_skus: reduceSkusTop20Resp.data ?? [],
+      expand_cities: expandCitiesTop20Resp.data ?? [],
+      reduce_cities: reduceCitiesTop20Resp.data ?? [],
+    },
   });
 }
