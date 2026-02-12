@@ -377,6 +377,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "marketing-intelligence-demand-steering",
+    label: "Demand Steering",
+    href: "/erp/marketing/intelligence/demand-steering",
+    icon: "DS",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "oms-channels",
     label: "Channels",
     href: "/erp/oms/channels",
