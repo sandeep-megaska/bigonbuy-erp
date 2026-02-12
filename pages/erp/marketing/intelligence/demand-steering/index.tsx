@@ -12,6 +12,9 @@ type DemandRow = {
   growth_rate: number;
   demand_score: number;
   decision: string;
+  confidence_score: number;
+  recommended_pct_change: number;
+  guardrail_tags: string[];
 };
 
 type SummaryResp = {
@@ -34,6 +37,39 @@ type SummaryResp = {
 const number = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const currency = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
 const pct = (value: unknown) => `${(Number(value ?? 0) * 100).toFixed(1)}%`;
+const changePct = (value: unknown) => `${Number(value ?? 0) > 0 ? "+" : ""}${Number(value ?? 0).toFixed(0)}%`;
+const confidenceText = (value: unknown) => `${(Number(value ?? 0) * 100).toFixed(0)}%`;
+
+const guardrailBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  border: "1px solid #d0d0d0",
+  borderRadius: 999,
+  padding: "2px 8px",
+  fontSize: 11,
+  marginRight: 6,
+  marginBottom: 4,
+  background: "#f7f7f7",
+};
+
+function DemandGuardrails({ tags, highlightOnly = false }: { tags: string[]; highlightOnly?: boolean }) {
+  const visibleTags = highlightOnly
+    ? tags.filter((x) => ["PROTECT_AMAZON", "LOW_INVENTORY", "LOW_SAMPLE"].includes(x))
+    : tags;
+
+  if (visibleTags.length === 0) {
+    return <span style={{ opacity: 0.65 }}>—</span>;
+  }
+
+  return (
+    <>
+      {visibleTags.map((tag) => (
+        <span key={tag} style={guardrailBadgeStyle}>
+          {tag}
+        </span>
+      ))}
+    </>
+  );
+}
 
 function DemandTable({
   title,
@@ -55,12 +91,15 @@ function DemandTable({
             <th style={{ padding: "6px 0" }}>Revenue 30d</th>
             <th style={{ padding: "6px 0" }}>Growth</th>
             <th style={{ padding: "6px 0" }}>Demand Score</th>
+            <th style={{ padding: "6px 0" }}>Confidence</th>
+            <th style={{ padding: "6px 0" }}>Suggested Budget Δ</th>
+            <th style={{ padding: "6px 0" }}>Guardrails</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ padding: "10px 0", opacity: 0.7 }}>
+              <td colSpan={8} style={{ padding: "10px 0", opacity: 0.7 }}>
                 No recommendations yet
               </td>
             </tr>
@@ -72,6 +111,11 @@ function DemandTable({
                 <td style={{ padding: "8px 0" }}>₹ {currency(row.revenue_30d)}</td>
                 <td style={{ padding: "8px 0" }}>{pct(row.growth_rate)}</td>
                 <td style={{ padding: "8px 0" }}>{Number(row.demand_score ?? 0).toFixed(3)}</td>
+                <td style={{ padding: "8px 0" }}>{confidenceText(row.confidence_score)}</td>
+                <td style={{ padding: "8px 0" }}>{changePct(row.recommended_pct_change)}</td>
+                <td style={{ padding: "8px 0" }}>
+                  <DemandGuardrails tags={row.guardrail_tags ?? []} />
+                </td>
               </tr>
             ))
           )}
@@ -226,7 +270,8 @@ export default function DemandSteeringPage() {
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {(data?.playbook.scale_skus ?? []).map((row, idx) => (
                 <li key={`${row.sku ?? idx}`}>
-                  {row.sku ?? "—"} · ₹ {currency(row.revenue_30d)}
+                  {row.sku ?? "—"} · ₹ {currency(row.revenue_30d)} · {changePct(row.recommended_pct_change)} · conf {confidenceText(row.confidence_score)}{" "}
+                  <DemandGuardrails tags={row.guardrail_tags ?? []} highlightOnly />
                 </li>
               ))}
               {(data?.playbook.scale_skus ?? []).length === 0 ? <li>No recommendations yet</li> : null}
@@ -237,7 +282,8 @@ export default function DemandSteeringPage() {
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {(data?.playbook.expand_cities ?? []).map((row, idx) => (
                 <li key={`${row.city ?? idx}`}>
-                  {row.city ?? "—"} · ₹ {currency(row.revenue_30d)}
+                  {row.city ?? "—"} · ₹ {currency(row.revenue_30d)} · {changePct(row.recommended_pct_change)} · conf {confidenceText(row.confidence_score)}{" "}
+                  <DemandGuardrails tags={row.guardrail_tags ?? []} highlightOnly />
                 </li>
               ))}
               {(data?.playbook.expand_cities ?? []).length === 0 ? <li>No recommendations yet</li> : null}

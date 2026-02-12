@@ -10,6 +10,9 @@ type ExpandCityCsvRow = {
   growth_rate: number | null;
   demand_score: number | null;
   decision: string | null;
+  confidence_score: number | null;
+  recommended_pct_change: number | null;
+  guardrail_tags: string[] | null;
   week_start: string | null;
 };
 
@@ -34,6 +37,9 @@ function toCsv(headers: string[], rows: ExpandCityCsvRow[]) {
         row.growth_rate,
         row.demand_score,
         row.decision,
+        row.confidence_score,
+        row.recommended_pct_change,
+        (row.guardrail_tags ?? []).join('|'),
         row.week_start,
       ]
         .map((x) => csvEscape(x))
@@ -57,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const { data, error } = await context.userClient
     .from("erp_mkt_city_demand_latest_v1")
     .select(
-      "city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, week_start"
+      "city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags, week_start"
     )
     .eq("decision", "EXPAND")
     .order("demand_score", { ascending: false })
@@ -81,6 +87,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       "growth_rate",
       "demand_score",
       "decision",
+      "confidence_score",
+      "recommended_pct_change",
+      "guardrail_tags",
       "week_start",
     ],
     rows

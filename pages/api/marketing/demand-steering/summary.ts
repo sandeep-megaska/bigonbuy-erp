@@ -11,6 +11,9 @@ type DemandRow = {
   growth_rate: number;
   demand_score: number;
   decision: string;
+  confidence_score: number;
+  recommended_pct_change: number;
+  guardrail_tags: string[];
 };
 
 type ApiResponse =
@@ -57,49 +60,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   ] = await Promise.all([
     context.userClient
       .from("erp_mkt_sku_demand_latest_v1")
-      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "SCALE")
       .order("demand_score", { ascending: false })
       .limit(5),
     context.userClient
       .from("erp_mkt_sku_demand_latest_v1")
-      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "REDUCE")
       .order("demand_score", { ascending: true })
       .limit(5),
     context.userClient
       .from("erp_mkt_city_demand_latest_v1")
-      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "EXPAND")
       .order("demand_score", { ascending: false })
       .limit(5),
     context.userClient
       .from("erp_mkt_city_demand_latest_v1")
-      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "REDUCE")
       .order("demand_score", { ascending: true })
       .limit(5),
     context.userClient
       .from("erp_mkt_sku_demand_latest_v1")
-      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "SCALE")
       .order("demand_score", { ascending: false })
       .limit(20),
     context.userClient
       .from("erp_mkt_sku_demand_latest_v1")
-      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "REDUCE")
       .order("demand_score", { ascending: true })
       .limit(20),
     context.userClient
       .from("erp_mkt_city_demand_latest_v1")
-      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "EXPAND")
       .order("demand_score", { ascending: false })
       .limit(20),
     context.userClient
       .from("erp_mkt_city_demand_latest_v1")
-      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision")
+      .select("city, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags")
       .eq("decision", "REDUCE")
       .order("demand_score", { ascending: true })
       .limit(20),
