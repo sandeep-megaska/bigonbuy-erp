@@ -17,10 +17,18 @@ type DemandRow = {
 type SummaryResp = {
   week_start: string | null;
   refreshed_at: string | null;
-  scale_skus: DemandRow[];
-  reduce_skus: DemandRow[];
-  expand_cities: DemandRow[];
-  reduce_cities: DemandRow[];
+  playbook: {
+    scale_skus: DemandRow[];
+    reduce_skus: DemandRow[];
+    expand_cities: DemandRow[];
+    reduce_cities: DemandRow[];
+  };
+  tables: {
+    scale_skus: DemandRow[];
+    reduce_skus: DemandRow[];
+    expand_cities: DemandRow[];
+    reduce_cities: DemandRow[];
+  };
 };
 
 const number = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -146,36 +154,95 @@ export default function DemandSteeringPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 20px 40px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0 }}>Demand Steering</h1>
           <p style={{ margin: "6px 0 0", opacity: 0.8 }}>
             Weekly demand recommendations for SKU and city expansion without ad spend dependencies.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={refreshing || loading}
-          style={{
-            border: "1px solid #bbb",
-            borderRadius: 8,
-            padding: "8px 14px",
-            background: "#fff",
-            cursor: refreshing || loading ? "not-allowed" : "pointer",
-            opacity: refreshing || loading ? 0.7 : 1,
-          }}
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a
+            href="/api/marketing/demand-steering/export-scale-skus.csv"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              border: "1px solid #bbb",
+              borderRadius: 8,
+              padding: "8px 14px",
+              background: "#fff",
+              textDecoration: "none",
+              color: "inherit",
+            }}
+          >
+            Export Scale SKUs (CSV)
+          </a>
+          <a
+            href="/api/marketing/demand-steering/export-expand-cities.csv"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              border: "1px solid #bbb",
+              borderRadius: 8,
+              padding: "8px 14px",
+              background: "#fff",
+              textDecoration: "none",
+              color: "inherit",
+            }}
+          >
+            Export Expand Cities (CSV)
+          </a>
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={refreshing || loading}
+            style={{
+              border: "1px solid #bbb",
+              borderRadius: 8,
+              padding: "8px 14px",
+              background: "#fff",
+              cursor: refreshing || loading ? "not-allowed" : "pointer",
+              opacity: refreshing || loading ? 0.7 : 1,
+            }}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
-      <div style={{ marginTop: 12, display: "flex", gap: 20, flexWrap: "wrap", fontSize: 14 }}>
-        <div>
-          <strong>Week Start:</strong> {data?.week_start ?? "—"}
+      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Playbook</div>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14, marginBottom: 10 }}>
+          <div>
+            <strong>Week Start:</strong> {data?.week_start ?? "—"}
+          </div>
+          <div>
+            <strong>Last refreshed:</strong> {data?.refreshed_at ? new Date(data.refreshed_at).toLocaleString() : "—"}
+          </div>
         </div>
-        <div>
-          <strong>Last refreshed:</strong> {data?.refreshed_at ? new Date(data.refreshed_at).toLocaleString() : "—"}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Top 5 Scale SKUs</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {(data?.playbook.scale_skus ?? []).map((row, idx) => (
+                <li key={`${row.sku ?? idx}`}>
+                  {row.sku ?? "—"} · ₹ {currency(row.revenue_30d)}
+                </li>
+              ))}
+              {(data?.playbook.scale_skus ?? []).length === 0 ? <li>No recommendations yet</li> : null}
+            </ul>
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Top 5 Expand Cities</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {(data?.playbook.expand_cities ?? []).map((row, idx) => (
+                <li key={`${row.city ?? idx}`}>
+                  {row.city ?? "—"} · ₹ {currency(row.revenue_30d)}
+                </li>
+              ))}
+              {(data?.playbook.expand_cities ?? []).length === 0 ? <li>No recommendations yet</li> : null}
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -184,10 +251,10 @@ export default function DemandSteeringPage() {
 
       {!loading && !err ? (
         <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <DemandTable title="Scale SKUs" rows={data?.scale_skus ?? []} entityKey="sku" />
-          <DemandTable title="Reduce SKUs" rows={data?.reduce_skus ?? []} entityKey="sku" />
-          <DemandTable title="Expand Cities" rows={data?.expand_cities ?? []} entityKey="city" />
-          <DemandTable title="Reduce Cities" rows={data?.reduce_cities ?? []} entityKey="city" />
+          <DemandTable title="Scale SKUs" rows={data?.tables.scale_skus ?? []} entityKey="sku" />
+          <DemandTable title="Reduce SKUs" rows={data?.tables.reduce_skus ?? []} entityKey="sku" />
+          <DemandTable title="Expand Cities" rows={data?.tables.expand_cities ?? []} entityKey="city" />
+          <DemandTable title="Reduce Cities" rows={data?.tables.reduce_cities ?? []} entityKey="city" />
         </div>
       ) : null}
     </div>
