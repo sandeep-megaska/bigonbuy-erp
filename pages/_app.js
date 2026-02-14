@@ -1,3 +1,4 @@
+import "../styles/globals.css";
 import { useRouter } from "next/router";
 import ErpShell from "../components/erp/ErpShell";
 

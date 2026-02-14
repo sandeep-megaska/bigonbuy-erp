@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import ErpSidebar from "./ErpSidebar";
 import ErpTopBar, { type ErpModuleKey } from "./ErpTopBar";
 import { pageWrapperStyle } from "./ui/styles";
+import { shellWrap } from "./tw";
 import FinanceDiagnosticsBanner from "./FinanceDiagnosticsBanner";
 
 export default function ErpShell({
@@ -22,15 +23,15 @@ export default function ErpShell({
 
   return (
     <ErpShellContext.Provider value>
-      <div style={shellStyle}>
+      <div className={shellWrap} style={shellStyle}>
         <ErpTopBar activeModule={activeModule} />
         <ErpSidebar
           activeModule={activeModule}
           collapsed={collapsed}
           onToggle={() => setCollapsed((prev) => !prev)}
         />
-        <main style={{ ...mainStyle, marginLeft: sidebarWidth }}>
-          <div style={pageWrapperStyle}>
+        <main className="erp-shell-main" style={{ ...mainStyle, marginLeft: sidebarWidth }}>
+          <div className="erp-shell-page" style={pageWrapperStyle}>
             {activeModule === "finance" ? <FinanceDiagnosticsBanner /> : null}
             {children}
           </div>
@@ -46,7 +47,7 @@ const shellStyle: CSSProperties = {
 };
 
 const mainStyle: CSSProperties = {
-  paddingTop: 56,
+  paddingTop: 64,
   minHeight: "100vh",
   transition: "margin-left 150ms ease",
 };

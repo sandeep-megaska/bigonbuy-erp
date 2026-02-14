@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
+import { card, cardSub, cardTitle, table, tableWrap, td, th, trHover } from "../../../../components/erp/tw";
 
 type ApiResp = {
   company_id: string;
@@ -153,7 +154,7 @@ export default function GrowthCockpitPage() {
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="space-y-4" style={{ padding: 20 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>Growth Cockpit</h1>
@@ -187,70 +188,74 @@ export default function GrowthCockpitPage() {
         }}
       >
         {cards.map((c) => (
-          <div key={c.label} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-            <div style={{ opacity: 0.7, fontSize: 12 }}>{c.label}</div>
-            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 700 }}>{String(c.value)}</div>
+          <div key={c.label} className={card}>
+            <div className={cardSub}>{c.label}</div>
+            <div className={cardTitle} style={{ marginTop: 6, fontSize: 22 }}>{String(c.value)}</div>
           </div>
         ))}
       </div>
 
       <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Top SKUs</div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div className={card}>
+          <div className={cardTitle}>Top SKUs</div>
+          <div className={tableWrap}>
+          <table className={table}>
             <thead>
-              <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
-                <th style={{ padding: "6px 0" }}>SKU</th>
-                <th style={{ padding: "6px 0" }}>Orders</th>
-                <th style={{ padding: "6px 0" }}>Revenue</th>
+              <tr>
+                <th className={th}>SKU</th>
+                <th className={th}>Orders</th>
+                <th className={th}>Revenue</th>
               </tr>
             </thead>
             <tbody>
               {topSkus.length === 0 ? (
                 <tr>
-                  <td colSpan={3} style={{ padding: "10px 0", opacity: 0.7 }}>
+                  <td colSpan={3} className={td} style={{ opacity: 0.7 }}>
                     No data yet
                   </td>
                 </tr>
               ) : (
                 topSkus.map((r, idx) => (
-                  <tr key={`${r.sku_code ?? r.sku ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
-                    <td style={{ padding: "8px 0" }}>{r.sku_code ?? r.sku ?? "—"}</td>
-                    <td style={{ padding: "8px 0" }}>{r.orders_count ?? "—"}</td>
-                    <td style={{ padding: "8px 0" }}>₹ {formatINR(r.revenue)}</td>
+                  <tr key={`${r.sku_code ?? r.sku ?? idx}`} className={trHover}>
+                    <td className={td}>{r.sku_code ?? r.sku ?? "—"}</td>
+                    <td className={td}>{r.orders_count ?? "—"}</td>
+                    <td className={td}>₹ {formatINR(r.revenue)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
-        <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Top Cities</div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div className={card}>
+          <div className={cardTitle}>Top Cities</div>
+          <div className={tableWrap}>
+          <table className={table}>
             <thead>
-              <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
-                <th style={{ padding: "6px 0" }}>City</th>
-                <th style={{ padding: "6px 0" }}>Revenue</th>
+              <tr>
+                <th className={th}>City</th>
+                <th className={th}>Revenue</th>
               </tr>
             </thead>
             <tbody>
               {topCities.length === 0 ? (
                 <tr>
-                  <td colSpan={2} style={{ padding: "10px 0", opacity: 0.7 }}>
+                  <td colSpan={2} className={td} style={{ opacity: 0.7 }}>
                     No data yet
                   </td>
                 </tr>
               ) : (
                 topCities.map((r, idx) => (
-                  <tr key={`${r.city ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
-                    <td style={{ padding: "8px 0" }}>{r.city ?? "—"}</td>
-                    <td style={{ padding: "8px 0" }}>₹ {formatINR(r.revenue)}</td>
+                  <tr key={`${r.city ?? idx}`} className={trHover}>
+                    <td className={td}>{r.city ?? "—"}</td>
+                    <td className={td}>₹ {formatINR(r.revenue)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import * as tw from "../tw";
 
 export const pageWrapperStyle: CSSProperties = {
   maxWidth: 1240,
@@ -19,7 +20,7 @@ export const pageHeaderStyle: CSSProperties = {
   alignItems: "flex-start",
   gap: 16,
   flexWrap: "wrap",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid #e2e8f0",
   paddingBottom: 16,
 };
 
@@ -50,20 +51,20 @@ export const eyebrowStyle: CSSProperties = {
 };
 
 export const cardStyle: CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 20,
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  padding: 16,
   backgroundColor: "#fff",
-  boxShadow: "0 6px 16px rgba(15, 23, 42, 0.06)",
+  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
 };
 
 export const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  borderRadius: 12,
+  borderRadius: 14,
   overflow: "hidden",
   backgroundColor: "#fff",
-  boxShadow: "0 6px 16px rgba(15, 23, 42, 0.06)",
+  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
 };
 
 export const tableHeaderCellStyle: CSSProperties = {
@@ -72,14 +73,14 @@ export const tableHeaderCellStyle: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.06em",
   color: "#6b7280",
-  padding: "12px 16px",
+  padding: "12px 14px",
   backgroundColor: "#f8fafc",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid #e2e8f0",
 };
 
 export const tableCellStyle: CSSProperties = {
-  padding: "12px 16px",
-  borderBottom: "1px solid #e5e7eb",
+  padding: "12px 14px",
+  borderBottom: "1px solid #e2e8f0",
   color: "#111827",
   fontSize: 14,
 };
@@ -124,3 +125,14 @@ export const badgeStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
 };
+
+export const cardClassName = tw.card;
+export const cardHeaderClassName = tw.cardHeader;
+export const cardTitleClassName = tw.cardTitle;
+export const cardSubClassName = tw.cardSub;
+export const tableWrapClassName = tw.tableWrap;
+export const tableClassName = tw.table;
+export const tableHeaderCellClassName = tw.th;
+export const tableCellClassName = tw.td;
+export const tableRowHoverClassName = tw.trHover;
+export const badgeClassName = tw.badgeBase;

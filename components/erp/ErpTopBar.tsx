@@ -6,6 +6,7 @@ import { getCompanyContext } from "../../lib/erpContext";
 import type { CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
+import { navLink, navLinkActive, shellHeader } from "./tw";
 
 export type ErpModuleKey = "workspace" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
 
@@ -14,6 +15,8 @@ type ModuleLink = {
   label: string;
   href: string;
 };
+
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
@@ -98,6 +101,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
         <Link
           key={module.key}
           href={module.href}
+          className={cx(navLink, activeModule === module.key && navLinkActive)}
           style={{
             ...navLinkStyle,
             ...(activeModule === module.key ? activeNavLinkStyle : null),
@@ -110,7 +114,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   );
 
   return (
-    <header style={topBarStyle} data-erp-topbar>
+    <header className={shellHeader} style={topBarStyle} data-erp-topbar>
       <div style={brandBlockStyle}>
         {branding?.bigonbuyLogoUrl ? (
           <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={logoStyle} />
@@ -131,7 +135,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       <nav style={navStyle}>{navLinks}</nav>
 
       <div style={rightBlockStyle}>
-        <button type="button" style={searchTriggerStyle} onClick={() => setPaletteOpenNonce((prev) => prev + 1)} aria-label="Open module search">
+        <button type="button" className="erp-btn-focus" style={searchTriggerStyle} onClick={() => setPaletteOpenNonce((prev) => prev + 1)} aria-label="Open module search">
           <span style={searchIconButtonStyle}>⌘</span>
           {!showCompactSearch ? <span>Search modules</span> : null}
           {!showCompactSearch ? <span style={searchHintStyle}>Ctrl/⌘ K</span> : null}
@@ -140,7 +144,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           <button
             type="button"
             onClick={() => setCompanyMenuOpen((prev) => !prev)}
-            style={companyMenuButtonStyle}
+            className="erp-btn-focus" style={companyMenuButtonStyle}
             aria-expanded={companyMenuOpen}
             aria-haspopup="menu"
           >
@@ -159,7 +163,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           ) : null}
         </div>
         {userEmail ? <span style={userStyle}>{userEmail}</span> : null}
-        <button type="button" onClick={handleSignOut} style={signOutStyle}>
+        <button type="button" onClick={handleSignOut} className="erp-btn-focus" style={signOutStyle}>
           Sign Out
         </button>
       </div>
@@ -177,14 +181,14 @@ const topBarStyle: CSSProperties = {
   top: 0,
   left: 0,
   right: 0,
-  height: 56,
+  height: 64,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 16,
   padding: "0 20px",
-  backgroundColor: "#ffffff",
-  borderBottom: "1px solid #e5e7eb",
+  backgroundColor: "rgba(255,255,255,0.95)",
+  borderBottom: "1px solid #e2e8f0",
   zIndex: 30,
 };
 
