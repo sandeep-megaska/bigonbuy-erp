@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { badgeBase, card, cardTitle, table, tableWrap, td, th, trHover } from "../../../../../components/erp/tw";
 
 type DemandRow = {
   sku?: string;
@@ -55,17 +56,6 @@ const pct = (value: unknown) => `${(Number(value ?? 0) * 100).toFixed(1)}%`;
 const changePct = (value: unknown) => `${Number(value ?? 0) > 0 ? "+" : ""}${Number(value ?? 0).toFixed(0)}%`;
 const confidenceText = (value: unknown) => `${(Number(value ?? 0) * 100).toFixed(0)}%`;
 
-const guardrailBadgeStyle: React.CSSProperties = {
-  display: "inline-block",
-  border: "1px solid #d0d0d0",
-  borderRadius: 999,
-  padding: "2px 8px",
-  fontSize: 11,
-  marginRight: 6,
-  marginBottom: 4,
-  background: "#f7f7f7",
-};
-
 function DemandGuardrails({ tags, highlightOnly = false }: { tags: string[]; highlightOnly?: boolean }) {
   const visibleTags = highlightOnly
     ? tags.filter((x) => ["PROTECT_AMAZON", "LOW_INVENTORY", "LOW_SAMPLE"].includes(x))
@@ -78,7 +68,7 @@ function DemandGuardrails({ tags, highlightOnly = false }: { tags: string[]; hig
   return (
     <>
       {visibleTags.map((tag) => (
-        <span key={tag} style={guardrailBadgeStyle}>
+        <span key={tag} className={badgeBase} style={{ marginRight: 6, marginBottom: 4 }}>
           {tag}
         </span>
       ))}
@@ -96,11 +86,12 @@ function DemandTable({
   entityKey: "sku" | "city";
 }) {
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <div className={card}>
+      <div className={cardTitle}>{title}</div>
+      <div className={tableWrap}>
+      <table className={table}>
         <thead>
-          <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
+          <tr>
             <th style={{ padding: "6px 0" }}>{entityKey === "sku" ? "SKU" : "City"}</th>
             <th style={{ padding: "6px 0" }}>Orders 30d</th>
             <th style={{ padding: "6px 0" }}>Revenue 30d</th>
@@ -114,21 +105,21 @@ function DemandTable({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={8} style={{ padding: "10px 0", opacity: 0.7 }}>
+              <td colSpan={8} className={td} style={{ opacity: 0.7 }}>
                 No recommendations yet
               </td>
             </tr>
           ) : (
             rows.map((row, idx) => (
-              <tr key={`${row[entityKey] ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: "8px 0" }}>{row[entityKey] ?? "—"}</td>
-                <td style={{ padding: "8px 0" }}>{number(row.orders_30d)}</td>
-                <td style={{ padding: "8px 0" }}>₹ {currency(row.revenue_30d)}</td>
-                <td style={{ padding: "8px 0" }}>{pct(row.growth_rate)}</td>
-                <td style={{ padding: "8px 0" }}>{Number(row.demand_score ?? 0).toFixed(3)}</td>
-                <td style={{ padding: "8px 0" }}>{confidenceText(row.confidence_score)}</td>
-                <td style={{ padding: "8px 0" }}>{changePct(row.recommended_pct_change)}</td>
-                <td style={{ padding: "8px 0" }}>
+              <tr key={`${row[entityKey] ?? idx}`} className={trHover}>
+                <td className={td}>{row[entityKey] ?? "—"}</td>
+                <td className={td}>{number(row.orders_30d)}</td>
+                <td className={td}>₹ {currency(row.revenue_30d)}</td>
+                <td className={td}>{pct(row.growth_rate)}</td>
+                <td className={td}>{Number(row.demand_score ?? 0).toFixed(3)}</td>
+                <td className={td}>{confidenceText(row.confidence_score)}</td>
+                <td className={td}>{changePct(row.recommended_pct_change)}</td>
+                <td className={td}>
                   <DemandGuardrails tags={row.guardrail_tags ?? []} />
                 </td>
               </tr>
@@ -136,6 +127,7 @@ function DemandTable({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -150,11 +142,12 @@ function ActivationTable({
   entityKey: "sku" | "city";
 }) {
   return (
-    <div style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <div className={card}>
+      <div className={cardTitle}>{title}</div>
+      <div className={tableWrap}>
+      <table className={table}>
         <thead>
-          <tr style={{ textAlign: "left", opacity: 0.7, fontSize: 12 }}>
+          <tr>
             <th style={{ padding: "6px 0" }}>{entityKey === "sku" ? "SKU" : "City"}</th>
             <th style={{ padding: "6px 0" }}>Demand Score</th>
             <th style={{ padding: "6px 0" }}>Confidence</th>
@@ -165,7 +158,7 @@ function ActivationTable({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ padding: "10px 0", opacity: 0.7 }}>
+              <td colSpan={5} className={td} style={{ opacity: 0.7 }}>
                 No activation actions yet
               </td>
             </tr>
@@ -173,12 +166,12 @@ function ActivationTable({
             rows.map((row, idx) => {
               const entityLabel = entityKey === "sku" ? (row as ActivationSkuRow).sku : (row as ActivationCityRow).city;
               return (
-              <tr key={`${entityLabel ?? idx}`} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: "8px 0" }}>{entityLabel ?? "—"}</td>
-                <td style={{ padding: "8px 0" }}>{Number(row.demand_score ?? 0).toFixed(3)}</td>
-                <td style={{ padding: "8px 0" }}>{confidenceText(row.confidence_score)}</td>
-                <td style={{ padding: "8px 0" }}>{changePct(row.recommended_pct_change)}</td>
-                <td style={{ padding: "8px 0" }}>
+              <tr key={`${entityLabel ?? idx}`} className={trHover}>
+                <td className={td}>{entityLabel ?? "—"}</td>
+                <td className={td}>{Number(row.demand_score ?? 0).toFixed(3)}</td>
+                <td className={td}>{confidenceText(row.confidence_score)}</td>
+                <td className={td}>{changePct(row.recommended_pct_change)}</td>
+                <td className={td}>
                   <DemandGuardrails tags={(row as ActivationSkuRow).guardrail_tags ?? []} />
                 </td>
               </tr>
@@ -187,6 +180,7 @@ function ActivationTable({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -355,7 +349,7 @@ export default function DemandSteeringPage() {
         </div>
       </div>
 
-      <div style={{ marginTop: 14, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+      <div className={card} style={{ marginTop: 14 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Playbook</div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 14, marginBottom: 10 }}>
           <div>
@@ -405,7 +399,7 @@ export default function DemandSteeringPage() {
             <DemandTable title="Reduce Cities" rows={data?.tables.reduce_cities ?? []} entityKey="city" />
           </div>
 
-          <div style={{ marginTop: 18, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+          <div className={card} style={{ marginTop: 18 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>This Week’s Activation Actions</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
               <div>
