@@ -17,7 +17,15 @@ import {
 } from "../../../../../lib/serverSupabase";
 
 type SyncResponse =
-  | { ok: true; run_id: string; report_id: string; row_count: number; orders_upserted: number; items_upserted: number }
+  | {
+      ok: true;
+      run_id: string;
+      report_id: string;
+      row_count: number;
+      orders_upserted: number;
+      items_upserted: number;
+      facts_upserted?: number | null;
+    }
   | { ok: false; error: string; details?: string };
 
 type VariantRow = {
@@ -332,6 +340,7 @@ export default async function handler(
         row_count: 0,
         orders_upserted: 0,
         items_upserted: 0,
+        facts_upserted: 0,
       });
       return;
     }
@@ -493,9 +502,15 @@ export default async function handler(
         .update({ status: "done", completed_at: new Date().toISOString(), row_count: 0 })
         .eq("id", runId);
 
-      res
-        .status(200)
-        .json({ ok: true, run_id: runId ?? "", report_id: reportId ?? "", row_count: 0, orders_upserted: 0, items_upserted: 0 });
+      res.status(200).json({
+        ok: true,
+        run_id: runId ?? "",
+        report_id: reportId ?? "",
+        row_count: 0,
+        orders_upserted: 0,
+        items_upserted: 0,
+        facts_upserted: 0,
+      });
       return;
     }
 
@@ -636,31 +651,20 @@ export default async function handler(
       }
     }
 
-    await auth.serviceClient
-      .from("erp_channel_report_runs")
-      .update({
-        status: "done",
-        completed_at: new Date().toISOString(),
-        row_count: draftItems.length,
-      })
-      .eq("id", runId);
+    // --- NEW: OMS -> Facts bridge (Growth OS relies on erp_amazon_order_facts) ---
+    const fromIso = dataStartTime.slice(0, 10); // YYYY-MM-DD
+    const toIso = dataEndTime.slice(0, 10); // YYYY-MM-DD
 
-    res.status(200).json({
-      ok: true,
-      run_id: runId ?? "",
-      report_id: reportId ?? "",
-      row_count: draftItems.length,
-      orders_upserted: ordersInsertPayload.length,
-      items_upserted: draftItems.length,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to sync report";
-    if (runId) {
+    const { data: factsResult, error: factsError } = await auth.serviceClient.rpc(
+      "erp_amazon_order_facts_upsert_from_oms_v1",
+      {
+        p_from: fromIso,
+        p_to: toIso,
+        p_marketplace_id: marketplaceId,
+      }
+    );
+
+    if (factsError) {
+      // Don't fail OMS sync; record failure for ops visibility.
       await auth.serviceClient
-        .from("erp_channel_report_runs")
-        .update({ status: "failed", error: message, completed_at: new Date().toISOString() })
-        .eq("id", runId);
-    }
-    res.status(500).json({ ok: false, error: message });
-  }
-}
+        .from("erp_channel_
