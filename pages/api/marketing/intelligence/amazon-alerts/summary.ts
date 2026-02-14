@@ -19,6 +19,16 @@ type SummaryResponse =
         revenue_delta: number;
         revenue_delta_pct: number;
       };
+      latest_alert: {
+        dt: string;
+        orders: number;
+        revenue: number;
+        rolling_7d_avg_orders: number;
+        one_day_deviation_pct: number;
+        one_day_deviation_abs_pct: number;
+        trend_status: "UNKNOWN" | "GREEN" | "RED";
+        volatility_status: "UNKNOWN" | "GREY" | "AMBER" | "RED";
+      } | null;
       daily: Array<{ dt: string; orders_count: number; revenue: number }>;
       dips: Array<{
         asin: string;
@@ -35,6 +45,8 @@ type SummaryResponse =
     }
   | { error: string };
 
+const ALLOWED_ROLE_KEYS = new Set(["owner", "admin", "inventory", "finance"]);
+
 const num = (value: unknown) => {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -50,6 +62,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!context.ok) {
     return res.status(context.status).json({ error: context.error });
   }
+  if (!ALLOWED_ROLE_KEYS.has(context.roleKey)) {
+    return res.status(403).json({ error: "Not authorized to view Amazon alerts" });
+  }
 
   const { data: roll, error: rollError } = await context.userClient
     .from("erp_mkt_amazon_kpi_rolling_7d_v1")
@@ -63,11 +78,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ error: rollError?.message || "Failed to load Amazon rolling KPI summary" });
   }
 
+  const { data: latestAlert, error: latestAlertError } = await context.userClient
+    .from("erp_mkt_amazon_kpi_alerts_v1")
+    .select(
+      "dt,orders,revenue,rolling_7d_avg_orders,one_day_deviation_pct,one_day_deviation_abs_pct,trend_status,volatility_status"
+    )
+    .eq("company_id", context.companyId)
+    .order("dt", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestAlertError) {
+    return res.status(400).json({ error: latestAlertError.message || "Failed to load Amazon latest KPI alert" });
+  }
+
   const { data: dailyRows, error: dailyError } = await context.userClient
     .from("erp_mkt_amazon_kpi_daily_v1")
     .select("dt,orders_count,revenue")
     .eq("company_id", context.companyId)
-        .order("dt", { ascending: false })
+    .order("dt", { ascending: false })
     .limit(30);
 
   if (dailyError) {
@@ -105,6 +134,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       revenue_delta: num(roll.revenue_delta),
       revenue_delta_pct: num(roll.revenue_delta_pct),
     },
+    latest_alert: latestAlert
+      ? {
+          dt: String(latestAlert.dt),
+          orders: num(latestAlert.orders),
+          revenue: num(latestAlert.revenue),
+          rolling_7d_avg_orders: num(latestAlert.rolling_7d_avg_orders),
+          one_day_deviation_pct: num(latestAlert.one_day_deviation_pct),
+          one_day_deviation_abs_pct: num(latestAlert.one_day_deviation_abs_pct),
+          trend_status: (latestAlert.trend_status ?? "UNKNOWN") as "UNKNOWN" | "GREEN" | "RED",
+          volatility_status: (latestAlert.volatility_status ?? "UNKNOWN") as "UNKNOWN" | "GREY" | "AMBER" | "RED",
+        }
+      : null,
     daily: (dailyRows ?? [])
       .map((row) => ({
         dt: String(row.dt),
