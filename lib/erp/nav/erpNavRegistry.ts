@@ -387,6 +387,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "marketing-intelligence-budget-allocator",
+    label: "Budget Allocator",
+    href: "/erp/marketing/intelligence/budget-allocator",
+    icon: "BA",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "oms-channels",
     label: "Channels",
     href: "/erp/oms/channels",
