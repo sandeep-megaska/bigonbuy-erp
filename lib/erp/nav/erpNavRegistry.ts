@@ -397,6 +397,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["workspace"],
   },
   {
+    id: "marketing-intelligence-amazon-alerts",
+    label: "Amazon Alerts",
+    href: "/erp/marketing/intelligence/amazon-alerts",
+    icon: "AA",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["workspace"],
+  },
+  {
     id: "oms-channels",
     label: "Channels",
     href: "/erp/oms/channels",
