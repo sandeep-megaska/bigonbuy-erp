@@ -58,128 +58,141 @@ with current_company as (
 ),
 settings as (
   select
+    s.company_id,
+    s.weekly_budget_inr,
+    s.min_retargeting_share,
+    s.max_prospecting_share
+  from public.erp_mkt_budget_allocator_settings s
+  join current_company c on c.company_id = s.company_id
+),
+latest_week as (
+  select
     c.company_id,
-    coalesce(s.weekly_budget_inr, 0)::numeric as weekly_budget_inr,
-    coalesce(s.min_retargeting_share, 0.20)::numeric as min_retargeting_share,
-    coalesce(s.max_prospecting_share, 0.60)::numeric as max_prospecting_share
+    coalesce(
+      (select max(week_start) from public.erp_mkt_sku_demand_scores where company_id = c.company_id),
+      date_trunc('week', (now() at time zone 'utc')::date)::date
+    ) as week_start
   from current_company c
-  left join public.erp_mkt_budget_allocator_settings s
-    on s.company_id = c.company_id
 ),
-week_ref as (
-  select max(week_start) as week_start
-  from (
-    select s.week_start
-    from public.erp_mkt_activation_scale_skus_v1 s
-    where s.company_id = (select company_id from current_company)
-    union all
-    select c.week_start
-    from public.erp_mkt_activation_expand_cities_v1 c
-    where c.company_id = (select company_id from current_company)
-  ) all_weeks
-),
-scale_stats as (
+scale_skus as (
   select
-    count(*)::int as count_scale_skus,
-    coalesce(sum(s.revenue_30d), 0)::numeric as total_scale_rev,
-    coalesce(avg(s.confidence_score), 0)::numeric as avg_scale_conf
-  from public.erp_mkt_activation_scale_skus_v1 s
-  where s.company_id = (select company_id from current_company)
-    and s.week_start = (select week_start from week_ref)
+    a.company_id,
+    a.week_start,
+    a.sku,
+    d.revenue_30d::numeric as revenue_30d,
+    d.confidence_score::numeric as confidence_score,
+    d.demand_score::numeric as demand_score
+  from public.erp_mkt_activation_scale_skus_v1 a
+  join public.erp_mkt_sku_demand_latest_v1 d
+    on d.company_id = a.company_id
+   and d.week_start = a.week_start
+   and d.sku = a.sku
 ),
-city_stats as (
+expand_cities as (
   select
-    count(*)::int as count_expand_cities,
-    coalesce(sum(cd.revenue_30d), 0)::numeric as total_expand_rev,
-    coalesce(avg(c.confidence_score), 0)::numeric as avg_city_conf
-  from public.erp_mkt_activation_expand_cities_v1 c
-  left join public.erp_mkt_city_demand_latest_v1 cd
-    on cd.company_id = c.company_id
-   and cd.week_start = c.week_start
-   and cd.city = c.city
-  where c.company_id = (select company_id from current_company)
-    and c.week_start = (select week_start from week_ref)
+    a.company_id,
+    a.week_start,
+    a.city,
+    d.revenue_30d::numeric as revenue_30d,
+    d.confidence_score::numeric as confidence_score,
+    d.demand_score::numeric as demand_score
+  from public.erp_mkt_activation_expand_cities_v1 a
+  join public.erp_mkt_city_demand_latest_v1 d
+    on d.company_id = a.company_id
+   and d.week_start = a.week_start
+   and d.city = a.city
+),
+inputs as (
+  select
+    lw.company_id,
+    lw.week_start,
+    coalesce(st.weekly_budget_inr, 0)::numeric as weekly_budget_inr,
+    coalesce(st.min_retargeting_share, 0.20)::numeric as min_retargeting_share,
+    coalesce(st.max_prospecting_share, 0.60)::numeric as max_prospecting_share,
+
+    (select count(*) from scale_skus) as count_scale_skus,
+    (select count(*) from expand_cities) as count_expand_cities,
+
+    (select coalesce(sum(revenue_30d),0) from scale_skus) as total_scale_rev,
+    (select coalesce(sum(revenue_30d),0) from expand_cities) as total_city_rev,
+
+    (select coalesce(avg(confidence_score),0) from scale_skus) as avg_scale_conf,
+    (select coalesce(avg(confidence_score),0) from expand_cities) as avg_city_conf
+  from latest_week lw
+  left join settings st on st.company_id = lw.company_id
 ),
 weights as (
   select
-    st.company_id,
-    wr.week_start,
-    st.weekly_budget_inr,
-    st.min_retargeting_share,
-    st.max_prospecting_share,
-    ss.count_scale_skus,
-    cs.count_expand_cities,
-    ss.total_scale_rev,
-    cs.total_expand_rev,
-    ss.avg_scale_conf,
-    cs.avg_city_conf,
+    i.*,
     case
-      when (ss.total_scale_rev + cs.total_expand_rev) > 0 then ss.total_scale_rev / nullif(ss.total_scale_rev + cs.total_expand_rev, 0)
-      else 0.5
+      when (i.total_scale_rev + i.total_city_rev) <= 0 then 0.5
+      else i.total_scale_rev / nullif(i.total_scale_rev + i.total_city_rev, 0)
     end as norm_rev_scale,
     case
-      when (ss.total_scale_rev + cs.total_expand_rev) > 0 then cs.total_expand_rev / nullif(ss.total_scale_rev + cs.total_expand_rev, 0)
-      else 0.5
+      when (i.total_scale_rev + i.total_city_rev) <= 0 then 0.5
+      else i.total_city_rev / nullif(i.total_scale_rev + i.total_city_rev, 0)
     end as norm_rev_city
-  from settings st
-  cross join week_ref wr
-  cross join scale_stats ss
-  cross join city_stats cs
+  from inputs i
 ),
-raw_shares as (
+scored as (
   select
     w.*,
     ((0.60 * w.norm_rev_scale) + (0.40 * w.avg_scale_conf))::numeric as w_scale,
-    ((0.60 * w.norm_rev_city) + (0.40 * w.avg_city_conf))::numeric as w_city,
-    least(greatest(w.min_retargeting_share, 0), 1)::numeric as retarget_share
+    ((0.60 * w.norm_rev_city)  + (0.40 * w.avg_city_conf))::numeric as w_city
   from weights w
 ),
-allocated as (
+alloc as (
   select
-    r.*,
-    (1 - r.retarget_share)::numeric as remaining_share,
+    s.*,
+    s.min_retargeting_share::numeric as retarget_share,
+    (1 - s.min_retargeting_share)::numeric as remaining_share,
     case
-      when (r.w_scale + r.w_city) > 0 then (1 - r.retarget_share) * (r.w_scale / nullif(r.w_scale + r.w_city, 0))
-      else (1 - r.retarget_share) * 0.5
-    end as raw_scale_share,
-    case
-      when (r.w_scale + r.w_city) > 0 then (1 - r.retarget_share) * (r.w_city / nullif(r.w_scale + r.w_city, 0))
-      else (1 - r.retarget_share) * 0.5
-    end as raw_prospecting_share
-  from raw_shares r
+      when (s.w_scale + s.w_city) = 0 then (1 - s.min_retargeting_share) * 0.5
+      else (1 - s.min_retargeting_share) * (s.w_scale / nullif(s.w_scale + s.w_city, 0))
+    end as scale_share_raw
+  from scored s
 ),
 clamped as (
   select
     a.*,
+    greatest(0::numeric, least(a.remaining_share, a.scale_share_raw)) as scale_share,
+    (a.remaining_share - greatest(0::numeric, least(a.remaining_share, a.scale_share_raw))) as prospecting_share_raw
+  from alloc a
+),
+final as (
+  select
+    c.*,
     case
-      when a.raw_prospecting_share > a.max_prospecting_share then a.max_prospecting_share
-      else a.raw_prospecting_share
+      when c.prospecting_share_raw > c.max_prospecting_share then c.max_prospecting_share
+      else c.prospecting_share_raw
     end as prospecting_share,
     case
-      when a.raw_prospecting_share > a.max_prospecting_share then a.raw_scale_share + (a.raw_prospecting_share - a.max_prospecting_share)
-      else a.raw_scale_share
-    end as scale_share
-  from allocated a
+      when c.prospecting_share_raw > c.max_prospecting_share
+        then c.scale_share + (c.prospecting_share_raw - c.max_prospecting_share)
+      else c.scale_share
+    end as scale_share_final
+  from clamped c
 )
 select
-  c.company_id,
-  c.week_start,
-  c.weekly_budget_inr,
-  c.scale_share,
-  c.prospecting_share,
-  c.retarget_share,
-  (c.weekly_budget_inr * c.scale_share)::numeric as scale_budget_inr,
-  (c.weekly_budget_inr * c.prospecting_share)::numeric as prospecting_budget_inr,
-  (c.weekly_budget_inr * c.retarget_share)::numeric as retarget_budget_inr,
+  f.company_id,
+  f.week_start,
+  f.weekly_budget_inr,
+  f.scale_share_final as scale_share,
+  f.prospecting_share as prospecting_share,
+  f.retarget_share as retarget_share,
+  round(f.weekly_budget_inr * f.scale_share_final, 0) as scale_budget_inr,
+  round(f.weekly_budget_inr * f.prospecting_share, 0) as prospecting_budget_inr,
+  round(f.weekly_budget_inr * f.retarget_share, 0) as retarget_budget_inr,
   jsonb_build_object(
-    'count_scale_skus', c.count_scale_skus,
-    'count_expand_cities', c.count_expand_cities,
-    'total_scale_rev', c.total_scale_rev,
-    'total_expand_rev', c.total_expand_rev,
-    'avg_scale_conf', c.avg_scale_conf,
-    'avg_city_conf', c.avg_city_conf
+    'count_scale_skus', f.count_scale_skus,
+    'count_expand_cities', f.count_expand_cities,
+    'total_scale_rev', f.total_scale_rev,
+    'total_expand_rev', f.total_city_rev,
+    'avg_scale_conf', f.avg_scale_conf,
+    'avg_city_conf', f.avg_city_conf
   ) as drivers
-from clamped c;
+from final f;
+
 
 grant select on public.erp_mkt_budget_allocator_reco_v1 to authenticated, service_role;
 grant select, insert, update on public.erp_mkt_budget_allocator_settings to authenticated, service_role;
