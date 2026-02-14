@@ -667,4 +667,55 @@ export default async function handler(
     if (factsError) {
       // Don't fail OMS sync; record failure for ops visibility.
       await auth.serviceClient
-        .from("erp_channel_
+        .from("erp_channel_report_runs")
+        .update({
+          status: "done",
+          completed_at: new Date().toISOString(),
+          row_count: draftItems.length,
+          error: `facts_refresh_failed: ${factsError.message}`,
+        })
+        .eq("id", runId);
+
+      res.status(200).json({
+        ok: true,
+        run_id: runId ?? "",
+        report_id: reportId ?? "",
+        row_count: draftItems.length,
+        orders_upserted: ordersInsertPayload.length,
+        items_upserted: draftItems.length,
+      });
+      return;
+    }
+
+    const factsUpserted =
+      typeof (factsResult as any)?.facts_rows_inserted === "number" ? (factsResult as any).facts_rows_inserted : null;
+
+    await auth.serviceClient
+      .from("erp_channel_report_runs")
+      .update({
+        status: "done",
+        completed_at: new Date().toISOString(),
+        row_count: draftItems.length,
+      })
+      .eq("id", runId);
+
+    res.status(200).json({
+      ok: true,
+      run_id: runId ?? "",
+      report_id: reportId ?? "",
+      row_count: draftItems.length,
+      orders_upserted: ordersInsertPayload.length,
+      items_upserted: draftItems.length,
+      facts_upserted: factsUpserted,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to sync report";
+    if (runId) {
+      await auth.serviceClient
+        .from("erp_channel_report_runs")
+        .update({ status: "failed", error: message, completed_at: new Date().toISOString() })
+        .eq("id", runId);
+    }
+    res.status(500).json({ ok: false, error: message });
+  }
+}
