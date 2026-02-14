@@ -8,6 +8,28 @@ type ApiResp = {
   snapshot: any;
 };
 
+
+type ScalingRecommendationRow = {
+  campaign_id: string;
+  campaign_name: string | null;
+  recommendation: "SCALE_UP" | "SCALE_DOWN" | "HOLD";
+  pct_change: number;
+  reason: string;
+  blended_roas_7d: number | null;
+  blended_roas_3d: number | null;
+  spend_3d: number | null;
+  spend_7d: number | null;
+  volatility_7d: number | null;
+};
+
+type ScalingApiResp = {
+  ok: boolean;
+  dt: string | null;
+  target_roas: number;
+  rows: ScalingRecommendationRow[];
+  error?: string;
+};
+
 function formatINR(n: any) {
   const num = typeof n === "number" ? n : n == null ? null : Number(n);
   if (num == null || Number.isNaN(num)) return "—";
@@ -20,12 +42,20 @@ function formatPct(x: any) {
   return `${(num * 100).toFixed(1)}%`;
 }
 
+
+
+function formatScalePct(x: number) {
+  if (!Number.isFinite(x)) return "0%";
+  const sign = x > 0 ? "+" : "";
+  return `${sign}${Math.round(x * 100)}%`;
+}
 export default function GrowthCockpitPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ApiResp | null>(null);
+  const [scalingData, setScalingData] = useState<ScalingApiResp | null>(null);
 
   async function load(tokenOverride?: string | null) {
     setLoading(true);
@@ -45,15 +75,32 @@ export default function GrowthCockpitPage() {
       if (!r.ok) {
         setErr(j?.error || `Request failed (${r.status})`);
         setData(null);
+        setScalingData(null);
         setLoading(false);
         return;
       }
 
       setData(j);
+
+      const scalingRes = await fetch("/api/marketing/growth/scaling-recommendations?limit=10", {
+        method: "GET",
+        headers: {
+          Authorization: authToken ? `Bearer ${authToken}` : "",
+          "Content-Type": "application/json",
+        },
+      });
+      const scalingJson = await scalingRes.json().catch(() => null);
+      if (scalingRes.ok) {
+        setScalingData(scalingJson);
+      } else {
+        setScalingData({ ok: false, dt: null, target_roas: 3, rows: [], error: scalingJson?.error || `Request failed (${scalingRes.status})` });
+      }
+
       setLoading(false);
     } catch (e: any) {
       setErr(e?.message || "Network error");
       setData(null);
+      setScalingData(null);
       setLoading(false);
     }
   }
@@ -98,6 +145,12 @@ export default function GrowthCockpitPage() {
 
   const topSkus: Array<any> = Array.isArray(snap.top_skus) ? snap.top_skus : [];
   const topCities: Array<any> = Array.isArray(snap.top_cities) ? snap.top_cities : [];
+  const scalingRows = Array.isArray(scalingData?.rows) ? scalingData?.rows : [];
+  const groupedScalingRows = {
+    SCALE_UP: scalingRows.filter((r) => r.recommendation === "SCALE_UP"),
+    HOLD: scalingRows.filter((r) => r.recommendation === "HOLD"),
+    SCALE_DOWN: scalingRows.filter((r) => r.recommendation === "SCALE_DOWN"),
+  };
 
   return (
     <div style={{ padding: 20 }}>
@@ -199,6 +252,56 @@ export default function GrowthCockpitPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+
+      <div style={{ marginTop: 18, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+          <div style={{ fontWeight: 700 }}>Today&apos;s Scaling Recommendations</div>
+          <div style={{ opacity: 0.7, fontSize: 12 }}>
+            {scalingData?.dt ? `As of ${scalingData.dt}` : "No recommendation snapshot"}
+          </div>
+        </div>
+        <div style={{ marginTop: 8, opacity: 0.7, fontSize: 12 }}>Target ROAS: {scalingData?.target_roas ?? 3}</div>
+        {scalingData && !scalingData.ok ? (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>Failed to load recommendations: {scalingData.error ?? "Unknown error"}</div>
+        ) : null}
+        {scalingRows.length === 0 ? (
+          <div style={{ marginTop: 10, opacity: 0.7 }}>No recommendations yet</div>
+        ) : (
+          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+            {([
+              ["SCALE_UP", "#067647", "#ecfdf3"],
+              ["HOLD", "#344054", "#f2f4f7"],
+              ["SCALE_DOWN", "#b42318", "#fef3f2"],
+            ] as const).map(([key, color, bg]) => {
+              const rows = groupedScalingRows[key];
+              if (!rows.length) return null;
+              return (
+                <div key={key} style={{ border: "1px solid #eee", borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6 }}>{key}</div>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {rows.map((row) => (
+                      <div key={`${row.campaign_id}-${row.reason}`} style={{ borderRadius: 8, padding: 8, background: bg }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ fontWeight: 600 }}>{row.campaign_name || row.campaign_id}</div>
+                          <div style={{ fontWeight: 700 }}>
+                            {row.recommendation === "SCALE_UP" ? "SCALE" : row.recommendation === "SCALE_DOWN" ? "SCALE" : "HOLD"}{" "}
+                            {row.recommendation === "HOLD" ? "0%" : formatScalePct(row.pct_change)}
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
+                          ROAS 7d: {row.blended_roas_7d == null ? "—" : row.blended_roas_7d.toFixed(2)} · Spend 7d: ₹ {formatINR(row.spend_7d)} · Volatility 7d: {row.volatility_7d == null ? "—" : row.volatility_7d.toFixed(2)}
+                        </div>
+                        <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>Reason: {row.reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <details style={{ marginTop: 16 }}>
