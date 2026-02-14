@@ -20,6 +20,16 @@ type SummaryPayload = {
     revenue_delta_pct: number;
   };
   daily: Array<{ dt: string; orders_count: number; revenue: number }>;
+  latest_alert: {
+    dt: string;
+    orders: number;
+    revenue: number;
+    rolling_7d_avg_orders: number;
+    one_day_deviation_pct: number;
+    one_day_deviation_abs_pct: number;
+    trend_status: "UNKNOWN" | "GREEN" | "RED";
+    volatility_status: "UNKNOWN" | "GREY" | "AMBER" | "RED";
+  } | null;
   dips: Array<{
     asin: string;
     sku: string;
@@ -111,6 +121,16 @@ export default function AmazonAlertsPage() {
     return { label: "GREEN", color: "#027a48", bg: "#d1fadf", note: "No major order dip in current 7-day window." };
   }, [data?.kpis.orders_delta, data?.kpis.orders_delta_pct]);
 
+
+  const volatility = useMemo(() => {
+    const status = data?.latest_alert?.volatility_status ?? "UNKNOWN";
+    const deviation = data?.latest_alert?.one_day_deviation_abs_pct ?? 0;
+    if (status === "RED") return { label: "RED", color: "#b42318", bg: "#fee4e2", text: `Volatility: RED (${deviation.toFixed(2)}%)` };
+    if (status === "AMBER") return { label: "AMBER", color: "#b54708", bg: "#fef0c7", text: `Volatility: AMBER (${deviation.toFixed(2)}%)` };
+    if (status === "GREY") return { label: "GREY", color: "#475467", bg: "#eaecf0", text: `Volatility: GREY (${deviation.toFixed(2)}%)` };
+    return { label: "UNKNOWN", color: "#667085", bg: "#f2f4f7", text: "Volatility: UNKNOWN" };
+  }, [data?.latest_alert?.one_day_deviation_abs_pct, data?.latest_alert?.volatility_status]);
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
@@ -155,6 +175,19 @@ export default function AmazonAlertsPage() {
 
       <div style={{ marginTop: 12, borderRadius: 10, padding: 12, background: trend.bg, color: trend.color, border: `1px solid ${trend.color}` }}>
         <b>Trend: {trend.label}</b> · {trend.note}
+      </div>
+
+      <div
+        style={{
+          marginTop: 8,
+          borderRadius: 10,
+          padding: 12,
+          background: volatility.bg,
+          color: volatility.color,
+          border: `1px solid ${volatility.color}`,
+        }}
+      >
+        <b>{volatility.text}</b>
       </div>
 
       <div style={{ marginTop: 18, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
