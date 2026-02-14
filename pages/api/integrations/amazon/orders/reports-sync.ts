@@ -656,13 +656,15 @@ export default async function handler(
     const toIso = dataEndTime.slice(0, 10); // YYYY-MM-DD
 
     const { data: factsResult, error: factsError } = await auth.serviceClient.rpc(
-      "erp_amazon_order_facts_upsert_from_oms_v1",
-      {
-        p_from: fromIso,
-        p_to: toIso,
-        p_marketplace_id: marketplaceId,
-      }
-    );
+  "erp_amazon_order_facts_upsert_from_oms_v2",
+  {
+    p_company_id: auth.companyId,
+    p_from: fromIso,
+    p_to: toIso,
+    p_marketplace_id: marketplaceId,
+  }
+);
+
 
     if (factsError) {
       // Don't fail OMS sync; record failure for ops visibility.
