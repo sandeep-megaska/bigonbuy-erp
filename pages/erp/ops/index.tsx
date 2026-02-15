@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../components/erp/ErpShell";
 import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
@@ -221,15 +220,15 @@ export default function OpsDashboardPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="ops">
+      <>
         <div style={pageContainerStyle}>Loading Ops Dashboard…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="ops">
+      <>
         <div style={pageContainerStyle}>
           <header style={pageHeaderStyle}>
             <div>
@@ -240,12 +239,12 @@ export default function OpsDashboardPage() {
           </header>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="ops">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -332,7 +331,7 @@ export default function OpsDashboardPage() {
           </div>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

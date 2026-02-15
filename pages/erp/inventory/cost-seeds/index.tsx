@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -146,14 +145,14 @@ export default function InventoryCostSeedsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading cost seeds…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -280,7 +279,7 @@ export default function InventoryCostSeedsPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

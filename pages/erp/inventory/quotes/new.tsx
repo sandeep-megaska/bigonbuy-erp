@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -256,22 +255,22 @@ export default function QuoteCreatePage() {
 
   if (!rfqId) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Select an RFQ to create a quote.</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading quote form…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -400,6 +399,6 @@ export default function QuoteCreatePage() {
           </form>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

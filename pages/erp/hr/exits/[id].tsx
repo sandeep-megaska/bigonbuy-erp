@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
@@ -215,20 +214,20 @@ export default function EmployeeExitDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>Loading exit details…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>Exit Request</h1>
           <p style={{ color: "#b91c1c" }}>No active company membership found.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -239,7 +238,7 @@ export default function EmployeeExitDetailPage() {
   const exitReason = exitData?.exit_reason;
 
   return (
-    <ErpShell activeModule="hr">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -432,7 +431,7 @@ export default function EmployeeExitDetailPage() {
           </div>
         </div>
       ) : null}
-    </ErpShell>
+    </>
   );
 }
 

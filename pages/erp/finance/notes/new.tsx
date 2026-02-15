@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { pageContainerStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
 import NoteForm from "../../../../components/finance/NoteForm";
@@ -123,22 +122,22 @@ export default function NoteCreatePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading credit/debit note form…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -186,6 +185,6 @@ export default function NoteCreatePage() {
           error={error}
         />
       </div>
-    </ErpShell>
+    </>
   );
 }

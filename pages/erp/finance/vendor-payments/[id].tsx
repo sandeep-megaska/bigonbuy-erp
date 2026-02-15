@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import BankTxnMatchModal, { type BankTxnRow } from "../../../../components/erp/finance/BankTxnMatchModal";
@@ -675,15 +674,15 @@ export default function VendorPaymentDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading...</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!payment) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Vendor Payment" />
           {error ? (
@@ -692,12 +691,12 @@ export default function VendorPaymentDetailPage() {
             <div style={cardStyle}>Payment not found.</div>
           )}
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title={`Payment ${payment.reference_no || payment.id}`}
@@ -1188,6 +1187,6 @@ export default function VendorPaymentDetailPage() {
         onSearch={handleSearchBankTxns}
         onMatch={handleMatch}
       />
-    </ErpShell>
+    </>
   );
 }

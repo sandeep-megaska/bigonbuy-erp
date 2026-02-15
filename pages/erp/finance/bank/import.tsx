@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import * as XLSX from "xlsx";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -678,25 +677,25 @@ export default function BankImportPage() {
 
   if (loading) {
     return (
-      <ErpShell>
+      <>
         <div style={pageContainerStyle}>Loading...</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (error) {
     return (
-      <ErpShell>
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Bank XLS Import" />
           <div style={cardStyle}>{error}</div>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell>
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title="Bank XLS Import"
@@ -1128,6 +1127,6 @@ export default function BankImportPage() {
           </div>
         </div>
       )}
-    </ErpShell>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -268,14 +267,14 @@ export default function GstSkuMasterPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading GST SKU master…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -457,6 +456,6 @@ export default function GstSkuMasterPage() {
           )}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

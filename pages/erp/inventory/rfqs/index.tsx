@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -124,7 +123,7 @@ export default function RfqListPage() {
   const vendorMap = useMemo(() => new Map(vendors.map((vendor) => [vendor.id, vendor.legal_name])), [vendors]);
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -217,6 +216,6 @@ export default function RfqListPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import InventoryLinesEditor, { type InventoryLine } from "../../../../components/inventory/InventoryLinesEditor";
 import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
 import { upsertQtyLine } from "../../../../components/inventory/lineUpsert";
@@ -444,22 +443,22 @@ export default function ReturnReceiptDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading return receipt…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!receipt) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error || "Return receipt not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -603,7 +602,7 @@ export default function ReturnReceiptDetailPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

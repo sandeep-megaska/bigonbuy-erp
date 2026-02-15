@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
@@ -427,15 +426,15 @@ export default function MonthClosePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading month close…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance Control"
@@ -452,7 +451,7 @@ export default function MonthClosePage() {
           )}
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -461,7 +460,7 @@ export default function MonthClosePage() {
   const approvalState = approval?.state ?? "draft";
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Control"
@@ -621,6 +620,6 @@ export default function MonthClosePage() {
           )}
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

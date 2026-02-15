@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import ErrorBanner from "../../../../components/erp/ErrorBanner";
 import {
@@ -340,15 +339,15 @@ export default function PeriodLockPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading period locks…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance Control"
@@ -365,14 +364,14 @@ export default function PeriodLockPage() {
           )}
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   const lockMap = new Map(locks.map((lock) => [lock.period_month, lock]));
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Control"
@@ -504,6 +503,6 @@ export default function PeriodLockPage() {
           })}
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

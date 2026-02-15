@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -120,7 +119,7 @@ export default function MarketingAudiencesPage() {
   }, [router.isReady]);
 
   return (
-    <ErpShell activeModule="marketing">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title="Marketing · Audiences"
@@ -204,6 +203,6 @@ export default function MarketingAudiencesPage() {
           )}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

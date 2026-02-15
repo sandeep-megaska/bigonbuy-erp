@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -205,14 +204,14 @@ export default function GstShopifyPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading GST…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -391,6 +390,6 @@ export default function GstShopifyPage() {
           )}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

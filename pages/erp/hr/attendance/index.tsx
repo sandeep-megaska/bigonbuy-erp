@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
-import ErpShell from "../../../../components/erp/ErpShell";
 import { supabase } from "../../../../lib/supabaseClient";
 
 import {
@@ -707,28 +706,28 @@ export default function HrAttendancePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>Loading attendance…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>Attendance</h1>
           <p style={{ color: "#b91c1c" }}>
             {ctx?.membershipError || "No active company membership found for this user."}
           </p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!canManage) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>
           <p style={eyebrowStyle}>HR · Attendance</p>
           <h1 style={h1Style}>Attendance Month View</h1>
@@ -739,12 +738,12 @@ export default function HrAttendancePage() {
             </a>
           </div>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="hr">
+    <>
       <div style={pageContainerStyle}>
         <header style={headerStyle}>
         <div>
@@ -1291,7 +1290,7 @@ export default function HrAttendancePage() {
         </div>
       ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }
 

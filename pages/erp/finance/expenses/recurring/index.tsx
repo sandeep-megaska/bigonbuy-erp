@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -201,22 +200,22 @@ export default function RecurringExpensesPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading recurring templates…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -373,6 +372,6 @@ export default function RecurringExpensesPage() {
           </table>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

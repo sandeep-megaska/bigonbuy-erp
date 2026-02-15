@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useRouter } from "next/router";
-import ErpShell from "../../../components/erp/ErpShell";
 import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
@@ -370,36 +369,36 @@ export default function CompanySettingsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>Loading company settings…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>Company Settings</h1>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!canEdit) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>Company Settings</h1>
           <p style={{ color: "#b91c1c" }}>Only owner/admin users can access this page.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="admin">
+    <>
       <div style={pageContainerStyle}>
         <header style={headerStyle}>
           <div>
@@ -702,7 +701,7 @@ export default function CompanySettingsPage() {
         </div>
       </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

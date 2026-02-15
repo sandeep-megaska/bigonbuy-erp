@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -32,7 +31,7 @@ export default function LoanListPage() {
   }, [router]);
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -77,6 +76,6 @@ export default function LoanListPage() {
           </table>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

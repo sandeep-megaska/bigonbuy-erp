@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -577,7 +576,7 @@ export default function AmazonSettlementPostingPage() {
   if (loading) return <div style={pageContainerStyle}>Loading Amazon settlement posting…</div>;
 
   return (
-    <ErpShell>
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -793,6 +792,6 @@ export default function AmazonSettlementPostingPage() {
           </div>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

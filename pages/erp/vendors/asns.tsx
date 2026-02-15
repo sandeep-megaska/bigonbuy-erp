@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import ErpShell from "../../../components/erp/ErpShell";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { useRouter } from "next/router";
 import { supabase } from "../../../lib/supabaseClient";
@@ -56,7 +55,7 @@ export default function ErpVendorAsnsPage() {
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={{ padding: 24 }}>
         <h1>Vendor ASNs</h1>
         {error ? <div style={{ color: "#991b1b" }}>{error}</div> : null}
@@ -78,6 +77,6 @@ export default function ErpVendorAsnsPage() {
           </tbody>
         </table>
       </div>
-    </ErpShell>
+    </>
   );
 }

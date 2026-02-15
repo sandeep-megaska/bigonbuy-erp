@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -210,14 +209,14 @@ export default function InventoryDashboardPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading inventory dashboard…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -381,7 +380,7 @@ export default function InventoryDashboardPage() {
           </div>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

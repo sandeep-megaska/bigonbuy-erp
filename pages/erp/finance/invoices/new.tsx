@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { pageContainerStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
 import InvoiceForm from "../../../../components/finance/InvoiceForm";
@@ -104,22 +103,22 @@ export default function InvoiceCreatePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading invoice form…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -179,6 +178,6 @@ export default function InvoiceCreatePage() {
           error={error}
         />
       </div>
-    </ErpShell>
+    </>
   );
 }

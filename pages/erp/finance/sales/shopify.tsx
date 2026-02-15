@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -351,7 +350,7 @@ export default function ShopifySalesPostingPage() {
   }
 
   return (
-    <ErpShell>
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -561,6 +560,6 @@ export default function ShopifySalesPostingPage() {
           </div>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

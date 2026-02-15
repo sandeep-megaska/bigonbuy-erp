@@ -2,7 +2,6 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Papa from "papaparse";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -671,15 +670,15 @@ export default function RazorpaySettlementsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading Razorpay settlements…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance"
@@ -689,12 +688,12 @@ export default function RazorpaySettlementsPage() {
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -1117,6 +1116,6 @@ export default function RazorpaySettlementsPage() {
           )}
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

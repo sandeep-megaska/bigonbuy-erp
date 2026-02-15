@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ReportBrandHeader from "../../../../components/erp/ReportBrandHeader";
 import {
   cardStyle as sharedCardStyle,
@@ -183,25 +182,25 @@ export default function AttendanceExceptionsReportPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>Loading attendance exceptions…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>Attendance Exceptions</h1>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="hr">
+    <>
       <div style={pageContainerStyle}>
         <header style={headerStyle}>
           <div>
@@ -311,7 +310,7 @@ export default function AttendanceExceptionsReportPage() {
         ))}
       </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

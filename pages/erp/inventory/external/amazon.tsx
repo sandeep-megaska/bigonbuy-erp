@@ -3,7 +3,6 @@ import type { CSSProperties, ChangeEvent } from "react";
 import { useRouter } from "next/router";
 import Papa from "papaparse";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -1531,30 +1530,30 @@ export default function AmazonExternalInventoryPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading Amazon inventory snapshot…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error || "No company context available."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!canAccess) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>You do not have access to Amazon inventory snapshots.</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -2480,7 +2479,7 @@ export default function AmazonExternalInventoryPage() {
           </div>
         ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }
 

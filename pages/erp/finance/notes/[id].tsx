@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -228,25 +227,25 @@ export default function NoteDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading note…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!note) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "Note not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -255,7 +254,7 @@ export default function NoteDetailPage() {
   const isApproved = noteHeader.status === "approved";
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -341,6 +340,6 @@ export default function NoteDetailPage() {
           error={null}
         />
       </div>
-    </ErpShell>
+    </>
   );
 }

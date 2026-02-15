@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../components/erp/ErpShell";
 import { requireAuthRedirectHome } from "../../../lib/erpContext";
 
 type Row = {
@@ -57,7 +56,7 @@ export default function ErpVendorPerformancePage() {
   };
 
   return (
-    <ErpShell>
+    <>
       <main style={{ padding: 24 }}>
         <h1>Vendor Performance Scorecard</h1>
         {error ? <div style={{ color: "#991b1b" }}>{error}</div> : null}
@@ -96,7 +95,7 @@ export default function ErpVendorPerformancePage() {
           Auth mode: Bearer token via ERP manager session {token ? "(active)" : ""}
         </div>
       </main>
-    </ErpShell>
+    </>
   );
 }
 

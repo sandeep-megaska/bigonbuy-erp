@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   pageContainerStyle,
@@ -308,15 +307,15 @@ export default function SalesPostingSettingsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading sales posting settings…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance"
@@ -326,12 +325,12 @@ export default function SalesPostingSettingsPage() {
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
           <p style={subtitleStyle}>No company is linked to this account.</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Settings"
@@ -471,6 +470,6 @@ export default function SalesPostingSettingsPage() {
           {notice ? <div style={{ marginTop: 12, color: "#047857", fontSize: 13 }}>{notice}</div> : null}
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

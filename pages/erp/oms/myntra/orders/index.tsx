@@ -1,9 +1,8 @@
-import ErpShell from "../../../../../components/erp/ErpShell";
 import { eyebrowStyle, h1Style, pageContainerStyle, pageHeaderStyle, subtitleStyle } from "../../../../../components/erp/uiStyles";
 
 export default function MyntraOmsOrdersPlaceholder() {
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -13,6 +12,6 @@ export default function MyntraOmsOrdersPlaceholder() {
           </div>
         </header>
       </div>
-    </ErpShell>
+    </>
   );
 }

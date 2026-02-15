@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import type { CSSProperties } from "react";
 
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
@@ -232,7 +231,7 @@ export default function FinalSettlementsIndexPage() {
   const filtersActive = Boolean(monthFilter || statusFilter || appliedQuery);
 
   return (
-    <ErpShell activeModule="hr">
+    <>
       <div style={pageContainerStyle}>
         <div style={pageHeaderStyle}>
           <div>
@@ -386,6 +385,6 @@ export default function FinalSettlementsIndexPage() {
           </div>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

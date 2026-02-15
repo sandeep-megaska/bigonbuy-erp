@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -196,14 +195,14 @@ export default function ShopifyOrdersListPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="oms">
+      <>
         <div style={pageContainerStyle}>Loading Shopify orders…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -401,7 +400,7 @@ export default function ShopifyOrdersListPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

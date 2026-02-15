@@ -1,5 +1,4 @@
 import Link from "next/link";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { cardStyle, pageContainerStyle } from "../../../../components/erp/uiStyles";
 
@@ -23,7 +22,7 @@ const cards: SettingsCard[] = [
 
 export default function FinanceSettingsHubPage() {
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -51,7 +50,7 @@ export default function FinanceSettingsHubPage() {
           })}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

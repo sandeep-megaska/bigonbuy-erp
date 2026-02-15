@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { badgeStyle, cardStyle, inputStyle, pageContainerStyle, primaryButtonStyle, secondaryButtonStyle, subtitleStyle, tableCellStyle, tableHeaderCellStyle, tableStyle } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
@@ -115,7 +114,7 @@ export default function PayoutReconPage() {
   };
 
   return (
-    <ErpShell>
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader title="Payout Reconciliation" description="Unified payout events for Amazon and Razorpay" />
         <div style={{ ...cardStyle, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
@@ -186,6 +185,6 @@ export default function PayoutReconPage() {
           </table>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

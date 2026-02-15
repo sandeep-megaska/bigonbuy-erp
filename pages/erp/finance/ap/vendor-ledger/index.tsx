@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -160,14 +159,14 @@ export default function VendorLedgerPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading vendor ledger…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -258,6 +257,6 @@ export default function VendorLedgerPage() {
           ) : null}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

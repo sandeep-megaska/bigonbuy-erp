@@ -3,7 +3,6 @@ import type { ChangeEvent, FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Papa from "papaparse";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -628,14 +627,14 @@ export default function OmsChannelDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="oms">
+      <>
         <div style={pageContainerStyle}>Loading channel…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -1101,6 +1100,6 @@ export default function OmsChannelDetailPage() {
           </section>
         ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }

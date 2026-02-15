@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import StocktakeLinesEditor, { type StocktakeLine } from "../../../../components/inventory/StocktakeLinesEditor";
 import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
 import { upsertCountedLine } from "../../../../components/inventory/lineUpsert";
@@ -425,22 +424,22 @@ export default function StocktakeDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading stocktake…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!stocktake) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error || "Stocktake not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -590,7 +589,7 @@ export default function StocktakeDetailPage() {
           </section>
         ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }
 

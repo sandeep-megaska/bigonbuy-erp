@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import { pageContainerStyle, secondaryButtonStyle } from "../../../../../components/erp/uiStyles";
 import RecurringTemplateForm from "../../../../../components/finance/RecurringTemplateForm";
@@ -155,22 +154,22 @@ export default function RecurringTemplateCreatePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading recurring template form…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -202,6 +201,6 @@ export default function RecurringTemplateCreatePage() {
           }}
         />
       </div>
-    </ErpShell>
+    </>
   );
 }

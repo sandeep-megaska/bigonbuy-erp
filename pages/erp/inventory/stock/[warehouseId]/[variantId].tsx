@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -158,14 +157,14 @@ export default function StockMovementsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading stock movements…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -208,7 +207,7 @@ export default function StockMovementsPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

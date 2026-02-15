@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { cardStyle, pageContainerStyle, tableCellStyle, tableHeaderCellStyle, tableStyle } from "../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
@@ -93,7 +92,7 @@ export default function MarketingAudienceMembersPage() {
   }, [router.isReady, code]);
 
   return (
-    <ErpShell activeModule="marketing">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title={`Marketing Audience · ${audience?.name || code || "Members"}`}
@@ -150,6 +149,6 @@ export default function MarketingAudienceMembersPage() {
           )}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

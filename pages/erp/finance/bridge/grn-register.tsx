@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -132,15 +131,15 @@ export default function GrnRegisterPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading GRN register…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance Bridge"
@@ -149,12 +148,12 @@ export default function GrnRegisterPage() {
           />
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Bridge"
@@ -252,7 +251,7 @@ export default function GrnRegisterPage() {
           ) : null}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

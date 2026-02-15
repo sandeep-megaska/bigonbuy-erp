@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Papa from "papaparse";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -603,14 +602,14 @@ export default function GstPurchasePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading GST Purchase Engine…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -1209,6 +1208,6 @@ export default function GstPurchasePage() {
           }
         `}</style>
       </div>
-    </ErpShell>
+    </>
   );
 }

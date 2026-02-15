@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -248,25 +247,25 @@ export default function InvoiceDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading invoice…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "No company membership found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!invoice) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>{error || "Invoice not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -275,7 +274,7 @@ export default function InvoiceDetailPage() {
   const isCancelled = invoiceHeader.status === "cancelled";
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -377,6 +376,6 @@ export default function InvoiceDetailPage() {
           error={error}
         />
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
@@ -585,7 +584,7 @@ export default function GrnDetailPage() {
   const poLabel = purchaseOrder?.doc_no || purchaseOrder?.po_no || "—";
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -904,6 +903,6 @@ export default function GrnDetailPage() {
           </section>
         ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }

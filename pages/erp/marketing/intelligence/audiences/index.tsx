@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import { card, cardTitle } from "../../../../../components/erp/tw";
 import { primaryButtonStyle } from "../../../../../components/erp/uiStyles";
@@ -48,7 +47,7 @@ export default function MarketingMetaAudiencesExportPage() {
   }, [router]);
 
   return (
-    <ErpShell activeModule="marketing">
+    <>
       <div className="space-y-4">
         <ErpPageHeader
           title="Marketing Intelligence · Audience CSV Exports"
@@ -79,6 +78,6 @@ export default function MarketingMetaAudiencesExportPage() {
           </p>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

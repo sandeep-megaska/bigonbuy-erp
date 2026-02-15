@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import { badgeBase, card, cardTitle, table, tableWrap, td, th, trHover } from "../../../../../components/erp/tw";
 
 type DemandRow = {
@@ -293,7 +292,7 @@ export default function DemandSteeringPage() {
   }
 
   return (
-    <ErpShell activeModule="marketing">
+    <>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 20px 40px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
@@ -438,6 +437,6 @@ export default function DemandSteeringPage() {
         </>
       ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }
