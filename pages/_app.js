@@ -1,13 +1,17 @@
 import "../styles/globals.css";
 import { useRouter } from "next/router";
 import ErpShell from "../components/erp/ErpShell";
-import type { ErpModuleKey } from "../components/erp/ErpTopBar";
 
-const resolveErpModuleKey = (path: string): ErpModuleKey | null => {
-  if (!path.startsWith("/erp")) return null;
+const normalizePath = (asPath) => {
+  const p = asPath || "";
+  return p.split("?")[0].split("#")[0];
+};
 
-  // Longest-prefix matching first (more specific before less specific)
-  const rules: Array<[string, ErpModuleKey]> = [
+const resolveErpModuleKey = (path) => {
+  if (!path || !path.startsWith("/erp")) return null;
+
+  // Longest-prefix matching first
+  const rules = [
     ["/erp/marketing", "marketing"],
     ["/erp/finance", "finance"],
     ["/erp/oms", "oms"],
@@ -25,15 +29,10 @@ const resolveErpModuleKey = (path: string): ErpModuleKey | null => {
   return "workspace";
 };
 
-const normalizePath = (asPath: string) => {
-  // remove query string and hash
-  return asPath.split("?")[0]?.split("#")[0] ?? asPath;
-};
-
-export default function App({ Component, pageProps }: { Component: any; pageProps: any }) {
+export default function App({ Component, pageProps }) {
   const router = useRouter();
 
-  // Use asPath for correct runtime path detection; pathname can be generic on dynamic routes
+  // asPath is the real URL; pathname can be generic on some routes
   const currentPath = normalizePath(router.asPath || router.pathname);
   const moduleKey = resolveErpModuleKey(currentPath);
 
