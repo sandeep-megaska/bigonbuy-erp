@@ -1,25 +1,44 @@
 import "../styles/globals.css";
 import { useRouter } from "next/router";
 import ErpShell from "../components/erp/ErpShell";
+import type { ErpModuleKey } from "../components/erp/ErpTopBar";
 
-const getErpModuleKey = (pathname) => {
-  if (!pathname.startsWith("/erp")) return null;
-  if (pathname.startsWith("/erp/hr")) return "hr";
-  if (pathname.startsWith("/erp/ops")) return "ops";
-  if (pathname.startsWith("/erp/admin")) return "admin";
-  if (pathname.startsWith("/erp/employee") || pathname.startsWith("/erp/my")) return "employee";
-  if (pathname.startsWith("/erp/finance")) return "finance";
-  if (pathname.startsWith("/erp/marketing")) return "marketing";
-  if (pathname.startsWith("/erp/oms")) return "oms";
+const resolveErpModuleKey = (path: string): ErpModuleKey | null => {
+  if (!path.startsWith("/erp")) return null;
+
+  // Longest-prefix matching first (more specific before less specific)
+  const rules: Array<[string, ErpModuleKey]> = [
+    ["/erp/marketing", "marketing"],
+    ["/erp/finance", "finance"],
+    ["/erp/oms", "oms"],
+    ["/erp/hr", "hr"],
+    ["/erp/ops", "ops"],
+    ["/erp/admin", "admin"],
+    ["/erp/employee", "employee"],
+    ["/erp/my", "employee"],
+    ["/erp", "workspace"],
+  ];
+
+  for (const [prefix, key] of rules) {
+    if (path.startsWith(prefix)) return key;
+  }
   return "workspace";
 };
 
-export default function App({ Component, pageProps }) {
+const normalizePath = (asPath: string) => {
+  // remove query string and hash
+  return asPath.split("?")[0]?.split("#")[0] ?? asPath;
+};
+
+export default function App({ Component, pageProps }: { Component: any; pageProps: any }) {
   const router = useRouter();
-  const moduleKey = getErpModuleKey(router.pathname);
+
+  // Use asPath for correct runtime path detection; pathname can be generic on dynamic routes
+  const currentPath = normalizePath(router.asPath || router.pathname);
+  const moduleKey = resolveErpModuleKey(currentPath);
 
   const isPrintRoute =
-    router.pathname.includes("/print") || router.pathname.startsWith("/erp/finance/gst/invoice/");
+    currentPath.includes("/print") || currentPath.startsWith("/erp/finance/gst/invoice/");
 
   if (moduleKey && !isPrintRoute) {
     return (
