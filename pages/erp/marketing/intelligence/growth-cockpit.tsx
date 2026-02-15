@@ -154,7 +154,8 @@ export default function GrowthCockpitPage() {
   };
 
   return (
-    <div className="space-y-4" style={{ padding: 20 }}>
+    <ErpShell activeModule="marketing">
+      <div className="space-y-4" style={{ padding: 20 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>Growth Cockpit</h1>
@@ -315,6 +316,7 @@ export default function GrowthCockpitPage() {
           {JSON.stringify(data, null, 2)}
         </pre>
       </details>
-    </div>
+      </div>
+    </ErpShell>
   );
 }

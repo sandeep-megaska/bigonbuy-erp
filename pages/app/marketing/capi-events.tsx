@@ -144,7 +144,7 @@ export default function MarketingCapiEventsPage() {
   }, [rows]);
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="marketing">
       <div style={pageWrapperStyle}>
         <div style={pageContainerStyle}>
           <header style={pageHeaderStyle}>

@@ -152,7 +152,7 @@ export default function IntelligenceTablePage({ title, description, endpoint, de
   };
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="marketing">
       <div style={pageContainerStyle}>
         <ErpPageHeader title={title} description={description} />
         <section style={{ ...cardStyle, display: "grid", gap: 12 }}>

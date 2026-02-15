@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import ErpShell from "../../../../../components/erp/ErpShell";
 
 type SummaryPayload = {
   week_start: string | null;
@@ -106,7 +107,8 @@ export default function BudgetAllocatorPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 20px 40px" }}>
+    <ErpShell activeModule="marketing">
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 20px 40px" }}>
       <h1 style={{ marginTop: 0 }}>Budget Allocator</h1>
       <p style={{ opacity: 0.8, marginTop: 6 }}>Weekly recommendation-only budget split for Product Push, Prospecting, and Retargeting.</p>
       {err ? <div style={{ background: "#fee", border: "1px solid #fbb", borderRadius: 8, padding: 10, marginBottom: 12 }}>{err}</div> : null}
@@ -190,6 +192,7 @@ export default function BudgetAllocatorPage() {
       </div>
 
       {loading ? <div style={{ marginTop: 12, opacity: 0.7 }}>Loading...</div> : null}
-    </div>
+      </div>
+    </ErpShell>
   );
 }

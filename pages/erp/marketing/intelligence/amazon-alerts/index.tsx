@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import ErpShell from "../../../../../components/erp/ErpShell";
 
 type SummaryPayload = {
   window: {
@@ -132,7 +133,8 @@ export default function AmazonAlertsPage() {
   }, [data?.latest_alert?.one_day_deviation_abs_pct, data?.latest_alert?.volatility_status]);
 
   return (
-    <div style={{ padding: 20 }}>
+    <ErpShell activeModule="marketing">
+      <div style={{ padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>Amazon Alerts</h1>
@@ -255,6 +257,7 @@ export default function AmazonAlertsPage() {
           </tbody>
         </table>
       </div>
-    </div>
+      </div>
+    </ErpShell>
   );
 }
