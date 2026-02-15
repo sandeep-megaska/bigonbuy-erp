@@ -7,7 +7,15 @@ import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
 import { navLink, navLinkActive, shellHeader, topBarNavWrap, topBarUtilityButton } from "./tw";
 
-export type ErpModuleKey = "workspace" | "marketing" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
+export type ErpModuleKey =
+  | "workspace"
+  | "marketing"
+  | "ops"
+  | "hr"
+  | "employee"
+  | "finance"
+  | "oms"
+  | "admin";
 
 type ModuleLink = {
   key: ErpModuleKey;
@@ -15,7 +23,8 @@ type ModuleLink = {
   href: string;
 };
 
-const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
+const cx = (...classes: Array<string | false | null | undefined>) =>
+  classes.filter(Boolean).join(" ");
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
@@ -29,6 +38,7 @@ const moduleLinks: ModuleLink[] = [
 export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey }) {
   const router = useRouter();
   const branding = useCompanyBranding();
+
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false);
   const [showCompactSearch, setShowCompactSearch] = useState(false);
@@ -37,6 +47,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
     roleKey: null,
     companyId: null,
   });
+
   const companyMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -56,7 +67,6 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       if (!active) return;
       setCompanyContext({ roleKey: context.roleKey ?? null, companyId: context.companyId ?? null });
     })();
-
     return () => {
       active = false;
     };
@@ -76,7 +86,6 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
         setCompanyMenuOpen(false);
       }
     };
-
     document.addEventListener("mousedown", handleOutsideClick);
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
@@ -111,12 +120,13 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   return (
     <header className={shellHeader} data-erp-topbar>
       <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center gap-3 overflow-hidden px-4 sm:gap-4 sm:px-5">
-        <div className="flex min-w-[220px] items-center gap-3 overflow-hidden">
+        {/* LEFT: Logos + brand */}
+        <div className="flex min-w-[240px] items-center gap-3 overflow-hidden">
           {branding?.bigonbuyLogoUrl ? (
             <img
               src={branding.bigonbuyLogoUrl}
               alt="Bigonbuy logo"
-              className="block h-8 max-h-8 w-auto max-w-[140px] object-contain"
+              className="erp-topbar-logo block h-8 max-h-8 w-auto max-w-[140px] object-contain"
             />
           ) : (
             <div className="inline-flex h-8 items-center justify-center rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold tracking-[0.12em] text-white">
@@ -124,34 +134,44 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
             </div>
           )}
 
-          <div>
-            <div className="text-xs font-bold uppercase tracking-[0.08em] text-slate-900">BIGONBUY ERP</div>
-            <div className="text-xs text-slate-500">{companyName}</div>
+          <div className="min-w-0">
+            <div className="truncate text-xs font-bold uppercase tracking-[0.08em] text-slate-900">
+              BIGONBUY ERP
+            </div>
+            <div className="truncate text-xs text-slate-500">{companyName}</div>
           </div>
 
           {branding?.megaskaLogoUrl ? (
             <img
               src={branding.megaskaLogoUrl}
               alt="Megaska logo"
-              className="block h-5 max-h-5 w-auto max-w-[140px] object-contain opacity-90"
+              className="erp-topbar-logo block h-5 max-h-5 w-auto max-w-[140px] object-contain opacity-90"
             />
           ) : null}
         </div>
 
-        <div className="flex min-w-0 justify-center">
-          <nav className={cx(topBarNavWrap, "max-w-full overflow-x-auto whitespace-nowrap")}>{navLinks}</nav>
+        {/* CENTER: Module pills (centered) */}
+        <div className="min-w-0 flex justify-center">
+          <nav className={cx(topBarNavWrap, "max-w-full overflow-x-auto whitespace-nowrap")}>
+            {navLinks}
+          </nav>
         </div>
 
-        <div className="flex items-center justify-self-end gap-2">
+        {/* RIGHT: Utilities (pinned right) */}
+        <div className="flex items-center gap-2 justify-self-end">
           <button
             type="button"
             className={topBarUtilityButton}
             onClick={() => setPaletteOpenNonce((prev) => prev + 1)}
             aria-label="Open module search"
           >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-200 text-[11px]">⌘</span>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-200 text-[11px]">
+              ⌘
+            </span>
             {!showCompactSearch ? <span>Search modules</span> : null}
-            {!showCompactSearch ? <span className="text-[11px] font-medium text-slate-500">Ctrl/⌘ K</span> : null}
+            {!showCompactSearch ? (
+              <span className="text-[11px] font-medium text-slate-500">Ctrl/⌘ K</span>
+            ) : null}
           </button>
 
           <div className="relative" ref={companyMenuRef}>
@@ -165,6 +185,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
               Company
               <span className="text-[10px] text-slate-500">{companyMenuOpen ? "▲" : "▼"}</span>
             </button>
+
             {companyMenuOpen ? (
               <div
                 className="absolute right-0 top-[calc(100%+8px)] z-40 flex min-w-[200px] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-[0_10px_24px_rgba(15,23,42,0.12)]"
@@ -189,7 +210,9 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           </div>
 
           {userEmail ? (
-            <span className="hidden max-w-[180px] truncate text-xs text-slate-500 lg:inline">{userEmail}</span>
+            <span className="hidden max-w-[180px] truncate text-xs text-slate-500 lg:inline">
+              {userEmail}
+            </span>
           ) : null}
 
           <button
@@ -201,6 +224,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           </button>
         </div>
       </div>
+
       <CommandPalette
         roleKey={companyContext.roleKey}
         companyId={companyContext.companyId}
