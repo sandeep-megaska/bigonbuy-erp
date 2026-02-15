@@ -120,7 +120,7 @@ export default function MarketingAudiencesPage() {
   }, [router.isReady]);
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="marketing">
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title="Marketing · Audiences"

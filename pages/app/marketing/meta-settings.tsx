@@ -105,7 +105,7 @@ export default function MetaSettingsPage() {
   }
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="marketing">
       <div style={pageWrapperStyle}>
         <div style={pageContainerStyle}>
           <header style={pageHeaderStyle}>

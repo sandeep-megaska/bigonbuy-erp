@@ -93,7 +93,7 @@ export default function MarketingAudienceMembersPage() {
   }, [router.isReady, code]);
 
   return (
-    <ErpShell>
+    <ErpShell activeModule="marketing">
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title={`Marketing Audience · ${audience?.name || code || "Members"}`}
