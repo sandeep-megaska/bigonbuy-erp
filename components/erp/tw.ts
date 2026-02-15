@@ -4,7 +4,9 @@ export const shellHeader = "erp-topbar fixed inset-x-0 top-0 z-30 border-b borde
 export const navLink =
   "erp-btn-focus inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-semibold text-slate-600 transition hover:bg-white/80 hover:text-slate-900 focus-visible:ring-indigo-500";
 export const navLinkActive = "border border-slate-200 bg-white text-slate-900 shadow-sm";
-export const topBarNavWrap = "flex w-max items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1";
+export const topBarNavWrap =
+  "flex w-max items-center gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm";
+
 export const topBarUtilityButton =
   "erp-btn-focus inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-semibold text-slate-700 transition hover:bg-white focus-visible:ring-indigo-500";
 
