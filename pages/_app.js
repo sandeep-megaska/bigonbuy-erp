@@ -9,6 +9,7 @@ const getErpModuleKey = (pathname) => {
   if (pathname.startsWith("/erp/admin")) return "admin";
   if (pathname.startsWith("/erp/employee") || pathname.startsWith("/erp/my")) return "employee";
   if (pathname.startsWith("/erp/finance")) return "finance";
+  if (pathname.startsWith("/erp/marketing")) return "marketing";
   if (pathname.startsWith("/erp/oms")) return "oms";
   return "workspace";
 };
