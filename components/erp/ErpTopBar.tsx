@@ -110,10 +110,14 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
 
   return (
     <header className={shellHeader} data-erp-topbar>
-      <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center gap-3 px-4 sm:gap-4 sm:px-5">
-        <div className="flex min-w-[220px] items-center gap-3">
+      <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center gap-3 overflow-hidden px-4 sm:gap-4 sm:px-5">
+        <div className="flex min-w-[220px] items-center gap-3 overflow-hidden">
           {branding?.bigonbuyLogoUrl ? (
-            <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" className="h-8 w-auto object-contain" />
+            <img
+              src={branding.bigonbuyLogoUrl}
+              alt="Bigonbuy logo"
+              className="block h-8 max-h-8 w-auto max-w-[140px] object-contain"
+            />
           ) : (
             <div className="inline-flex h-8 items-center justify-center rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold tracking-[0.12em] text-white">
               BIGONBUY
@@ -126,7 +130,11 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           </div>
 
           {branding?.megaskaLogoUrl ? (
-            <img src={branding.megaskaLogoUrl} alt="Megaska logo" className="h-5 w-auto object-contain opacity-90" />
+            <img
+              src={branding.megaskaLogoUrl}
+              alt="Megaska logo"
+              className="block h-5 max-h-5 w-auto max-w-[140px] object-contain opacity-90"
+            />
           ) : null}
         </div>
 
