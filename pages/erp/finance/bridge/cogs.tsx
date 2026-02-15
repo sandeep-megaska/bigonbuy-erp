@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -141,15 +140,15 @@ export default function CogsEstimatePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading COGS estimate…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance Bridge"
@@ -158,12 +157,12 @@ export default function CogsEstimatePage() {
           />
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Bridge"
@@ -281,7 +280,7 @@ export default function CogsEstimatePage() {
           ) : null}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

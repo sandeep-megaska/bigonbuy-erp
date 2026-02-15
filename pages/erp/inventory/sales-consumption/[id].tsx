@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import InventoryLinesEditor, { type InventoryLine } from "../../../../components/inventory/InventoryLinesEditor";
 import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
 import { upsertQtyLine } from "../../../../components/inventory/lineUpsert";
@@ -421,22 +420,22 @@ export default function SalesConsumptionDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading sales consumption…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!consumption) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error || "Sales consumption not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -552,7 +551,7 @@ export default function SalesConsumptionDetailPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

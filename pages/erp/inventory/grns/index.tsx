@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -101,7 +100,7 @@ export default function GrnListPage() {
   const vendorMap = useMemo(() => new Map(vendors.map((vendor) => [vendor.id, vendor.legal_name])), [vendors]);
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -178,7 +177,7 @@ export default function GrnListPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

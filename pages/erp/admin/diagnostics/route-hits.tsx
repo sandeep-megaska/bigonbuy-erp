@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -218,32 +217,32 @@ export default function RouteDiagnosticsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>Loading diagnostics...</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>
           {ctx?.membershipError || "No active company membership found for this user."}
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!canView || !access.isAuthenticated) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>You do not have access to view diagnostics.</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="admin">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Admin"
@@ -340,6 +339,6 @@ export default function RouteDiagnosticsPage() {
           </table>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

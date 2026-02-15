@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -47,22 +46,22 @@ export default function InventoryImportPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading inventory import…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (error) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -83,6 +82,6 @@ export default function InventoryImportPage() {
 
         {ctx?.companyId ? <TabbedCsvImport companyId={ctx.companyId} canWrite={canWrite} /> : null}
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -30,7 +29,7 @@ const healthLinks = [
 
 export default function InventoryHealthIndexPage() {
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -52,7 +51,7 @@ export default function InventoryHealthIndexPage() {
           ))}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

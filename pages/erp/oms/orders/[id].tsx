@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -259,22 +258,22 @@ export default function OmsOrderDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="oms">
+      <>
         <div style={pageContainerStyle}>Loading OMS order…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!order) {
     return (
-      <ErpShell activeModule="oms">
+      <>
         <div style={pageContainerStyle}>{error || "OMS order not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -459,7 +458,7 @@ export default function OmsOrderDetailPage() {
           ) : null}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

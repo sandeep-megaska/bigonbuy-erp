@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import ErpShell from "../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -226,15 +225,15 @@ export default function CompanySettingsHubPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>Loading Company settings…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="admin">
+      <>
         <div style={pageContainerStyle}>
           <header style={pageHeaderStyle}>
             <div>
@@ -245,12 +244,12 @@ export default function CompanySettingsHubPage() {
           </header>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="admin">
+    <>
       <div style={pageContainerStyle}>
         <nav style={breadcrumbStyle} aria-label="Breadcrumb">
           <span style={breadcrumbCurrentStyle}>Company</span>
@@ -290,7 +289,7 @@ export default function CompanySettingsHubPage() {
           ))}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

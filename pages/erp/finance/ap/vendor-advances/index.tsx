@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -396,7 +395,7 @@ export default function VendorAdvancesPage() {
   };
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -586,6 +585,6 @@ export default function VendorAdvancesPage() {
           )}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
@@ -316,7 +315,7 @@ export default function AmazonOrdersPage() {
   }
 
   return (
-    <ErpShell>
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -492,6 +491,6 @@ export default function AmazonOrdersPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

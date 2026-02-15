@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/router";
 
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   badgeStyle,
   cardStyle,
@@ -339,9 +338,9 @@ export default function FinalSettlementDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="hr">
+      <>
         <div style={pageContainerStyle}>Loading final settlement…</div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -349,7 +348,7 @@ export default function FinalSettlementDetailPage() {
   const employee = settlementData?.employee;
 
   return (
-    <ErpShell activeModule="hr">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -626,7 +625,7 @@ export default function FinalSettlementDetailPage() {
           </div>
         </div>
       ) : null}
-    </ErpShell>
+    </>
   );
 }
 

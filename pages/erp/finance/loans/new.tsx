@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { cardStyle, pageContainerStyle, secondaryButtonStyle } from "../../../../components/erp/uiStyles";
 import { requireAuthRedirectHome } from "../../../../lib/erpContext";
@@ -84,7 +83,7 @@ export default function NewLoanPage() {
   };
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -108,6 +107,6 @@ export default function NewLoanPage() {
           />
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

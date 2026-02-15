@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -167,7 +166,7 @@ export default function OmsChannelAccountsPage() {
   }
 
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -289,6 +288,6 @@ export default function OmsChannelAccountsPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ChangeEvent, FormEvent } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -867,16 +866,16 @@ export default function InventorySkusPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading SKUs…</div>
-      </ErpShell>
+      </>
     );
   }
 
   const previewRows = importRows.slice(0, 6);
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -1198,7 +1197,7 @@ export default function InventorySkusPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

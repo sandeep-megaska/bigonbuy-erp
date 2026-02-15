@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -126,15 +125,15 @@ export default function FinanceBridgeHome() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading Finance Bridge…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance"
@@ -147,12 +146,12 @@ export default function FinanceBridgeHome() {
             account.
           </p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -224,7 +223,7 @@ export default function FinanceBridgeHome() {
           })}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

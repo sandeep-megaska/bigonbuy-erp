@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -223,9 +222,9 @@ export default function GlAccountsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading chart of accounts…</div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -339,15 +338,15 @@ export default function GlAccountsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading chart of accounts…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader
             eyebrow="Finance"
@@ -356,12 +355,12 @@ export default function GlAccountsPage() {
           />
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance Masters"
@@ -625,7 +624,7 @@ export default function GlAccountsPage() {
           </div>
         </div>
       ) : null}
-    </ErpShell>
+    </>
   );
 }
 

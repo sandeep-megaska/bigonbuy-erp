@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -184,14 +183,14 @@ export default function OmsOrdersListPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="oms">
+      <>
         <div style={pageContainerStyle}>Loading OMS orders…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="oms">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -305,7 +304,7 @@ export default function OmsOrdersListPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

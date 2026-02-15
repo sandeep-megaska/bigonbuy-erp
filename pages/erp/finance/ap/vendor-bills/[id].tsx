@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import ErrorBanner from "../../../../../components/erp/ErrorBanner";
 import {
@@ -788,7 +787,7 @@ export default function VendorBillDetailPage() {
   }, [approvalState, canWrite, error, header.id, router, handleSubmitForApproval]);
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -1284,6 +1283,6 @@ export default function VendorBillDetailPage() {
           </p>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -498,7 +497,7 @@ export default function PurchaseOrderDetailPage() {
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -744,6 +743,6 @@ export default function PurchaseOrderDetailPage() {
           </table>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

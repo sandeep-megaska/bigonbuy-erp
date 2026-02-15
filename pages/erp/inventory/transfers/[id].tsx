@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { z } from "zod";
-import ErpShell from "../../../../components/erp/ErpShell";
 import InventoryLinesEditor, { type InventoryLine } from "../../../../components/inventory/InventoryLinesEditor";
 import ScanSkuAddBar from "../../../../components/inventory/ScanSkuAddBar";
 import { upsertQtyLine } from "../../../../components/inventory/lineUpsert";
@@ -373,22 +372,22 @@ export default function TransferDetailPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading transfer…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!transfer) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>{error || "Transfer not found."}</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -504,7 +503,7 @@ export default function TransferDetailPage() {
           </button>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

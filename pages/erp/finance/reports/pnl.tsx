@@ -1,7 +1,6 @@
 import { Fragment, type CSSProperties, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   cardStyle,
@@ -302,7 +301,7 @@ export default function ProfitLossPage() {
   const periodBadge = periodStatus?.is_locked ? "Locked Period" : "Provisional";
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -487,7 +486,7 @@ export default function ProfitLossPage() {
           </div>
         </div>
       ) : null}
-    </ErpShell>
+    </>
   );
 }
 

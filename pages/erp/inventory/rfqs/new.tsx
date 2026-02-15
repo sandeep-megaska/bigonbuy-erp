@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import {
   cardStyle,
   eyebrowStyle,
@@ -207,14 +206,14 @@ export default function RfqCreatePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={containerStyle}>Loading RFQ form…</div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={containerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -361,7 +360,7 @@ export default function RfqCreatePage() {
           </form>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

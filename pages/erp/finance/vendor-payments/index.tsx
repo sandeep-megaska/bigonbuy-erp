@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -425,25 +424,25 @@ export default function VendorPaymentsListPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading...</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (error) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
           <ErpPageHeader title="Vendor Payments" />
           <div style={cardStyle}>{error}</div>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           title="Vendor Payments"
@@ -772,6 +771,6 @@ export default function VendorPaymentsListPage() {
           </div>
         </div>
       )}
-    </ErpShell>
+    </>
   );
 }

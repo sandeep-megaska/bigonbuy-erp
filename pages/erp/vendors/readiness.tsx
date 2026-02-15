@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import ErpShell from "../../../components/erp/ErpShell";
 import {
   cardStyle,
   h1Style,
@@ -159,7 +158,7 @@ export default function VendorReadinessPage() {
   }, [rows]);
 
   return (
-    <ErpShell>
+    <>
       <main style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -253,7 +252,7 @@ export default function VendorReadinessPage() {
           </div>
         </section>
       </main>
-    </ErpShell>
+    </>
   );
 }
 

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import ErpShell from "../../components/erp/ErpShell";
 import {
   cardStyle as sharedCardStyle,
   eyebrowStyle,
@@ -110,15 +109,15 @@ export default function ErpHomePage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>Loading account...</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="workspace">
+      <>
         <div style={pageContainerStyle}>
           <h1 style={{ ...h1Style, marginTop: 0 }}>ERP Home</h1>
           <p style={{ color: "#b91c1c" }}>{error || "Unable to load company context."}</p>
@@ -135,7 +134,7 @@ export default function ErpHomePage() {
             </button>
           </div>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
@@ -174,7 +173,7 @@ export default function ErpHomePage() {
       ];
 
   return (
-    <ErpShell activeModule="workspace">
+    <>
       <div style={pageContainerStyle}>
         <header style={pageHeaderStyle}>
           <div>
@@ -270,7 +269,7 @@ export default function ErpHomePage() {
           </div>
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }
 

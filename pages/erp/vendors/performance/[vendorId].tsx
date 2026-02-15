@@ -1,6 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import { requireAuthRedirectHome } from "../../../../lib/erpContext";
 
 type DetailPayload = {
@@ -31,7 +30,7 @@ export default function VendorPerformanceDetailPage() {
   }, [router, vendorId]);
 
   return (
-    <ErpShell>
+    <>
       <main style={{ padding: 24 }}>
         <h1>Vendor Performance Detail</h1>
         <div style={{ color: "#64748b", marginBottom: 10 }}>{vendorId}</div>
@@ -51,7 +50,7 @@ export default function VendorPerformanceDetailPage() {
         <ListCard title="Overdue Open Lines" rows={data?.overdue_lines || []} />
         <ListCard title="Stale Lines (7d+)" rows={data?.stale_lines || []} />
       </main>
-    </ErpShell>
+    </>
   );
 }
 

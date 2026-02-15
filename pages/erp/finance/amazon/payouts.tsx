@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -816,15 +815,15 @@ export default function AmazonSettlementReportsPage() {
 
   if (loading) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>Loading settlement reports…</div>
-      </ErpShell>
+      </>
     );
   }
 
   if (!ctx?.companyId) {
     return (
-      <ErpShell activeModule="finance">
+      <>
         <div style={pageContainerStyle}>
             <ErpPageHeader
             eyebrow="Finance"
@@ -833,12 +832,12 @@ export default function AmazonSettlementReportsPage() {
           />
           <p style={errorTextStyle}>{ctx?.membershipError || "Unable to load company context."}</p>
         </div>
-      </ErpShell>
+      </>
     );
   }
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -1280,6 +1279,6 @@ export default function AmazonSettlementReportsPage() {
           ) : null}
         </section>
       </div>
-    </ErpShell>
+    </>
   );
 }

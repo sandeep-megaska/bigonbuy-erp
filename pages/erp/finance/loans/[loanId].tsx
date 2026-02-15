@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import { cardStyle, inputStyle, pageContainerStyle, secondaryButtonStyle, tableCellStyle, tableHeaderCellStyle, tableStyle } from "../../../../components/erp/uiStyles";
 import { requireAuthRedirectHome } from "../../../../lib/erpContext";
@@ -321,7 +320,7 @@ export default function LoanDetailPage() {
   };
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -454,6 +453,6 @@ export default function LoanDetailPage() {
           </table>
         </div>
       </div>
-    </ErpShell>
+    </>
   );
 }

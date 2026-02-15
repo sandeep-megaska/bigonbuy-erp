@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import ErpShell from "../../../../components/erp/ErpShell";
 import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
 import {
   badgeStyle,
@@ -183,7 +182,7 @@ export default function FinanceJournalDetailPage() {
   };
 
   return (
-    <ErpShell activeModule="finance">
+    <>
       <div style={pageContainerStyle}>
         <ErpPageHeader
           eyebrow="Finance"
@@ -364,7 +363,7 @@ export default function FinanceJournalDetailPage() {
           </div>
         ) : null}
       </div>
-    </ErpShell>
+    </>
   );
 }
 
