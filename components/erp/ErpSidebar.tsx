@@ -138,9 +138,9 @@ const sidebarStyle: CSSProperties = {
   top: 64, // was 56 — MUST match main paddingTop + topbar height
   left: 0,
   bottom: 0,
-  backgroundColor: "#111827",
+  backgroundColor: "#0f172a",
   color: "#fff",
-  padding: "16px 12px",
+  padding: "14px 10px",
   display: "flex",
   flexDirection: "column",
   gap: 16,
@@ -152,10 +152,10 @@ const sidebarStyle: CSSProperties = {
 
 
 const collapseButtonStyle: CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.15)",
-  backgroundColor: "transparent",
+  border: "1px solid rgba(148,163,184,0.35)",
+  backgroundColor: "rgba(255,255,255,0.06)",
   color: "#fff",
-  borderRadius: 8,
+  borderRadius: 10,
   padding: "6px 8px",
   cursor: "pointer",
   fontWeight: 600,
@@ -176,10 +176,10 @@ const groupStyle: CSSProperties = {
 };
 
 const groupLabelStyle: CSSProperties = {
-  fontSize: 11,
+  fontSize: 10,
   textTransform: "uppercase",
   letterSpacing: "0.1em",
-  color: "rgba(255,255,255,0.6)",
+  color: "rgba(226,232,240,0.72)",
   paddingLeft: 8,
 };
 
@@ -193,18 +193,19 @@ const navItemStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  padding: "8px 10px",
-  borderRadius: 8,
+  padding: "9px 10px",
+  borderRadius: 10,
   textDecoration: "none",
-  color: "#e5e7eb",
+  color: "#cbd5e1",
   fontSize: 13,
   fontWeight: 600,
-  backgroundColor: "rgba(255,255,255,0.04)",
+  backgroundColor: "rgba(148,163,184,0.09)",
 };
 
 const activeNavItemStyle: CSSProperties = {
-  backgroundColor: "rgba(59,130,246,0.2)",
+  backgroundColor: "#1d4ed8",
   color: "#ffffff",
+  boxShadow: "inset 0 0 0 1px rgba(191,219,254,0.28)",
 };
 
 const disabledNavItemStyle: CSSProperties = {
@@ -215,8 +216,8 @@ const disabledNavItemStyle: CSSProperties = {
 const iconBadgeStyle: CSSProperties = {
   width: 28,
   height: 28,
-  borderRadius: 8,
-  backgroundColor: "rgba(255,255,255,0.15)",
+  borderRadius: 9,
+  backgroundColor: "rgba(148,163,184,0.28)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",

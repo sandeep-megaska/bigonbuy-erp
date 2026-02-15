@@ -193,8 +193,8 @@ const topBarContentStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 16,
-  padding: "0 20px",
+  gap: 12,
+  padding: "0 16px",
 };
 
 const brandBlockStyle: CSSProperties = {
@@ -247,7 +247,7 @@ const companyNameStyle: CSSProperties = {
 const navStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 14,
+  gap: 10,
   flex: 1,
   justifyContent: "center",
 };
@@ -263,7 +263,7 @@ const activeNavLinkStyle: CSSProperties = {
 const rightBlockStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 12,
+  gap: 8,
 };
 
 const companyMenuWrapperStyle: CSSProperties = {

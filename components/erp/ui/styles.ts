@@ -18,16 +18,18 @@ export const pageHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: 16,
+  gap: 12,
   flexWrap: "wrap",
-  borderBottom: "1px solid #e2e8f0",
-  paddingBottom: 16,
+  borderBottom: "1px solid #e5e7eb",
+  paddingBottom: 12,
 };
 
 export const h1Style: CSSProperties = {
-  margin: "6px 0 8px",
-  fontSize: 28,
-  color: "#111827",
+  margin: "4px 0 6px",
+  fontSize: 30,
+  lineHeight: 1.2,
+  fontWeight: 700,
+  color: "#0f172a",
 };
 
 export const h2Style: CSSProperties = {
@@ -38,8 +40,8 @@ export const h2Style: CSSProperties = {
 
 export const subtitleStyle: CSSProperties = {
   margin: 0,
-  color: "#4b5563",
-  fontSize: 15,
+  color: "#64748b",
+  fontSize: 14,
 };
 
 export const eyebrowStyle: CSSProperties = {
@@ -51,20 +53,20 @@ export const eyebrowStyle: CSSProperties = {
 };
 
 export const cardStyle: CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 16,
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
   padding: 16,
   backgroundColor: "#fff",
-  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
+  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.05)",
 };
 
 export const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  borderRadius: 16,
+  borderRadius: 12,
   overflow: "hidden",
   backgroundColor: "#fff",
-  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
+  boxShadow: "none",
 };
 
 export const tableHeaderCellStyle: CSSProperties = {
@@ -73,36 +75,44 @@ export const tableHeaderCellStyle: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.08em",
   color: "#64748b",
-  padding: "12px 14px",
+  padding: "11px 14px",
   backgroundColor: "#f8fafc",
   borderBottom: "1px solid #e2e8f0",
 };
 
 export const tableCellStyle: CSSProperties = {
-  padding: "12px 14px",
-  borderBottom: "1px solid #e2e8f0",
+  padding: "11px 14px",
+  borderBottom: "1px solid #eef2f7",
   color: "#111827",
   fontSize: 14,
 };
 
 export const primaryButtonStyle: CSSProperties = {
-  padding: "10px 16px",
-  backgroundColor: "#4f46e5",
+  padding: "9px 14px",
+  backgroundColor: "#2563eb",
   color: "#fff",
   borderRadius: 8,
-  border: "1px solid #4f46e5",
+  border: "1px solid #2563eb",
   cursor: "pointer",
   fontWeight: 600,
+  fontSize: 13,
 };
 
 export const secondaryButtonStyle: CSSProperties = {
-  padding: "10px 16px",
+  padding: "9px 14px",
   backgroundColor: "#fff",
   color: "#111827",
   borderRadius: 8,
   border: "1px solid #d1d5db",
   cursor: "pointer",
   fontWeight: 600,
+  fontSize: 13,
+};
+
+export const ghostButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  backgroundColor: "#f8fafc",
+  border: "1px solid #e2e8f0",
 };
 
 export const inputStyle: CSSProperties = {
