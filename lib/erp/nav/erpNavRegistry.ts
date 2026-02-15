@@ -26,7 +26,7 @@ export type ErpNavGroupId =
   | "reports"
   | "settings";
 
-export type ErpModuleKey = "workspace" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
+export type ErpModuleKey = "workspace" | "marketing" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
 
 export type ErpNavItem = {
   id: string;
@@ -344,7 +344,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-capi-events",
@@ -354,7 +354,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-audiences",
@@ -364,7 +364,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-intelligence-growth-cockpit",
@@ -374,7 +374,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-intelligence-demand-steering",
@@ -384,7 +384,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-intelligence-budget-allocator",
@@ -394,7 +394,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
   },
   {
     id: "marketing-intelligence-amazon-alerts",
@@ -404,7 +404,17 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "marketing",
     requiredGuard: "manager",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["marketing"],
+  },
+  {
+    id: "marketing-intelligence-audience-exports",
+    label: "Audience Exports",
+    href: "/erp/marketing/intelligence/audiences",
+    icon: "AX",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["marketing"],
   },
   {
     id: "oms-channels",

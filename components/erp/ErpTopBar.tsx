@@ -8,7 +8,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
 import { navLink, navLinkActive, shellHeader } from "./tw";
 
-export type ErpModuleKey = "workspace" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
+export type ErpModuleKey = "workspace" | "marketing" | "ops" | "hr" | "employee" | "finance" | "oms" | "admin";
 
 type ModuleLink = {
   key: ErpModuleKey;
@@ -20,6 +20,7 @@ const cx = (...classes: Array<string | false | null | undefined>) => classes.fil
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
+  { key: "marketing", label: "Marketing", href: "/erp/marketing/intelligence/growth-cockpit" },
   { key: "ops", label: "Ops", href: "/erp/ops" },
   { key: "hr", label: "HR", href: "/erp/hr" },
   { key: "finance", label: "Finance", href: "/erp/finance" },
