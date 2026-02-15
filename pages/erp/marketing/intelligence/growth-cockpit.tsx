@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import ErpShell from "../../../../components/erp/ErpShell";
+import ErpPageHeader from "../../../../components/erp/ErpPageHeader";
+import { ErpBadge, ErpButton, ErpCard, ErpStatCard, ErpTable } from "../../../../components/erp/ui";
+import { td, th, trHover } from "../../../../components/erp/tw";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../lib/erpContext";
-import { card, cardSub, cardTitle, table, tableWrap, td, th, trHover } from "../../../../components/erp/tw";
 
 type ApiResp = {
   company_id: string;
   refreshed_at: string;
   snapshot: any;
 };
-
 
 type ScalingRecommendationRow = {
   campaign_id: string;
@@ -44,13 +44,12 @@ function formatPct(x: any) {
   return `${(num * 100).toFixed(1)}%`;
 }
 
-
-
 function formatScalePct(x: number) {
   if (!Number.isFinite(x)) return "0%";
   const sign = x > 0 ? "+" : "";
   return `${sign}${Math.round(x * 100)}%`;
 }
+
 export default function GrowthCockpitPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -95,7 +94,13 @@ export default function GrowthCockpitPage() {
       if (scalingRes.ok) {
         setScalingData(scalingJson);
       } else {
-        setScalingData({ ok: false, dt: null, target_roas: 3, rows: [], error: scalingJson?.error || `Request failed (${scalingRes.status})` });
+        setScalingData({
+          ok: false,
+          dt: null,
+          target_roas: 3,
+          rows: [],
+          error: scalingJson?.error || `Request failed (${scalingRes.status})`,
+        });
       }
 
       setLoading(false);
@@ -138,8 +143,14 @@ export default function GrowthCockpitPage() {
       { label: "Blended ROAS (7d)", value: snap.blended_roas_7d ?? "—" },
       { label: "Blended ROAS (30d)", value: snap.blended_roas_30d ?? "—" },
       { label: "Meta Spend", value: snap.meta_spend == null ? "—" : `₹ ${formatINR(snap.meta_spend)}` },
-      { label: "Shopify Revenue", value: snap.shopify_revenue == null ? "—" : `₹ ${formatINR(snap.shopify_revenue)}` },
-      { label: "Amazon Revenue", value: snap.amazon_revenue == null ? "—" : `₹ ${formatINR(snap.amazon_revenue)}` },
+      {
+        label: "Shopify Revenue",
+        value: snap.shopify_revenue == null ? "—" : `₹ ${formatINR(snap.shopify_revenue)}`,
+      },
+      {
+        label: "Amazon Revenue",
+        value: snap.amazon_revenue == null ? "—" : `₹ ${formatINR(snap.amazon_revenue)}`,
+      },
       { label: "D2C Share", value: snap.d2c_share_pct == null ? "—" : formatPct(snap.d2c_share_pct) },
     ],
     [snap]
@@ -155,53 +166,31 @@ export default function GrowthCockpitPage() {
   };
 
   return (
-    <ErpShell activeModule="marketing">
-      <div className="space-y-4" style={{ padding: 20 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Growth Cockpit</h1>
-          <div style={{ opacity: 0.75, marginTop: 4 }}>CEO snapshot (from materialized view)</div>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <ErpPageHeader
+        eyebrow="Marketing"
+        title="Growth Cockpit"
+        description="CEO snapshot with blended performance, city/SKU leaders, and scaling recommendations."
+        rightActions={<ErpButton onClick={() => void load()}>{loading ? "Refreshing..." : "Refresh"}</ErpButton>}
+      />
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => void load()} disabled={loading} style={{ padding: "8px 12px", cursor: "pointer" }}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 8, opacity: 0.7, fontSize: 12 }}>
-        {data?.company_id ? <span>Company: {data.company_id}</span> : null}
-        {data?.refreshed_at ? <span> · Refreshed: {new Date(data.refreshed_at).toLocaleString()}</span> : null}
-      </div>
-
-      {err ? (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f5c2c7", background: "#f8d7da" }}>
-          <b>Error:</b> {err}
-        </div>
-      ) : null}
+      {err ? <ErpBadge tone="danger">Error: {err}</ErpBadge> : null}
 
       <div
         style={{
-          marginTop: 16,
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
           gap: 12,
         }}
       >
         {cards.map((c) => (
-          <div key={c.label} className={card}>
-            <div className={cardSub}>{c.label}</div>
-            <div className={cardTitle} style={{ marginTop: 6, fontSize: 22 }}>{String(c.value)}</div>
-          </div>
+          <ErpStatCard key={c.label} label={c.label} value={String(c.value)} />
         ))}
       </div>
 
-      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className={card}>
-          <div className={cardTitle}>Top SKUs</div>
-          <div className={tableWrap}>
-          <table className={table}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <ErpCard title="Top SKUs">
+          <ErpTable>
             <thead>
               <tr>
                 <th className={th}>SKU</th>
@@ -226,14 +215,11 @@ export default function GrowthCockpitPage() {
                 ))
               )}
             </tbody>
-          </table>
-          </div>
-        </div>
+          </ErpTable>
+        </ErpCard>
 
-        <div className={card}>
-          <div className={cardTitle}>Top Cities</div>
-          <div className={tableWrap}>
-          <table className={table}>
+        <ErpCard title="Top Cities">
+          <ErpTable>
             <thead>
               <tr>
                 <th className={th}>City</th>
@@ -256,49 +242,51 @@ export default function GrowthCockpitPage() {
                 ))
               )}
             </tbody>
-          </table>
-          </div>
-        </div>
+          </ErpTable>
+        </ErpCard>
       </div>
 
-
-      <div style={{ marginTop: 18, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-          <div style={{ fontWeight: 700 }}>Today&apos;s Scaling Recommendations</div>
-          <div style={{ opacity: 0.7, fontSize: 12 }}>
-            {scalingData?.dt ? `As of ${scalingData.dt}` : "No recommendation snapshot"}
-          </div>
+      <ErpCard
+        title="Today's Scaling Recommendations"
+        subtitle={scalingData?.dt ? `As of ${scalingData.dt}` : "No recommendation snapshot"}
+      >
+        <div style={{ marginBottom: 10 }}>
+          <ErpBadge>Target ROAS: {scalingData?.target_roas ?? 3}</ErpBadge>
         </div>
-        <div style={{ marginTop: 8, opacity: 0.7, fontSize: 12 }}>Target ROAS: {scalingData?.target_roas ?? 3}</div>
         {scalingData && !scalingData.ok ? (
-          <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>Failed to load recommendations: {scalingData.error ?? "Unknown error"}</div>
+          <div style={{ marginBottom: 8, fontSize: 12, color: "#b42318" }}>
+            Failed to load recommendations: {scalingData.error ?? "Unknown error"}
+          </div>
         ) : null}
         {scalingRows.length === 0 ? (
-          <div style={{ marginTop: 10, opacity: 0.7 }}>No recommendations yet</div>
+          <div style={{ opacity: 0.7 }}>No recommendations yet</div>
         ) : (
-          <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+          <div style={{ display: "grid", gap: 10 }}>
             {([
-              ["SCALE_UP", "#067647", "#ecfdf3"],
-              ["HOLD", "#344054", "#f2f4f7"],
-              ["SCALE_DOWN", "#b42318", "#fef3f2"],
-            ] as const).map(([key, color, bg]) => {
+              ["SCALE_UP", "success"] as const,
+              ["HOLD", "default"] as const,
+              ["SCALE_DOWN", "danger"] as const,
+            ] as const).map(([key, tone]) => {
               const rows = groupedScalingRows[key];
               if (!rows.length) return null;
               return (
-                <div key={key} style={{ border: "1px solid #eee", borderRadius: 8, padding: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 6 }}>{key}</div>
-                  <div style={{ display: "grid", gap: 8 }}>
+                <div key={key} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: 10 }}>
+                  <ErpBadge tone={tone}>{key}</ErpBadge>
+                  <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                     {rows.map((row) => (
-                      <div key={`${row.campaign_id}-${row.reason}`} style={{ borderRadius: 8, padding: 8, background: bg }}>
+                      <div
+                        key={`${row.campaign_id}-${row.reason}`}
+                        style={{ borderRadius: 8, padding: 8, background: "#f8fafc" }}
+                      >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <div style={{ fontWeight: 600 }}>{row.campaign_name || row.campaign_id}</div>
                           <div style={{ fontWeight: 700 }}>
-                            {row.recommendation === "SCALE_UP" ? "SCALE" : row.recommendation === "SCALE_DOWN" ? "SCALE" : "HOLD"}{" "}
-                            {row.recommendation === "HOLD" ? "0%" : formatScalePct(row.pct_change)}
+                            {row.recommendation === "HOLD" ? "HOLD 0%" : `SCALE ${formatScalePct(row.pct_change)}`}
                           </div>
                         </div>
                         <div style={{ marginTop: 4, fontSize: 12, opacity: 0.85 }}>
-                          ROAS 7d: {row.blended_roas_7d == null ? "—" : row.blended_roas_7d.toFixed(2)} · Spend 7d: ₹ {formatINR(row.spend_7d)} · Volatility 7d: {row.volatility_7d == null ? "—" : row.volatility_7d.toFixed(2)}
+                          ROAS 7d: {row.blended_roas_7d == null ? "—" : row.blended_roas_7d.toFixed(2)} · Spend
+                          7d: ₹ {formatINR(row.spend_7d)} · Volatility 7d: {row.volatility_7d == null ? "—" : row.volatility_7d.toFixed(2)}
                         </div>
                         <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>Reason: {row.reason}</div>
                       </div>
@@ -309,15 +297,14 @@ export default function GrowthCockpitPage() {
             })}
           </div>
         )}
-      </div>
+      </ErpCard>
 
-      <details style={{ marginTop: 16 }}>
+      <details>
         <summary style={{ cursor: "pointer" }}>Debug snapshot JSON</summary>
         <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, marginTop: 8 }}>
           {JSON.stringify(data, null, 2)}
         </pre>
       </details>
-      </div>
-    </ErpShell>
+    </div>
   );
 }

@@ -48,6 +48,7 @@ const mainStyle: CSSProperties = {
   paddingTop: 64,
   minHeight: "100vh",
   transition: "margin-left 150ms ease",
+  background: "#f4f6fa",
 };
 
 const ErpShellContext = createContext(false);
