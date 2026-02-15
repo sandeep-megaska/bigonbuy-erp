@@ -51,28 +51,28 @@ export const eyebrowStyle: CSSProperties = {
 };
 
 export const cardStyle: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: 14,
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
   padding: 16,
   backgroundColor: "#fff",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
 };
 
 export const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  borderRadius: 14,
+  borderRadius: 16,
   overflow: "hidden",
   backgroundColor: "#fff",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+  boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)",
 };
 
 export const tableHeaderCellStyle: CSSProperties = {
   textAlign: "left",
   fontSize: 12,
   textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  color: "#6b7280",
+  letterSpacing: "0.08em",
+  color: "#64748b",
   padding: "12px 14px",
   backgroundColor: "#f8fafc",
   borderBottom: "1px solid #e2e8f0",
@@ -87,10 +87,10 @@ export const tableCellStyle: CSSProperties = {
 
 export const primaryButtonStyle: CSSProperties = {
   padding: "10px 16px",
-  backgroundColor: "#111827",
+  backgroundColor: "#4f46e5",
   color: "#fff",
   borderRadius: 8,
-  border: "1px solid #111827",
+  border: "1px solid #4f46e5",
   cursor: "pointer",
   fontWeight: 600,
 };
@@ -120,8 +120,8 @@ export const badgeStyle: CSSProperties = {
   gap: 6,
   borderRadius: 999,
   padding: "4px 10px",
-  backgroundColor: "#e0f2fe",
-  color: "#0369a1",
+  backgroundColor: "#eef2ff",
+  color: "#4338ca",
   fontSize: 12,
   fontWeight: 600,
 };
