@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import CommandPalette from "./CommandPalette";
 import { getCompanyContext } from "../../lib/erpContext";
 import { supabase } from "../../lib/supabaseClient";
 import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
-import { navLink, navLinkActive, shellHeader, topBarNavWrap, topBarUtilityButton } from "./tw";
 
 export type ErpModuleKey =
   | "workspace"
@@ -17,14 +17,7 @@ export type ErpModuleKey =
   | "oms"
   | "admin";
 
-type ModuleLink = {
-  key: ErpModuleKey;
-  label: string;
-  href: string;
-};
-
-const cx = (...classes: Array<string | false | null | undefined>) =>
-  classes.filter(Boolean).join(" ");
+type ModuleLink = { key: ErpModuleKey; label: string; href: string };
 
 const moduleLinks: ModuleLink[] = [
   { key: "workspace", label: "Workspace", href: "/erp" },
@@ -47,7 +40,6 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
     roleKey: null,
     companyId: null,
   });
-
   const companyMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -73,7 +65,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
   }, []);
 
   useEffect(() => {
-    const updateCompact = () => setShowCompactSearch(window.innerWidth < 840);
+    const updateCompact = () => setShowCompactSearch(window.innerWidth < 980);
     updateCompact();
     window.addEventListener("resize", updateCompact);
     return () => window.removeEventListener("resize", updateCompact);
@@ -87,9 +79,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
   useEffect(() => {
@@ -105,131 +95,263 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
 
   const navLinks = useMemo(
     () =>
-      moduleLinks.map((module) => (
-        <Link
-          key={module.key}
-          href={module.href}
-          className={cx(navLink, activeModule === module.key && navLinkActive)}
-        >
-          {module.label}
-        </Link>
-      )),
+      moduleLinks.map((m) => {
+        const active = activeModule === m.key;
+        return (
+          <Link
+            key={m.key}
+            href={m.href}
+            style={{ ...navLinkStyle, ...(active ? activeNavLinkStyle : null) }}
+          >
+            {m.label}
+          </Link>
+        );
+      }),
     [activeModule]
   );
 
   return (
-    <header className={shellHeader} data-erp-topbar>
-      <div className="grid h-16 grid-cols-[auto_1fr_auto] items-center gap-3 overflow-hidden px-4 sm:gap-4 sm:px-5">
-        {/* LEFT: Logos + brand */}
-        <div className="flex min-w-[240px] items-center gap-3 overflow-hidden">
+    <header style={topBarStyle} data-erp-topbar>
+      <div style={topBarContentStyle}>
+        {/* LEFT: logos + company */}
+        <div style={brandBlockStyle}>
           {branding?.bigonbuyLogoUrl ? (
-            <img
-              src={branding.bigonbuyLogoUrl}
-              alt="Bigonbuy logo"
-              className="erp-topbar-logo block h-8 max-h-8 w-auto max-w-[140px] object-contain"
-            />
+            <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={logoStyle} />
           ) : (
-            <div className="inline-flex h-8 items-center justify-center rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold tracking-[0.12em] text-white">
-              BIGONBUY
-            </div>
+            <div style={logoFallbackStyle}>BIGONBUY</div>
           )}
 
-          <div className="min-w-0">
-            <div className="truncate text-xs font-bold uppercase tracking-[0.08em] text-slate-900">
-              BIGONBUY ERP
-            </div>
-            <div className="truncate text-xs text-slate-500">{companyName}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={brandNameStyle}>BIGONBUY ERP</div>
+            <div style={companyNameStyle}>{companyName}</div>
           </div>
 
           {branding?.megaskaLogoUrl ? (
-            <img
-              src={branding.megaskaLogoUrl}
-              alt="Megaska logo"
-              className="erp-topbar-logo block h-5 max-h-5 w-auto max-w-[140px] object-contain opacity-90"
-            />
+            <img src={branding.megaskaLogoUrl} alt="Megaska logo" style={megaskaLogoStyle} />
           ) : null}
         </div>
 
-        {/* CENTER: Module pills (centered) */}
-        <div className="min-w-0 flex justify-center">
-          <nav className={cx(topBarNavWrap, "max-w-full overflow-x-auto whitespace-nowrap")}>
-            {navLinks}
-          </nav>
-        </div>
+        {/* MIDDLE: module nav */}
+        <nav style={navStyle} aria-label="ERP modules">
+          <div style={navPillWrapStyle}>{navLinks}</div>
+        </nav>
 
-        {/* RIGHT: Utilities (pinned right) */}
-        <div className="flex items-center gap-2 justify-self-end">
+        {/* RIGHT: utilities */}
+        <div style={rightBlockStyle}>
           <button
             type="button"
-            className={topBarUtilityButton}
-            onClick={() => setPaletteOpenNonce((prev) => prev + 1)}
+            style={utilityButtonStyle}
+            onClick={() => setPaletteOpenNonce((p) => p + 1)}
             aria-label="Open module search"
           >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-slate-200 text-[11px]">
-              ⌘
-            </span>
+            <span style={kbdStyle}>⌘</span>
             {!showCompactSearch ? <span>Search modules</span> : null}
-            {!showCompactSearch ? (
-              <span className="text-[11px] font-medium text-slate-500">Ctrl/⌘ K</span>
-            ) : null}
+            {!showCompactSearch ? <span style={hintStyle}>Ctrl/⌘ K</span> : null}
           </button>
 
-          <div className="relative" ref={companyMenuRef}>
+          <div style={{ position: "relative" }} ref={companyMenuRef}>
             <button
               type="button"
-              onClick={() => setCompanyMenuOpen((prev) => !prev)}
-              className={topBarUtilityButton}
+              onClick={() => setCompanyMenuOpen((p) => !p)}
+              style={utilityButtonStyle}
               aria-expanded={companyMenuOpen}
               aria-haspopup="menu"
             >
-              Company
-              <span className="text-[10px] text-slate-500">{companyMenuOpen ? "▲" : "▼"}</span>
+              Company <span style={caretStyle}>{companyMenuOpen ? "▲" : "▼"}</span>
             </button>
 
             {companyMenuOpen ? (
-              <div
-                className="absolute right-0 top-[calc(100%+8px)] z-40 flex min-w-[200px] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-[0_10px_24px_rgba(15,23,42,0.12)]"
-                role="menu"
-              >
-                <Link
-                  href="/erp/company"
-                  className="rounded-lg bg-slate-50 px-2.5 py-2 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-100"
-                  role="menuitem"
-                >
+              <div style={companyMenuStyle} role="menu">
+                <Link href="/erp/company" style={companyMenuLinkStyle} role="menuitem">
                   Company Settings Hub
                 </Link>
-                <Link
-                  href="/erp/admin/company-users"
-                  className="rounded-lg bg-slate-50 px-2.5 py-2 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-100"
-                  role="menuitem"
-                >
+                <Link href="/erp/admin/company-users" style={companyMenuLinkStyle} role="menuitem">
                   Users &amp; Access
                 </Link>
               </div>
             ) : null}
           </div>
 
-          {userEmail ? (
-            <span className="hidden max-w-[180px] truncate text-xs text-slate-500 lg:inline">
-              {userEmail}
-            </span>
-          ) : null}
+          {userEmail ? <span style={userStyle}>{userEmail}</span> : null}
 
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="erp-btn-focus inline-flex h-9 items-center rounded-lg px-2.5 text-[13px] font-semibold text-slate-700 transition hover:bg-slate-100 focus-visible:ring-indigo-500"
-          >
+          <button type="button" onClick={handleSignOut} style={signOutStyle}>
             Sign Out
           </button>
         </div>
       </div>
 
-      <CommandPalette
-        roleKey={companyContext.roleKey}
-        companyId={companyContext.companyId}
-        openNonce={paletteOpenNonce}
-      />
+      <CommandPalette roleKey={companyContext.roleKey} companyId={companyContext.companyId} openNonce={paletteOpenNonce} />
     </header>
   );
 }
+
+/** ---------- styles ---------- */
+
+const topBarStyle: CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  zIndex: 30,
+  height: 64,
+  background: "#ffffff",
+  borderBottom: "1px solid #e5e7eb",
+};
+
+const topBarContentStyle: CSSProperties = {
+  height: 64,
+  display: "grid",
+  gridTemplateColumns: "auto 1fr auto",
+  alignItems: "center",
+  gap: 12,
+  padding: "0 16px",
+};
+
+const brandBlockStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  minWidth: 260,
+  overflow: "hidden",
+};
+
+const logoStyle: CSSProperties = { height: 32, width: "auto", objectFit: "contain" };
+const megaskaLogoStyle: CSSProperties = { height: 20, width: "auto", objectFit: "contain", opacity: 0.95 };
+
+const logoFallbackStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 32,
+  padding: "0 10px",
+  borderRadius: 8,
+  backgroundColor: "#111827",
+  color: "#fff",
+  fontSize: 11,
+  letterSpacing: "0.12em",
+  fontWeight: 700,
+};
+
+const brandNameStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#111827",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  lineHeight: 1.1,
+};
+
+const companyNameStyle: CSSProperties = { fontSize: 12, color: "#6b7280", lineHeight: 1.1 };
+
+const navStyle: CSSProperties = { display: "flex", justifyContent: "center", minWidth: 0 };
+const navPillWrapStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: 6,
+  borderRadius: 12,
+  background: "#f8fafc",
+  border: "1px solid #e5e7eb",
+  overflowX: "auto",
+  maxWidth: "100%",
+};
+
+const navLinkStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  height: 34,
+  padding: "0 12px",
+  borderRadius: 10,
+  textDecoration: "none",
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#475569",
+  border: "1px solid transparent",
+  whiteSpace: "nowrap",
+};
+
+const activeNavLinkStyle: CSSProperties = {
+  color: "#0f172a",
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+};
+
+const rightBlockStyle: CSSProperties = { display: "flex", alignItems: "center", gap: 8, justifySelf: "end" };
+
+const utilityButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  background: "#f8fafc",
+  color: "#0f172a",
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const kbdStyle: CSSProperties = {
+  width: 20,
+  height: 20,
+  borderRadius: 6,
+  background: "#e2e8f0",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: 11,
+  fontWeight: 800,
+};
+
+const hintStyle: CSSProperties = { color: "#64748b", fontSize: 11, fontWeight: 600 };
+const caretStyle: CSSProperties = { fontSize: 10, opacity: 0.7 };
+
+const companyMenuStyle: CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 8px)",
+  right: 0,
+  minWidth: 220,
+  borderRadius: 12,
+  backgroundColor: "#fff",
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.12)",
+  padding: 6,
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+  zIndex: 40,
+};
+
+const companyMenuLinkStyle: CSSProperties = {
+  padding: "10px 10px",
+  borderRadius: 10,
+  textDecoration: "none",
+  color: "#0f172a",
+  fontSize: 13,
+  fontWeight: 700,
+  backgroundColor: "#f8fafc",
+};
+
+const userStyle: CSSProperties = {
+  fontSize: 12,
+  color: "#6b7280",
+  maxWidth: 220,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const signOutStyle: CSSProperties = {
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  backgroundColor: "#fff",
+  color: "#0f172a",
+  cursor: "pointer",
+  fontWeight: 800,
+  fontSize: 13,
+};
