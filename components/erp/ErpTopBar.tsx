@@ -138,11 +138,11 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           ) : null}
         </div>
 
-        <div className="min-w-0">
-          <nav className={cx(topBarNavWrap, "w-full overflow-x-auto whitespace-nowrap")}>{navLinks}</nav>
+        <div className="flex min-w-0 justify-center">
+          <nav className={cx(topBarNavWrap, "max-w-full overflow-x-auto whitespace-nowrap")}>{navLinks}</nav>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-self-end gap-2">
           <button
             type="button"
             className={topBarUtilityButton}
