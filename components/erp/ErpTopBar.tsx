@@ -115,6 +115,8 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
 
   return (
     <header className={shellHeader} style={topBarStyle} data-erp-topbar>
+      <div className="h-[3px] w-full bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-400" aria-hidden />
+      <div style={topBarContentStyle}>
       <div style={brandBlockStyle}>
         {branding?.bigonbuyLogoUrl ? (
           <img src={branding.bigonbuyLogoUrl} alt="Bigonbuy logo" style={logoStyle} />
@@ -167,6 +169,7 @@ export default function ErpTopBar({ activeModule }: { activeModule: ErpModuleKey
           Sign Out
         </button>
       </div>
+      </div>
       <CommandPalette
         roleKey={companyContext.roleKey}
         companyId={companyContext.companyId}
@@ -181,15 +184,16 @@ const topBarStyle: CSSProperties = {
   top: 0,
   left: 0,
   right: 0,
+  zIndex: 30,
+};
+
+const topBarContentStyle: CSSProperties = {
   height: 64,
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: 16,
   padding: "0 20px",
-  backgroundColor: "rgba(255,255,255,0.95)",
-  borderBottom: "1px solid #e2e8f0",
-  zIndex: 30,
 };
 
 const brandBlockStyle: CSSProperties = {
@@ -248,17 +252,11 @@ const navStyle: CSSProperties = {
 };
 
 const navLinkStyle: CSSProperties = {
-  padding: "6px 10px",
-  borderRadius: 6,
   textDecoration: "none",
-  color: "#111827",
-  fontSize: 14,
-  fontWeight: 600,
 };
 
 const activeNavLinkStyle: CSSProperties = {
-  color: "#2563eb",
-  backgroundColor: "#eff6ff",
+  boxShadow: "inset 0 0 0 1px rgba(79, 70, 229, 0.16)",
 };
 
 const rightBlockStyle: CSSProperties = {

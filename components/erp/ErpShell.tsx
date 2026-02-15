@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import ErpSidebar from "./ErpSidebar";
 import ErpTopBar, { type ErpModuleKey } from "./ErpTopBar";
 import { pageWrapperStyle } from "./ui/styles";
-import { shellWrap } from "./tw";
+import { pageWrap, shellWrap } from "./tw";
 import FinanceDiagnosticsBanner from "./FinanceDiagnosticsBanner";
 
 export default function ErpShell({
@@ -23,7 +23,7 @@ export default function ErpShell({
 
   return (
     <ErpShellContext.Provider value>
-      <div className={shellWrap} style={shellStyle}>
+      <div className={shellWrap}>
         <ErpTopBar activeModule={activeModule} />
         <ErpSidebar
           activeModule={activeModule}
@@ -31,9 +31,11 @@ export default function ErpShell({
           onToggle={() => setCollapsed((prev) => !prev)}
         />
         <main className="erp-shell-main" style={{ ...mainStyle, marginLeft: sidebarWidth }}>
-          <div className="erp-shell-page" style={pageWrapperStyle}>
-            {activeModule === "finance" ? <FinanceDiagnosticsBanner /> : null}
-            {children}
+          <div className={pageWrap + " erp-shell-page"} style={pageWrapperStyle}>
+            <div className="space-y-6">
+              {activeModule === "finance" ? <FinanceDiagnosticsBanner /> : null}
+              {children}
+            </div>
           </div>
         </main>
       </div>
@@ -41,10 +43,6 @@ export default function ErpShell({
   );
 }
 
-const shellStyle: CSSProperties = {
-  minHeight: "100vh",
-  backgroundColor: "#f8fafc",
-};
 
 const mainStyle: CSSProperties = {
   paddingTop: 64,
