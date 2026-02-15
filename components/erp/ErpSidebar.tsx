@@ -135,7 +135,7 @@ const settingsDockStyle: CSSProperties = {
 
 const sidebarStyle: CSSProperties = {
   position: "fixed",
-  top: 56,
+  top: 64, // was 56 — MUST match main paddingTop + topbar height
   left: 0,
   bottom: 0,
   backgroundColor: "#111827",
@@ -145,9 +145,11 @@ const sidebarStyle: CSSProperties = {
   flexDirection: "column",
   gap: 16,
   overflowY: "auto",
+  paddingBottom: 24, // ensures last items aren’t clipped
   transition: "width 150ms ease",
-  zIndex: 20,
+  zIndex: 50, // was 20 — ensure above page content/backdrop layers
 };
+
 
 const collapseButtonStyle: CSSProperties = {
   border: "1px solid rgba(255,255,255,0.15)",
