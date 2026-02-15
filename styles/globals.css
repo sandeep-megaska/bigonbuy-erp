@@ -131,3 +131,5 @@ body {
   background: #e0f2fe;
   color: #0369a1;
 }
+.erp-topbar .erp-topbar-logo[alt="Bigonbuy logo"] { height: 32px !important; max-height: 32px !important; }
+.erp-topbar .erp-topbar-logo[alt="Megaska logo"] { height: 20px !important; max-height: 20px !important; }
