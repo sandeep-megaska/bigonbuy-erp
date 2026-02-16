@@ -14,7 +14,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(context.status).json({ ok: false, error: context.error });
   }
 
-  if (!OWNER_ADMIN_ROLE_KEYS.includes(context.roleKey as (typeof OWNER_ADMIN_ROLE_KEYS)[number])) {
+ if (!OWNER_ADMIN_ROLE_KEYS.has(context.roleKey)) {
+
 
     return res.status(403).json({ ok: false, error: "Only owner/admin can refresh audiences" });
   }
