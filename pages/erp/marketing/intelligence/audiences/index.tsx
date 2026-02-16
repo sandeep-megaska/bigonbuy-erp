@@ -4,35 +4,62 @@ import ErpPageHeader from "../../../../../components/erp/ErpPageHeader";
 import { card, cardTitle } from "../../../../../components/erp/tw";
 import { primaryButtonStyle, secondaryButtonStyle } from "../../../../../components/erp/uiStyles";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
-import { downloadCsvWithSession } from "../../../../../lib/erp/marketing/downloadCsv";
+import { supabase } from "../../../../../lib/supabaseClient";
+import { CsvColumn, downloadCsv } from "../../../../../lib/erp/exportCsv";
 
 type AudienceExportConfig = {
   title: string;
   description: string;
-  filenamePrefix: string;
-  endpoint: string;
+  filename: string;
+  view: string;
 };
 
+type AudienceCsvRow = {
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  country: string | null;
+  source: string | null;
+  last_event_at: string | null;
+};
+
+const CSV_COLUMNS: CsvColumn<AudienceCsvRow>[] = [
+  { header: "email", accessor: (row) => row.email },
+  { header: "phone", accessor: (row) => row.phone },
+  { header: "city", accessor: (row) => row.city },
+  { header: "state", accessor: (row) => row.state },
+  { header: "zip", accessor: (row) => row.zip },
+  { header: "country", accessor: (row) => row.country },
+  { header: "source", accessor: (row) => row.source },
+  { header: "last_event_at", accessor: (row) => row.last_event_at },
+];
+
+const AUDIENCE_EXPORT_LIMIT_DEFAULT = 50000;
+const AUDIENCE_EXPORT_LIMIT_MAX = 100000;
+
+const AUDIENCE_EXPORT_LIMIT = Math.min(AUDIENCE_EXPORT_LIMIT_DEFAULT, AUDIENCE_EXPORT_LIMIT_MAX);
 
 const exportsConfig: readonly AudienceExportConfig[] = [
   {
     title: "ATC Audience (30D, exclude purchasers 180D)",
     description:
       "People with AddToCart/InitiateCheckout events in the last 30 days, excluding anyone who purchased in the last 180 days.",
-    filenamePrefix: "audience_atc_30d_no_purchase",
-    endpoint: "/api/marketing/audiences/export-atc-30d.csv",
+    filename: "meta_audience_atc_30d_no_purchase.csv",
+    view: "erp_mkt_audience_atc_30d_no_purchase_v1",
   },
   {
     title: "Purchasers Audience (180D)",
     description: "All purchasers from supported channels in the last 180 days.",
-    filenamePrefix: "audience_purchasers_180d",
-    endpoint: "/api/marketing/audiences/export-purchasers-180d.csv",
+    filename: "meta_audience_purchasers_180d.csv",
+    view: "erp_mkt_audience_purchasers_180d_v1",
   },
   {
     title: "VIP Buyers Audience (Top 20% revenue, 180D)",
     description: "Top 20% buyers by blended 180-day revenue for high-value retention and upsell campaigns.",
-    filenamePrefix: "audience_vip_buyers_180d",
-    endpoint: "/api/marketing/audiences/export-vip-buyers.csv",
+    filename: "meta_audience_vip_buyers_180d.csv",
+    view: "erp_mkt_audience_vip_buyers_180d_v1",
   },
 ] as const;
 
@@ -63,11 +90,21 @@ export default function MarketingMetaAudiencesExportPage() {
 
   const handleExport = async (item: AudienceExportConfig) => {
     setErrorMessage(null);
-    setIsExportingView(item.endpoint);
+    setIsExportingView(item.view);
 
     try {
-      const dateTag = new Date().toISOString().slice(0, 10);
-      await downloadCsvWithSession(item.endpoint, `${item.filenamePrefix}_${dateTag}.csv`);
+      const { data, error } = await supabase
+        .from(item.view)
+        .select("email,phone,city,state,zip,country,source,last_event_at")
+        .or("email.not.is.null,phone.not.is.null")
+        .order("last_event_at", { ascending: false, nullsFirst: false })
+        .limit(AUDIENCE_EXPORT_LIMIT);
+
+      if (error) {
+        throw new Error(error.message || "Failed to export CSV.");
+      }
+
+      downloadCsv(item.filename, CSV_COLUMNS, (data ?? []) as AudienceCsvRow[]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to export CSV.";
       setErrorMessage(message);
@@ -92,16 +129,16 @@ export default function MarketingMetaAudiencesExportPage() {
 
         <div className="grid gap-4 md:grid-cols-3">
           {exportsConfig.map((item) => (
-            <section key={item.endpoint} className={card}>
+            <section key={item.view} className={card}>
               <h2 className={cardTitle}>{item.title}</h2>
               <p className="mb-4 text-sm text-slate-600">{item.description}</p>
               <button
                 type="button"
-                style={isExportingView === item.endpoint ? secondaryButtonStyle : primaryButtonStyle}
+                style={isExportingView === item.view ? secondaryButtonStyle : primaryButtonStyle}
                 onClick={() => void handleExport(item)}
                 disabled={isExportingView !== null}
               >
-                {isExportingView === item.endpoint ? "Exporting..." : "Export CSV"}
+                {isExportingView === item.view ? "Exporting..." : "Export CSV"}
               </button>
             </section>
           ))}
