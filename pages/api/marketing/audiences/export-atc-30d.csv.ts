@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { createUserClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 type AudienceCsvRow = {
   email: string | null;
@@ -46,16 +47,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const context = await resolveMarketingApiContext(req, res);
-
-
-  if (!context.ok) {
-    return res.status(context.status).json({ error: context.error });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
   }
+
+  const supabase = createServerSupabaseClient({ req, res });
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError || !session?.access_token) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  const userClient = createUserClient(supabaseUrl, anonKey, session.access_token);
 
   const limit = parseLimit(req.query.limit);
 
-  const { data, error } = await context.userClient
+  const { data, error } = await userClient
     .from("erp_mkt_audience_atc_30d_no_purchase_v1")
     .select("email,phone,city,state,zip,country,source,last_event_at")
     .or("email.not.is.null,phone.not.is.null")
