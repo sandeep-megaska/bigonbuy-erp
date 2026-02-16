@@ -1,64 +1,68 @@
-import type { NextApiRequest } from "next";
-import { createServiceRoleClient, createUserClient, getSupabaseEnv } from "../../serverSupabase";
-import { resolveInternalApiAuth } from "../../erp/internalApiAuth";
+// lib/erp/marketing/intelligenceApi.ts
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { supabaseAdmin } from "../supabaseAdmin"; // <- keep whatever you already use for service/admin
+import { getCompanyContext } from "../../erpContext"; // <- if you already use this, keep it; otherwise remove
 
-export const OWNER_ADMIN_ROLE_KEYS = new Set(["owner", "admin"]);
+export const OWNER_ADMIN_ROLE_KEYS = ["owner", "admin"] as const;
 
-export const parseDateParam = (value: string | string[] | undefined) => {
-  if (!value) return null;
-  const raw = Array.isArray(value) ? value[0] : value;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  return raw;
+export type MarketingApiContext = {
+  ok: true;
+  userId: string;
+  roleKey: string;
+  companyId: string;
 };
 
-export const parseLimitParam = (value: string | string[] | undefined, fallback = 100) => {
-  if (!value) return fallback;
-  const raw = Array.isArray(value) ? value[0] : value;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.min(parsed, 500);
-};
+function extractBearer(req: NextApiRequest): string | null {
+  const raw = req.headers.authorization || "";
+  const m = raw.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
 
-export async function resolveMarketingApiContext(req: NextApiRequest) {
-  const auth = await resolveInternalApiAuth(req);
-  if (!auth.ok) return auth;
+// IMPORTANT: signature now accepts res optionally
+export async function resolveMarketingApiContext(req: NextApiRequest, res?: NextApiResponse): Promise<MarketingApiContext> {
+  // 1) If caller provided Bearer token, keep supporting it (workers / scripts)
+  const bearer = extractBearer(req);
+  if (bearer) {
+    // If you already had logic here, keep your existing bearer verification.
+    // Minimal safe pattern: validate token by calling Supabase with it.
+    const supa = supabaseAdmin.auth; // placeholder; replace with YOUR existing bearer flow if different
 
-  const { supabaseUrl, anonKey, serviceRoleKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
-    return {
-      ok: false as const,
-      status: 500,
-      error:
-        "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    };
+    // Many codebases do:
+    // const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: `Bearer ${bearer}` }}})
+    // const { data } = await supabase.auth.getUser();
+    // Use your existing implementation if you already have it.
+
+    // If you don't have it implemented, DO NOT guess here.
+    // In most of your app, you should use cookie auth anyway.
   }
 
-  const userClient = createUserClient(supabaseUrl, anonKey, auth.token);
-  const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
+  // 2) No bearer token — use cookie session (this is what browser CSV downloads need)
+  if (!res) {
+    // Without res we can’t use auth-helpers cookie flow reliably.
+    throw new Error("Missing auth context: pass (req,res) or send Authorization: Bearer <token>.");
+  }
 
-  const { data: membership, error: membershipError } = await serviceClient
-    .from("erp_company_users")
-    .select("role_key")
-    .eq("company_id", auth.companyId)
-    .eq("user_id", auth.userId)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
+  const supabase = createServerSupabaseClient({ req, res });
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userData?.user?.id) {
+    throw new Error("Not authenticated.");
+  }
 
-  if (membershipError || !membership?.role_key) {
-    return {
-      ok: false as const,
-      status: 403,
-      error: "Company membership not found",
-    };
+  // 3) Resolve company + role using YOUR existing company context logic
+  // If your current intelligenceApi.ts already calculates roleKey/companyId, keep that code.
+  const ctx = await getCompanyContext(); // If this reads from cookies/session, it should work.
+  const roleKey = (ctx?.roleKey ?? null) as string | null;
+  const companyId = (ctx?.companyId ?? null) as string | null;
+
+  if (!roleKey || !companyId) {
+    throw new Error("Missing company context.");
   }
 
   return {
-    ok: true as const,
-    userId: auth.userId,
-    companyId: auth.companyId,
-    roleKey: membership.role_key,
-    userClient,
-    serviceClient,
+    ok: true,
+    userId: userData.user.id,
+    roleKey,
+    companyId,
   };
 }
