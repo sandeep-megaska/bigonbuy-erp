@@ -1,52 +1,80 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
 
-type ScaleSkuCsvRow = {
+type Row = {
   sku: string | null;
-  orders_30d: number | null;
-  revenue_30d: number | null;
-  orders_prev_30d: number | null;
-  revenue_prev_30d: number | null;
-  growth_rate: number | null;
+  variant_sku: string | null;
+  title: string | null;
+  size: string | null;
+  color: string | null;
+  week_start: string | null;
   demand_score: number | null;
-  decision: string | null;
   confidence_score: number | null;
   recommended_pct_change: number | null;
-  guardrail_tags: string[] | null;
-  week_start: string | null;
+  reason: string | null;
 };
 
 function csvEscape(value: unknown) {
   const text = value == null ? "" : String(value);
-  if (text.includes('"') || text.includes(",") || text.includes("\n")) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
+  if (text.includes('"') || text.includes(",") || text.includes("\n")) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }
 
-function toCsv(headers: string[], rows: ScaleSkuCsvRow[]) {
-  const lines = [headers.map((x) => csvEscape(x)).join(",")];
-  for (const row of rows) {
+function toCsv(rows: Row[]) {
+  const headers = [
+    "sku",
+    "variant_sku",
+    "title",
+    "size",
+    "color",
+    "week_start",
+    "demand_score",
+    "confidence_score",
+    "recommended_pct_change",
+    "reason",
+  ];
+  const lines = [headers.map(csvEscape).join(",")];
+  for (const r of rows) {
     lines.push(
       [
-        row.sku,
-        row.orders_30d,
-        row.revenue_30d,
-        row.orders_prev_30d,
-        row.revenue_prev_30d,
-        row.growth_rate,
-        row.demand_score,
-        row.decision,
-        row.confidence_score,
-        row.recommended_pct_change,
-        (row.guardrail_tags ?? []).join('|'),
-        row.week_start,
+        r.sku,
+        r.variant_sku,
+        r.title,
+        r.size,
+        r.color,
+        r.week_start,
+        r.demand_score,
+        r.confidence_score,
+        r.recommended_pct_change,
+        r.reason,
       ]
-        .map((x) => csvEscape(x))
+        .map(csvEscape)
         .join(",")
     );
   }
   return `${lines.join("\n")}\n`;
+}
+
+function readCookie(req: NextApiRequest, name: string): string | null {
+  const cookie = req.headers.cookie;
+  if (!cookie) return null;
+  const parts = cookie.split(";").map((p) => p.trim());
+  const hit = parts.find((p) => p.toLowerCase().startsWith(name.toLowerCase() + "="));
+  if (!hit) return null;
+  return decodeURIComponent(hit.substring(name.length + 1));
+}
+
+function resolveCompanyId(req: NextApiRequest): string | null {
+  const h = req.headers["x-erp-company-id"];
+  if (typeof h === "string" && h) return h;
+  return readCookie(req, "erp_company_id") || readCookie(req, "bb_company_id") || readCookie(req, "company_id") || null;
+}
+
+function parseLimit(raw: string | string[] | undefined) {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const n = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(n) || n <= 0) return 50000;
+  return Math.min(n, 100000);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<string | { error: string }>) {
@@ -55,47 +83,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const context = await resolveMarketingApiContext(req, res);
-  if (!context.ok) {
-    return res.status(context.status).json({ error: context.error });
-  }
+  const supabase = createServerSupabaseClient({ req, res });
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !userData?.user?.id) return res.status(401).json({ error: "Not authenticated" });
 
-  const { data, error } = await context.userClient
-    .from("erp_mkt_sku_demand_latest_v1")
-    .select(
-      "sku, orders_30d, revenue_30d, orders_prev_30d, revenue_prev_30d, growth_rate, demand_score, decision, confidence_score, recommended_pct_change, guardrail_tags, week_start"
-    )
-    .eq("decision", "SCALE")
+  const companyId = resolveCompanyId(req);
+  if (!companyId) return res.status(400).json({ error: "Missing company context" });
+
+  const limit = parseLimit(req.query.limit);
+
+  // NOTE: keep the table/view name exactly as your UI expects.
+  // If your actual view is named differently, change ONLY this string.
+  const { data, error } = await supabase
+    .from("erp_mkt_demand_steering_scale_skus_v1")
+    .select("sku,variant_sku,title,size,color,week_start,demand_score,confidence_score,recommended_pct_change,reason")
+    .eq("company_id", companyId)
     .order("demand_score", { ascending: false })
-    .limit(200);
+    .limit(limit);
 
-  if (error) {
-    return res.status(400).json({ error: error.message || "Failed to export scale SKUs" });
-  }
+  if (error) return res.status(400).json({ error: error.message || "Failed to export Scale SKUs" });
 
-  const rows = (data ?? []) as ScaleSkuCsvRow[];
-  const weekStart = rows[0]?.week_start ?? "latest";
-  const filename = `demand_steering_scale_skus_${weekStart}.csv`;
-
-  const csv = toCsv(
-    [
-      "sku",
-      "orders_30d",
-      "revenue_30d",
-      "orders_prev_30d",
-      "revenue_prev_30d",
-      "growth_rate",
-      "demand_score",
-      "decision",
-      "confidence_score",
-      "recommended_pct_change",
-      "guardrail_tags",
-      "week_start",
-    ],
-    rows
-  );
-
+  const csv = toCsv((data ?? []) as Row[]);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Disposition", 'attachment; filename="demand_steering_scale_skus.csv"');
   return res.status(200).send(csv);
 }
