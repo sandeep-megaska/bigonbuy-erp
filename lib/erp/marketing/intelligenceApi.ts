@@ -1,24 +1,26 @@
 // lib/erp/marketing/intelligenceApi.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export const OWNER_ADMIN_ROLE_KEYS = ["owner", "admin"] as const;
 
 export type MarketingApiContextOk = {
   ok: true;
+  status: 200;
   userId: string;
   roleKey: string;
   companyId: string;
+  userClient: SupabaseClient;
 };
 
-export type MarketingApiContextErr = {
+export type MarketingApiContextFail = {
   ok: false;
   status: number;
   error: string;
 };
 
-export type MarketingApiContext = MarketingApiContextOk | MarketingApiContextErr;
+export type MarketingApiContext = MarketingApiContextOk | MarketingApiContextFail;
 
 // ---------------------------
 // small helpers used by APIs
@@ -37,7 +39,7 @@ export function parseDateParam(value: unknown): string | null {
 }
 
 // ---------------------------
-// internal helpers
+// auth + context resolution
 // ---------------------------
 function extractBearer(req: NextApiRequest): string | null {
   const raw = req.headers.authorization || "";
@@ -82,60 +84,81 @@ function resolveRoleKey(req: NextApiRequest): string | null {
 }
 
 /**
- * Contract (matches your existing API code):
- * - returns { ok:true, userId, companyId, roleKey } OR { ok:false, status, error }
- *
- * Auth rules:
- * - If Authorization: Bearer <token> is present => validate via supabase.auth.getUser()
- * - Else => cookie-session auth using createServerSupabaseClient (requires res for best compatibility)
+ * Contract expected by your API routes:
+ * - returns { ok, status, error? } union
+ * - includes userClient when ok=true
  *
  * IMPORTANT:
- * - For CSV downloads from browser, always call resolveMarketingApiContext(req, res)
- *   so cookie auth works (no bearer needed).
+ * For browser-triggered routes (CSV download links), CALL WITH (req, res)
+ * so cookie-session auth works.
  */
 export async function resolveMarketingApiContext(
   req: NextApiRequest,
   res?: NextApiResponse
 ): Promise<MarketingApiContext> {
   try {
-    const bearer = extractBearer(req);
-
-    let userId: string | null = null;
-
-    if (bearer) {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-      if (!url || !anon) {
-        return { ok: false, status: 500, error: "Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY." };
-      }
-
-      const supabase = createClient(url, anon, {
-        global: { headers: { Authorization: `Bearer ${bearer}` } },
-        auth: { persistSession: false },
-      });
-
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data?.user?.id) return { ok: false, status: 401, error: "Not authenticated (bearer)." };
-      userId = data.user.id;
-    } else {
-      // Cookie session path (browser)
-      // NOTE: auth-helpers prefers having both req+res. If res is not provided, we still try,
-      // but some setups may fail to read cookies consistently.
-      const supabase = createServerSupabaseClient({ req, res: res as any });
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data?.user?.id) return { ok: false, status: 401, error: "Not authenticated (cookie)." };
-      userId = data.user.id;
-    }
-
     const companyId = resolveCompanyId(req);
     const roleKey = resolveRoleKey(req);
 
     if (!companyId) return { ok: false, status: 400, error: "Missing company context (companyId not found)." };
-    if (!roleKey) return { ok: false, status: 403, error: "Missing access context (roleKey not found)." };
+    if (!roleKey) return { ok: false, status: 400, error: "Missing access context (roleKey not found)." };
 
-    return { ok: true, userId, companyId, roleKey };
-  } catch (e: any) {
-    return { ok: false, status: 500, error: e?.message || "Unknown error resolving marketing api context." };
+    const bearer = extractBearer(req);
+
+    // 1) Bearer path (server-to-server / scripts)
+    if (bearer) {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!url || !anon) {
+        return {
+          ok: false,
+          status: 500,
+          error: "Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY env vars.",
+        };
+      }
+
+      const userClient = createClient(url, anon, {
+        global: { headers: { Authorization: `Bearer ${bearer}` } },
+        auth: { persistSession: false },
+      });
+
+      const { data, error } = await userClient.auth.getUser();
+      if (error || !data?.user?.id) return { ok: false, status: 401, error: "Not authenticated (bearer)." };
+
+      return {
+        ok: true,
+        status: 200,
+        userId: data.user.id,
+        companyId,
+        roleKey,
+        userClient,
+      };
+    }
+
+    // 2) Cookie session path (browser)
+    if (!res) {
+      // Keep old callers from silently breaking: they MUST pass res for cookie auth.
+      return {
+        ok: false,
+        status: 400,
+        error: "Missing response object. Call resolveMarketingApiContext(req, res) for cookie-auth routes.",
+      };
+    }
+
+    const userClient = createServerSupabaseClient({ req, res });
+    const { data, error } = await userClient.auth.getUser();
+    if (error || !data?.user?.id) return { ok: false, status: 401, error: "Not authenticated (cookie)." };
+
+    return {
+      ok: true,
+      status: 200,
+      userId: data.user.id,
+      companyId,
+      roleKey,
+      userClient,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error resolving marketing API context.";
+    return { ok: false, status: 500, error: msg };
   }
 }
