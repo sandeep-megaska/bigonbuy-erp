@@ -1,9 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
 import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
 
 type Row = {
   sku: string | null;
+  week_start: string | null;
   orders_30d: number | null;
   revenue_30d: number | null;
   growth_rate: number | null;
@@ -59,17 +59,16 @@ function parseLimit(raw: string | string[] | undefined) {
   return Math.min(n, 100000);
 }
 
+function resolveExportDate(rows: Row[]) {
+  const weekStart = rows[0]?.week_start;
+  if (weekStart && /^\d{4}-\d{2}-\d{2}$/.test(String(weekStart))) return String(weekStart);
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse<string | { error: string }>) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  // Intentionally use cookie-session auth so browser CSV downloads work without bearer-token-only flows.
-  const supabase = createServerSupabaseClient({ req, res });
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError || !userData?.user?.id) {
-    return res.status(401).json({ error: "Not authenticated" });
   }
 
   const context = await resolveMarketingApiContext(req, res);
@@ -80,7 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const limit = parseLimit(req.query.limit);
   const { data, error } = await context.userClient
     .from("erp_mkt_sku_demand_latest_v1")
-    .select("sku,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags")
+    .select("sku,week_start,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags")
     .eq("company_id", context.companyId)
     .eq("decision", "SCALE")
     .order("demand_score", { ascending: false })
@@ -91,7 +90,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const csv = toCsv((data ?? []) as Row[]);
+  const exportDate = resolveExportDate((data ?? []) as Row[]);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="demand_steering_scale_skus.csv"');
+  res.setHeader("Content-Disposition", `attachment; filename="demand_steering_scale_skus_${exportDate}.csv"`);
   return res.status(200).send(csv);
 }
