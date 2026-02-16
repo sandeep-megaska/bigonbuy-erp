@@ -1,73 +1,55 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
 
 type Row = {
   sku: string | null;
-  variant_sku: string | null;
-  title: string | null;
-  size: string | null;
-  color: string | null;
-  week_start: string | null;
+  orders_30d: number | null;
+  revenue_30d: number | null;
+  growth_rate: number | null;
   demand_score: number | null;
   confidence_score: number | null;
   recommended_pct_change: number | null;
-  reason: string | null;
+  guardrail_tags: string[] | null;
 };
 
 function csvEscape(value: unknown) {
   const text = value == null ? "" : String(value);
-  if (text.includes('"') || text.includes(",") || text.includes("\n")) return `"${text.replace(/"/g, '""')}"`;
+  if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
   return text;
 }
 
 function toCsv(rows: Row[]) {
   const headers = [
     "sku",
-    "variant_sku",
-    "title",
-    "size",
-    "color",
-    "week_start",
+    "orders_30d",
+    "revenue_30d",
+    "growth_rate",
     "demand_score",
     "confidence_score",
     "recommended_pct_change",
-    "reason",
+    "guardrail_tags",
   ];
-  const lines = [headers.map(csvEscape).join(",")];
-  for (const r of rows) {
+  const lines = [headers.map((x) => csvEscape(x)).join(",")];
+  for (const row of rows) {
     lines.push(
       [
-        r.sku,
-        r.variant_sku,
-        r.title,
-        r.size,
-        r.color,
-        r.week_start,
-        r.demand_score,
-        r.confidence_score,
-        r.recommended_pct_change,
-        r.reason,
+        row.sku,
+        row.orders_30d,
+        row.revenue_30d,
+        row.growth_rate,
+        row.demand_score,
+        row.confidence_score,
+        row.recommended_pct_change,
+        (row.guardrail_tags ?? []).join("|"),
       ]
-        .map(csvEscape)
+        .map((x) => csvEscape(x))
         .join(",")
     );
   }
   return `${lines.join("\n")}\n`;
-}
-
-function readCookie(req: NextApiRequest, name: string): string | null {
-  const cookie = req.headers.cookie;
-  if (!cookie) return null;
-  const parts = cookie.split(";").map((p) => p.trim());
-  const hit = parts.find((p) => p.toLowerCase().startsWith(name.toLowerCase() + "="));
-  if (!hit) return null;
-  return decodeURIComponent(hit.substring(name.length + 1));
-}
-
-function resolveCompanyId(req: NextApiRequest): string | null {
-  const h = req.headers["x-erp-company-id"];
-  if (typeof h === "string" && h) return h;
-  return readCookie(req, "erp_company_id") || readCookie(req, "bb_company_id") || readCookie(req, "company_id") || null;
 }
 
 function parseLimit(raw: string | string[] | undefined) {
@@ -83,25 +65,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Intentionally use cookie-session auth so browser CSV downloads work without bearer-token-only flows.
   const supabase = createServerSupabaseClient({ req, res });
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user?.id) return res.status(401).json({ error: "Not authenticated" });
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user?.id) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
 
-  const companyId = resolveCompanyId(req);
-  if (!companyId) return res.status(400).json({ error: "Missing company context" });
+  const context = await resolveMarketingApiContext(req, res);
+  if (!context.ok) {
+    return res.status(context.status).json({ error: context.error });
+  }
 
   const limit = parseLimit(req.query.limit);
-
-  // NOTE: keep the table/view name exactly as your UI expects.
-  // If your actual view is named differently, change ONLY this string.
-  const { data, error } = await supabase
-    .from("erp_mkt_demand_steering_scale_skus_v1")
-    .select("sku,variant_sku,title,size,color,week_start,demand_score,confidence_score,recommended_pct_change,reason")
-    .eq("company_id", companyId)
+  const { data, error } = await context.userClient
+    .from("erp_mkt_sku_demand_latest_v1")
+    .select("sku,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags")
+    .eq("company_id", context.companyId)
+    .eq("decision", "SCALE")
     .order("demand_score", { ascending: false })
     .limit(limit);
 
-  if (error) return res.status(400).json({ error: error.message || "Failed to export Scale SKUs" });
+  if (error) {
+    return res.status(400).json({ error: error.message || "Failed to export scale SKUs" });
+  }
 
   const csv = toCsv((data ?? []) as Row[]);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
