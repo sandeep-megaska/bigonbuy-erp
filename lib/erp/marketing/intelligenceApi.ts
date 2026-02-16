@@ -1,4 +1,5 @@
-import type { NextApiRequest } from "next";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import type { NextApiRequest, NextApiResponse } from "next";
 import { createServiceRoleClient, createUserClient, getSupabaseEnv } from "../../serverSupabase";
 import { resolveInternalApiAuth } from "../../erp/internalApiAuth";
 
@@ -19,10 +20,7 @@ export const parseLimitParam = (value: string | string[] | undefined, fallback =
   return Math.min(parsed, 500);
 };
 
-export async function resolveMarketingApiContext(req: NextApiRequest) {
-  const auth = await resolveInternalApiAuth(req);
-  if (!auth.ok) return auth;
-
+export async function resolveMarketingApiContext(req: NextApiRequest, res?: NextApiResponse) {
   const { supabaseUrl, anonKey, serviceRoleKey, missing } = getSupabaseEnv();
   if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
     return {
@@ -32,6 +30,30 @@ export async function resolveMarketingApiContext(req: NextApiRequest) {
         "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
     };
   }
+
+  let auth = await resolveInternalApiAuth(req);
+
+  if (!auth.ok && res) {
+    const supabase = createServerSupabaseClient({ req, res });
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (!sessionError && session?.access_token && session.user?.id) {
+      const { data: companyId, error: companyError } = await supabase.rpc("erp_current_company_id");
+      if (!companyError && companyId) {
+        auth = {
+          ok: true as const,
+          userId: session.user.id,
+          companyId: String(companyId),
+          token: session.access_token,
+        };
+      }
+    }
+  }
+
+  if (!auth.ok) return auth;
 
   const userClient = createUserClient(supabaseUrl, anonKey, auth.token);
   const serviceClient = createServiceRoleClient(supabaseUrl, serviceRoleKey);
