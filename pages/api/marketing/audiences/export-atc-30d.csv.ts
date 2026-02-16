@@ -46,7 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const context = await resolveMarketingApiContext(req);
+  const context = await resolveMarketingApiContext(req, res);
+
   if (!context.ok) {
     return res.status(context.status).json({ error: context.error });
   }
