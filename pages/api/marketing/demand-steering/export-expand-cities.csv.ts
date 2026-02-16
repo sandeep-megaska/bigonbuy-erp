@@ -1,48 +1,55 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
 
 type Row = {
   city: string | null;
-  state: string | null;
-  week_start: string | null;
+  orders_30d: number | null;
+  revenue_30d: number | null;
+  growth_rate: number | null;
   demand_score: number | null;
   confidence_score: number | null;
   recommended_pct_change: number | null;
-  reason: string | null;
+  guardrail_tags: string[] | null;
 };
 
 function csvEscape(value: unknown) {
   const text = value == null ? "" : String(value);
-  if (text.includes('"') || text.includes(",") || text.includes("\n")) return `"${text.replace(/"/g, '""')}"`;
+  if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
   return text;
 }
 
 function toCsv(rows: Row[]) {
-  const headers = ["city", "state", "week_start", "demand_score", "confidence_score", "recommended_pct_change", "reason"];
-  const lines = [headers.map(csvEscape).join(",")];
-  for (const r of rows) {
+  const headers = [
+    "city",
+    "orders_30d",
+    "revenue_30d",
+    "growth_rate",
+    "demand_score",
+    "confidence_score",
+    "recommended_pct_change",
+    "guardrail_tags",
+  ];
+  const lines = [headers.map((x) => csvEscape(x)).join(",")];
+  for (const row of rows) {
     lines.push(
-      [r.city, r.state, r.week_start, r.demand_score, r.confidence_score, r.recommended_pct_change, r.reason]
-        .map(csvEscape)
+      [
+        row.city,
+        row.orders_30d,
+        row.revenue_30d,
+        row.growth_rate,
+        row.demand_score,
+        row.confidence_score,
+        row.recommended_pct_change,
+        (row.guardrail_tags ?? []).join("|"),
+      ]
+        .map((x) => csvEscape(x))
         .join(",")
     );
   }
   return `${lines.join("\n")}\n`;
-}
-
-function readCookie(req: NextApiRequest, name: string): string | null {
-  const cookie = req.headers.cookie;
-  if (!cookie) return null;
-  const parts = cookie.split(";").map((p) => p.trim());
-  const hit = parts.find((p) => p.toLowerCase().startsWith(name.toLowerCase() + "="));
-  if (!hit) return null;
-  return decodeURIComponent(hit.substring(name.length + 1));
-}
-
-function resolveCompanyId(req: NextApiRequest): string | null {
-  const h = req.headers["x-erp-company-id"];
-  if (typeof h === "string" && h) return h;
-  return readCookie(req, "erp_company_id") || readCookie(req, "bb_company_id") || readCookie(req, "company_id") || null;
 }
 
 function parseLimit(raw: string | string[] | undefined) {
@@ -58,25 +65,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Intentionally use cookie-session auth so browser CSV downloads work without bearer-token-only flows.
   const supabase = createServerSupabaseClient({ req, res });
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userData?.user?.id) return res.status(401).json({ error: "Not authenticated" });
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user?.id) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
 
-  const companyId = resolveCompanyId(req);
-  if (!companyId) return res.status(400).json({ error: "Missing company context" });
+  const context = await resolveMarketingApiContext(req, res);
+  if (!context.ok) {
+    return res.status(context.status).json({ error: context.error });
+  }
 
   const limit = parseLimit(req.query.limit);
-
-  // NOTE: keep the table/view name exactly as your UI expects.
-  // If your actual view is named differently, change ONLY this string.
-  const { data, error } = await supabase
-    .from("erp_mkt_demand_steering_expand_cities_v1")
-    .select("city,state,week_start,demand_score,confidence_score,recommended_pct_change,reason")
-    .eq("company_id", companyId)
+  const { data, error } = await context.userClient
+    .from("erp_mkt_city_demand_latest_v1")
+    .select("city,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags")
+    .eq("company_id", context.companyId)
+    .eq("decision", "EXPAND")
     .order("demand_score", { ascending: false })
     .limit(limit);
 
-  if (error) return res.status(400).json({ error: error.message || "Failed to export Expand Cities" });
+  if (error) {
+    return res.status(400).json({ error: error.message || "Failed to export expand cities" });
+  }
 
   const csv = toCsv((data ?? []) as Row[]);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
