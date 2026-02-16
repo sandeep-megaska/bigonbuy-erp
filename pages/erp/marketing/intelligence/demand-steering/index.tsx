@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { badgeBase, card, cardTitle, table, tableWrap, td, th, trHover } from "../../../../../components/erp/tw";
+import { downloadCsvWithSession } from "../../../../../lib/erp/marketing/downloadCsv";
 
 type DemandRow = {
   sku?: string;
@@ -302,36 +303,48 @@ export default function DemandSteeringPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <a
-            href="/api/marketing/demand-steering/export-scale-skus.csv"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() =>
+              void downloadCsvWithSession(
+                "/api/marketing/demand-steering/export-scale-skus.csv",
+                `demand_steering_scale_skus_${new Date().toISOString().slice(0, 10)}.csv`
+              ).catch((error) => {
+                const message = error instanceof Error ? error.message : "Failed to export scale SKUs CSV.";
+                setErr(message);
+              })
+            }
             style={{
               border: "1px solid #bbb",
               borderRadius: 8,
               padding: "8px 14px",
               background: "#fff",
-              textDecoration: "none",
-              color: "inherit",
+              cursor: "pointer",
             }}
           >
             Export Scale SKUs (CSV)
-          </a>
-          <a
-            href="/api/marketing/demand-steering/export-expand-cities.csv"
-            target="_blank"
-            rel="noreferrer"
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              void downloadCsvWithSession(
+                "/api/marketing/demand-steering/export-expand-cities.csv",
+                `demand_steering_expand_cities_${new Date().toISOString().slice(0, 10)}.csv`
+              ).catch((error) => {
+                const message = error instanceof Error ? error.message : "Failed to export expand cities CSV.";
+                setErr(message);
+              })
+            }
             style={{
               border: "1px solid #bbb",
               borderRadius: 8,
               padding: "8px 14px",
               background: "#fff",
-              textDecoration: "none",
-              color: "inherit",
+              cursor: "pointer",
             }}
           >
             Export Expand Cities (CSV)
-          </a>
+          </button>
           <button
             type="button"
             onClick={refresh}
