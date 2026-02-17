@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
+import { requireErpUser } from "../../../../lib/erp/requireErpUser";
 
 type RecoRow = {
   week_start: string | null;
@@ -39,17 +39,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const context = await resolveMarketingApiContext(req, res);
-  if (!context.ok) {
-    return res.status(context.status).json({ error: context.error });
+  const auth = await requireErpUser(req, res);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.error });
   }
 
-  const { data, error } = await context.userClient
+  const { data, error } = await auth.supabase
     .from("erp_mkt_budget_allocator_reco_v1")
     .select(
       "week_start, scale_share, prospecting_share, retarget_share, scale_budget_inr, prospecting_budget_inr, retarget_budget_inr, drivers"
     )
-    .eq("company_id", context.companyId)
+    .eq("company_id", auth.companyId)
     .maybeSingle();
 
   if (error) {
@@ -70,5 +70,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(csv);
 }

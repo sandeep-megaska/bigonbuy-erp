@@ -130,7 +130,9 @@ export default function BudgetAllocatorPage() {
         </div>
         <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={saveSettings} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-          <a href="/api/marketing/budget-allocator/export.csv" target="_blank" rel="noreferrer">Export CSV</a>
+          <button type="button" onClick={() => { window.location.href = "/api/marketing/budget-allocator/export.csv"; }}>
+            Export CSV
+          </button>
           <span style={{ opacity: 0.7 }}>Week: {data?.week_start ?? "—"}</span>
         </div>
       </div>

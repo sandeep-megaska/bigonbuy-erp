@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { requireErpUser } from "../../../../lib/erp/requireErpUser";
 
 type AudienceCsvRow = {
   email: string | null;
@@ -46,17 +46,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const supabase = createServerSupabaseClient({ req, res });
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return res.status(401).json({ error: "Not authenticated" });
+  const auth = await requireErpUser(req, res);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.error });
   }
 
-  const { data, error } = await supabase.rpc("erp_mkt_audience_export_atc_30d_v1", {
+  const { data, error } = await auth.supabase.rpc("erp_mkt_audience_export_atc_30d_v1", {
     p_limit: parseLimit(req.query.limit),
   });
 
@@ -67,5 +62,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const csv = toCsv((data ?? []) as AudienceCsvRow[]);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="meta_audience_atc_30d_no_purchase.csv"');
+  res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(csv);
 }

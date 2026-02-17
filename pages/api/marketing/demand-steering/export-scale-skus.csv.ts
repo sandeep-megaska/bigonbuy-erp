@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { requireErpUser } from "../../../../lib/erp/requireErpUser";
 
 type Row = {
   sku: string | null;
@@ -73,24 +73,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const supabase = createServerSupabaseClient({ req, res });
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return res.status(401).json({ error: "Not authenticated" });
-  }
-
-  const { data: companyId, error: companyIdError } = await supabase.rpc("erp_current_company_id");
-  if (companyIdError || !companyId) {
-    return res.status(403).json({ error: "Company membership not found" });
+  const auth = await requireErpUser(req, res);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.error });
   }
 
   const limit = parseLimit(req.query.limit);
-  const { data, error } = await supabase.rpc("erp_mkt_demand_steering_export_scale_skus_v1", {
-    p_company_id: companyId,
+  const { data, error } = await auth.supabase.rpc("erp_mkt_demand_steering_export_scale_skus_v1", {
+    p_company_id: auth.companyId,
     p_limit: limit,
   });
 
@@ -103,5 +93,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const exportDate = resolveExportDate(rows);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="demand_steering_scale_skus_${exportDate}.csv"`);
+  res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(csv);
 }
