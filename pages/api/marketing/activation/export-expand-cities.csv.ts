@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
+import { requireErpUser } from "../../../../lib/erp/requireErpUser";
 
 function csvEscape(value: unknown) {
   const text = value == null ? "" : String(value);
@@ -14,13 +14,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     res.setHeader("Allow", "GET");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const context = await resolveMarketingApiContext(req, res);
-  if (!context.ok) return res.status(context.status).json({ error: context.error });
 
-  const { data, error } = await context.userClient
+  const auth = await requireErpUser(req, res);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  const { data, error } = await auth.supabase
     .from("erp_mkt_activation_expand_cities_v1")
     .select("week_start, city, demand_score, confidence_score, recommended_pct_change")
-    .eq("company_id", context.companyId)
+    .eq("company_id", auth.companyId)
     .order("demand_score", { ascending: false })
     .limit(200);
 
@@ -33,5 +34,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="activation_expand_cities_${data?.[0]?.week_start ?? "latest"}.csv"`);
+  res.setHeader("Cache-Control", "no-store");
   return res.status(200).send(`${lines.join("\n")}\n`);
 }
