@@ -222,36 +222,33 @@ export default function DemandSteeringPage() {
     }
     setData(payload);
 
-    const [scaleResp, expandResp, reduceResp] = await Promise.all([
-      fetch("/api/marketing/activation/scale-skus", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "x-erp-company-id": String(ctx.companyId),
-        },
-      }),
-      fetch("/api/marketing/activation/expand-cities", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "x-erp-company-id": String(ctx.companyId),
-        },
-      }),
-      fetch("/api/marketing/activation/reduce-skus", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "x-erp-company-id": String(ctx.companyId),
-        },
-      }),
-    ]);
-
-    const [scalePayload, expandPayload, reducePayload] = await Promise.all([
-      scaleResp.json(),
-      expandResp.json(),
-      reduceResp.json(),
-    ]);
-
-    if (scaleResp.ok) setActivationScaleSkus(scalePayload?.rows ?? []);
-    if (expandResp.ok) setActivationExpandCities(expandPayload?.rows ?? []);
-    if (reduceResp.ok) setActivationReduceSkus(reducePayload?.rows ?? []);
+    const summary = payload as SummaryResp;
+    setActivationScaleSkus(
+      (summary?.tables.scale_skus ?? []).map((row) => ({
+        sku: row.sku ?? "",
+        demand_score: row.demand_score,
+        confidence_score: row.confidence_score,
+        recommended_pct_change: row.recommended_pct_change,
+        guardrail_tags: row.guardrail_tags,
+      }))
+    );
+    setActivationExpandCities(
+      (summary?.tables.expand_cities ?? []).map((row) => ({
+        city: row.city ?? "",
+        demand_score: row.demand_score,
+        confidence_score: row.confidence_score,
+        recommended_pct_change: row.recommended_pct_change,
+      }))
+    );
+    setActivationReduceSkus(
+      (summary?.tables.reduce_skus ?? []).map((row) => ({
+        sku: row.sku ?? "",
+        demand_score: row.demand_score,
+        confidence_score: row.confidence_score,
+        recommended_pct_change: row.recommended_pct_change,
+        guardrail_tags: row.guardrail_tags,
+      }))
+    );
 
     setLoading(false);
   }
