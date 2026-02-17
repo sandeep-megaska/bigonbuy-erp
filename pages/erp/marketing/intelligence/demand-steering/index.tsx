@@ -5,16 +5,16 @@ import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/e
 type DemandRow = {
   sku?: string;
   city?: string;
-  orders_30d: number;
-  revenue_30d: number;
-  orders_prev_30d: number;
-  revenue_prev_30d: number;
-  growth_rate: number;
-  demand_score: number;
-  decision: string;
-  confidence_score: number;
-  recommended_pct_change: number;
-  guardrail_tags: string[];
+  orders_30d?: number;
+  revenue_30d?: number;
+  orders_prev_30d?: number;
+  revenue_prev_30d?: number;
+  growth_rate?: number;
+  demand_score?: number;
+  decision?: string;
+  confidence_score?: number;
+  recommended_pct_change?: number;
+  guardrail_tags?: string[];
 };
 
 type SummaryResp = {
@@ -32,6 +32,17 @@ type SummaryResp = {
     expand_cities: DemandRow[];
     reduce_cities: DemandRow[];
   };
+};
+
+type ActivationRow = {
+  company_id: string;
+  week_start: string;
+  sku?: string;
+  city?: string;
+  demand_score: number;
+  confidence_score: number;
+  recommended_pct_change: number;
+  guardrail_tags?: string[];
 };
 
 const number = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -132,6 +143,64 @@ export default function DemandSteeringPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<SummaryResp | null>(null);
+  const [activationScaleSkus, setActivationScaleSkus] = useState<ActivationRow[]>([]);
+  const [activationExpandCities, setActivationExpandCities] = useState<ActivationRow[]>([]);
+  const [activationReduceSkus, setActivationReduceSkus] = useState<ActivationRow[]>([]);
+
+  function exportActivationCsv(filename: string, headers: string[], rows: Record<string, unknown>[]) {
+    const csvEscape = (value: unknown) => {
+      const text = value == null ? "" : String(value);
+      if (text.includes('"') || text.includes(",") || text.includes("\n")) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const csv = [
+      headers.map((x) => csvEscape(x)).join(","),
+      ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([`${csv}\n`], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  }
+
+  async function loadActivation(accessToken: string, companyId: string | number) {
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      "x-erp-company-id": String(companyId),
+    };
+
+    const [scaleResp, expandResp, reduceResp] = await Promise.all([
+      fetch("/api/marketing/activation/scale-skus", { headers }),
+      fetch("/api/marketing/activation/expand-cities", { headers }),
+      fetch("/api/marketing/activation/reduce-skus", { headers }),
+    ]);
+
+    const [scalePayload, expandPayload, reducePayload] = await Promise.all([
+      scaleResp.json(),
+      expandResp.json(),
+      reduceResp.json(),
+    ]);
+
+    if (!scaleResp.ok || !expandResp.ok || !reduceResp.ok) {
+      const firstError =
+        (scalePayload && !Array.isArray(scalePayload) && scalePayload.error) ||
+        (expandPayload && !Array.isArray(expandPayload) && expandPayload.error) ||
+        (reducePayload && !Array.isArray(reducePayload) && reducePayload.error) ||
+        "Failed to load activation actions";
+      throw new Error(firstError);
+    }
+
+    setActivationScaleSkus((Array.isArray(scalePayload) ? scalePayload : []).slice(0, 20));
+    setActivationExpandCities((Array.isArray(expandPayload) ? expandPayload : []).slice(0, 20));
+    setActivationReduceSkus((Array.isArray(reducePayload) ? reducePayload : []).slice(0, 20));
+  }
 
   async function load(tokenOverride?: string | null) {
     setLoading(true);
@@ -156,6 +225,13 @@ export default function DemandSteeringPage() {
       setLoading(false);
       return;
     }
+
+    try {
+      await loadActivation(accessToken, ctx.companyId);
+    } catch (activationError) {
+      setErr((activationError as Error)?.message || "Failed to load activation actions");
+    }
+
     setData(payload);
     setLoading(false);
   }
@@ -296,12 +372,96 @@ export default function DemandSteeringPage() {
       {loading ? <div style={{ marginTop: 12 }}>Loading…</div> : null}
 
       {!loading && !err ? (
-        <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <DemandTable title="Scale SKUs" rows={data?.tables.scale_skus ?? []} entityKey="sku" />
-          <DemandTable title="Reduce SKUs" rows={data?.tables.reduce_skus ?? []} entityKey="sku" />
-          <DemandTable title="Expand Cities" rows={data?.tables.expand_cities ?? []} entityKey="city" />
-          <DemandTable title="Reduce Cities" rows={data?.tables.reduce_cities ?? []} entityKey="city" />
-        </div>
+        <>
+          <div style={{ marginTop: 18, border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>This Week’s Activation Actions</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600 }}>Scale SKUs (Top 20)</div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      exportActivationCsv(
+                        "activation_scale_skus.csv",
+                        ["sku", "demand_score", "confidence_score", "recommended_pct_change", "guardrail_tags"],
+                        activationScaleSkus.map((row) => ({
+                          sku: row.sku,
+                          demand_score: row.demand_score,
+                          confidence_score: row.confidence_score,
+                          recommended_pct_change: row.recommended_pct_change,
+                          guardrail_tags: (row.guardrail_tags ?? []).join("|"),
+                        }))
+                      )
+                    }
+                    style={{ border: "1px solid #bbb", borderRadius: 8, padding: "6px 12px", background: "#fff", cursor: "pointer" }}
+                  >
+                    Export
+                  </button>
+                </div>
+                <DemandTable title="" rows={activationScaleSkus} entityKey="sku" />
+              </div>
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600 }}>Expand Cities (Top 20)</div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      exportActivationCsv(
+                        "activation_expand_cities.csv",
+                        ["city", "demand_score", "confidence_score", "recommended_pct_change"],
+                        activationExpandCities.map((row) => ({
+                          city: row.city,
+                          demand_score: row.demand_score,
+                          confidence_score: row.confidence_score,
+                          recommended_pct_change: row.recommended_pct_change,
+                        }))
+                      )
+                    }
+                    style={{ border: "1px solid #bbb", borderRadius: 8, padding: "6px 12px", background: "#fff", cursor: "pointer" }}
+                  >
+                    Export
+                  </button>
+                </div>
+                <DemandTable title="" rows={activationExpandCities} entityKey="city" />
+              </div>
+
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600 }}>Reduce SKUs (Top 20)</div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      exportActivationCsv(
+                        "activation_reduce_skus.csv",
+                        ["sku", "demand_score", "confidence_score", "recommended_pct_change", "guardrail_tags"],
+                        activationReduceSkus.map((row) => ({
+                          sku: row.sku,
+                          demand_score: row.demand_score,
+                          confidence_score: row.confidence_score,
+                          recommended_pct_change: row.recommended_pct_change,
+                          guardrail_tags: (row.guardrail_tags ?? []).join("|"),
+                        }))
+                      )
+                    }
+                    style={{ border: "1px solid #bbb", borderRadius: 8, padding: "6px 12px", background: "#fff", cursor: "pointer" }}
+                  >
+                    Export
+                  </button>
+                </div>
+                <DemandTable title="" rows={activationReduceSkus} entityKey="sku" />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <DemandTable title="Scale SKUs" rows={data?.tables.scale_skus ?? []} entityKey="sku" />
+            <DemandTable title="Reduce SKUs" rows={data?.tables.reduce_skus ?? []} entityKey="sku" />
+            <DemandTable title="Expand Cities" rows={data?.tables.expand_cities ?? []} entityKey="city" />
+            <DemandTable title="Reduce Cities" rows={data?.tables.reduce_cities ?? []} entityKey="city" />
+          </div>
+        </>
       ) : null}
     </div>
   );
