@@ -77,13 +77,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const limit = parseLimit(req.query.limit);
-  const { data, error } = await context.userClient
-    .from("erp_mkt_sku_demand_latest_v1")
-    .select("sku,week_start,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags")
-    .eq("company_id", context.companyId)
-    .eq("decision", "SCALE")
-    .order("demand_score", { ascending: false })
-    .limit(limit);
+  const { data, error } = await context.userClient.rpc("erp_mkt_demand_steering_export_scale_skus_v1", {
+    p_company_id: context.companyId,
+    p_limit: limit,
+  });
 
   if (error) {
     return res.status(400).json({ error: error.message || "Failed to export scale SKUs" });
