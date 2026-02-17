@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { resolveMarketingApiContext } from "../../../../lib/erp/marketing/intelligenceApi";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { createUserClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 type Row = {
   city: string | null;
@@ -24,6 +25,7 @@ function csvEscape(value: unknown) {
 function toCsv(rows: Row[]) {
   const headers = [
     "city",
+    "week_start",
     "orders_30d",
     "revenue_30d",
     "growth_rate",
@@ -37,6 +39,7 @@ function toCsv(rows: Row[]) {
     lines.push(
       [
         row.city,
+        row.week_start,
         row.orders_30d,
         row.revenue_30d,
         row.growth_rate,
@@ -71,23 +74,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const context = await resolveMarketingApiContext(req, res);
-  if (!context.ok) {
-    return res.status(context.status).json({ error: context.error });
+  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
+  if (!supabaseUrl || !anonKey || missing.length > 0) {
+    return res.status(500).json({
+      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+    });
   }
 
+  const supabase = createServerSupabaseClient({ req, res });
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError || !session?.access_token) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  const { data: companyId, error: companyIdError } = await supabase.rpc("erp_current_company_id");
+  if (companyIdError || !companyId) {
+    return res.status(403).json({ error: "Company membership not found" });
+  }
+
+  const userClient = createUserClient(supabaseUrl, anonKey, session.access_token);
   const limit = parseLimit(req.query.limit);
-  const { data, error } = await context.userClient.rpc("erp_mkt_demand_steering_export_expand_cities_v1", {
-    p_company_id: context.companyId,
-    p_limit: limit,
-  });
+
+  const { data, error } = await userClient
+    .from("erp_mkt_city_demand_latest_v1")
+    .select(
+      "city,week_start,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags"
+    )
+    .eq("company_id", String(companyId))
+    .eq("decision", "EXPAND")
+    .order("demand_score", { ascending: false })
+    .limit(limit);
 
   if (error) {
     return res.status(400).json({ error: error.message || "Failed to export expand cities" });
   }
 
-  const csv = toCsv((data ?? []) as Row[]);
-  const exportDate = resolveExportDate((data ?? []) as Row[]);
+  const rows = (data ?? []) as Row[];
+  const csv = toCsv(rows);
+  const exportDate = resolveExportDate(rows);
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="demand_steering_expand_cities_${exportDate}.csv"`);
   return res.status(200).send(csv);
