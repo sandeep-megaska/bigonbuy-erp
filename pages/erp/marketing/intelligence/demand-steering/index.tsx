@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { badgeBase, card, cardTitle, table, tableWrap, td, th, trHover } from "../../../../../components/erp/tw";
-import { CsvColumn, downloadCsv } from "../../../../../lib/erp/exportCsv";
-import { supabase } from "../../../../../lib/supabaseClient";
 
 type DemandRow = {
   sku?: string;
@@ -51,56 +50,6 @@ type ActivationCityRow = {
   confidence_score: number;
   recommended_pct_change: number;
 };
-
-type ScaleSkuExportRow = {
-  sku: string | null;
-  variant_sku: string | null;
-  title: string | null;
-  size: string | null;
-  color: string | null;
-  week_start: string | null;
-  demand_score: number | null;
-  confidence_score: number | null;
-  recommended_pct_change: number | null;
-  reason: string | null;
-};
-
-type ExpandCitiesExportRow = {
-  city: string | null;
-  state: string | null;
-  week_start: string | null;
-  demand_score: number | null;
-  confidence_score: number | null;
-  recommended_pct_change: number | null;
-  reason: string | null;
-};
-
-const DEMAND_EXPORT_LIMIT_DEFAULT = 50000;
-const DEMAND_EXPORT_LIMIT_MAX = 100000;
-const DEMAND_EXPORT_LIMIT = Math.min(DEMAND_EXPORT_LIMIT_DEFAULT, DEMAND_EXPORT_LIMIT_MAX);
-
-const SCALE_SKUS_EXPORT_COLUMNS: CsvColumn<ScaleSkuExportRow>[] = [
-  { header: "sku", accessor: (row) => row.sku },
-  { header: "variant_sku", accessor: (row) => row.variant_sku },
-  { header: "title", accessor: (row) => row.title },
-  { header: "size", accessor: (row) => row.size },
-  { header: "color", accessor: (row) => row.color },
-  { header: "week_start", accessor: (row) => row.week_start },
-  { header: "demand_score", accessor: (row) => row.demand_score },
-  { header: "confidence_score", accessor: (row) => row.confidence_score },
-  { header: "recommended_pct_change", accessor: (row) => row.recommended_pct_change },
-  { header: "reason", accessor: (row) => row.reason },
-];
-
-const EXPAND_CITIES_EXPORT_COLUMNS: CsvColumn<ExpandCitiesExportRow>[] = [
-  { header: "city", accessor: (row) => row.city },
-  { header: "state", accessor: (row) => row.state },
-  { header: "week_start", accessor: (row) => row.week_start },
-  { header: "demand_score", accessor: (row) => row.demand_score },
-  { header: "confidence_score", accessor: (row) => row.confidence_score },
-  { header: "recommended_pct_change", accessor: (row) => row.recommended_pct_change },
-  { header: "reason", accessor: (row) => row.reason },
-];
 
 const number = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const currency = (value: unknown) => Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -242,7 +191,6 @@ export default function DemandSteeringPage() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [exportingView, setExportingView] = useState<"scale_skus" | "expand_cities" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<SummaryResp | null>(null);
   const [activationScaleSkus, setActivationScaleSkus] = useState<ActivationSkuRow[]>([]);
@@ -344,64 +292,6 @@ export default function DemandSteeringPage() {
     setRefreshing(false);
   }
 
-  async function exportScaleSkusCsv() {
-    setErr(null);
-    setExportingView("scale_skus");
-
-    const ctx = await getCompanyContext();
-    if (!ctx.companyId) {
-      setErr("Missing company context");
-      setExportingView(null);
-      return;
-    }
-
-    const { data: rows, error } = await supabase
-      .from("erp_mkt_demand_steering_scale_skus_v1")
-      .select("sku,variant_sku,title,size,color,week_start,demand_score,confidence_score,recommended_pct_change,reason")
-      .eq("company_id", String(ctx.companyId))
-      .order("demand_score", { ascending: false })
-      .limit(DEMAND_EXPORT_LIMIT);
-
-    if (error) {
-      setErr(error.message || "Failed to export scale SKUs CSV.");
-      setExportingView(null);
-      return;
-    }
-
-    const weekStart = (rows?.[0] as ScaleSkuExportRow | undefined)?.week_start ?? new Date().toISOString().slice(0, 10);
-    downloadCsv(`demand_steering_scale_skus_${weekStart}.csv`, SCALE_SKUS_EXPORT_COLUMNS, (rows ?? []) as ScaleSkuExportRow[]);
-    setExportingView(null);
-  }
-
-  async function exportExpandCitiesCsv() {
-    setErr(null);
-    setExportingView("expand_cities");
-
-    const ctx = await getCompanyContext();
-    if (!ctx.companyId) {
-      setErr("Missing company context");
-      setExportingView(null);
-      return;
-    }
-
-    const { data: rows, error } = await supabase
-      .from("erp_mkt_demand_steering_expand_cities_v1")
-      .select("city,state,week_start,demand_score,confidence_score,recommended_pct_change,reason")
-      .eq("company_id", String(ctx.companyId))
-      .order("demand_score", { ascending: false })
-      .limit(DEMAND_EXPORT_LIMIT);
-
-    if (error) {
-      setErr(error.message || "Failed to export expand cities CSV.");
-      setExportingView(null);
-      return;
-    }
-
-    const weekStart = (rows?.[0] as ExpandCitiesExportRow | undefined)?.week_start ?? new Date().toISOString().slice(0, 10);
-    downloadCsv(`demand_steering_expand_cities_${weekStart}.csv`, EXPAND_CITIES_EXPORT_COLUMNS, (rows ?? []) as ExpandCitiesExportRow[]);
-    setExportingView(null);
-  }
-
   return (
     <>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 20px 40px" }}>
@@ -413,36 +303,9 @@ export default function DemandSteeringPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => void exportScaleSkusCsv()}
-            disabled={exportingView !== null}
-            style={{
-              border: "1px solid #bbb",
-              borderRadius: 8,
-              padding: "8px 14px",
-              background: "#fff",
-              cursor: exportingView !== null ? "not-allowed" : "pointer",
-              opacity: exportingView !== null ? 0.7 : 1,
-            }}
-          >
-            {exportingView === "scale_skus" ? "Exporting..." : "Export Scale SKUs (CSV)"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void exportExpandCitiesCsv()}
-            disabled={exportingView !== null}
-            style={{
-              border: "1px solid #bbb",
-              borderRadius: 8,
-              padding: "8px 14px",
-              background: "#fff",
-              cursor: exportingView !== null ? "not-allowed" : "pointer",
-              opacity: exportingView !== null ? 0.7 : 1,
-            }}
-          >
-            {exportingView === "expand_cities" ? "Exporting..." : "Export Expand Cities (CSV)"}
-          </button>
+          <Link href="/erp/marketing/intelligence/audiences" style={{ fontSize: 13 }}>
+            Go to Export Hub
+          </Link>
           <button
             type="button"
             onClick={refresh}
@@ -517,22 +380,7 @@ export default function DemandSteeringPage() {
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div style={{ fontWeight: 600 }}>Scale SKUs (Top 20)</div>
-                  <button
-                    type="button"
-                    onClick={() => void exportScaleSkusCsv()}
-                    disabled={exportingView !== null}
-                    style={{
-                      fontSize: 13,
-                      background: "none",
-                      border: "none",
-                      color: "#2563eb",
-                      cursor: exportingView !== null ? "not-allowed" : "pointer",
-                      opacity: exportingView !== null ? 0.7 : 1,
-                      padding: 0,
-                    }}
-                  >
-                    {exportingView === "scale_skus" ? "Exporting..." : "Export CSV"}
-                  </button>
+                  <span style={{ fontSize: 13, color: "#64748b" }}>Exports moved to Export Hub</span>
                 </div>
                 <ActivationTable title="Scale SKUs" rows={activationScaleSkus} entityKey="sku" />
               </div>
@@ -540,22 +388,7 @@ export default function DemandSteeringPage() {
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div style={{ fontWeight: 600 }}>Expand Cities (Top 20)</div>
-                  <button
-                    type="button"
-                    onClick={() => void exportExpandCitiesCsv()}
-                    disabled={exportingView !== null}
-                    style={{
-                      fontSize: 13,
-                      background: "none",
-                      border: "none",
-                      color: "#2563eb",
-                      cursor: exportingView !== null ? "not-allowed" : "pointer",
-                      opacity: exportingView !== null ? 0.7 : 1,
-                      padding: 0,
-                    }}
-                  >
-                    {exportingView === "expand_cities" ? "Exporting..." : "Export CSV"}
-                  </button>
+                  <span style={{ fontSize: 13, color: "#64748b" }}>Exports moved to Export Hub</span>
                 </div>
                 <ActivationTable title="Expand Cities" rows={activationExpandCities} entityKey="city" />
               </div>
@@ -563,9 +396,7 @@ export default function DemandSteeringPage() {
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div style={{ fontWeight: 600 }}>Reduce SKUs (Top 20)</div>
-                  <a href="/api/marketing/activation/export-reduce-skus.csv" target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
-                    Export CSV
-                  </a>
+                  <span style={{ fontSize: 13, color: "#64748b" }}>Exports moved to Export Hub</span>
                 </div>
                 <ActivationTable title="Reduce SKUs" rows={activationReduceSkus} entityKey="sku" />
               </div>

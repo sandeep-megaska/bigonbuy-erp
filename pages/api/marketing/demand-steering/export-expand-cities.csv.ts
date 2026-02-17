@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
-import { createUserClient, getSupabaseEnv } from "../../../../lib/serverSupabase";
 
 type Row = {
   city: string | null;
@@ -74,20 +73,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { supabaseUrl, anonKey, missing } = getSupabaseEnv();
-  if (!supabaseUrl || !anonKey || missing.length > 0) {
-    return res.status(500).json({
-      error: "Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
-    });
-  }
-
   const supabase = createServerSupabaseClient({ req, res });
   const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-  if (sessionError || !session?.access_token) {
+  if (userError || !user) {
     return res.status(401).json({ error: "Not authenticated" });
   }
 
@@ -96,18 +88,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(403).json({ error: "Company membership not found" });
   }
 
-  const userClient = createUserClient(supabaseUrl, anonKey, session.access_token);
   const limit = parseLimit(req.query.limit);
-
-  const { data, error } = await userClient
-    .from("erp_mkt_city_demand_latest_v1")
-    .select(
-      "city,week_start,orders_30d,revenue_30d,growth_rate,demand_score,confidence_score,recommended_pct_change,guardrail_tags"
-    )
-    .eq("company_id", String(companyId))
-    .eq("decision", "EXPAND")
-    .order("demand_score", { ascending: false })
-    .limit(limit);
+  const { data, error } = await supabase.rpc("erp_mkt_demand_steering_export_expand_cities_v1", {
+    p_company_id: companyId,
+    p_limit: limit,
+  });
 
   if (error) {
     return res.status(400).json({ error: error.message || "Failed to export expand cities" });
