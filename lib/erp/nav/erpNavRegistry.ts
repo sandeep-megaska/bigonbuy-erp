@@ -204,7 +204,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "procurement",
     requiredGuard: "inventory_reader",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["admin"],
   },
   {
     id: "vendor-readiness",
@@ -264,7 +264,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "inventory",
     requiredGuard: "inventory_reader",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["admin"],
   },
   {
     id: "inventory-skus",
@@ -274,7 +274,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "inventory",
     requiredGuard: "inventory_reader",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["admin"],
   },
   {
     id: "inventory-cost-seeds",
@@ -294,7 +294,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     groupId: "inventory",
     requiredGuard: "inventory_reader",
     status: "active",
-    moduleKeys: ["workspace"],
+    moduleKeys: ["admin"],
   },
   {
     id: "inventory-movements",
