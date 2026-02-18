@@ -1,8 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
 import {
   createServiceRoleClient,
-  createUserClient,
-  getBearerToken,
   getSupabaseEnv,
 } from "../../../../../lib/serverSupabase";
 
@@ -26,7 +25,11 @@ type SyncResponse =
       last_order_created_at: string | null;
       errors: string[];
     }
-  | { ok: false; error: string; details?: string | null };
+  | {
+      ok: false;
+      error: string;
+      details?: string | null | { hasCookieHeader: boolean; cookieNames: string[] };
+    };
 
 function getShopifyEnv() {
   const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -111,18 +114,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const accessToken = getBearerToken(req);
-  if (!accessToken) {
-    return res.status(401).json({ ok: false, error: "Missing Authorization: Bearer token" });
+  const supabase = createServerSupabaseClient({ req, res });
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const debug = process.env.NODE_ENV !== "production";
+  const cookieNames = (req.headers.cookie ?? "")
+    .split(";")
+    .map((cookie) => cookie.split("=")[0]?.trim())
+    .filter(Boolean)
+    .slice(0, 10) as string[];
+
+  if (sessionError) {
+    return res.status(401).json({
+      ok: false,
+      error: "Not authenticated",
+      details: debug
+        ? {
+            hasCookieHeader: Boolean(req.headers.cookie),
+            cookieNames,
+          }
+        : sessionError.message,
+    });
   }
 
-  const userClient = createUserClient(supabaseUrl, anonKey, accessToken);
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
-    return res.status(401).json({ ok: false, error: "Not authenticated" });
+  if (!sessionData?.session) {
+    return res.status(401).json({
+      ok: false,
+      error: "Not authenticated",
+      ...(debug
+        ? {
+            details: {
+              hasCookieHeader: Boolean(req.headers.cookie),
+              cookieNames,
+            },
+          }
+        : {}),
+    });
   }
 
-  const { data: companyId, error: companyError } = await userClient.rpc("erp_current_company_id");
+  const { data: companyId, error: companyError } = await supabase.rpc("erp_current_company_id");
   if (companyError || !companyId) {
     return res.status(400).json({
       ok: false,
@@ -137,7 +166,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     .from("erp_company_users")
     .select("role_key")
     .eq("company_id", companyId)
-    .eq("user_id", userData.user.id)
+    .eq("user_id", sessionData.session.user.id)
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();

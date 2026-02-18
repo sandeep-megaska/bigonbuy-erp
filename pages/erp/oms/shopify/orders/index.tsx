@@ -219,6 +219,7 @@ export default function ShopifyOrdersListPage() {
   async function loadSyncStatus(accessToken: string, isActive = true) {
     const response = await fetch("/api/oms/shopify/orders/sync", {
       method: "GET",
+      credentials: "include",
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -245,6 +246,7 @@ export default function ShopifyOrdersListPage() {
     try {
       const response = await fetch("/api/oms/shopify/orders/sync", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${ctx.session.access_token}`,
