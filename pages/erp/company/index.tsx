@@ -11,7 +11,7 @@ import {
   pageHeaderStyle,
   subtitleStyle,
 } from "../../../components/erp/uiStyles";
-import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
 
 const sectionData = [
@@ -41,17 +41,31 @@ const sectionData = [
     id: "hr",
     title: "HR Settings",
     description: "Maintain HR masters and workforce configuration.",
-    adminOnly: true,
     links: [
       {
-        label: "HR Masters",
+        label: "Departments",
         href: "/erp/hr/masters",
-        description: "Departments, locations, and employment setup.",
+        description: "Organize teams and cost centers.",
       },
       {
         label: "Designations",
-        href: "/erp/hr/rbac/designations",
-        description: "Designation access and role mapping.",
+        href: "/erp/hr/masters",
+        description: "Manage job titles and grades.",
+      },
+      {
+        label: "Locations",
+        href: "/erp/hr/masters",
+        description: "Office locations and hubs.",
+      },
+      {
+        label: "Employment Types",
+        href: "/erp/hr/masters",
+        description: "Define full-time, contract, and more.",
+      },
+      {
+        label: "Shifts",
+        href: "/erp/hr/shifts",
+        description: "Shift masters and schedules.",
       },
       {
         label: "Leave Types",
@@ -59,12 +73,32 @@ const sectionData = [
         description: "Paid and unpaid leave categories.",
       },
       {
+        label: "Employee Titles",
+        href: "/erp/hr/masters/employee-titles",
+        description: "Honorifics and title lists.",
+      },
+      {
+        label: "Exit Reasons",
+        href: "/erp/hr/masters/employee-exit-reasons",
+        description: "Standardize exit reporting.",
+      },
+      {
+        label: "HR Masters",
+        href: "/erp/hr/masters",
+        description: "Departments, locations, and employment setup.",
+      },
+      {
+        label: "Designation Access (RBAC)",
+        href: "/erp/hr/rbac/designations",
+        description: "Designation access and role mapping.",
+      },
+      {
         label: "Calendars",
         href: "/erp/hr/calendars",
         description: "Holiday calendars and policy windows.",
       },
       {
-        label: "Weekly Off",
+        label: "Weekly Off Rules",
         href: "/erp/hr/weekly-off",
         description: "Weekly off rules by roster and location.",
       },
@@ -209,13 +243,10 @@ export default function CompanySettingsHubPage() {
     };
   }, [router]);
 
-  const sections = useMemo(() => {
-    const adminUser = isAdmin(ctx?.roleKey);
-    return sectionData
-      .filter((section) => !section.adminOnly || adminUser)
-      .map((section) => ({ ...section, links: section.links.filter(Boolean) }))
-      .filter((section) => section.links.length > 0);
-  }, [ctx?.roleKey]);
+  const sections = useMemo(
+    () => sectionData.map((section) => ({ ...section, links: section.links.filter(Boolean) })),
+    []
+  ).filter((section) => section.links.length > 0);
 
   if (loading) {
     return (
