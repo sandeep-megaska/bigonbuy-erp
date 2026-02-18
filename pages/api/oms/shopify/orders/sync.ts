@@ -30,18 +30,18 @@ type SyncResponse =
       ok: false;
       error: string;
       details?: string | null | { hasCookieHeader: boolean; cookieNames: string[] };
+      missing?: { domain: boolean; token: boolean };
     };
 
 function getShopifyEnv() {
-  const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
-  const adminToken = process.env.SHOPIFY_ACCESS_TOKEN;
-
-  if (!shopDomain) {
-    throw new Error("Missing env SHOPIFY_STORE_DOMAIN");
-  }
-  if (!adminToken) {
-    throw new Error("Missing env SHOPIFY_ACCESS_TOKEN");
-  }
+  const shopDomain =
+    process.env.SHOPIFY_STORE_DOMAIN ||
+    process.env.SHOPIFY_SHOP_DOMAIN ||
+    process.env.SHOPIFY_DOMAIN;
+  const adminToken =
+    process.env.SHOPIFY_ADMIN_ACCESS_TOKEN ||
+    process.env.SHOPIFY_ADMIN_API_TOKEN ||
+    process.env.SHOPIFY_ACCESS_TOKEN;
 
   return { shopDomain, adminToken };
 }
@@ -65,6 +65,10 @@ function extractNextLink(linkHeader: string | null): string | null {
 
 async function fetchShopifyOrdersSince(fromTsIso: string): Promise<ShopifyOrder[]> {
   const { shopDomain, adminToken } = getShopifyEnv();
+  if (!shopDomain || !adminToken) {
+    throw new Error("Missing Shopify credentials");
+  }
+
   const baseUrl = buildShopifyBaseUrl(shopDomain);
 
   const params = new URLSearchParams({
@@ -213,6 +217,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   if (latestOrderError) {
     return res.status(400).json({ ok: false, error: latestOrderError.message });
+  }
+
+  const { shopDomain, adminToken } = getShopifyEnv();
+  if (!shopDomain || !adminToken) {
+    return res.status(500).json({
+      ok: false,
+      error: "Missing Shopify credentials",
+      missing: {
+        domain: !shopDomain,
+        token: !adminToken,
+      },
+    });
   }
 
   const lastOrderCreatedAt = latestOrder?.order_created_at ?? null;
