@@ -16,7 +16,7 @@ import {
   tableHeaderCellStyle,
   tableStyle,
 } from "../../../../../components/erp/uiStyles";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../../../lib/erpContext";
+import { getCompanyContext, isManager, requireAuthRedirectHome } from "../../../../../lib/erpContext";
 import { useDebouncedValue } from "../../../../../lib/erp/inventoryStock";
 import {
   fetchShopifyOrders,
@@ -84,6 +84,15 @@ export default function ShopifyOrdersListPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [readySummary, setReadySummary] = useState<{ total: number; paid: number; pending: number } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [lastOrderCreatedAt, setLastOrderCreatedAt] = useState<string | null>(null);
+
+  const canSyncOrders = useMemo(
+    () => Boolean(ctx?.roleKey && isManager(String(ctx.roleKey).toLowerCase())),
+    [ctx?.roleKey]
+  );
 
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
@@ -116,6 +125,20 @@ export default function ShopifyOrdersListPage() {
   useEffect(() => {
     setOffset(0);
   }, [dateFrom, dateTo, financialStatus, fulfillmentStatus, debouncedSearch, readyToShip]);
+
+
+  useEffect(() => {
+    if (!ctx?.session?.access_token) return;
+    let active = true;
+
+    (async () => {
+      await loadSyncStatus(ctx.session.access_token, active);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [ctx?.session?.access_token]);
 
   useEffect(() => {
     if (!ctx?.companyId) return;
@@ -193,6 +216,62 @@ export default function ShopifyOrdersListPage() {
     setSummaryLoading(false);
   }
 
+  async function loadSyncStatus(accessToken: string, isActive = true) {
+    const response = await fetch("/api/oms/shopify/orders/sync", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const payload = await response.json();
+    if (!isActive) return;
+
+    if (!response.ok) {
+      setSyncError(payload?.error || "Failed to load sync status.");
+      return;
+    }
+
+    setLastOrderCreatedAt(payload?.last_order_created_at ?? null);
+  }
+
+  async function handleSyncOrders() {
+    if (!ctx?.session?.access_token || syncing) return;
+
+    setSyncing(true);
+    setSyncError(null);
+    setSyncNotice(null);
+
+    try {
+      const response = await fetch("/api/oms/shopify/orders/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ctx.session.access_token}`,
+        },
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Failed to sync Shopify orders.");
+      }
+
+      const warningText = Array.isArray(payload.errors) && payload.errors.length > 0
+        ? ` (${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"})`
+        : "";
+
+      setLastOrderCreatedAt(payload?.last_order_created_at ?? null);
+      setSyncNotice(`Imported ${payload.imported_orders ?? 0} orders and ${payload.imported_lines ?? 0} lines${warningText}.`);
+      await loadOrders(ctx.companyId, true);
+      await loadSyncStatus(ctx.session.access_token, true);
+    } catch (syncErr) {
+      const message = syncErr instanceof Error ? syncErr.message : "Failed to sync Shopify orders.";
+      setSyncError(message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading) {
     return (
       <>
@@ -210,9 +289,21 @@ export default function ShopifyOrdersListPage() {
             <h1 style={h1Style}>Orders</h1>
             <p style={subtitleStyle}>Review Shopify orders synced into OMS.</p>
           </div>
+          {canSyncOrders ? (
+            <div style={syncPanelStyle}>
+              <button type="button" style={primaryButtonStyle} onClick={handleSyncOrders} disabled={syncing}>
+                {syncing ? "Syncing…" : "Sync Orders"}
+              </button>
+              <span style={mutedStyle}>
+                Last order: {lastOrderCreatedAt ? new Date(lastOrderCreatedAt).toLocaleString() : "—"}
+              </span>
+            </div>
+          ) : null}
         </header>
 
         {error ? <div style={errorStyle}>{error}</div> : null}
+        {syncError ? <div style={errorStyle}>{syncError}</div> : null}
+        {syncNotice ? <div style={noticeStyle}>{syncNotice}</div> : null}
 
         <section style={cardStyle}>
           <div style={quickFilterRowStyle}>
@@ -525,4 +616,18 @@ const summaryLabelStyle: CSSProperties = {
 const summaryValueStyle: CSSProperties = {
   fontSize: 20,
   color: "#111827",
+};
+
+const syncPanelStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  justifyItems: "end",
+};
+
+const noticeStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#dcfce7",
+  color: "#166534",
+  fontSize: 14,
 };
