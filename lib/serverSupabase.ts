@@ -136,6 +136,7 @@ export function createServiceRoleClient(
   serviceRoleKey: string
 ): SupabaseClient {
   return createClient(supabaseUrl, serviceRoleKey, {
+    global: { headers: { Authorization: `Bearer ${serviceRoleKey}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
