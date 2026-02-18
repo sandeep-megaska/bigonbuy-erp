@@ -727,7 +727,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "DE",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
 
@@ -738,7 +738,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "RA",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
   {
@@ -758,7 +758,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "LV",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
   {
@@ -788,7 +788,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "CA",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
   {
@@ -818,7 +818,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "WO",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
   {
@@ -828,7 +828,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "SS",
     groupId: "admin",
     requiredGuard: "admin",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["workspace"],
   },
   {
