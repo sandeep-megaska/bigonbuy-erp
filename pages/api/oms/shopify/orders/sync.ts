@@ -259,7 +259,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     for (const order of orders) {
       if (!order?.id) continue;
 
-      const { error: upsertError } = await serviceClient.rpc("erp_shopify_order_upsert", {
+      const { error: upsertError } = await actorClient.rpc("erp_shopify_order_upsert", {
         p_company_id: companyId,
         p_order: order,
       });
