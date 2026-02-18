@@ -181,6 +181,21 @@ const sectionData = [
         href: "/erp/inventory/writeoffs",
         description: "Inventory write-off tracking.",
       },
+      {
+        label: "Products",
+        href: "/erp/inventory/products",
+        description: "Create and manage the product catalog.",
+      },
+      {
+        label: "SKUs",
+        href: "/erp/inventory/skus",
+        description: "Manage sellable SKU records and options.",
+      },
+      {
+        label: "Vendors",
+        href: "/erp/inventory/vendors",
+        description: "Maintain supplier masters and vendor details.",
+      },
     ],
   },
   {
