@@ -11,7 +11,7 @@ import {
   pageHeaderStyle,
   subtitleStyle,
 } from "../../../components/erp/uiStyles";
-import { getCompanyContext, requireAuthRedirectHome } from "../../../lib/erpContext";
+import { getCompanyContext, isAdmin, requireAuthRedirectHome } from "../../../lib/erpContext";
 import { getCurrentErpAccess } from "../../../lib/erp/nav";
 
 const sectionData = [
@@ -41,31 +41,17 @@ const sectionData = [
     id: "hr",
     title: "HR Settings",
     description: "Maintain HR masters and workforce configuration.",
+    adminOnly: true,
     links: [
       {
-        label: "Departments",
+        label: "HR Masters",
         href: "/erp/hr/masters",
-        description: "Organize teams and cost centers.",
+        description: "Departments, locations, and employment setup.",
       },
       {
         label: "Designations",
-        href: "/erp/hr/masters",
-        description: "Manage job titles and grades.",
-      },
-      {
-        label: "Locations",
-        href: "/erp/hr/masters",
-        description: "Office locations and hubs.",
-      },
-      {
-        label: "Employment Types",
-        href: "/erp/hr/masters",
-        description: "Define full-time, contract, and more.",
-      },
-      {
-        label: "Shifts",
-        href: "/erp/hr/shifts",
-        description: "Shift masters and schedules.",
+        href: "/erp/hr/rbac/designations",
+        description: "Designation access and role mapping.",
       },
       {
         label: "Leave Types",
@@ -73,14 +59,19 @@ const sectionData = [
         description: "Paid and unpaid leave categories.",
       },
       {
-        label: "Employee Titles",
-        href: "/erp/hr/masters/employee-titles",
-        description: "Honorifics and title lists.",
+        label: "Calendars",
+        href: "/erp/hr/calendars",
+        description: "Holiday calendars and policy windows.",
       },
       {
-        label: "Exit Reasons",
-        href: "/erp/hr/masters/employee-exit-reasons",
-        description: "Standardize exit reporting.",
+        label: "Weekly Off",
+        href: "/erp/hr/weekly-off",
+        description: "Weekly off rules by roster and location.",
+      },
+      {
+        label: "Salary Structures",
+        href: "/erp/hr/salary",
+        description: "Salary components and default structures.",
       },
     ],
   },
@@ -218,10 +209,13 @@ export default function CompanySettingsHubPage() {
     };
   }, [router]);
 
-  const sections = useMemo(
-    () => sectionData.map((section) => ({ ...section, links: section.links.filter(Boolean) })),
-    []
-  ).filter((section) => section.links.length > 0);
+  const sections = useMemo(() => {
+    const adminUser = isAdmin(ctx?.roleKey);
+    return sectionData
+      .filter((section) => !section.adminOnly || adminUser)
+      .map((section) => ({ ...section, links: section.links.filter(Boolean) }))
+      .filter((section) => section.links.length > 0);
+  }, [ctx?.roleKey]);
 
   if (loading) {
     return (
