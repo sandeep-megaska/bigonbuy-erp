@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createServerSupabaseClient } from "@supabase/auth-helpers-nextjs";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   createServiceRoleClient,
   getSupabaseEnv,
@@ -116,6 +117,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const supabase = createServerSupabaseClient({ req, res });
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+  const bearerToken = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
+  let actorClient: SupabaseClient = supabase;
+  let userId = sessionData?.session?.user?.id ?? null;
   const debug = process.env.NODE_ENV !== "production";
   const cookieNames = (req.headers.cookie ?? "")
     .split(";")
@@ -123,7 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     .filter(Boolean)
     .slice(0, 10) as string[];
 
-  if (sessionError) {
+  if (sessionError && !bearerToken) {
     return res.status(401).json({
       ok: false,
       error: "Not authenticated",
@@ -136,7 +141,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  if (!sessionData?.session) {
+  if (!sessionData?.session && bearerToken) {
+    const bearerClient = createClient(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+        },
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+    const { data: userData, error: userError } = await bearerClient.auth.getUser(bearerToken);
+    if (!userError && userData?.user?.id) {
+      actorClient = bearerClient;
+      userId = userData.user.id;
+    }
+  }
+
+  if (!userId) {
     return res.status(401).json({
       ok: false,
       error: "Not authenticated",
@@ -151,7 +175,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  const { data: companyId, error: companyError } = await supabase.rpc("erp_current_company_id");
+  const { data: companyId, error: companyError } = await actorClient.rpc("erp_current_company_id");
   if (companyError || !companyId) {
     return res.status(400).json({
       ok: false,
@@ -166,7 +190,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     .from("erp_company_users")
     .select("role_key")
     .eq("company_id", companyId)
-    .eq("user_id", sessionData.session.user.id)
+    .eq("user_id", userId)
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();
