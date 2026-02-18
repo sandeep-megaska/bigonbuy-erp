@@ -697,7 +697,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "CO",
     groupId: "finance",
     requiredGuard: "finance_reader",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["finance"],
   },
   {
@@ -707,7 +707,7 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     icon: "CR",
     groupId: "finance",
     requiredGuard: "finance_reader",
-    status: "active",
+    status: "hidden",
     moduleKeys: ["finance"],
   },
   {
