@@ -65,7 +65,12 @@ export default function ErpSidebar({
 
   return (
     <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }} data-erp-sidebar>
-      <button type="button" onClick={onToggle} style={collapseButtonStyle}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        style={collapseButtonStyle}
+      >
         {collapsed ? "→" : "←"}
       </button>
       <div style={groupStackStyle}>
@@ -79,6 +84,7 @@ export default function ErpSidebar({
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={isActive ? "page" : undefined}
                     style={{ ...navItemStyle, ...(isActive ? activeNavItemStyle : null) }}
                   >
                     <span style={iconBadgeStyle}>{item.icon || item.label.slice(0, 2)}</span>
@@ -104,6 +110,7 @@ export default function ErpSidebar({
                       key={item.href + item.label}
                       href={item.href}
                       aria-disabled={isDisabled}
+                      aria-current={isActive ? "page" : undefined}
                       style={{
                         ...navItemStyle,
                         ...(isActive ? activeNavItemStyle : null),
