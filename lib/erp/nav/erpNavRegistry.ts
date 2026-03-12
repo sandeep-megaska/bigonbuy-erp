@@ -367,6 +367,16 @@ export const ERP_NAV_ITEMS: ErpNavItem[] = [
     moduleKeys: ["marketing"],
   },
   {
+    id: "marketing-campaign-control",
+    label: "Campaign Control",
+    href: "/erp/marketing/campaign-control",
+    icon: "CC",
+    groupId: "marketing",
+    requiredGuard: "manager",
+    status: "active",
+    moduleKeys: ["marketing"],
+  },
+  {
     id: "marketing-intelligence-growth-cockpit",
     label: "Growth Cockpit",
     href: "/erp/marketing/intelligence/growth-cockpit",
