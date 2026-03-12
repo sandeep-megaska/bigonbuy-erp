@@ -1,0 +1,4 @@
+-- Restored local placeholder for migration 0503.
+-- This migration version already exists in remote Supabase migration history.
+-- The original file was removed from the repo during later git operations.
+-- Do not edit or reapply manually.
