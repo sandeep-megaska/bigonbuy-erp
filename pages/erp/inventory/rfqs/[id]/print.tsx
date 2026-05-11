@@ -305,7 +305,7 @@ export default function RfqPrintPage() {
               <th style={printTableHeaderStyle}>Size</th>
               <th style={printTableHeaderStyle}>Color</th>
               <th style={printTableHeaderStyle}>Qty</th>
-              <th style={printTableHeaderStyle}>Notes</th>
+              <th style={printTableHeaderStyle}>Item</th>
             </tr>
           </thead>
           <tbody>
