@@ -34,6 +34,7 @@ type LineDraft = {
   id: string;
   variant_id: string;
   qty: string;
+  notes: string;
   variant: VariantSearchResult | null;
 };
 
@@ -50,7 +51,7 @@ export default function RfqCreatePage() {
   const [neededBy, setNeededBy] = useState("");
   const [deliverToWarehouseId, setDeliverToWarehouseId] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([{ id: "line-0", variant_id: "", qty: "", variant: null }]);
+  const [lines, setLines] = useState<LineDraft[]>([{ id: "line-0", variant_id: "", qty: "", notes: "", variant: null }]);
   const [lineCounter, setLineCounter] = useState(1);
 
   const canWrite = useMemo(() => (ctx ? isAdmin(ctx.roleKey) : false), [ctx]);
@@ -114,7 +115,7 @@ export default function RfqCreatePage() {
   function addLine() {
     const id = `line-${lineCounter}`;
     setLineCounter((prev) => prev + 1);
-    setLines((prev) => [...prev, { id, variant_id: "", qty: "", variant: null }]);
+    setLines((prev) => [...prev, { id, variant_id: "", qty: "", notes: "", variant: null }]);
   }
 
   function removeLine(lineId: string) {
@@ -125,7 +126,7 @@ export default function RfqCreatePage() {
     setRequestedOn(new Date().toISOString().split("T")[0]);
     setNeededBy("");
     setNotes("");
-    setLines([{ id: "line-0", variant_id: "", qty: "", variant: null }]);
+    setLines([{ id: "line-0", variant_id: "", qty: "", notes: "", variant: null }]);
     setLineCounter(1);
   }
 
@@ -144,7 +145,7 @@ export default function RfqCreatePage() {
     const normalizedLines = lines.map((line) => ({
       variant_id: line.variant_id,
       qty: Number(line.qty),
-      notes: null,
+      notes: line.notes.trim() || null,
     }));
 
     const missingVariant = normalizedLines.some(
@@ -311,6 +312,7 @@ export default function RfqCreatePage() {
                           onSelect={(variant) =>
                             updateLine(line.id, {
                               variant_id: variant?.variant_id || "",
+                              notes: line.notes || variant?.title || "",
                               variant,
                             })
                           }
@@ -319,7 +321,14 @@ export default function RfqCreatePage() {
                       </td>
                       <td style={tableCellStyle}>{line.variant?.style_code || "—"}</td>
                       <td style={tableCellStyle}>{line.variant?.hsn_code || "—"}</td>
-                      <td style={tableCellStyle}>{line.variant?.title || "—"}</td>
+                      <td style={tableCellStyle}>
+                        <input
+                          style={inputStyle}
+                          value={line.notes}
+                          onChange={(event) => updateLine(line.id, { notes: event.target.value })}
+                          placeholder={line.variant?.title || "Vendor item description"}
+                        />
+                      </td>
                       <td style={tableCellStyle}>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <input

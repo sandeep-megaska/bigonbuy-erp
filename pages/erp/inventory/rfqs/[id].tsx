@@ -431,7 +431,7 @@ export default function RfqDetailPage() {
                   <tr>
                     <th style={tableHeaderCellStyle}>SKU</th>
                     <th style={tableHeaderCellStyle}>Qty</th>
-                    <th style={tableHeaderCellStyle}>Notes</th>
+                    <th style={tableHeaderCellStyle}>Item</th>
                     <th style={tableHeaderCellStyle}></th>
                   </tr>
                 </thead>
