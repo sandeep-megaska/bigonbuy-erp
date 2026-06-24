@@ -300,7 +300,14 @@ export default function NotesListPage() {
                   <td style={tableCellStyle}>
                     {note.party_type === "customer" ? "Customer" : "Vendor"} · {note.note_kind === "credit" ? "Credit" : "Debit"}
                   </td>
-                  <td style={tableCellStyle}>{note.party_name}</td>
+                  <td style={tableCellStyle}>
+                    <div>{note.party_name}</div>
+                    {note.note_kind === "credit" && note.reference_invoice_number ? (
+                      <div style={{ marginTop: 4, fontSize: 12, color: "#64748b" }}>
+                        Ref Invoice: {note.reference_invoice_number}
+                      </div>
+                    ) : null}
+                  </td>
                   <td style={tableCellStyle}>{note.note_date}</td>
                   <td style={tableCellStyle}>
                     <span style={statusBadgeStyle(note.status)}>{note.status}</span>
