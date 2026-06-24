@@ -219,6 +219,7 @@ export default function NotePrintPage() {
   const computedTotal = round2(roundedSubtotal + roundedTax);
   const roundOff = round2(roundedTotal - computedTotal);
   const noteDocNo = noteHeader?.note_number || "";
+  const showReferenceInvoice = noteHeader?.note_kind === "credit" && Boolean(noteHeader.reference_invoice_number);
 
   return (
     <div style={printPageStyle} className="note-print note-print-root">
@@ -302,6 +303,12 @@ export default function NotePrintPage() {
               <div style={printPartyGridStyle}>
                 <div>
                   <div style={printPartyNameStyle}>{partyName}</div>
+                  {showReferenceInvoice ? (
+                    <div style={printDetailTextStyle}>
+                      Reference Invoice: {noteHeader?.reference_invoice_number}
+                      {noteHeader?.reference_invoice_date ? ` · ${formatDate(noteHeader.reference_invoice_date)}` : ""}
+                    </div>
+                  ) : null}
                   <div style={printDetailTextStyle}>GSTIN: {party?.gstin || "—"}</div>
                   <div style={printDetailTextStyle}>
                     {partyAddressLines.length > 0 ? partyAddressLines.join("\n") : "—"}
