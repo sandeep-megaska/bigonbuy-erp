@@ -20,9 +20,10 @@ import {
   getCompanyLogosSignedUrlsIfNeeded,
   getCompanySettings,
   updateCompanySettings,
-  uploadCompanyLogo,
+  isAllowedCompanyLogoFile,
   type CompanySettings,
 } from "../../../lib/erp/companySettings";
+import { clearCompanyBrandingCache } from "../../../lib/erp/useCompanyBranding";
 
 type CompanyProfile = {
   id: string;
@@ -71,6 +72,7 @@ export default function CompanySettingsPage() {
   const [gstStateName, setGstStateName] = useState("");
   const [gstSaving, setGstSaving] = useState(false);
   const [gstToast, setGstToast] = useState<string | null>(null);
+  const [logoToast, setLogoToast] = useState<string | null>(null);
 
   const canEdit = useMemo(() => isAdmin(ctx?.roleKey || access.roleKey), [access.roleKey, ctx?.roleKey]);
   const gstinIsValid = useMemo(() => {
@@ -242,11 +244,40 @@ export default function CompanySettingsPage() {
 
     setUploading(kind);
     setError("");
+    setLogoToast(null);
 
     try {
+      if (!isAllowedCompanyLogoFile(file)) {
+        throw new Error("Logo must be a PNG, JPEG, or WebP image.");
+      }
+
       if (kind === "bigonbuy") {
-        const path = await uploadCompanyLogo(kind, file);
+        if (!accessToken) throw new Error("Missing access token. Please reload.");
+        const fileBase64 = await fileToBase64(file);
+        const response = await fetch("/api/admin/company/upload-branding-logo", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            file_base64: fileBase64,
+            filename: file.name,
+            mime_type: file.type,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload?.ok || !payload?.path) {
+          throw new Error(payload?.error || "Failed to upload ERP portal logo.");
+        }
+        const path = payload.path as string;
         const updated = await updateCompanySettings({ bigonbuy_logo_path: path, updated_by: ctx?.userId ?? null });
+        await supabase.rpc("erp_log_hr_audit", {
+          p_action: "organization_branding_logo_updated",
+          p_entity_id: ctx.companyId,
+          p_entity_type: "erp_company_settings",
+          p_payload: { logo_path: path, bucket: "employee-documents" },
+        });
         const logosRes = await getCompanyLogosSignedUrlsIfNeeded();
         setSettings(updated || settings);
         setLogos({
@@ -255,6 +286,8 @@ export default function CompanySettingsPage() {
         });
         setBigonbuyPreview(logosRes.bigonbuyUrl);
         setBigonbuyFile(null);
+        clearCompanyBrandingCache();
+        setLogoToast("ERP branding logo uploaded and saved.");
       } else {
         if (!accessToken) throw new Error("Missing access token. Please reload.");
         const fileBase64 = await fileToBase64(file);
@@ -403,7 +436,7 @@ export default function CompanySettingsPage() {
         <header style={headerStyle}>
           <div>
             <p style={eyebrowStyle}>Admin</p>
-            <h1 style={h1Style}>Company Settings</h1>
+            <h1 style={h1Style}>System Settings</h1>
             <p style={subtitleStyle}>
               Configure organization details, brand logos, and go-live readiness.
             </p>
@@ -466,25 +499,36 @@ export default function CompanySettingsPage() {
       </section>
 
       <section style={cardStyle}>
-        <h2 style={h2Style}>Logos</h2>
+        <h2 style={h2Style}>Organization Branding</h2>
+        {logoToast ? <div style={successToastStyle}>{logoToast}</div> : null}
         <div style={logoGridStyle}>
           <div style={logoCardStyle}>
             <div>
-              <p style={logoLabelStyle}>BIGONBUY Logo</p>
-              <p style={logoHintStyle}>Shown in the ERP navigation and report headers.</p>
+              <p style={logoLabelStyle}>ERP Portal Logo</p>
+              <p style={logoHintStyle}>Shown in the ERP sidebar/header now and document headers later.</p>
             </div>
             <div style={logoPreviewStyle}>
               {bigonbuyPreview ? (
-                <img src={bigonbuyPreview} alt="Bigonbuy logo preview" style={logoImageStyle} />
+                <img src={bigonbuyPreview} alt="ERP portal logo preview" style={logoImageStyle} />
               ) : (
                 <span style={logoFallbackTextStyle}>No logo uploaded</span>
               )}
             </div>
             <input
               type="file"
-              accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={uploading === "bigonbuy"}
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
+                setLogoToast(null);
+                if (file && !isAllowedCompanyLogoFile(file)) {
+                  setError("Logo must be a PNG, JPEG, or WebP image.");
+                  event.currentTarget.value = "";
+                  setBigonbuyFile(null);
+                  setBigonbuyPreview(logos.bigonbuyUrl);
+                  return;
+                }
+                setError("");
                 setBigonbuyFile(file);
                 setBigonbuyPreview(file ? URL.createObjectURL(file) : logos.bigonbuyUrl);
               }}
@@ -495,7 +539,7 @@ export default function CompanySettingsPage() {
               onClick={() => handleUpload("bigonbuy")}
               disabled={uploading === "bigonbuy"}
             >
-              {uploading === "bigonbuy" ? "Uploading…" : "Upload BIGONBUY Logo"}
+              {uploading === "bigonbuy" ? "Uploading…" : "Upload ERP Portal Logo"}
             </button>
           </div>
           <div style={logoCardStyle}>
@@ -512,9 +556,15 @@ export default function CompanySettingsPage() {
             </div>
             <input
               type="file"
-              accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+              accept="image/png,image/jpeg,image/webp"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
+                if (file && !isAllowedCompanyLogoFile(file)) {
+                  setError("Logo must be a PNG, JPEG, or WebP image.");
+                  event.currentTarget.value = "";
+                  setMegaskaFile(null);
+                  return;
+                }
                 setMegaskaFile(file);
                 setMegaskaPreview(file ? URL.createObjectURL(file) : logos.megaskaUrl);
               }}

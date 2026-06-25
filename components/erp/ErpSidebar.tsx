@@ -6,6 +6,7 @@ import type { ErpModuleKey } from "./ErpTopBar";
 import { getCompanyContext } from "../../lib/erpContext";
 import { getErpNavGroups } from "../../lib/erp/nav/erpNavRegistry";
 import { getFinanceNavGroups } from "../../lib/erp/financeNav";
+import { useCompanyBranding } from "../../lib/erp/useCompanyBranding";
 
 export default function ErpSidebar({
   activeModule,
@@ -17,6 +18,7 @@ export default function ErpSidebar({
   onToggle: () => void;
 }) {
   const router = useRouter();
+  const branding = useCompanyBranding();
   const [companyContext, setCompanyContext] = useState<{
     roleKey: string | null;
     companyId: string | null;
@@ -65,6 +67,15 @@ export default function ErpSidebar({
 
   return (
     <aside style={{ ...sidebarStyle, width: collapsed ? 72 : 240 }} data-erp-sidebar>
+      <div style={sidebarBrandStyle}>
+        {branding?.bigonbuyLogoUrl ? (
+          <img src={branding.bigonbuyLogoUrl} alt="ERP portal logo" style={sidebarLogoStyle} />
+        ) : collapsed ? (
+          <span style={sidebarBrandMarkStyle}>ERP</span>
+        ) : (
+          <span style={sidebarBrandTextStyle}>BIGONBUY ERP</span>
+        )}
+      </div>
       <button
         type="button"
         onClick={onToggle}
@@ -231,4 +242,31 @@ const iconBadgeStyle: CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   letterSpacing: "0.02em",
+};
+
+const sidebarBrandStyle: CSSProperties = {
+  minHeight: 36,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "2px 6px",
+};
+
+const sidebarLogoStyle: CSSProperties = {
+  maxHeight: 32,
+  maxWidth: "100%",
+  objectFit: "contain",
+};
+
+const sidebarBrandTextStyle: CSSProperties = {
+  color: "#fff",
+  fontSize: 13,
+  fontWeight: 800,
+  letterSpacing: "0.04em",
+};
+
+const sidebarBrandMarkStyle: CSSProperties = {
+  color: "#fff",
+  fontSize: 11,
+  fontWeight: 800,
 };

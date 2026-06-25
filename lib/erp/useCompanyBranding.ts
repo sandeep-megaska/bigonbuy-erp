@@ -84,6 +84,11 @@ async function fetchBranding(): Promise<CompanyBranding> {
   }
 }
 
+export function clearCompanyBrandingCache() {
+  cachedBranding = null;
+  brandingPromise = null;
+}
+
 export function useCompanyBranding() {
   const [branding, setBranding] = useState<CompanyBranding | null>(cachedBranding);
 
