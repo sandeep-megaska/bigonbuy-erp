@@ -1,9 +1,12 @@
 import { supabase } from "../supabaseClient";
 
+export const BRANDING_LOGO_BUCKET = "employee-documents";
+
 export type CompanySettings = {
   company_id: string;
   bigonbuy_logo_path?: string | null;
   megaska_logo_path?: string | null;
+  logo_url?: string | null;
   legal_name?: string | null;
   gstin?: string | null;
   address_text?: string | null;
@@ -18,6 +21,18 @@ export type CompanySettings = {
 };
 
 export type CompanyLogoKind = "bigonbuy" | "megaska";
+
+const ALLOWED_LOGO_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+export function isAllowedCompanyLogoFile(file: File) {
+  return ALLOWED_LOGO_MIME_TYPES.has(file.type);
+}
+
+function getLogoExtension(file: File) {
+  if (file.type === "image/jpeg") return "jpg";
+  if (file.type === "image/webp") return "webp";
+  return "png";
+}
 
 async function getCurrentCompanyId() {
   const { data, error } = await supabase.rpc("erp_current_company_id");
@@ -50,12 +65,16 @@ export async function updateCompanySettings(payload: Partial<CompanySettings>) {
 
 export async function uploadCompanyLogo(kind: CompanyLogoKind, file: File) {
   const companyId = await getCurrentCompanyId();
-  const extension = file.name.split(".").pop() || "png";
-  const path = `company/${companyId}/logos/${kind}.${extension.toLowerCase()}`;
+  if (!isAllowedCompanyLogoFile(file)) {
+    throw new Error("Logo must be a PNG, JPEG, or WebP image.");
+  }
+
+  const extension = getLogoExtension(file);
+  const path = `organizations/${companyId}/branding/logo-${Date.now()}.${extension}`;
 
   const { error } = await supabase.storage
-    .from("erp-assets")
-    .upload(path, file, { upsert: true, contentType: file.type || "application/octet-stream" });
+    .from(BRANDING_LOGO_BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type });
 
   if (error) throw new Error(error.message);
   return path;
@@ -63,10 +82,11 @@ export async function uploadCompanyLogo(kind: CompanyLogoKind, file: File) {
 
 export async function getCompanyLogosSignedUrlsIfNeeded() {
   const settings = await getCompanySettings();
-  const storage = supabase.storage.from("erp-assets");
-
   async function resolveUrl(path?: string | null) {
     if (!path) return null;
+
+    const bucket = path.startsWith("organizations/") ? BRANDING_LOGO_BUCKET : "erp-assets";
+    const storage = supabase.storage.from(bucket);
 
     // Prefer signed URL (private bucket safe)
     const { data: signed, error } = await storage.createSignedUrl(path, 3600);
