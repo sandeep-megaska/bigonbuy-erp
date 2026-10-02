@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/shopify-orders-reconcile",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
